@@ -26,6 +26,11 @@ func Next() {
 		logger.Error("failed to get next track", "error", err)
 		return
 	}
+	if nextTrack == nil {
+		logger.Debug("no next track in queue, stopping playback", "action", "next")
+		Stop()
+		return
+	}
 	stateMachine.Fire(statemachine.TRIGGER_PLAY_TRACK, nextTrack, false)
 }
 
