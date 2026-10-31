@@ -11,6 +11,7 @@ categories = ["multimedia::audio", "gui"]
 publish = false
 
 [dependencies]
+tonearm-core = { path = "crates/tonearm-core" }
 adw = { version = "0.9.2", package = "libadwaita", features = ["v1_8"] }
 anyhow = "1.0.104"
 async-channel = "2.5.0"
@@ -37,7 +38,18 @@ zbus = "5"
 glib-build-tools = "0.22.8"
 
 # Microsoft Pragmatic Rust Guidelines, M-STATIC-VERIFICATION.
-[lints.rust]
+[workspace]
+members = ["crates/tonearm-core"]
+
+[workspace.package]
+edition = "2024"
+license = "GPL-3.0-or-later"
+repository = "https://codeberg.org/dergs/Tonearm"
+
+[lints]
+workspace = true
+
+[workspace.lints.rust]
 ambiguous_negative_literals = "warn"
 missing_debug_implementations = "warn"
 redundant_imports = "warn"
@@ -46,7 +58,7 @@ trivial_numeric_casts = "warn"
 unsafe_op_in_unsafe_fn = "warn"
 unused_lifetimes = "warn"
 
-[lints.clippy]
+[workspace.lints.clippy]
 # rust-skills anti-unwrap-abuse: no unwrap() outside tests (see clippy.toml).
 unwrap_used = "warn"
 # rust-skills lint-clippy-nursery-selected / anti-clone-excessive

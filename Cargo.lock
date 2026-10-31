@@ -2719,9 +2719,14 @@ dependencies = [
  "reqwest",
  "serde",
  "serde_json",
+ "tonearm-core",
  "urlencoding",
  "zbus",
 ]
+
+[[package]]
+name = "tonearm-core"
+version = "1.0.0"
 
 [[package]]
 name = "tower"

@@ -1,0 +1,16 @@
+[package]
+name = "tonearm-core"
+version = "1.0.0"
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "Platform-independent TIDAL client core of Tonearm (API, models, queue, scrobbling protocol)"
+readme = "../../README.md"
+keywords = ["tidal", "music"]
+categories = ["multimedia::audio"]
+publish = false
+
+[dependencies]
+
+[lints]
+workspace = true
