@@ -621,19 +621,33 @@ fn country_row() -> adw::ComboRow {
 }
 
 fn present_about(window: &adw::ApplicationWindow) {
+    about_dialog().present(Some(window));
+}
+
+fn about_dialog() -> adw::AboutDialog {
     let a = adw::AboutDialog::new();
     a.set_application_icon("logo");
-    a.set_application_name("Tonearm");
+    a.set_application_name("Tonearm-rs");
+    a.set_developer_name("Nichokas");
+    a.set_comments(&tr("Rust port of Tonearm, the unofficial GTK4 / Adwaita client for TIDAL. Done with the help of Grok Bot."));
     a.set_version(&version_number(VERSION, COMMIT));
+    // GTK's Gpl30 is "GPL 3.0 or later".
     a.set_license_type(gtk::License::Gpl30);
-    a.set_developers(&["Nila The Dragon https://github.com/NilaTheDragon", "Dråfølin https://github.com/Drafolin"]);
-    a.add_credit_section(Some(&tr("Original Tonearm (Go) by")), &["The dergs team https://codeberg.org/dergs/Tonearm"]);
-    a.add_credit_section(Some(&tr("Rust port")), &["Nichokas, with the help of Grok Bot https://github.com/Nichokas/tonearm-rs"]);
-    a.set_translator_credits(&tr("translator-credits"));
-    a.set_copyright("© 2026 Nila The Dragon");
     a.set_website("https://github.com/Nichokas/tonearm-rs");
     a.set_issue_url("https://github.com/Nichokas/tonearm-rs/issues");
-    a.set_support_url("https://github.com/Nichokas/tonearm-rs/issues");
+    a.add_link(&tr("Original Tonearm"), "https://codeberg.org/dergs/Tonearm");
+    a.set_developers(&["Nichokas https://github.com/Nichokas"]);
+    a.add_credit_section(
+        Some(&tr("Original Tonearm by dergs")),
+        &[
+            "The dergs team https://codeberg.org/dergs/Tonearm",
+            "Nila The Dragon https://github.com/NilaTheDragon",
+            "Dråfølin https://github.com/Drafolin",
+        ],
+    );
+    a.add_acknowledgement_section(Some(&tr("Rust port")), &["Done with the help of Grok Bot"]);
+    a.set_translator_credits(&tr("translator-credits"));
+    a.set_copyright("© 2026 Nila The Dragon (Tonearm), Nichokas (Rust port)");
     let mit = gtk::License::MitX11;
     for (name, copy, lic) in [
         ("GTK4 / Libadwaita Bindings (gtk-rs)", "© The gtk-rs Project Developers https://gtk-rs.org", mit),
@@ -651,7 +665,7 @@ fn present_about(window: &adw::ApplicationWindow) {
     ] {
         a.add_legal_section(name, Some(copy), lic, None);
     }
-    a.present(Some(window));
+    a
 }
 
 fn switch_row(title: &str, subtitle: &str, s: &gio::Settings, key: &str) -> adw::SwitchRow {
@@ -954,5 +968,36 @@ mod tests {
         assert!(is_stable(None, "v1.2.0-0-gabcdef1"));
         assert!(!is_stable(None, "v1.2.0-3-gabcdef1"));
         assert!(!is_stable(None, ""));
+    }
+}
+
+#[cfg(test)]
+mod about_probe {
+    /// Renders the About dialog to `PROBE_PNG`.
+    #[test]
+    #[ignore = "visual probe, needs a display"]
+    fn about_png() {
+        use adw::prelude::*;
+        crate::ensure_schema();
+        gtk::init().unwrap();
+        let _ = adw::init();
+        crate::register_resources();
+        let win = adw::Window::new();
+        win.set_default_size(700, 800);
+        win.set_content(Some(&gtk::Box::new(gtk::Orientation::Vertical, 0)));
+        win.present();
+        let a = super::about_dialog();
+        a.present(Some(&win));
+        let ctx = glib::MainContext::default();
+        let t = std::time::Instant::now();
+        while t.elapsed() < std::time::Duration::from_millis(1200) {
+            while ctx.iteration(false) {}
+            std::thread::sleep(std::time::Duration::from_millis(5));
+        }
+        let w = win.upcast_ref::<gtk::Widget>();
+        let snap = gtk::Snapshot::new();
+        gtk::WidgetPaintable::new(Some(w)).snapshot(&snap, f64::from(w.width()), f64::from(w.height()));
+        let tex = w.native().unwrap().renderer().unwrap().render_texture(snap.to_node().unwrap(), None);
+        tex.save_to_png(std::env::var("PROBE_PNG").unwrap_or_else(|_| "about.png".into())).unwrap();
     }
 }
