@@ -177,6 +177,40 @@ pub fn plain_bio(s: &str) -> String {
     out.replace("&amp;", "&").replace("&quot;", "\"").replace("&#39;", "'").replace("&lt;", "<").replace("&gt;", ">").trim().to_string()
 }
 
+/// Top tracks and albums found in the legacy artist page modules (deduped, page order).
+pub fn artist_overview(p: &legacy::ArtistPage) -> (Vec<Track>, Vec<Album>) {
+    let mut tracks = Vec::new();
+    let mut albums = Vec::new();
+    let mut seen = std::collections::HashSet::new();
+    for row in &p.items {
+        for it in &row.items {
+            match &it.data {
+                legacy::ItemData::Track(t) if tracks.len() < 10 => {
+                    let t = model::track_from_v2(t);
+                    if seen.insert(format!("t{}", t.info.id)) {
+                        tracks.push(t);
+                    }
+                }
+                legacy::ItemData::Album(a) => {
+                    let a = model::album_from_v2(a);
+                    if seen.insert(format!("a{}", a.info.id)) {
+                        albums.push(a);
+                    }
+                }
+                _ => {}
+            }
+        }
+    }
+    (tracks, albums)
+}
+
+/// Artist header, top tracks and albums in one call.
+pub fn get_artist_overview(id: &str) -> Result<(model::Artist, Vec<Track>, Vec<Album>)> {
+    let page = api::artist_page(id)?;
+    let (t, a) = artist_overview(&page);
+    Ok((model::artist_page_from_v2(&page), t, a))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

@@ -150,6 +150,20 @@ pub async fn artist(id: String) -> Result<Artist, FfiError> {
     Ok(Artist::from(&run(move || service::get_artist(&id)).await?))
 }
 
+#[derive(Debug, Clone, uniffi::Record)]
+pub struct ArtistOverview {
+    pub artist: Artist,
+    pub top_tracks: Vec<Track>,
+    pub albums: Vec<Album>,
+}
+
+/// Artist header plus top tracks and albums (artist page and search top result).
+#[uniffi::export]
+pub async fn artist_overview(id: String) -> Result<ArtistOverview, FfiError> {
+    let (a, t, al) = run(move || explore::get_artist_overview(&id)).await?;
+    Ok(ArtistOverview { artist: Artist::from(&a), top_tracks: t.iter().map(Track::from).collect(), albums: al.iter().map(Album::from).collect() })
+}
+
 // ---- Favourites and playlists
 
 #[derive(Debug, Clone, Copy, uniffi::Enum)]
@@ -197,6 +211,16 @@ pub async fn own_playlists() -> Result<Vec<OwnPlaylist>, FfiError> {
 #[uniffi::export]
 pub async fn add_to_playlist(playlist_id: String, track_id: String) -> Result<(), FfiError> {
     run(move || api::playlist_add_track(&playlist_id, &track_id)).await
+}
+
+/// URL of the logged-in user's TIDAL profile picture (None when not set).
+#[uniffi::export]
+pub async fn profile_picture_url() -> Result<Option<String>, FfiError> {
+    run(|| {
+        let uid = tonearm_core::auth::tokens().user_id();
+        Ok(api::user_picture(&uid)?.map(|id| model::image_url(&id).replace("160x160", "210x210")))
+    })
+    .await
 }
 
 /// Removes the first occurrence of a track from one of the user's playlists.

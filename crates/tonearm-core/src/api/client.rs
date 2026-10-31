@@ -355,6 +355,16 @@ pub fn page_v1(path: &str) -> Result<legacy::Page> {
     get_json(&format!("/v1/pages/{path}"), &[])
 }
 
+/// Logged-in user's profile picture id (legacy `GET /v1/users/{id}`), if one is set.
+pub fn user_picture(user_id: &str) -> Result<Option<String>> {
+    let v: serde_json::Value = get_json(&format!("/v1/users/{user_id}"), &[])?;
+    Ok(user_picture_from(&v))
+}
+
+pub fn user_picture_from(v: &serde_json::Value) -> Option<String> {
+    v.get("picture").and_then(|p| p.as_str()).filter(|p| !p.is_empty()).map(str::to_string)
+}
+
 /// Returns (list, etag) or None when not modified.
 pub fn favourite_ids(user_id: &str, if_none_match: &str) -> Result<Option<(legacy::FavouritesIdLists, String)>> {
     let mut rb = request(Method::GET, &format!("/v1/users/{user_id}/favorites/ids"), &[])?;
@@ -506,6 +516,12 @@ pub fn playlist_remove_track(playlist_id: &str, track_id: &str) -> Result<()> {
 #[cfg(test)]
 mod playlist_tests {
     use super::*;
+
+    #[test]
+    fn reads_user_picture() {
+        assert_eq!(user_picture_from(&serde_json::json!({"id":1,"picture":"ab-cd"})).as_deref(), Some("ab-cd"));
+        assert_eq!(user_picture_from(&serde_json::json!({"id":1,"picture":null})), None);
+    }
 
     #[test]
     fn finds_playlist_item_id() {
