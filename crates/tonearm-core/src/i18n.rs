@@ -188,7 +188,19 @@ fn parse_po(src: &str) -> Catalog {
     cat
 }
 
+static LOCALE_OVERRIDE: OnceLock<String> = OnceLock::new();
+
+/// Forces the UI locale (e.g. `es_ES`) on platforms without POSIX locale
+/// variables (iOS). Call before the first translation; returns `false` if a
+/// locale was already set.
+pub fn set_locale(locale: &str) -> bool {
+    LOCALE_OVERRIDE.set(locale.replace('-', "_")).is_ok()
+}
+
 fn detect_locale() -> String {
+    if let Some(l) = LOCALE_OVERRIDE.get() {
+        return l.clone();
+    }
     for var in ["LANGUAGE", "LC_ALL", "LC_MESSAGES", "LANG"] {
         if let Ok(v) = std::env::var(var) {
             let v = v.split(':').next().unwrap_or("").split('.').next().unwrap_or("").to_string();

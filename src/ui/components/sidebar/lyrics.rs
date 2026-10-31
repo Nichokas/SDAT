@@ -69,15 +69,7 @@ pub fn parse_untimed(lyrics: &str) -> Vec<Line> {
 }
 
 fn get_lyrics(id: &str) -> anyhow::Result<(String, bool)> {
-    let t = api::client::track(id, &["lyrics"])?;
-    if let Some(l) = t.included.plain_lyrics(&t.data.relationships.lyrics.data).first() {
-        if !l.attributes.lrc_text.is_empty() {
-            return Ok((l.attributes.lrc_text.clone(), true));
-        } else if !l.attributes.text.is_empty() {
-            return Ok((l.attributes.text.clone(), false));
-        }
-    }
-    Ok((String::new(), false))
+    Ok(crate::service::get_lyrics(id)?.map_or((String::new(), false), |l| (l.text, l.synced)))
 }
 
 struct Timing {

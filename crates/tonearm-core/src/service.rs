@@ -105,6 +105,26 @@ pub fn get_track_manifest(id: &str) -> Result<TrackManifest> {
     let formats = openapi::manifest_formats_for_quality(crate::config::get().audio_quality());
     Ok(manifest_from_openapi(&api::track_manifest(id, &formats)?))
 }
+/// Lyrics of a track: synced LRC text when available, else plain text.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Lyrics {
+    pub text: String,
+    /// `text` is LRC (`[mm:ss.xx] line`).
+    pub synced: bool,
+}
+
+pub fn get_lyrics(id: &str) -> Result<Option<Lyrics>> {
+    let t = api::track(id, &["lyrics"])?;
+    if let Some(l) = t.included.plain_lyrics(&t.data.relationships.lyrics.data).first() {
+        if !l.attributes.lrc_text.is_empty() {
+            return Ok(Some(Lyrics { text: l.attributes.lrc_text.clone(), synced: true }));
+        } else if !l.attributes.text.is_empty() {
+            return Ok(Some(Lyrics { text: l.attributes.text.clone(), synced: false }));
+        }
+    }
+    Ok(None)
+}
+
 /// HLS manifest for `quality` (for `AVPlayer`; it cannot read DASH).
 pub fn get_track_manifest_hls(id: &str, quality: TrackQuality) -> Result<TrackManifest> {
     let formats = openapi::manifest_formats_for_quality(quality);

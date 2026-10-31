@@ -12,6 +12,7 @@ pub mod auth;
 pub mod cache;
 pub mod config;
 pub mod country;
+pub mod discover;
 pub mod error;
 pub mod i18n;
 pub mod model;

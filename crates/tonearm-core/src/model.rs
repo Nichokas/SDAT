@@ -181,6 +181,8 @@ pub struct PlaylistInfo {
     pub id: String,
     pub title: String,
     pub created_at: Option<chrono::DateTime<chrono::Utc>>,
+    /// Last modification (`OpenAPI` only).
+    pub updated_at: Option<chrono::DateTime<chrono::Utc>>,
     pub duration: Duration,
     pub cover: CoverSource,
     /// Legacy (v2) playlists never report as mix.
@@ -416,6 +418,7 @@ pub fn playlist_info_from_openapi(p: &openapi::Playlist) -> PlaylistInfo {
         id: p.data.id.clone(),
         title: p.data.attributes.name.clone(),
         created_at: p.data.attributes.created_at,
+        updated_at: p.data.attributes.last_modified_at,
         duration: p.data.attributes.duration.unwrap_or_default(),
         cover: CoverSource::Artworks(p.included.plain_artworks(&p.data.relationships.cover_art.data)),
         legacy: false,
@@ -500,6 +503,7 @@ pub fn playlist_from_v2(p: &legacy::PlaylistItemData) -> Playlist {
             id: p.uuid.clone(),
             title: p.title.clone(),
             created_at,
+            updated_at: None,
             duration: Duration::from_secs(p.duration.max(0) as u64),
             cover: CoverSource::Ids { image: p.square_image.clone(), video: String::new() },
             legacy: true,
