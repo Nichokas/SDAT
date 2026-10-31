@@ -378,7 +378,10 @@ impl Machine {
                 let r = on_stopped(&*self.playbin);
                 match t {
                     Trigger::Stop => {
-                        (self.hooks.clear_source)();
+                        // `player::stop` clears the source synchronously. The
+                        // trigger runs later on the main loop, after a play
+                        // call has already set the new source, so clearing
+                        // here would wipe "Playing From" for every new queue.
                         on_stopped_stop();
                     }
                     Trigger::TokenExpired => {
