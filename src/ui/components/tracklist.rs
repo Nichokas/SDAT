@@ -577,22 +577,26 @@ pub fn track_menu(t: &Track) -> (gio::Menu, gio::Menu) {
 pub fn track_menu_popover(t: &Track) -> gtk::PopoverMenu {
     let (model, playlists) = track_menu(t);
     let popover = gtk::PopoverMenu::from_model(Some(&model));
-    let tid = t.id().to_string();
-    popover.connect_show(move |p| {
-        super::add_to_playlist::ensure_loaded(&playlists, &tid);
-        stabilize(p.upcast_ref());
-    });
+    // Size the pages before the first frame, and fetch the playlists now (once per
+    // session) so the shared width doesn't change after the menu is already shown.
+    stabilize(popover.upcast_ref());
+    super::add_to_playlist::ensure_loaded(&playlists, t.id());
     popover
 }
 
 /// Maximum height of a (sub)menu page before it scrolls.
 const MENU_MAX_HEIGHT: i32 = 300;
+/// Width of every menu page.
+const MENU_WIDTH: i32 = 240;
 
 /// Keeps the popover's size steady when sliding into a submenu: every page gets
 /// the same width (no width animation), and tall pages scroll instead of growing.
 fn stabilize(w: &gtk::Widget) {
     if let Some(stack) = w.downcast_ref::<gtk::Stack>() {
         stack.set_hhomogeneous(true);
+        // Fixed width up front (fits 24-char playlist names plus the arrow), so the
+        // menu never resizes when playlists arrive or a submenu opens.
+        stack.set_size_request(MENU_WIDTH, -1);
         stack.set_interpolate_size(false);
         if !stack.has_css_class("tonearm-stable") {
             stack.add_css_class("tonearm-stable");
