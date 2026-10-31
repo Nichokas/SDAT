@@ -1,5 +1,6 @@
 //! Port of `internal/ui/components`.
 
+pub mod add_to_playlist;
 pub mod favourite_button;
 pub mod horizontal_list;
 pub mod linking;

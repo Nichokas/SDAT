@@ -463,6 +463,12 @@ fn install_actions(app: &adw::Application, window: &adw::ApplicationWindow) {
     accel(app, "win.player.previous", &[p("Left")]);
     window.add_action(&simple("player.repeat", player::cycle_repeat_mode));
     accel(app, "win.player.repeat", &[p("r")]);
+    let w = window.downgrade();
+    window.add_action(&with_string("playlist.add-track", move |id| {
+        if let Some(w) = w.upgrade() {
+            crate::ui::components::add_to_playlist::present(w.upcast_ref(), id);
+        }
+    }));
     window.add_action(&with_string("player.queue-track", |id| spawn_logged("queue track", async move { player::add_track_to_user_queue(&id).await })));
     window.add_action(&with_string("player.queue", |p| queue_param(&p)));
 

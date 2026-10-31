@@ -67,6 +67,9 @@ impl Col {
                 item.set_action_and_target_value(Some("win.route.artist"), Some(&a.id.to_variant()));
                 model.append_item(&item);
             }
+            let item = gio::MenuItem::new(Some(&tr("Add to Playlist")), Some("win.playlist.add-track"));
+            item.set_action_and_target_value(Some("win.playlist.add-track"), Some(&t.id().to_variant()));
+            model.append_item(&item);
             let popover = gtk::PopoverMenu::from_model(Some(&model));
             let queue = gtk::Button::from_icon_name("queue-symbolic")
                 .tooltip(&tr("Add to Queue"))

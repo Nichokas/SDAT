@@ -339,6 +339,98 @@ pub fn favourite_remove(user_id: &str, kind: &str, id: &str) -> Result<()> {
     Ok(())
 }
 
+/// One of the signed-in user's own (editable) playlists.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct OwnPlaylist {
+    pub id: String,
+    pub name: String,
+    pub number_of_items: i64,
+}
+
+/// Turns a `GET /v2/playlists?filter[owners.id]=me` page into playlists plus the next cursor.
+pub fn parse_own_playlists(bytes: &[u8]) -> Result<(Vec<OwnPlaylist>, Option<String>)> {
+    let r: openapi::Response<Vec<openapi::PlaylistData>> = openapi::from_slice_lenient(bytes).context("decoding playlists")?;
+    let list = r
+        .data
+        .into_iter()
+        .filter(|p| p.type_ == "playlists" && !p.id.is_empty())
+        .map(|p| OwnPlaylist { id: p.id, name: p.attributes.name, number_of_items: p.attributes.number_of_items })
+        .collect();
+    let next = r.links.meta.and_then(|m| m.next_cursor).filter(|c| !c.is_empty());
+    Ok((list, next))
+}
+
+/// Lists the playlists owned by the signed-in user (read-only).
+pub fn own_playlists() -> Result<Vec<OwnPlaylist>> {
+    const MAX_PAGES: usize = 20;
+    let mut out = Vec::new();
+    let mut cursor: Option<String> = None;
+    for _ in 0..MAX_PAGES {
+        let mut q = vec![("filter[owners.id]", "me".to_owned())];
+        if let Some(c) = cursor.take() {
+            q.push(("page[cursor]", c));
+        }
+        let resp = request(Method::GET, &openapi("/v2/playlists"), &q)?.send()?;
+        if resp.status() != StatusCode::OK {
+            bail!("unexpected status code: {}", resp.status().as_u16());
+        }
+        let (page, next) = parse_own_playlists(&resp.bytes()?)?;
+        out.extend(page);
+        match next {
+            Some(c) => cursor = Some(c),
+            None => break,
+        }
+    }
+    Ok(out)
+}
+
+/// JSON:API body for adding tracks to a playlist.
+pub fn add_items_body(track_ids: &[&str]) -> serde_json::Value {
+    serde_json::json!({ "data": track_ids.iter().map(|id| serde_json::json!({ "type": "tracks", "id": id })).collect::<Vec<_>>() })
+}
+
+/// Appends a track to one of the user's playlists.
+pub fn playlist_add_track(playlist_id: &str, track_id: &str) -> Result<()> {
+    let resp = request(Method::POST, &openapi(&format!("/v2/playlists/{playlist_id}/relationships/items")), &[])?
+        .header("Content-Type", "application/vnd.api+json")
+        .body(add_items_body(&[track_id]).to_string())
+        .send()?;
+    if !resp.status().is_success() {
+        bail!("error while adding track to playlist: {}", resp.status().as_u16());
+    }
+    Ok(())
+}
+
+#[cfg(test)]
+mod playlist_tests {
+    use super::*;
+
+    #[test]
+    fn parses_owned_playlists_and_cursor() {
+        let json = br#"{"data":[
+            {"id":"aaaa-1","type":"playlists","attributes":{"name":"Road trip","numberOfItems":12,"accessType":"PUBLIC","description":null}},
+            {"id":"bbbb-2","type":"playlists","attributes":{"name":"Focus","numberOfItems":0}}],
+            "links":{"self":"/playlists?filter[owners.id]=me","next":"/playlists?page[cursor]=xyz","meta":{"nextCursor":"xyz"}}}"#;
+        let (list, next) = parse_own_playlists(json).unwrap();
+        assert_eq!(list.len(), 2);
+        assert_eq!(list[0], OwnPlaylist { id: "aaaa-1".into(), name: "Road trip".into(), number_of_items: 12 });
+        assert_eq!(list[1].number_of_items, 0);
+        assert_eq!(next.as_deref(), Some("xyz"));
+    }
+
+    #[test]
+    fn last_page_has_no_cursor() {
+        let (list, next) = parse_own_playlists(br#"{"data":[],"links":{"self":"/playlists"}}"#).unwrap();
+        assert!(list.is_empty());
+        assert!(next.is_none());
+    }
+
+    #[test]
+    fn add_body_is_jsonapi_track_list() {
+        assert_eq!(add_items_body(&["123"]).to_string(), r#"{"data":[{"id":"123","type":"tracks"}]}"#);
+    }
+}
+
 // ---------------- v2 (legacy) ----------------
 
 pub fn artist_page(id: &str) -> Result<legacy::ArtistPage> {
