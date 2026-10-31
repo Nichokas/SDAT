@@ -39,7 +39,7 @@ glib-build-tools = "0.22.8"
 
 # Microsoft Pragmatic Rust Guidelines, M-STATIC-VERIFICATION.
 [workspace]
-members = ["crates/tonearm-core"]
+members = ["crates/tonearm-core", "crates/tonearm-ffi"]
 
 [workspace.package]
 edition = "2024"
