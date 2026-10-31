@@ -218,7 +218,7 @@ pub async fn add_to_playlist(playlist_id: String, track_id: String) -> Result<()
 pub async fn profile_picture_url() -> Result<Option<String>, FfiError> {
     run(|| {
         let uid = tonearm_core::auth::tokens().user_id();
-        Ok(api::user_picture(&uid)?.map(|id| if id.starts_with("http") { id } else { model::image_url(&id).replace("160x160", "210x210") }))
+        Ok(api::user_picture(&uid)?.map(|id| if id.starts_with("http") { id } else { model::image_url(&id).replace("160x160.jpg", "320x320.png") }))
     })
     .await
 }
