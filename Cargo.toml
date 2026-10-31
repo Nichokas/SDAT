@@ -10,6 +10,7 @@ async-channel = "2.5.0"
 base64 = "0.23.1"
 chrono = "0.4.45"
 env_logger = "0.11.11"
+glib = "0.22"
 gst = { version = "0.25.4", package = "gstreamer" }
 gst_audio = { version = "0.25.4", package = "gstreamer-audio" }
 gtk = { version = "0.11.5", package = "gtk4", features = ["v4_20"] }
@@ -17,6 +18,7 @@ libsecret = "0.9.0"
 log = "0.4.35"
 md-5 = "0.11.0"
 qrcode = { version = "0.14.1", default-features = false }
+rand = "0.9"
 reqwest = { version = "0.13.5", features = ["json", "blocking", "form"] }
 serde = { version = "1.0.229", features = ["derive"] }
 serde_json = "1.0.154"
