@@ -21,11 +21,17 @@ pub struct ColCell {
     pub widget: gtk::Widget,
     bind: BindFn,
     unbind: Box<dyn Fn()>,
+    /// Shares the row's flexible space equally with the other flexible columns.
+    flex: bool,
 }
 
 impl ColCell {
     fn new(widget: impl IsA<gtk::Widget>, bind: impl Fn(&Track, usize) + 'static) -> Self {
-        ColCell { widget: widget.upcast(), bind: Box::new(bind), unbind: Box::new(|| {}) }
+        ColCell { widget: widget.upcast(), bind: Box::new(bind), unbind: Box::new(|| {}), flex: false }
+    }
+    fn flexible(mut self) -> Self {
+        self.flex = true;
+        self
     }
     fn with_unbind(mut self, f: impl Fn() + 'static) -> Self {
         self.unbind = Box::new(f);
@@ -58,7 +64,7 @@ impl Col {
             let l = label("").halign(gtk::Align::Start).valign(gtk::Align::Center).margin(10).hexp(true);
             ellipsized(&l);
             let l2 = l.clone();
-            ColCell::new(l, move |t, _| l2.set_label(&t.artist_names().join(", ")))
+            ColCell::new(l, move |t, _| l2.set_label(&t.artist_names().join(", "))).flexible()
         })
     }
 
@@ -179,7 +185,7 @@ impl Col {
             let l = label("").font_weight(500).halign(gtk::Align::Start).hexp(true).margin(10);
             ellipsized(&l);
             let l2 = l.clone();
-            ColCell::new(l, move |t, _| l2.set_label(&t.formatted_title()))
+            ColCell::new(l, move |t, _| l2.set_label(&t.formatted_title())).flexible()
         })
     }
 
@@ -198,6 +204,7 @@ impl Col {
                 title.set_label(&t.formatted_title());
                 album.set_label(t.album.as_ref().map(|a| a.title.as_str()).unwrap_or_default());
             })
+            .flexible()
         })
     }
 }
@@ -414,7 +421,7 @@ fn build_row(i: &Inner, container: &adw::Bin) {
         let grid = gtk::Grid::new();
         grid.set_valign(gtk::Align::Center);
         grid.attach(&cell.widget, 0, 0, 1, 1);
-        if cell.widget.hexpands() {
+        if cell.flex {
             cell.widget.set_halign(gtk::Align::Fill);
             grid.set_hexpand(true);
             flex.append(&grid);
@@ -835,6 +842,62 @@ mod perf_probe {
             eprintln!("PROBE rows={rows} part={}0% avg_step_ms={:.2} worst_ms={:.2}", i, tot / *n.max(&1) as f64, worst);
         }
         eprintln!("PROBE upper={} steps={steps}", adj.upper());
+        win.close();
+    }
+
+    /// Renders a track list with real-length texts to a PNG (`PROBE_PNG` path).
+    #[test]
+    #[ignore = "visual probe, needs a display"]
+    fn render_png() {
+        crate::ensure_schema();
+        gtk::init().unwrap();
+        let _ = adw::init();
+        crate::register_resources();
+        let data = [
+            ("Con Calma", "Con Calma", "Daddy Yankee, Snow"),
+            ("No You Girls", "Tonight", "Franz Ferdinand"),
+            ("Como Me Ves, Te Veras", "Made in Japan", "Siniestro Total"),
+            ("Reptilia", "Room On Fire", "The Strokes"),
+            ("Jesus of Suburbia", "American Idiot", "Green Day"),
+            ("A very very long track title that should be ellipsized somewhere", "Album", "X"),
+            ("Short", "An album with quite a long name indeed", "A, B, C, D, E, F, G and many more artists here"),
+        ];
+        let position = std::env::var_os("PROBE_POSITION").is_some();
+        let cols = if position {
+            vec![Col::position(), Col::title(), Col::artists(), Col::duration(), Col::controls()]
+        } else {
+            vec![Col::cover(), Col::title_album(), Col::artists(), Col::duration(), Col::controls()]
+        };
+        let list = TrackList::new(cols);
+        for (k, (t, a, ar)) in data.iter().enumerate() {
+            let mut tr = Track::default();
+            tr.info.id = k.to_string();
+            tr.info.title = (*t).into();
+            tr.info.streamable = true;
+            tr.album = Some(crate::model::AlbumInfo { title: (*a).into(), ..Default::default() });
+            tr.artists = ar.split(", ").map(|n| crate::model::ArtistInfo { name: n.into(), ..Default::default() }).collect();
+            list.add_track(tr);
+        }
+        let sw = gtk::ScrolledWindow::new();
+        sw.set_child(Some(&crate::ui::components::main_content_scrollable(list.widget())));
+        let win = gtk::Window::new();
+        win.set_default_size(900, 600);
+        win.set_child(Some(&sw));
+        win.present();
+        let ctx = glib::MainContext::default();
+        let t = std::time::Instant::now();
+        while t.elapsed() < std::time::Duration::from_millis(800) {
+            while ctx.iteration(false) {}
+            std::thread::sleep(std::time::Duration::from_millis(5));
+        }
+        let w = win.upcast_ref::<gtk::Widget>();
+        let paintable = gtk::WidgetPaintable::new(Some(w));
+        let snap = gtk::Snapshot::new();
+        paintable.snapshot(&snap, f64::from(w.width()), f64::from(w.height()));
+        let node = snap.to_node().unwrap();
+        let renderer = w.native().unwrap().renderer().unwrap();
+        let tex = renderer.render_texture(&node, None);
+        tex.save_to_png(std::env::var("PROBE_PNG").unwrap_or_else(|_| "/tmp/tracklist.png".into())).unwrap();
         win.close();
     }
 }
