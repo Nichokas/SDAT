@@ -14,154 +14,189 @@ use crate::state;
 use crate::ui::dsl::{W, label, hstack, spacing, vstack, spacer, on_state};
 use crate::{imgutil, settings};
 
-type ColFn = dyn Fn(Option<&Track>, &gtk::Grid, usize, i32) -> i32;
+type BindFn = Box<dyn Fn(&Track, usize)>;
 
-/// A column renderer (port of `ColumnFunc`).
+/// One recycled cell: built once per row widget, then re-bound as the row scrolls.
+pub struct ColCell {
+    pub widget: gtk::Widget,
+    bind: BindFn,
+    unbind: Box<dyn Fn()>,
+}
+
+impl ColCell {
+    fn new(widget: impl IsA<gtk::Widget>, bind: impl Fn(&Track, usize) + 'static) -> Self {
+        ColCell { widget: widget.upcast(), bind: Box::new(bind), unbind: Box::new(|| {}) }
+    }
+    fn with_unbind(mut self, f: impl Fn() + 'static) -> Self {
+        self.unbind = Box::new(f);
+        self
+    }
+}
+
+type ColFn = dyn Fn() -> ColCell;
+
+/// A column (port of `ColumnFunc`). Rows are recycled by the `ListView`, so a column
+/// creates its widgets once and only updates them when a row is bound to a new track.
 #[derive(Clone)]
 pub struct Col(pub Rc<ColFn>);
 
+fn ellipsized(l: &gtk::Label) {
+    l.set_ellipsize(pango::EllipsizeMode::End);
+}
+
 impl Col {
-    pub fn new(f: impl Fn(Option<&Track>, &gtk::Grid, usize, i32) -> i32 + 'static) -> Self {
+    pub fn new(f: impl Fn() -> ColCell + 'static) -> Self {
         Col(Rc::new(f))
     }
-    fn call(&self, t: Option<&Track>, g: &gtk::Grid, pos: usize, col: i32) -> i32 {
-        (self.0)(t, g, pos, col)
+    fn build(&self) -> ColCell {
+        (self.0)()
     }
 
     pub fn artists() -> Self {
-        Col::new(|t, g, _, c| {
-            let l = label(&t.map(|t| t.artist_names().join(", ")).unwrap_or_default())
-                .halign(gtk::Align::Start)
-                .valign(gtk::Align::Center)
-                .margin(10)
-                .hexp(true);
-            l.set_ellipsize(pango::EllipsizeMode::End);
-            g.attach(&l, c, 0, 1, 1);
-            1
+        Col::new(|| {
+            let l = label("").halign(gtk::Align::Start).valign(gtk::Align::Center).margin(10).hexp(true);
+            ellipsized(&l);
+            let l2 = l.clone();
+            ColCell::new(l, move |t, _| l2.set_label(&t.artist_names().join(", ")))
         })
     }
 
-
-
     pub fn controls() -> Self {
-        Col::new(|t, g, _, c| {
-            let Some(t) = t else {
-                g.attach(&gtk::Box::new(gtk::Orientation::Horizontal, 0), c, 0, 1, 1);
-                return 1;
-            };
+        Col::new(|| {
             let queue = gtk::Button::from_icon_name("queue-symbolic")
                 .tooltip(&tr("Add to Queue"))
                 .halign(gtk::Align::Center)
                 .valign(gtk::Align::Center)
                 .class("flat");
             queue.set_action_name(Some("win.player.queue-track"));
-            queue.set_action_target_value(Some(&t.id().to_variant()));
             let more = gtk::MenuButton::new()
                 .tooltip(&tr("More…"))
                 .halign(gtk::Align::Center)
                 .valign(gtk::Align::Center)
                 .class("flat");
             more.set_icon_name("view-more-symbolic");
-            // Build the menu only when it is first opened: creating a popover for
-            // every bound row made scrolling long lists stutter.
-            let track = t.clone();
+            let current: Rc<RefCell<Option<Track>>> = Rc::default();
+            // Build the menu only when it is opened, for the track bound right now.
+            let cur = Rc::clone(&current);
             more.set_create_popup_func(move |mb| {
-                if mb.popover().is_none() {
-                    let popover = track_menu_popover(&track);
-                    // Hang below the button, right-aligned to it, so the menu and its submenus
-                    // grow only leftwards/downwards and stay inside the window (GTK flips up if needed).
-                    popover.set_position(gtk::PositionType::Bottom);
-                    popover.set_halign(gtk::Align::End);
-                    mb.set_popover(Some(&popover));
-                }
+                let Some(track) = cur.borrow().clone() else { return };
+                let popover = track_menu_popover(&track);
+                // Hang below the button, right-aligned to it, so the menu and its submenus
+                // grow only leftwards/downwards and stay inside the window (GTK flips up if needed).
+                popover.set_position(gtk::PositionType::Bottom);
+                popover.set_halign(gtk::Align::End);
+                mb.set_popover(Some(&popover));
             });
-            let fav = super::favourite_button::favourite_button(&state::TRACKS, t.id())
-                .halign(gtk::Align::Center)
-                .valign(gtk::Align::Center);
+            let (fav, set_fav) = super::favourite_button::rebindable_favourite_button(&state::TRACKS);
+            let fav = fav.halign(gtk::Align::Center).valign(gtk::Align::Center);
             let row = hstack(&[fav.upcast_ref(), queue.upcast_ref(), more.upcast_ref()]).margin(10).halign(gtk::Align::End);
-            g.attach(&row, c, 0, 1, 1);
-            1
+            let (q, m, cur, sf) = (queue, more, Rc::clone(&current), Rc::clone(&set_fav));
+            ColCell::new(row, move |t, _| {
+                q.set_action_target_value(Some(&t.id().to_variant()));
+                if cur.borrow().as_ref().map(Track::id) != Some(t.id()) {
+                    m.popdown();
+                    m.set_popover(gtk::Popover::NONE);
+                }
+                *cur.borrow_mut() = Some(t.clone());
+                sf(Some(t.id()));
+            })
+            .with_unbind(move || {
+                set_fav(None);
+                *current.borrow_mut() = None;
+            })
         })
     }
 
     pub fn cover() -> Self {
-        Col::new(|t, g, _, c| {
+        Col::new(|| {
             let img = gtk::Image::from_paintable(Some(&imgutil::missing_album()));
             img.set_pixel_size(54);
             let img = img.hexp(false).vexp(false).corner_radius(10).margin(10).halign(gtk::Align::Start).overflow_hidden();
-            let cover = t.map(|t| t.cover(80));
-            img.connect_realize(move |i| {
-                if let Some(cover) = &cover
-                    && settings::allow_tracklist_images()
-                    && cover.has_static()
-                {
-                    imgutil::load_into_image(&cover.static_, i, false);
+            // Bumped on every (un)bind so a slow load can't land on a recycled row.
+            let token = Rc::new(Cell::new(0u64));
+            let (i, tok) = (img.clone(), Rc::clone(&token));
+            ColCell::new(img, move |t, _| {
+                tok.set(tok.get() + 1);
+                i.set_paintable(Some(&imgutil::missing_album()));
+                let cover = t.cover(80);
+                if !(settings::allow_tracklist_images() && cover.has_static()) {
+                    return;
                 }
-            });
-            g.attach(&img, c, 0, 1, 1);
-            1
+                let (w, tok, mine) = (i.downgrade(), Rc::clone(&tok), tok.get());
+                let url = cover.static_;
+                glib::spawn_future_local(async move {
+                    if tok.get() != mine {
+                        return;
+                    }
+                    let tex = imgutil::fetch(&url).await;
+                    if let (Some(tex), Some(i)) = (tex, w.upgrade())
+                        && tok.get() == mine
+                    {
+                        i.set_paintable(Some(&tex));
+                    }
+                });
+            })
+            .with_unbind(move || token.set(token.get() + 1))
         })
     }
 
-
-
-    /// Port of `CustomWidgetButtonColumn`.
+    /// Port of `CustomWidgetButtonColumn` (rebuilt per bind; used by the short queue lists).
     pub fn custom_widget_button(button: impl Fn(&str, usize, i32) -> gtk::Widget + 'static) -> Self {
-        Col::new(move |t, g, p, c| {
-            let Some(t) = t else {
-                g.attach(&gtk::Box::new(gtk::Orientation::Horizontal, 0), c, 0, 1, 1);
-                return 1;
-            };
-            let w = button(t.id(), p, c);
-            g.attach(&hstack(&[&w]).halign(gtk::Align::Center).valign(gtk::Align::Center), c, 0, 1, 1);
-            0
+        let button = Rc::new(button);
+        Col::new(move || {
+            let bin = adw::Bin::new().halign(gtk::Align::Center).valign(gtk::Align::Center);
+            let (b, button) = (bin.clone(), Rc::clone(&button));
+            let b2 = bin.clone();
+            ColCell::new(bin, move |t, p| b.set_child(Some(&hstack(&[&button(t.id(), p, 0)])))).with_unbind(move || b2.set_child(gtk::Widget::NONE))
         })
     }
 
     pub fn duration() -> Self {
-        Col::new(|t, g, _, c| {
-            g.attach(&label(&format_duration(t.map(crate::model::Track::duration).unwrap_or_default())).margin(10), c, 0, 1, 1);
-            1
+        Col::new(|| {
+            // A fixed minimum width keeps the column aligned across rows without a
+            // SizeGroup (size groups made every scroll step re-measure all rows).
+            let l = label("").margin(10);
+            l.set_width_chars(5);
+            l.set_xalign(1.0);
+            let l2 = l.clone();
+            ColCell::new(l, move |t, _| l2.set_label(&format_duration(t.duration())))
         })
     }
 
-
     pub fn position() -> Self {
-        Col::new(|_, g, p, c| {
-            let l = label(&(p + 1).to_string()).font_weight(500).halign(gtk::Align::Start).hexp(false).margin(10).hpadding(10);
-            g.attach(&l, c, 0, 1, 1);
-            1
+        Col::new(|| {
+            let l = label("").font_weight(500).halign(gtk::Align::Start).hexp(false).margin(10).hpadding(10);
+            l.set_width_chars(4);
+            l.set_xalign(0.0);
+            let l2 = l.clone();
+            ColCell::new(l, move |_, p| l2.set_label(&(p + 1).to_string()))
         })
     }
 
     pub fn title() -> Self {
-        Col::new(|t, g, _, c| {
-            let l = label(&t.map(crate::model::Track::formatted_title).unwrap_or_default())
-                .font_weight(500)
-                .halign(gtk::Align::Start)
-                .hexp(true)
-                .margin(10);
-            l.set_ellipsize(pango::EllipsizeMode::End);
-            g.attach(&l, c, 0, 1, 1);
-            1
+        Col::new(|| {
+            let l = label("").font_weight(500).halign(gtk::Align::Start).hexp(true).margin(10);
+            ellipsized(&l);
+            let l2 = l.clone();
+            ColCell::new(l, move |t, _| l2.set_label(&t.formatted_title()))
         })
     }
 
     pub fn title_album() -> Self {
-        Col::new(|t, g, _, c| {
-            let title = label(&t.map(crate::model::Track::formatted_title).unwrap_or_default()).font_weight(500).halign(gtk::Align::Start);
-            title.set_ellipsize(pango::EllipsizeMode::End);
-            let album = label(&t.and_then(|t| t.album.as_ref()).map(|a| a.title.clone()).unwrap_or_default())
-                .class("dimmed")
-                .halign(gtk::Align::Start);
-            album.set_ellipsize(pango::EllipsizeMode::End);
+        Col::new(|| {
+            let title = label("").font_weight(500).halign(gtk::Align::Start);
+            ellipsized(&title);
+            let album = label("").class("dimmed").halign(gtk::Align::Start);
+            ellipsized(&album);
             let frame = spacing(vstack(&[title.upcast_ref(), album.upcast_ref()]), 3)
                 .valign(gtk::Align::Center)
                 .halign(gtk::Align::Start)
                 .hexp(true)
                 .margin(10);
-            g.attach(&hstack(&[frame.upcast_ref(), spacer().upcast_ref()]), c, 0, 1, 1);
-            1
+            ColCell::new(hstack(&[frame.upcast_ref(), spacer().upcast_ref()]), move |t, _| {
+                title.set_label(&t.formatted_title());
+                album.set_label(t.album.as_ref().map(|a| a.title.as_str()).unwrap_or_default());
+            })
         })
     }
 }
@@ -171,7 +206,6 @@ type ReorderFn = Rc<dyn Fn(usize, usize, &Track)>;
 
 struct Inner {
     columns: Vec<Col>,
-    size_groups: Vec<gtk::SizeGroup>,
     store: gio::ListStore,
     tracks: RefCell<Vec<Track>>,
     click: RefCell<ClickFn>,
@@ -183,6 +217,14 @@ struct Inner {
     view: glib::WeakRef<gtk::ListView>,
     drop_target: RefCell<Option<gtk::DropTargetAsync>>,
 }
+
+/// The recycled widgets of one list item.
+struct Row {
+    body: gtk::Box,
+    cells: Vec<ColCell>,
+    track: Rc<RefCell<Option<Track>>>,
+}
+
 
 pub type BoxedReorderFn = Box<dyn Fn(usize, usize, &Track)>;
 
@@ -207,10 +249,8 @@ impl TrackList {
         view.set_single_click_activate(true);
         view.set_orientation(gtk::Orientation::Vertical);
         view.add_css_class("tracklist");
-        let size_groups = columns.iter().map(|_| gtk::SizeGroup::new(gtk::SizeGroupMode::Horizontal)).collect();
         let inner = Rc::new(Inner {
             columns,
-            size_groups,
             store,
             tracks: RefCell::new(Vec::new()),
             click: RefCell::new(Rc::new(|t: &Track, _| player::play_track(t.clone()))),
@@ -236,8 +276,11 @@ impl TrackList {
         });
         factory.connect_unbind(|_, item| {
             let item: &gtk::ListItem = item.downcast_ref().expect("ListView factories hand out ListItems");
-            if let Some(bin) = item.child().and_downcast::<adw::Bin>() {
-                bin.set_child(gtk::Widget::NONE);
+            if let Some(row) = item.child().and_downcast::<adw::Bin>().as_ref().and_then(row_of) {
+                *row.track.borrow_mut() = None;
+                for c in &row.cells {
+                    (c.unbind)();
+                }
             }
         });
         let w = Rc::downgrade(&inner);
@@ -340,39 +383,75 @@ fn diff_ops(old: &[Track], new: &[Track]) -> Vec<(usize, Op)> {
     ops
 }
 
+fn row_of(bin: &adw::Bin) -> Option<Rc<Row>> {
+    // SAFETY: "tonearm-row" is only ever set by `build_row` with an `Rc<Row>`.
+    unsafe { bin.data::<Rc<Row>>("tonearm-row").map(|p| Rc::clone(p.as_ref())) }
+}
+
+fn is_playing(id: &str) -> bool {
+    player::track_changed().with(|e| e.as_ref().is_some_and(|e| e.track.id() == id))
+}
+
+/// Creates the row widgets once per list item; `bind` only updates them.
+fn build_row(i: &Inner, container: &adw::Bin) {
+    let body = gtk::Box::new(gtk::Orientation::Horizontal, 0);
+    let track: Rc<RefCell<Option<Track>>> = Rc::default();
+    let t = Rc::clone(&track);
+    on_signal_state_playing(&body, t);
+    let t = Rc::clone(&track);
+    attach_context_menu_with(&body, move || t.borrow().clone());
+    let mut cells = Vec::with_capacity(i.columns.len());
+    for col in &i.columns {
+        let cell = col.build();
+        let grid = gtk::Grid::new();
+        grid.set_valign(gtk::Align::Center);
+        grid.attach(&cell.widget, 0, 0, 1, 1);
+        body.append(&grid);
+        cells.push(cell);
+    }
+    container.set_child(Some(&body));
+    let row = Rc::new(Row { body, cells, track });
+    // SAFETY: read back only through `row_of` with the same type.
+    unsafe { container.set_data("tonearm-row", row) };
+}
+
+fn on_signal_state_playing(body: &gtk::Box, track: Rc<RefCell<Option<Track>>>) {
+    on_state(player::track_changed(), body, move |b, ev| {
+        let id = track.borrow().as_ref().map(|t| t.id().to_string());
+        let playing = id.is_some_and(|id| ev.as_ref().is_some_and(|e| e.track.id() == id));
+        if playing {
+            b.add_css_class("playing");
+        } else {
+            b.remove_css_class("playing");
+        }
+    });
+}
+
 fn bind(i: &Inner, item: &gtk::ListItem) {
     let pos = item.position() as usize;
     let Some(track) = i.tracks.borrow().get(pos).cloned() else { return };
     let Some(container) = item.child().and_downcast::<adw::Bin>() else { return };
-    let body = gtk::Box::new(gtk::Orientation::Horizontal, 0);
-    let id = track.id().to_string();
-    body.connect_realize(move |b| {
-        let id = id.clone();
-        on_state(player::track_changed(), b, move |b, ev| {
-            if ev.as_ref().is_some_and(|e| e.track.id() == id) {
-                b.add_css_class("playing");
-            } else {
-                b.remove_css_class("playing");
-            }
-        });
-    });
-    attach_track_context_menu(&body, &track);
-    for (idx, col) in i.columns.iter().enumerate() {
-        let grid = gtk::Grid::new();
-        grid.set_valign(gtk::Align::Center);
-        col.call(Some(&track), &grid, pos, 0);
-        i.size_groups[idx].add_widget(&grid);
-        body.append(&grid);
+    if row_of(&container).is_none() {
+        build_row(i, &container);
+    }
+    let Some(row) = row_of(&container) else { return };
+    if is_playing(track.id()) {
+        row.body.add_css_class("playing");
+    } else {
+        row.body.remove_css_class("playing");
+    }
+    for c in &row.cells {
+        (c.bind)(&track, pos);
     }
     let streamable = track.info.streamable;
+    *row.track.borrow_mut() = Some(track);
     item.set_activatable(streamable);
     container.set_sensitive(streamable);
     if streamable {
-        container.set_tooltip_text(Some(""));
+        container.set_tooltip_text(None);
     } else {
         container.set_tooltip_text(Some(&tr("This track is not available for streaming")));
     }
-    container.set_child(Some(&body));
 }
 
 const DRAG_MIME: &str = "application/x-tonearm-track";
@@ -630,10 +709,16 @@ fn stabilize(w: &gtk::Widget) {
 
 /// Right-click (and touch long-press) on `w` opens the track menu at the pointer.
 pub fn attach_track_context_menu(w: &impl IsA<gtk::Widget>, t: &Track) {
+    let t = t.clone();
+    attach_context_menu_with(w, move || Some(t.clone()));
+}
+
+/// Like [`attach_track_context_menu`] for recycled rows: `current` yields the bound track.
+fn attach_context_menu_with(w: &impl IsA<gtk::Widget>, current: impl Fn() -> Option<Track> + 'static) {
     type Open = Rc<dyn Fn(&gtk::Widget, f64, f64)>;
     let open: Open = {
-        let t = t.clone();
         Rc::new(move |w, x, y| {
+            let Some(t) = current() else { return };
             let popover = track_menu_popover(&t);
             popover.set_has_arrow(false);
             popover.set_halign(gtk::Align::Start);
@@ -686,12 +771,18 @@ mod perf_probe {
             Ok("text") => vec![Col::title_album(), Col::artists(), Col::duration()],
             _ => vec![Col::cover(), Col::title_album(), Col::artists(), Col::duration(), Col::controls()],
         };
+        let rows: usize = std::env::var("PROBE_ROWS").ok().and_then(|v| v.parse().ok()).unwrap_or(1000);
         let list = TrackList::new(cols);
-        for _ in 0..300 {
-            list.add_track(Track::default());
+        for k in 0..rows {
+            let mut t = Track::default();
+            t.info.id = k.to_string();
+            t.info.title = format!("Track number {k} with a reasonably long title");
+            t.info.streamable = k % 7 != 0;
+            list.add_track(t);
         }
+        // Same nesting as the real pages (routes::tracklist_scroller).
         let sw = gtk::ScrolledWindow::new();
-        sw.set_child(Some(list.widget()));
+        sw.set_child(Some(&crate::ui::components::main_content_scrollable(list.widget())));
         let win = gtk::Window::new();
         win.set_default_size(1000, 800);
         win.set_child(Some(&sw));
@@ -706,18 +797,26 @@ mod perf_probe {
         };
         settle();
         let adj = sw.vadjustment();
-        let mut worst = 0.0f64;
-        let mut total = 0.0;
-        let n = 60;
-        for k in 0..n {
+        // Scroll the whole list in 300px steps; report per tenth of the list.
+        let steps = ((adj.upper() - adj.page_size()) / 300.0).ceil().max(1.0) as usize;
+        let mut seg = vec![(0.0f64, 0.0f64, 0usize); 10];
+        for k in 0..=steps {
             let t = std::time::Instant::now();
-            adj.set_value(f64::from(k) * 300.0);
+            adj.set_value(k as f64 * 300.0);
             while ctx.iteration(false) {}
             let ms = t.elapsed().as_secs_f64() * 1000.0;
-            worst = worst.max(ms);
-            total += ms;
+            if ms > 16.0 {
+                eprintln!("PROBE slow step={k} ms={ms:.1}");
+            }
+            let s = &mut seg[(k * 10 / (steps + 1)).min(9)];
+            s.0 += ms;
+            s.1 = s.1.max(ms);
+            s.2 += 1;
         }
-        eprintln!("PROBE upper={} avg_step_ms={:.2} worst_ms={:.2}", adj.upper(), total / f64::from(n), worst);
+        for (i, (tot, worst, n)) in seg.iter().enumerate() {
+            eprintln!("PROBE rows={rows} part={}0% avg_step_ms={:.2} worst_ms={:.2}", i, tot / *n.max(&1) as f64, worst);
+        }
+        eprintln!("PROBE upper={} steps={steps}", adj.upper());
         win.close();
     }
 }
