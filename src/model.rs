@@ -230,13 +230,14 @@ impl TrackInfo {
     }
     /// Port of tonearm.FormatTitle.
     pub fn formatted_title(&self) -> String {
-        let mut suffix = String::new();
-        if !self.version.is_empty() {
-            suffix = format!(" ({})", self.version);
-        }
-        if self.flags.is_ai() {
-            suffix = " \u{1F170}".into();
-        }
+        // Go: the AI marker replaces the version suffix.
+        let mut suffix = if self.flags.is_ai() {
+            " \u{1F170}".to_owned()
+        } else if self.version.is_empty() {
+            String::new()
+        } else {
+            format!(" ({})", self.version)
+        };
         if self.flags.is_explicit() {
             suffix.push_str(" \u{1F174}");
         }

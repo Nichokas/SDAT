@@ -472,7 +472,7 @@ fn install_actions(app: &adw::Application, window: &adw::ApplicationWindow) {
     window.add_action(&with_string("route.playlist", |id| router::navigate(&format!("playlist/{id}"))));
     window.add_action(&with_string("route.artist", |id| router::navigate(&format!("artist/{id}"))));
 
-    let ww = wa.clone();
+    let ww = wa;
     window.add_action(&simple("sign-in", move || {
         if let Some(w) = ww() {
             sign_in(&w);

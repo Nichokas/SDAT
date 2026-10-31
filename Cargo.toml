@@ -49,6 +49,15 @@ unused_lifetimes = "warn"
 [lints.clippy]
 # rust-skills anti-unwrap-abuse: no unwrap() outside tests (see clippy.toml).
 unwrap_used = "warn"
+# rust-skills lint-clippy-nursery-selected / anti-clone-excessive
+redundant_clone = "warn"
+needless_collect = "warn"
+or_fun_call = "warn"
+equatable_if_let = "warn"
+needless_pass_by_ref_mut = "warn"
+useless_let_if_seq = "warn"
+branches_sharing_code = "warn"
+implicit_clone = "warn"
 cargo = { level = "warn", priority = -1 }
 complexity = { level = "warn", priority = -1 }
 correctness = { level = "warn", priority = -1 }

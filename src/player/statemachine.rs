@@ -452,10 +452,7 @@ impl Machine {
         pb.set_state(gst::State::Ready)?;
         let id = track_changed().with(|t| t.as_ref().map(|e| e.track.id().to_string())).unwrap_or_default();
         fetch_and_enqueue_track(pb, &id).await?;
-        let mut pos = playback_state_changed().get().position;
-        if let Some(p) = pb.query_position() {
-            pos = p;
-        }
+        let pos = pb.query_position().unwrap_or_else(|| playback_state_changed().get().position);
         self.retry_position.set(pos);
         pb.set_state(gst::State::Playing)
     }

@@ -531,7 +531,7 @@ mod sync_tests {
         let (a, b, c) = (tr(1), tr(2), tr(3));
         assert_eq!(diff_ops(&[], &[a.clone(), b.clone()]), vec![(0, Op::Append), (1, Op::Append)]);
         assert_eq!(diff_ops(&[a.clone(), b.clone()], &[a.clone(), c.clone()]), vec![(1, Op::Replace)]);
-        assert_eq!(diff_ops(&[a.clone(), b.clone(), c.clone()], std::slice::from_ref(&a)), vec![(2, Op::Remove), (1, Op::Remove)]);
+        assert_eq!(diff_ops(&[a.clone(), b, c], std::slice::from_ref(&a)), vec![(2, Op::Remove), (1, Op::Remove)]);
         assert!(diff_ops(std::slice::from_ref(&a), std::slice::from_ref(&a)).is_empty());
     }
 }

@@ -176,6 +176,7 @@ impl PlayerIface {
         1.0
     }
     #[zbus(property)]
+    #[expect(clippy::needless_pass_by_ref_mut, reason = "zbus property setters take &mut self")]
     fn set_rate(&mut self, _v: f64) {}
     #[zbus(property)]
     fn shuffle(&self) -> bool {

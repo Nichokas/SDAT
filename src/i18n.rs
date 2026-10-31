@@ -211,7 +211,7 @@ fn catalog() -> &'static Catalog {
         let loc = detect_locale();
         let lang = loc.split('_').next().unwrap_or("").to_string();
         // gotext lookup order: full locale, then language only; plus a few aliases.
-        let mut candidates = vec![loc.clone(), lang.clone()];
+        let mut candidates = vec![loc, lang.clone()];
         if lang == "zh" {
             candidates.push("zh_Hans".into());
         }

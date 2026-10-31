@@ -274,7 +274,7 @@ pub fn for_page_item(item: &legacy::PageItem) -> gtk::Widget {
                     _ => list.append(&label(&format!("Unsupported: {}", it.type_)).hmargin(10)),
                 }
             }
-            list.widget.clone().hmargin(50).upcast()
+            list.widget.hmargin(50).upcast()
         }
         other => {
             log::warn!("Unsupported item type type={other}");
@@ -371,7 +371,7 @@ pub fn for_module(module: &legacy::Module) -> gtk::Widget {
                 list.append(&b);
             }
             let title = if module.type_ == "PAGE_LINKS" { tr("More") } else { module.title.clone() };
-            vstack(&[RowTitle::new().set_title(&title).widget.hpadding(40).upcast_ref(), list.widget.clone().hmargin(50).upcast_ref()]).upcast()
+            vstack(&[RowTitle::new().set_title(&title).widget.hpadding(40).upcast_ref(), list.widget.hmargin(50).upcast_ref()]).upcast()
         }
         other => {
             log::warn!("Unsupported module type type={other}");

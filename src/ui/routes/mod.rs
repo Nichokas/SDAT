@@ -187,7 +187,7 @@ async fn explore(name: String) -> Response {
             body.append(&vstack(&[&comp::for_module(m)]));
         }
     }
-    Response::new(page.title.clone(), scrolled(&comp::main_content(&body)))
+    Response::new(page.title, scrolled(&comp::main_content(&body)))
 }
 
 // ------------------------------------------------------------------ album / playlist / artist

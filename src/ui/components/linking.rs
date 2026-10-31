@@ -100,7 +100,7 @@ pub fn new_linking(window: Option<gtk::Window>, code: &str, link: &str, cancel: 
     let code_l = label(&spaced.join("  ")).class("title-1");
     let helper = label(&tr("You can also open the linking page using the button below"));
     let open = gtk::Button::with_label(&tr("Open TIDAL Page")).class("suggested-action").hpadding(20).vpadding(10);
-    let l2 = link.clone();
+    let l2 = link;
     open.connect_clicked(move |_| {
         gtk::UriLauncher::new(&l2).launch(window.as_ref(), gtk::gio::Cancellable::NONE, |_| {});
     });
