@@ -64,7 +64,9 @@ pub fn playlist(p: &Playlist) -> gtk::Button {
 }
 
 pub fn track(t: &Track) -> gtk::Button {
-    with_action(card(t.title(), &subtitle(&t.artist_names().join(", ")), t.cover(192)), "win.player.play-track", t.id())
+    let b = with_action(card(t.title(), &subtitle(&t.artist_names().join(", ")), t.cover(192)), "win.player.play-track", t.id());
+    super::tracklist::attach_track_context_menu(&b, t);
+    b
 }
 
 pub fn mix_generic(id: &str, title: &str, sub: &str, cover_url: &str) -> gtk::Button {

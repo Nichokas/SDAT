@@ -49,29 +49,10 @@ impl Col {
                 g.attach(&gtk::Box::new(gtk::Orientation::Horizontal, 0), c, 0, 1, 1);
                 return 1;
             };
-            let model = gio::Menu::new();
-            let album_id = t.album.as_ref().map(|a| a.id.clone()).unwrap_or_default();
-            let item = gio::MenuItem::new(Some(&tr("Navigate to Album")), Some("win.route.album"));
-            item.set_action_and_target_value(Some("win.route.album"), Some(&album_id.to_variant()));
-            model.append_item(&item);
-            if t.artists.len() > 1 {
-                let sub = gio::Menu::new();
-                for a in &t.artists {
-                    let item = gio::MenuItem::new(Some(&trf("Navigate to %s", &[&a.title()])), Some("win.route.artist"));
-                    item.set_action_and_target_value(Some("win.route.artist"), Some(&a.id.to_variant()));
-                    sub.append_item(&item);
-                }
-                model.append_submenu(Some(&tr("Navigate to Artist")), &sub);
-            } else if let Some(a) = t.artists.first() {
-                let item = gio::MenuItem::new(Some(&tr("Navigate to Artist")), Some("win.route.artist"));
-                item.set_action_and_target_value(Some("win.route.artist"), Some(&a.id.to_variant()));
-                model.append_item(&item);
-            }
-            let playlists = super::add_to_playlist::submenu(t.id());
-            model.append_submenu(Some(&tr("Add to Playlist")), &playlists);
-            let popover = gtk::PopoverMenu::from_model(Some(&model));
-            let tid = t.id().to_string();
-            popover.connect_show(move |_| super::add_to_playlist::ensure_loaded(&playlists, &tid));
+            let popover = track_menu_popover(t);
+            // Open to the left of the button so the menu and its submenus stay inside
+            // the window (the button sits at the right edge); GTK flips it if needed.
+            popover.set_position(gtk::PositionType::Left);
             let queue = gtk::Button::from_icon_name("queue-symbolic")
                 .tooltip(&tr("Add to Queue"))
                 .halign(gtk::Align::Center)
@@ -362,6 +343,7 @@ fn bind(i: &Inner, item: &gtk::ListItem) {
             }
         });
     });
+    attach_track_context_menu(&body, &track);
     for (idx, col) in i.columns.iter().enumerate() {
         let grid = gtk::Grid::new();
         grid.set_valign(gtk::Align::Center);
@@ -563,4 +545,78 @@ mod lifetime_tests {
         drop(view);
         assert!(inner.upgrade().is_none(), "state leaked after the view was destroyed");
     }
+}
+
+/// The track context menu model (same entries as the "More…" button).
+pub fn track_menu(t: &Track) -> (gio::Menu, gio::Menu) {
+    let model = gio::Menu::new();
+    let album_id = t.album.as_ref().map(|a| a.id.clone()).unwrap_or_default();
+    let item = gio::MenuItem::new(Some(&tr("Navigate to Album")), Some("win.route.album"));
+    item.set_action_and_target_value(Some("win.route.album"), Some(&album_id.to_variant()));
+    model.append_item(&item);
+    if t.artists.len() > 1 {
+        let sub = gio::Menu::new();
+        for a in &t.artists {
+            let item = gio::MenuItem::new(Some(&trf("Navigate to %s", &[&a.title()])), Some("win.route.artist"));
+            item.set_action_and_target_value(Some("win.route.artist"), Some(&a.id.to_variant()));
+            sub.append_item(&item);
+        }
+        model.append_submenu(Some(&tr("Navigate to Artist")), &sub);
+    } else if let Some(a) = t.artists.first() {
+        let item = gio::MenuItem::new(Some(&tr("Navigate to Artist")), Some("win.route.artist"));
+        item.set_action_and_target_value(Some("win.route.artist"), Some(&a.id.to_variant()));
+        model.append_item(&item);
+    }
+    let playlists = super::add_to_playlist::submenu(t.id());
+    model.append_submenu(Some(&tr("Add to Playlist")), &playlists);
+    (model, playlists)
+}
+
+/// Popover for [`track_menu`] that loads the user's playlists when shown.
+pub fn track_menu_popover(t: &Track) -> gtk::PopoverMenu {
+    let (model, playlists) = track_menu(t);
+    let popover = gtk::PopoverMenu::from_model(Some(&model));
+    let tid = t.id().to_string();
+    popover.connect_show(move |_| super::add_to_playlist::ensure_loaded(&playlists, &tid));
+    popover
+}
+
+/// Right-click (and touch long-press) on `w` opens the track menu at the pointer.
+pub fn attach_track_context_menu(w: &impl IsA<gtk::Widget>, t: &Track) {
+    type Open = Rc<dyn Fn(&gtk::Widget, f64, f64)>;
+    let open: Open = {
+        let t = t.clone();
+        Rc::new(move |w, x, y| {
+            let popover = track_menu_popover(&t);
+            popover.set_has_arrow(false);
+            popover.set_halign(gtk::Align::Start);
+            popover.set_parent(w);
+            #[expect(clippy::cast_possible_truncation, reason = "pointer coordinates fit in i32")]
+            popover.set_pointing_to(Some(&gdk::Rectangle::new(x as i32, y as i32, 1, 1)));
+            popover.connect_closed(|p| {
+                let p = p.clone();
+                glib::idle_add_local_once(move || p.unparent());
+            });
+            popover.popup();
+        })
+    };
+    let click = gtk::GestureClick::new();
+    click.set_button(gdk::BUTTON_SECONDARY);
+    let o = Rc::clone(&open);
+    click.connect_pressed(move |g, _, x, y| {
+        if let Some(w) = g.widget() {
+            g.set_state(gtk::EventSequenceState::Claimed);
+            o(&w, x, y);
+        }
+    });
+    w.add_controller(click);
+    let long = gtk::GestureLongPress::new();
+    long.set_touch_only(true);
+    long.connect_pressed(move |g, x, y| {
+        if let Some(w) = g.widget() {
+            g.set_state(gtk::EventSequenceState::Claimed);
+            open(&w, x, y);
+        }
+    });
+    w.add_controller(long);
 }
