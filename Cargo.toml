@@ -1,6 +1,6 @@
 [package]
 name = "tonearm"
-version = "0.1.0"
+version = "1.0.0"
 edition = "2024"
 description = "An unofficial native GTK4 / Adwaita music streaming client for TIDAL"
 license = "GPL-3.0-or-later"
