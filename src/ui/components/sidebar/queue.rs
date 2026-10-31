@@ -4,12 +4,11 @@ use std::rc::Rc;
 use std::time::Duration;
 
 use adw::prelude::*;
-use gtk::glib;
 
 use crate::i18n::tr;
 use crate::player::{self, QueueKind};
 use crate::ui::components::{Col, TrackList};
-use crate::ui::dsl::*;
+use crate::ui::dsl::{W, vstack, on_state};
 
 const SCROLL_MARGIN: f64 = 75.0;
 
@@ -79,7 +78,7 @@ fn queue_list() -> gtk::ScrolledWindow {
     let (a, w) = (action.clone(), sw.downgrade());
     motion.connect_motion(move |_, _, y| {
         let Some(sw) = w.upgrade() else { return };
-        let h = sw.height() as f64;
+        let h = f64::from(sw.height());
         if y < SCROLL_MARGIN {
             a.set((SCROLL_MARGIN - y) / SCROLL_MARGIN * -4.0);
         } else if h - y < SCROLL_MARGIN {

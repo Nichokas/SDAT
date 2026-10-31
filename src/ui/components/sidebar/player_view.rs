@@ -3,14 +3,14 @@ use std::cell::Cell;
 use std::rc::Rc;
 
 use adw::prelude::*;
-use gtk::{gdk, gio, glib, pango};
+use gtk::{gdk, gio, pango};
 
 use crate::i18n::tr;
 use crate::model::{format_duration, TrackQuality};
 use crate::player::{self, PlaybackStatus, RepeatMode};
 use crate::signals::State;
 use crate::ui::components::{media_viewer, render_cover, squircle_picture, CancelToken};
-use crate::ui::dsl::*;
+use crate::ui::dsl::{on_state, W, spacing, vstack, label, hstack, on_state_lazy, spacer};
 use crate::{global_signal, imgutil, router, service, settings, state};
 
 global_signal!(fn is_controllable() -> State<bool> = State::new(false));
@@ -72,35 +72,32 @@ pub fn playing_from() -> gtk::Button {
     let (tw, iw) = (title.downgrade(), img.downgrade());
     on_state_lazy(player::source_changed(), &b, move |b, s| {
         let (Some(title), Some(img)) = (tw.upgrade(), iw.upgrade()) else { return };
-        match s {
-            Some(s) => {
-                title.set_text(&s.title());
-                let route = s.route();
-                b.set_sensitive(!route.is_empty());
-                *target.borrow_mut() = route;
-                let cover = s.cover(80);
-                if !cover.has_static() {
-                    img.set_paintable(Some(&imgutil::missing_album()));
-                    return;
-                }
-                let w = img.downgrade();
-                glib::spawn_future_local(async move {
-                    match imgutil::fetch_cropped(&cover.static_).await {
-                        Some(t) => {
-                            if let Some(i) = w.upgrade() {
-                                i.set_paintable(Some(&t));
-                            }
-                        }
-                        None => log::error!("failed to load source cover"),
-                    }
-                });
-            }
-            None => {
-                title.set_text("Nothing");
+        if let Some(s) = s {
+            title.set_text(&s.title());
+            let route = s.route();
+            b.set_sensitive(!route.is_empty());
+            *target.borrow_mut() = route;
+            let cover = s.cover(80);
+            if !cover.has_static() {
                 img.set_paintable(Some(&imgutil::missing_album()));
-                b.set_sensitive(false);
-                target.borrow_mut().clear();
+                return;
             }
+            let w = img.downgrade();
+            glib::spawn_future_local(async move {
+                match imgutil::fetch_cropped(&cover.static_).await {
+                    Some(t) => {
+                        if let Some(i) = w.upgrade() {
+                            i.set_paintable(Some(&t));
+                        }
+                    }
+                    None => log::error!("failed to load source cover"),
+                }
+            });
+        } else {
+            title.set_text("Nothing");
+            img.set_paintable(Some(&imgutil::missing_album()));
+            b.set_sensitive(false);
+            target.borrow_mut().clear();
         }
     });
     b
@@ -223,7 +220,7 @@ fn favourite_button() -> gtk::Button {
                 }
             });
         });
-    }
+    };
     b.connect_clicked(move |b| {
         let Some(id) = current_track_id() else { return };
         if loading.get() {
@@ -383,7 +380,7 @@ fn track_timeline() -> gtk::Overlay {
     let duration = label("00:00");
     let dw = duration.downgrade();
     on_state(player::track_changed(), &duration, |d, ev| {
-        d.set_text(&ev.as_ref().map(|e| format_duration(e.track.duration())).unwrap_or_else(|| "00:00".into()));
+        d.set_text(&ev.as_ref().map_or_else(|| "00:00".into(), |e| format_duration(e.track.duration())));
     });
     let sw = scale.downgrade();
     on_state(player::playback_state_changed(), &position, move |p, ps| {
@@ -440,26 +437,26 @@ fn track_timeline() -> gtk::Overlay {
             *selected.borrow_mut() = quality_label(*q);
             refresh();
         });
-    }
+    };
     {
         let tw = text.downgrade();
         settings::connect_changed(&settings::player(), "audio-quality", move |_| {
             if tw.upgrade().is_some() {
                 player::toasts().notify(&tr("Playback quality saved. Changes will be applied on next track change"));
             }
-        });
-    }
+        })
+    };
     {
         let (actual, refresh) = (actual.clone(), refresh.clone());
         on_state(player::audio_stream_quality(), &text, move |_, sq| {
             *actual.borrow_mut() = match sq.codec.0.as_str() {
-                player::quality::CODEC_AAC => format!("{} kbps AAC", truncate_float(sq.bit_rate as f64 / 1000.0, 1)),
-                player::quality::CODEC_FLAC => format!("{}-bit {}kHz FLAC", sq.bit_depth, truncate_float(sq.sample_rate as f64 / 1000.0, 1)),
+                player::quality::CODEC_AAC => format!("{} kbps AAC", truncate_float(f64::from(sq.bit_rate) / 1000.0, 1)),
+                player::quality::CODEC_FLAC => format!("{}-bit {}kHz FLAC", sq.bit_depth, truncate_float(f64::from(sq.sample_rate) / 1000.0, 1)),
                 _ => "N/A".into(),
             };
             refresh();
         });
-    }
+    };
     let toggle: Rc<dyn Fn()> = {
         let (details, refresh) = (details.clone(), refresh.clone());
         Rc::new(move || {
@@ -561,12 +558,12 @@ fn controls() -> gtk::Box {
             b.set_tooltip_text(Some(&tr("Play")));
             play_icon.clone().upcast()
         };
-        if !ps.loading {
-            b.set_sensitive(is_track_loaded().get());
-            b.set_child(Some(&icon));
-        } else {
+        if ps.loading {
             b.set_sensitive(false);
             b.set_child(Some(&spinner));
+        } else {
+            b.set_sensitive(is_track_loaded().get());
+            b.set_child(Some(&icon));
         }
     };
     on_state(player::playback_state_changed(), &pp, update);

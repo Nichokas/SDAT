@@ -45,8 +45,8 @@ impl PluralRule {
     fn index(self, n: i64) -> usize {
         let n = n.abs();
         match self {
-            PluralRule::NotOne => (n != 1) as usize,
-            PluralRule::GreaterOne => (n > 1) as usize,
+            PluralRule::NotOne => usize::from(n != 1),
+            PluralRule::GreaterOne => usize::from(n > 1),
             PluralRule::Zero => 0,
             PluralRule::Czech => {
                 if n == 1 {
@@ -94,7 +94,7 @@ fn unquote(s: &str) -> String {
                 Some('\\') => out.push('\\'),
                 Some(o) => {
                     out.push('\\');
-                    out.push(o)
+                    out.push(o);
                 }
                 None => {}
             }

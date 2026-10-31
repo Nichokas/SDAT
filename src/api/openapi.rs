@@ -1,4 +1,4 @@
-//! JSON:API models of the TIDAL OpenAPI (openapi.tidal.com/v2).
+//! JSON:API models of the TIDAL `OpenAPI` (openapi.tidal.com/v2).
 #![allow(dead_code)]
 
 use serde::de::DeserializeOwned;
@@ -95,7 +95,7 @@ fn merge_json(a: &mut Value, b: Value) {
         (Value::Array(a), Value::Array(b)) => a.extend(b),
         (a, b) => {
             if !b.is_null() {
-                *a = b
+                *a = b;
             }
         }
     }
@@ -659,7 +659,7 @@ mod tests {
     #[test]
     fn iso_duration() {
         assert_eq!(parse_iso8601_duration("PT3M25S"), Some(Duration::from_secs(205)));
-        assert_eq!(parse_iso8601_duration("PT1H"), Some(Duration::from_secs(3600)));
+        assert_eq!(parse_iso8601_duration("PT1H"), Some(Duration::from_hours(1)));
         assert_eq!(parse_iso8601_duration("P1DT1S"), Some(Duration::from_secs(86401)));
     }
 

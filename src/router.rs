@@ -2,7 +2,6 @@
 #![allow(dead_code)]
 
 use std::cell::RefCell;
-use std::future::Future;
 use std::pin::Pin;
 use std::rc::Rc;
 use std::time::{Duration, Instant};
@@ -181,9 +180,7 @@ fn navigate_inner(path: String, off_record: bool) {
         if !should_cache {
             entry.expires_at = Some(Instant::now());
         }
-        if !off_record {
-            push(entry.clone());
-        } else {
+        if off_record {
             HISTORY.with(|h| {
                 if let Some(c) = h.borrow_mut().current.as_mut().filter(|c| c.path == path) {
                     c.view = entry.view.clone();
@@ -191,9 +188,11 @@ fn navigate_inner(path: String, off_record: bool) {
                     c.expires_at = entry.expires_at;
                 }
             });
+        } else {
+            push(entry.clone());
         }
         // A newer navigation superseded this one: keep history but do not show it.
-        if GENERATION.with(|g| g.get()) != generation {
+        if GENERATION.with(std::cell::Cell::get) != generation {
             return;
         }
         complete(entry);

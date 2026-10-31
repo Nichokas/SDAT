@@ -1,11 +1,11 @@
 //! Port of `components/shortcut_list`.
 use adw::prelude::*;
-use gtk::{glib, pango};
+use gtk::pango;
 
 use crate::api::legacy;
 use crate::i18n::{tr, trn};
 use crate::model::image_url;
-use crate::ui::dsl::*;
+use crate::ui::dsl::{W, label, vstack, hstack};
 use crate::{imgutil, router, settings};
 
 pub struct ShortcutList {

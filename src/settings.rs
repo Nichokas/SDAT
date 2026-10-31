@@ -1,10 +1,9 @@
-//! Thin typed wrappers around the GSettings schemas from
+//! Thin typed wrappers around the `GSettings` schemas from
 //! `internal/settings/dev.dergs.Tonearm.gschema.xml` (unchanged keys).
 #![allow(dead_code)]
 
 use gtk::gio;
 use gtk::gio::prelude::*;
-use gtk::glib;
 
 use crate::model::TrackQuality;
 
@@ -20,22 +19,22 @@ thread_local! {
 }
 
 pub fn general() -> gio::Settings {
-    GENERAL.with(|s| s.clone())
+    GENERAL.with(std::clone::Clone::clone)
 }
 pub fn playback() -> gio::Settings {
-    PLAYBACK.with(|s| s.clone())
+    PLAYBACK.with(std::clone::Clone::clone)
 }
 pub fn performance() -> gio::Settings {
-    PERFORMANCE.with(|s| s.clone())
+    PERFORMANCE.with(std::clone::Clone::clone)
 }
 pub fn player() -> gio::Settings {
-    PLAYER.with(|s| s.clone())
+    PLAYER.with(std::clone::Clone::clone)
 }
 pub fn scrobbling() -> gio::Settings {
-    SCROBBLING.with(|s| s.clone())
+    SCROBBLING.with(std::clone::Clone::clone)
 }
 pub fn service_tidal() -> gio::Settings {
-    SERVICE_TIDAL.with(|s| s.clone())
+    SERVICE_TIDAL.with(std::clone::Clone::clone)
 }
 
 /// Binds a key the same way the Go code does (`GSettingsBindNoSensitivity`).

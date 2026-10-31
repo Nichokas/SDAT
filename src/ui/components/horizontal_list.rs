@@ -1,10 +1,10 @@
 //! Port of `components/horizontal_list`.
 use adw::prelude::*;
-use gtk::{glib, pango};
+use gtk::pango;
 
 use crate::i18n::tr;
 use crate::router;
-use crate::ui::dsl::*;
+use crate::ui::dsl::{W, label, hstack, spacer, spacing, vstack};
 
 pub struct HorizontalList {
     pub widget: gtk::Box,

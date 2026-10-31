@@ -1,4 +1,4 @@
-//! Port of `internal/features/scrobbling`: ListenBrainz and Last.fm scrobblers
+//! Port of `internal/features/scrobbling`: `ListenBrainz` and Last.fm scrobblers
 //! driven by a listening clock (scrobble after half the track or 4 minutes).
 use std::cell::RefCell;
 use std::collections::BTreeMap;
@@ -6,7 +6,6 @@ use std::sync::{Arc, Mutex, OnceLock};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use anyhow::{Result, anyhow, bail};
-use gtk::glib;
 use md5::{Digest, Md5};
 use serde::Serialize;
 
@@ -20,7 +19,7 @@ fn http() -> &'static reqwest::blocking::Client {
 }
 
 fn now_unix() -> i64 {
-    SystemTime::now().duration_since(UNIX_EPOCH).map(|d| d.as_secs() as i64).unwrap_or(0)
+    SystemTime::now().duration_since(UNIX_EPOCH).map_or(0, |d| d.as_secs() as i64)
 }
 
 /// Scrobble data captured on the main thread so it can be sent from a worker.
@@ -171,7 +170,7 @@ fn lastfm_call(method: &str, extra: &[(&str, String)], post: bool, sign: bool) -
         http().get(format!("{LASTFM_API}?{}", qs.join("&"))).send()?
     } };
     let v: serde_json::Value = resp.json()?;
-    if let Some(code) = v.get("error").and_then(|e| e.as_i64()) {
+    if let Some(code) = v.get("error").and_then(serde_json::Value::as_i64) {
         return Err(LastFmError { code, message: v.get("message").and_then(|m| m.as_str()).unwrap_or_default().to_string() }.into());
     }
     Ok(v)
@@ -221,7 +220,7 @@ fn lastfm_track_params(t: &TrackMeta, sk: &str) -> Vec<(&'static str, String)> {
     v
 }
 
-/// Worker-thread check mirroring Go's IsConfigured (enabled, session key, valid user).
+/// Worker-thread check mirroring Go's `IsConfigured` (enabled, session key, valid user).
 fn lastfm_configured(enabled: bool, sk: &str) -> bool {
     if !enabled || sk.is_empty() {
         return false;
@@ -347,7 +346,7 @@ pub fn init() {
         now_playing(meta.clone());
         clock_stop();
         CLOCK.with(|c| {
-            *c.borrow_mut() = Some(Clock { meta, started_at: now_unix(), counter: Arc::new(Mutex::new(0)), scrobbled: false, source: None })
+            *c.borrow_mut() = Some(Clock { meta, started_at: now_unix(), counter: Arc::new(Mutex::new(0)), scrobbled: false, source: None });
         });
         if player::playback_state_changed().get().status == PlaybackStatus::Playing {
             clock_start();
@@ -376,8 +375,8 @@ mod tests {
     fn threshold() {
         assert!(!should_scrobble(99, Duration::from_secs(200)));
         assert!(should_scrobble(100, Duration::from_secs(200)));
-        assert!(should_scrobble(240, Duration::from_secs(3600)));
-        assert!(!should_scrobble(239, Duration::from_secs(3600)));
+        assert!(should_scrobble(240, Duration::from_hours(1)));
+        assert!(!should_scrobble(239, Duration::from_hours(1)));
     }
 
     #[test]

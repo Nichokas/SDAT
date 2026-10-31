@@ -1,5 +1,5 @@
 //! Port of `feature_replaygain.go`: rgvolume/rglimiter audio filter with
-//! ReplayGain tags injected from TIDAL's normalization data.
+//! `ReplayGain` tags injected from TIDAL's normalization data.
 use anyhow::Result;
 use gst::prelude::*;
 use gtk::prelude::SettingsExt;
@@ -27,7 +27,7 @@ pub fn calculate_album_mode(mode: ReplayGainMode, source: Option<SourceType>) ->
 }
 
 pub fn update_album_mode() {
-    let src = super::source_changed().with(|s| s.as_ref().map(|s| s.source_type()));
+    let src = super::source_changed().with(|s| s.as_ref().map(super::super::model::PlaybackSource::source_type));
     ALBUM_MODE.store(calculate_album_mode(settings::replay_gain_mode(), src), Ordering::Relaxed);
 }
 

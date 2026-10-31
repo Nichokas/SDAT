@@ -6,7 +6,7 @@ use crate::i18n::{tr, trn};
 use crate::model::{format_duration, Album, Artist, PlaybackSource, Playlist};
 use crate::signals::State;
 use crate::state;
-use crate::ui::dsl::*;
+use crate::ui::dsl::{W, on_state, spacing, hstack, label, vstack};
 use crate::{global_signal, imgutil, player};
 
 global_signal!(fn controls_available() -> State<bool> = {
@@ -14,7 +14,7 @@ global_signal!(fn controls_available() -> State<bool> = {
     State::new(false)
 });
 
-/// Mirrors `!PlaybackState.Loading` (the Go init() subscription).
+/// Mirrors `!PlaybackState.Loading` (the Go `init()` subscription).
 pub fn init() {
     player::playback_state_changed().on(|ps| {
         controls_available().set(!ps.loading);
@@ -204,7 +204,7 @@ pub fn playlist(p: &Playlist, play: impl Fn() + 'static, shuffle: impl Fn() + 's
     let cache = if p.info.is_mix() { &state::MIXES } else { &state::PLAYLISTS };
     let fav = super::favourite_button::favourite_button(cache, &p.info.id);
     let release = year(p.info.created_at.map(|d| d.format("%Y").to_string()));
-    let creator = p.creator.as_ref().map(|c| c.title().to_string()).unwrap_or_else(|| "TIDAL".into());
+    let creator = p.creator.as_ref().map_or_else(|| "TIDAL".into(), |c| c.title().to_string());
     let desc = if p.info.is_mix() {
         tr("Personal Mix")
     } else {

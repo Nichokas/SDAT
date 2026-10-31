@@ -4,16 +4,15 @@ use std::rc::Rc;
 
 use adw::prelude::*;
 use chrono::{DateTime, Datelike, Duration as CDuration, Local, NaiveTime};
-use gtk::glib;
 
 use crate::i18n::{tr, trf};
-use crate::model::{self, *};
+use crate::model::{self, Track, PlaybackSource};
 use crate::router::{self, Response};
 use crate::service::{self, Paginator, SharedPaginator};
 use crate::ui::components::horizontal_list::HorizontalList;
 use crate::ui::components::tracklist::{Col, TrackList};
 use crate::ui::components::{self as comp, RowTitle, media_card, tracklist_header};
-use crate::ui::dsl::*;
+use crate::ui::dsl::{W, vstack, label, spacing, hstack, clamp, spacer};
 use crate::{api, imgutil, player, secrets};
 
 pub fn register() {
@@ -91,7 +90,7 @@ fn on_reach_bottom_soon(sw: &gtk::ScrolledWindow, more: impl Fn(Rc<dyn Fn(bool)>
     adj.connect_changed(move |a| check(a, true));
 }
 
-/// Port of NewPaginatedMediaCardPage.
+/// Port of `NewPaginatedMediaCardPage`.
 async fn paginated_media_card_page<T: Clone + Send + 'static>(p: Paginator<T>, factory: fn(&T) -> gtk::Button) -> anyhow::Result<gtk::Widget> {
     let p = service::shared(p);
     let first = service::next_page(&p).await?;
@@ -127,7 +126,7 @@ async fn paginated_media_card_page<T: Clone + Send + 'static>(p: Paginator<T>, f
     Ok(sw.upcast())
 }
 
-/// Port of NewPaginatedTracklistPage. Returns the scrolled window and the list.
+/// Port of `NewPaginatedTracklistPage`. Returns the scrolled window and the list.
 async fn paginated_tracklist_page(p: Paginator<Track>, columns: Vec<Col>, margin: i32) -> anyhow::Result<(gtk::ScrolledWindow, TrackList)> {
     let p = service::shared(p);
     let first = service::next_page(&p).await?;
@@ -220,11 +219,11 @@ async fn album(id: String) -> Response {
         &a,
         move || {
             let i = i1.clone();
-            play(async move { player::play_album(&i, false, 0).await }, tr("An error occurred while playing the album"), "An error occurred while playing the album")
+            play(async move { player::play_album(&i, false, 0).await }, tr("An error occurred while playing the album"), "An error occurred while playing the album");
         },
         move || {
             let i = i2.clone();
-            play(async move { player::play_album(&i, true, 0).await }, tr("An error occurred while playing the album"), "An error occurred while playing the album")
+            play(async move { player::play_album(&i, true, 0).await }, tr("An error occurred while playing the album"), "An error occurred while playing the album");
         },
     )
     .hmargin(40);
@@ -254,11 +253,11 @@ async fn playlist(id: String) -> Response {
         &p,
         move || {
             let i = i1.clone();
-            play(async move { player::play_playlist(&i, false, 0).await }, tr("An error occurred while playing the playlist"), "An error occurred while playing the playlist")
+            play(async move { player::play_playlist(&i, false, 0).await }, tr("An error occurred while playing the playlist"), "An error occurred while playing the playlist");
         },
         move || {
             let i = i2.clone();
-            play(async move { player::play_playlist(&i, true, 0).await }, tr("An error occurred while playing the playlist"), "An error occurred while playing the playlist")
+            play(async move { player::play_playlist(&i, true, 0).await }, tr("An error occurred while playing the playlist"), "An error occurred while playing the playlist");
         },
     )
     .hmargin(40);
@@ -283,11 +282,11 @@ async fn artist(id: String) -> Response {
         &a,
         move || {
             let i = i1.clone();
-            play(async move { player::play_artist_top_songs(&i, false, 0).await }, tr("An error occurred while playing the top tracks"), "An error occurred while playing the top tracks")
+            play(async move { player::play_artist_top_songs(&i, false, 0).await }, tr("An error occurred while playing the top tracks"), "An error occurred while playing the top tracks");
         },
         move || {
             let i = i2.clone();
-            play(async move { player::play_artist_top_songs(&i, true, 0).await }, tr("An error occurred while playing the top tracks"), "An error occurred while playing the top tracks")
+            play(async move { player::play_artist_top_songs(&i, true, 0).await }, tr("An error occurred while playing the top tracks"), "An error occurred while playing the top tracks");
         },
     )
     .hmargin(40);
@@ -309,7 +308,7 @@ pub enum TimeStage {
 
 impl TimeStage {
     fn next(self) -> Self {
-        use TimeStage::*;
+        use TimeStage::{Today, ThisWeek, LastWeek, ThisMonth, LastMonth, Older};
         match self {
             Today => ThisWeek,
             ThisWeek => LastWeek,
@@ -320,19 +319,19 @@ impl TimeStage {
     }
     /// Same thresholds as Go (today is truncated to UTC midnight like time.Truncate).
     pub fn threshold(self, now: DateTime<Local>) -> Option<DateTime<chrono::Utc>> {
-        use TimeStage::*;
+        use TimeStage::{Today, ThisWeek, LastWeek, ThisMonth, LastMonth, Older};
         let today = now.with_timezone(&chrono::Utc).date_naive().and_time(NaiveTime::MIN).and_utc();
         Some(match self {
             Today => today,
-            ThisWeek => today - CDuration::days(now.weekday().num_days_from_monday() as i64),
+            ThisWeek => today - CDuration::days(i64::from(now.weekday().num_days_from_monday())),
             LastWeek => Self::ThisWeek.threshold(now)? - CDuration::days(7),
-            ThisMonth => today - CDuration::days(now.day() as i64),
+            ThisMonth => today - CDuration::days(i64::from(now.day())),
             LastMonth => Self::ThisMonth.threshold(now)?.checked_sub_months(chrono::Months::new(1))?,
             Older => return None,
         })
     }
     fn label(self) -> String {
-        use TimeStage::*;
+        use TimeStage::{Today, ThisWeek, LastWeek, ThisMonth, LastMonth, Older};
         tr(match self {
             Today => "Today",
             ThisWeek => "This Week",
@@ -695,7 +694,7 @@ async fn my_tracks() -> Response {
                 },
                 msg,
                 "An error occurred while playing the tracks",
-            )
+            );
         }
     };
     let header = tracklist_header::collection(&PlaybackSource::MyTracks, play_all(false), play_all(true)).hmargin(40);

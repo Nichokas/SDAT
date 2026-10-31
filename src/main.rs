@@ -13,7 +13,7 @@ mod state;
 mod ui;
 
 use adw::prelude::*;
-use gtk::{gio, glib};
+use gtk::gio;
 
 static ICONS: &[u8] = include_bytes!("../internal/icons/icons.gresource");
 static STYLES: &[u8] = include_bytes!("../internal/styles/styles.gresource");
@@ -51,7 +51,7 @@ fn on_activate(app: &adw::Application) {
     }
 }
 
-/// Panics inside GLib callbacks abort the process (they cannot unwind through C),
+/// Panics inside `GLib` callbacks abort the process (they cannot unwind through C),
 /// so log them with a backtrace before the default hook runs.
 fn install_panic_hook() {
     let default = std::panic::take_hook();

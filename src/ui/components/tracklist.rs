@@ -1,22 +1,22 @@
-//! Port of `components/tracklist`: a ListView of tracks with configurable columns
+//! Port of `components/tracklist`: a `ListView` of tracks with configurable columns
 //! and optional drag-and-drop reordering.
 use std::cell::{Cell, RefCell};
 use std::rc::{Rc, Weak};
 
 use adw::prelude::*;
-use gtk::{gdk, gio, glib, graphene, pango};
+use gtk::{gdk, gio, graphene, pango};
 
 use crate::i18n::{tr, trf};
 use crate::model::{format_duration, Track};
 use crate::player;
 use crate::signals::State;
 use crate::state;
-use crate::ui::dsl::*;
+use crate::ui::dsl::{W, label, hstack, spacing, vstack, spacer, on_state};
 use crate::{imgutil, settings};
 
 type ColFn = dyn Fn(Option<&Track>, &gtk::Grid, usize, i32) -> i32;
 
-/// A column renderer (port of ColumnFunc).
+/// A column renderer (port of `ColumnFunc`).
 #[derive(Clone)]
 pub struct Col(pub Rc<ColFn>);
 
@@ -45,7 +45,7 @@ impl Col {
         Col::new(|t, g, _, c| {
             let b = gtk::Button::new().class("flat");
             b.set_action_name(Some("win.player.play-track"));
-            b.set_action_target_value(Some(&t.map(|t| t.id()).unwrap_or_default().to_variant()));
+            b.set_action_target_value(Some(&t.map(crate::model::Track::id).unwrap_or_default().to_variant()));
             g.attach(&b, 0, 0, c, 1);
             0
         })
@@ -123,7 +123,7 @@ impl Col {
         })
     }
 
-    /// Port of CustomButtonColumn.
+    /// Port of `CustomButtonColumn`.
     pub fn custom_button(on_click: impl Fn(&str, usize, i32) + 'static) -> Self {
         let on_click = Rc::new(on_click);
         Col::new(move |t, g, p, c| {
@@ -144,7 +144,7 @@ impl Col {
         Col::new(move |t, g, p, c| inner.call(t, g, p, c + extra))
     }
 
-    /// Port of CustomWidgetButtonColumn.
+    /// Port of `CustomWidgetButtonColumn`.
     pub fn custom_widget_button(button: impl Fn(&str, usize, i32) -> gtk::Widget + 'static) -> Self {
         Col::new(move |t, g, p, c| {
             let Some(t) = t else {
@@ -159,7 +159,7 @@ impl Col {
 
     pub fn duration() -> Self {
         Col::new(|t, g, _, c| {
-            g.attach(&label(&format_duration(t.map(|t| t.duration()).unwrap_or_default())).margin(10), c, 0, 1, 1);
+            g.attach(&label(&format_duration(t.map(crate::model::Track::duration).unwrap_or_default())).margin(10), c, 0, 1, 1);
             1
         })
     }
@@ -187,7 +187,7 @@ impl Col {
 
     pub fn title() -> Self {
         Col::new(|t, g, _, c| {
-            let l = label(&t.map(|t| t.formatted_title()).unwrap_or_default())
+            let l = label(&t.map(crate::model::Track::formatted_title).unwrap_or_default())
                 .font_weight(500)
                 .halign(gtk::Align::Start)
                 .hexp(true)
@@ -200,7 +200,7 @@ impl Col {
 
     pub fn title_album() -> Self {
         Col::new(|t, g, _, c| {
-            let title = label(&t.map(|t| t.formatted_title()).unwrap_or_default()).font_weight(500).halign(gtk::Align::Start);
+            let title = label(&t.map(crate::model::Track::formatted_title).unwrap_or_default()).font_weight(500).halign(gtk::Align::Start);
             title.set_ellipsize(pango::EllipsizeMode::End);
             let album = label(&t.and_then(|t| t.album.as_ref()).map(|a| a.title.clone()).unwrap_or_default())
                 .class("dimmed")
@@ -237,7 +237,7 @@ struct Inner {
 
 pub type BoxedReorderFn = Box<dyn Fn(usize, usize, &Track)>;
 
-/// Port of TrackList. Cheap to clone.
+/// Port of `TrackList`. Cheap to clone.
 #[derive(Clone)]
 pub struct TrackList(Rc<Inner>);
 
@@ -331,7 +331,7 @@ impl TrackList {
         });
     }
 
-    /// Sets the tracks directly (diffing like BindTracks).
+    /// Sets the tracks directly (diffing like `BindTracks`).
     pub fn set_tracks(&self, new: &[Track]) {
         sync(&self.0, new);
     }
@@ -352,8 +352,8 @@ impl TrackList {
     }
 }
 
-/// Diffs `new` into the store. The RefCell is never borrowed while the store
-/// is mutated: splicing emits items-changed, which synchronously runs bind()
+/// Diffs `new` into the store. The `RefCell` is never borrowed while the store
+/// is mutated: splicing emits items-changed, which synchronously runs `bind()`
 /// (and other handlers) that borrow `tracks` again.
 fn sync(i: &Inner, new: &[Track]) {
     let old = std::mem::replace(&mut *i.tracks.borrow_mut(), new.to_vec());
@@ -437,7 +437,7 @@ fn setup(i: &Inner, w: &Weak<Inner>, item: &gtk::ListItem) {
             let (w1, li1) = (Rc::downgrade(&inner), item.downgrade());
             ds.connect_prepare(move |_, _, _| {
                 let (i, item) = (w1.upgrade()?, li1.upgrade()?);
-                let p = item.position() as i64;
+                let p = i64::from(item.position());
                 i.moving_source.set(p);
                 i.moving_target.set(p);
                 *i.being_moved.borrow_mut() = i.tracks.borrow().get(p as usize).cloned();
@@ -507,8 +507,8 @@ fn toggle_drop_target(i: &Inner, w: &Weak<Inner>, on: bool) {
         target.connect_drag_motion(move |_, _, _, y| {
             let Some(i) = w1.upgrade() else { return gdk::DragAction::empty() };
             let Some(tr) = i.being_moved.borrow().clone() else { return gdk::DragAction::empty() };
-            let h = i.view.first_child().map(|c| c.height()).unwrap_or(1).max(1);
-            let idx = (y / h as f64).floor().max(0.0) as i64;
+            let h = i.view.first_child().map_or(1, |c| c.height()).max(1);
+            let idx = (y / f64::from(h)).floor().max(0.0) as i64;
             if idx != i.moving_target.get() {
                 if idx as usize > i.tracks.borrow().len() {
                     return gdk::DragAction::empty();

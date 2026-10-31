@@ -1,11 +1,11 @@
 //! Port of `components/media_card`.
 use adw::prelude::*;
-use gtk::{glib, pango};
+use gtk::pango;
 
 use crate::api::legacy;
 use crate::i18n::trn;
 use crate::model::{Album, ArtistInfo, Cover, Playlist, Track};
-use crate::ui::dsl::*;
+use crate::ui::dsl::{W, label, vstack};
 use crate::{imgutil, router, settings};
 
 pub fn subtitle(text: &str) -> gtk::Label {
@@ -55,7 +55,7 @@ pub fn artist(a: &ArtistInfo) -> gtk::Button {
 }
 
 pub fn playlist(p: &Playlist) -> gtk::Button {
-    let creator = p.creator.as_ref().map(|c| c.title().to_string()).unwrap_or_else(|| "TIDAL".into());
+    let creator = p.creator.as_ref().map_or_else(|| "TIDAL".into(), |c| c.title().to_string());
     let sub = vstack(&[
         subtitle(&creator).upcast_ref(),
         subtitle(&trn("%d Track", "%d Tracks", p.count, &[&p.count])).upcast_ref(),

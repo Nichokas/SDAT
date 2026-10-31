@@ -34,7 +34,7 @@ impl Queue {
         &self.entries
     }
     pub fn len(&self) -> usize {
-        self.entries.with(|v| v.len())
+        self.entries.with(std::vec::Vec::len)
     }
     pub fn is_empty(&self) -> bool {
         self.len() == 0
@@ -175,7 +175,7 @@ impl DurableQueue {
     /// Restores the original order, continuing after `current_id`.
     pub fn restore(&self, current_id: &str) {
         let src = self.source.borrow().clone();
-        let offset = src.iter().position(|t| t.id() == current_id).map(|i| i + 1).unwrap_or(0);
+        let offset = src.iter().position(|t| t.id() == current_id).map_or(0, |i| i + 1);
         self.queue.set(src[offset..].to_vec());
         self.shuffled.set(false);
     }
@@ -252,7 +252,7 @@ mod tests {
         assert!(q.contains("2"));
         let skipped = q.skip(1).unwrap();
         assert_eq!(skipped[0].id(), "1");
-        assert!(q.skip(5).is_err());
+        q.skip(5).unwrap_err();
         assert_eq!(ids(&q), ["2"]);
         q.clear();
         assert!(q.is_empty());

@@ -2,11 +2,11 @@
 use std::rc::Rc;
 
 use adw::prelude::*;
-use gtk::{gdk, glib};
+use gtk::gdk;
 
 use crate::i18n::tr;
 use crate::imgutil;
-use crate::ui::dsl::*;
+use crate::ui::dsl::{W, label, spacing, vstack};
 
 const MODULE: usize = 20;
 const QUIET: usize = 2;
@@ -27,7 +27,7 @@ fn in_rounded(px: f64, py: f64, x0: f64, y0: f64, size: f64, r: f64) -> bool {
 }
 
 /// Renders a QR code with rounded finders and liquid (rounded) blocks,
-/// approximating go-qrcode's RoundedFinder + LiquidBlock shapes.
+/// approximating go-qrcode's `RoundedFinder` + `LiquidBlock` shapes.
 pub fn render_qr(data: &str) -> Option<gdk::Texture> {
     let code = qrcode::QrCode::new(data.as_bytes()).ok()?;
     let w = code.width();
@@ -89,12 +89,9 @@ pub fn new_linking(window: Option<gtk::Window>, code: &str, link: &str, cancel: 
     let link = if link.contains("://") { link.to_string() } else { format!("https://{link}") };
     let qr = gtk::Image::new();
     qr.set_pixel_size(186);
-    match render_qr(&link) {
-        Some(t) => qr.set_paintable(Some(&t)),
-        None => {
-            log::error!("could not generate QR code to sign in");
-            qr.set_paintable(Some(&imgutil::missing_album()));
-        }
+    if let Some(t) = render_qr(&link) { qr.set_paintable(Some(&t)) } else {
+        log::error!("could not generate QR code to sign in");
+        qr.set_paintable(Some(&imgutil::missing_album()));
     }
     let frame = gtk::AspectFrame::new(0.5, 0.5, 1.0, true);
     frame.set_child(Some(&qr));

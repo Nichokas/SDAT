@@ -2,7 +2,7 @@
 use std::cell::{Cell, RefCell};
 
 use adw::prelude::*;
-use gtk::{gdk, gio, glib, gsk};
+use gtk::{gdk, gio, gsk};
 
 use crate::ui::accels::PRIMARY;
 
@@ -135,8 +135,8 @@ impl MediaViewer {
         self.picture.set_paintable(Some(paintable));
         self.revealer.set_visible(true);
         self.revealer.set_reveal_child(true);
-        let mut w = paintable.intrinsic_width() as f64;
-        let mut h = paintable.intrinsic_height() as f64;
+        let mut w = f64::from(paintable.intrinsic_width());
+        let mut h = f64::from(paintable.intrinsic_height());
         if w <= 0.0 {
             w = 1440.0;
         }
@@ -160,7 +160,7 @@ impl MediaViewer {
         }
         self.revealer.set_reveal_child(false);
         let r = self.revealer.downgrade();
-        glib::timeout_add_local_once(std::time::Duration::from_millis(self.revealer.transition_duration() as u64), move || {
+        glib::timeout_add_local_once(std::time::Duration::from_millis(u64::from(self.revealer.transition_duration())), move || {
             if let Some(r) = r.upgrade() {
                 r.set_visible(false);
             }
@@ -186,6 +186,6 @@ impl MediaViewer {
             bh = self.picture.height();
             self.base.set((bw, bh));
         }
-        self.picture.set_size_request((bw as f64 * level) as i32, (bh as f64 * level) as i32);
+        self.picture.set_size_request((f64::from(bw) * level) as i32, (f64::from(bh) * level) as i32);
     }
 }

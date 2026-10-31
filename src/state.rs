@@ -47,7 +47,7 @@ pub static MIXES: FavouriteCache = FavouriteCache::new(Kind::Mixes);
 pub static PLAYLISTS: FavouriteCache = FavouriteCache::new(Kind::Playlists);
 pub static TRACKS: FavouriteCache = FavouriteCache::new(Kind::Tracks);
 
-const TTL: Duration = Duration::from_secs(5 * 60);
+const TTL: Duration = Duration::from_mins(5);
 
 impl FavouriteCache {
     const fn new(kind: Kind) -> Self {
@@ -108,33 +108,30 @@ impl FavouriteCache {
             && t.elapsed() < TTL {
                 return Ok(items.clone());
             }
-        match self.kind {
-            Kind::Mixes => {
-                let (mut list, mut etag) = api::favourite_mix_ids("", "")?;
-                inner.last_fetched = Some(Instant::now());
-                let mut items = std::mem::take(&mut list.content);
-                while !list.cursor.is_empty() {
-                    let (l, e) = api::favourite_mix_ids(&list.cursor, &etag)?;
-                    list = l;
-                    etag = e;
-                    items.append(&mut list.content);
-                }
-                inner.items = Some(items);
-                inner.etag = etag;
+        if self.kind == Kind::Mixes {
+            let (mut list, mut etag) = api::favourite_mix_ids("", "")?;
+            inner.last_fetched = Some(Instant::now());
+            let mut items = std::mem::take(&mut list.content);
+            while !list.cursor.is_empty() {
+                let (l, e) = api::favourite_mix_ids(&list.cursor, &etag)?;
+                list = l;
+                etag = e;
+                items.append(&mut list.content);
             }
-            _ => {
-                let res = api::favourite_ids(&uid, &inner.etag)?;
-                inner.last_fetched = Some(Instant::now());
-                if let Some((lists, etag)) = res {
-                    let list = match self.kind {
-                        Kind::Albums => lists.album,
-                        Kind::Artists => lists.artist,
-                        Kind::Playlists => lists.playlist,
-                        _ => lists.track,
-                    };
-                    inner.items = Some(list);
-                    inner.etag = etag;
-                }
+            inner.items = Some(items);
+            inner.etag = etag;
+        } else {
+            let res = api::favourite_ids(&uid, &inner.etag)?;
+            inner.last_fetched = Some(Instant::now());
+            if let Some((lists, etag)) = res {
+                let list = match self.kind {
+                    Kind::Albums => lists.album,
+                    Kind::Artists => lists.artist,
+                    Kind::Playlists => lists.playlist,
+                    _ => lists.track,
+                };
+                inner.items = Some(list);
+                inner.etag = etag;
             }
         }
         Ok(inner.items.clone().unwrap_or_default())

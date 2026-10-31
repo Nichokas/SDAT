@@ -89,7 +89,7 @@ impl Cover {
     }
 }
 
-/// Where a cover comes from. OpenAPI objects carry several artwork sizes, legacy
+/// Where a cover comes from. `OpenAPI` objects carry several artwork sizes, legacy
 /// ones only image/video IDs.
 #[derive(Debug, Clone, Default)]
 pub enum CoverSource {
@@ -110,7 +110,7 @@ pub fn video_url(id: &str) -> String {
 impl CoverSource {
     pub fn cover(&self, preferred_size: i32) -> Cover {
         // Go passes math.MaxInt to request the largest file; keep that sentinel.
-        let size = if preferred_size == i32::MAX { i64::MAX } else { preferred_size.max(0) as i64 };
+        let size = if preferred_size == i32::MAX { i64::MAX } else { i64::from(preferred_size.max(0)) };
         match self {
             CoverSource::None => Cover::default(),
             CoverSource::Artworks(a) => Cover::new(
@@ -281,7 +281,7 @@ impl Track {
         self.album.as_ref().map(|a| a.cover(size)).unwrap_or_default()
     }
     pub fn route(&self) -> String {
-        format!("album/{}", self.album.as_ref().map(|a| a.id.as_str()).unwrap_or(""))
+        format!("album/{}", self.album.as_ref().map_or("", |a| a.id.as_str()))
     }
     pub fn artist_names(&self) -> Vec<String> {
         artist_names(&self.artists)
@@ -450,7 +450,7 @@ pub fn track_from_openapi(t: &openapi::Track) -> Track {
 
 pub fn manifest_from_openapi(m: &openapi::TrackManifest) -> TrackManifest {
     let a = &m.data.attributes;
-    let norm = |n: &Option<openapi::AudioNormalizationData>| n.as_ref().map(|n| Normalization { peak: n.peak_amplitude as f64, gain: n.replay_gain as f64 });
+    let norm = |n: &Option<openapi::AudioNormalizationData>| n.as_ref().map(|n| Normalization { peak: f64::from(n.peak_amplitude), gain: f64::from(n.replay_gain) });
     TrackManifest {
         album_normalization: norm(&a.album_audio_normalization_data),
         track_normalization: norm(&a.track_audio_normalization_data),
@@ -546,7 +546,7 @@ mod tests {
     fn durations() {
         assert_eq!(format_duration(Duration::from_secs(65)), "1:05");
         assert_eq!(format_duration(Duration::from_secs(3725)), "1:02:05");
-        assert_eq!(format_duration(Duration::from_secs(90000)), "1d 1:00:00");
+        assert_eq!(format_duration(Duration::from_hours(25)), "1d 1:00:00");
     }
     #[test]
     fn titles() {

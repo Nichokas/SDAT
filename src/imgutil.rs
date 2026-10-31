@@ -7,11 +7,11 @@ use std::collections::HashMap;
 use std::time::{Duration, Instant};
 
 use gtk::prelude::*;
-use gtk::{gdk, glib};
+use gtk::gdk;
 
 use crate::{api, settings};
 
-const TTL: Duration = Duration::from_secs(10 * 60);
+const TTL: Duration = Duration::from_mins(10);
 const MAX_COST: u64 = 50 * 1024 * 1024;
 
 #[derive(Default)]

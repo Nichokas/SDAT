@@ -11,7 +11,7 @@ fn main() {
     let schema_out = Path::new(&out).join("schemas");
     std::fs::create_dir_all(&schema_out).unwrap();
     std::fs::copy(schema_src.join("dev.dergs.Tonearm.gschema.xml"), schema_out.join("dev.dergs.Tonearm.gschema.xml")).unwrap();
-    let ok = Command::new("glib-compile-schemas").arg(&schema_out).status().map(|s| s.success()).unwrap_or(false);
+    let ok = Command::new("glib-compile-schemas").arg(&schema_out).status().is_ok_and(|s| s.success());
     if !ok {
         println!("cargo:warning=glib-compile-schemas failed; install the schema system-wide or set GSETTINGS_SCHEMA_DIR");
     }

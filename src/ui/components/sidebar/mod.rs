@@ -8,10 +8,10 @@ use gtk::pango;
 
 use crate::i18n::tr;
 use crate::player::{self, PlaybackStatus};
-use crate::ui::dsl::*;
+use crate::ui::dsl::{W, label, on_state, spacing, vstack, hstack, spacer};
 use crate::imgutil;
 
-/// Port of MiniPlayer.
+/// Port of `MiniPlayer`.
 pub fn mini_player() -> adw::Bin {
     let cover = gtk::Image::from_paintable(Some(&imgutil::missing_album()));
     cover.set_pixel_size(54);
@@ -70,4 +70,3 @@ pub fn mini_player() -> adw::Bin {
     bin
 }
 
-use gtk::glib;

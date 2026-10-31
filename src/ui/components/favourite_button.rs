@@ -3,11 +3,10 @@ use std::cell::Cell;
 use std::rc::Rc;
 
 use adw::prelude::*;
-use gtk::glib;
 
 use crate::i18n::tr;
 use crate::state::{self, FavouriteCache};
-use crate::ui::dsl::*;
+use crate::ui::dsl::{W, on_state};
 use crate::api;
 
 fn render(b: &gtk::Button, loading: bool, fav: bool) {
@@ -49,8 +48,8 @@ pub fn favourite_button(cache: &'static FavouriteCache, id: &str) -> gtk::Button
                     render(&b, false, fav.get());
                 }
             });
-        });
-    }
+        })
+    };
     b.connect_clicked(move |b| {
         if loading.get() {
             return;

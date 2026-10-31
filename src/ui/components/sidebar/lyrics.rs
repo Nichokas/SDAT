@@ -5,12 +5,11 @@ use std::sync::LazyLock;
 use std::time::Duration;
 
 use adw::prelude::*;
-use gtk::glib;
 
 use crate::i18n::tr;
 use crate::player::{self, PlaybackStatus};
 use crate::signals::{Subscription, State};
-use crate::ui::dsl::*;
+use crate::ui::dsl::{W, on_state, label, spacing, vstack};
 use crate::{api, global_signal};
 
 static TIMING_RE: LazyLock<regex::Regex> = LazyLock::new(|| regex::Regex::new(r"\[(\d{2}:\d{2}\.\d{2})\](.*)").unwrap());
@@ -143,7 +142,7 @@ impl View {
         on_state(manually_scrolled(), &sync, |b, v| b.set_visible(*v));
         sync.connect_clicked(|_| {
             let v = view();
-            let a = v.active.borrow().as_ref().and_then(|w| w.upgrade());
+            let a = v.active.borrow().as_ref().and_then(glib::WeakRef::upgrade);
             scroll_to(a.as_ref());
             manually_scrolled().set(false);
         });
@@ -171,14 +170,14 @@ fn scroll_to(w: Option<&gtk::Button>) {
     };
     let Some(parent) = w.parent() else { return };
     let Some(b) = w.compute_bounds(&parent) else { return };
-    let center = (b.y() + b.height() / 2.0) as f64;
-    let target = (center - (v.scrolled.height() / 2) as f64).clamp(adj.lower(), (adj.upper() - adj.page_size()).max(adj.lower()));
+    let center = f64::from(b.y() + b.height() / 2.0);
+    let target = (center - f64::from(v.scrolled.height() / 2)).clamp(adj.lower(), (adj.upper() - adj.page_size()).max(adj.lower()));
     adj.set_value(target);
 }
 
 fn set_active(b: Option<&gtk::Button>) {
     let v = view();
-    let cur = v.active.borrow().as_ref().and_then(|w| w.upgrade());
+    let cur = v.active.borrow().as_ref().and_then(glib::WeakRef::upgrade);
     if cur.as_ref() == b {
         return;
     }
@@ -189,7 +188,7 @@ fn set_active(b: Option<&gtk::Button>) {
             l.add_css_class("dimmed");
         }
     }
-    *v.active.borrow_mut() = b.map(|b| b.downgrade());
+    *v.active.borrow_mut() = b.map(gtk::prelude::ObjectExt::downgrade);
     if b.is_some() && !manually_scrolled().get() {
         let b = b.cloned();
         glib::idle_add_local_once(move || scroll_to(b.as_ref()));
@@ -263,7 +262,7 @@ fn set_lines(lines: Vec<Line>, timed: bool) {
                 continue;
             }
             if t.start <= ps.position + Duration::from_millis(250) {
-                let (b, wait) = (b.clone(), t.start - ps.position);
+                let (b, wait) = (b.clone(), t.start.checked_sub(ps.position).unwrap());
                 glib::timeout_add_local_once(wait, move || {
                     if view().generation.get() == generation
                         && let Some(b) = b.upgrade()

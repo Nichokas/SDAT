@@ -10,7 +10,7 @@ use gtk::prelude::*;
 use zbus::object_server::SignalEmitter;
 use zbus::zvariant::{ObjectPath, OwnedValue, Value};
 
-use super::*;
+use super::{DeviceProviderClassExt, DeviceProviderExtManual, ElementClassExt, ElementExtManual, TaskExt, DeviceMonitorExt, DeviceProviderExt, GstValueExt, GstObjectExt, playback_state_changed, PlaybackStatus, CONTINUE, repeat_mode_changed, RepeatMode, shuffle_state_changed, track_changed, volume_changed, seeked, next, previous, pause, play_pause, play, seek_to_position, set_repeat_mode, set_shuffle, current_track_id, set_volume};
 
 const BUS_NAME: &str = "org.mpris.MediaPlayer2.dev.dergs.Tonearm";
 const PATH: &str = "/org/mpris/MediaPlayer2";
@@ -124,28 +124,28 @@ impl PlayerIface {
 #[zbus::interface(name = "org.mpris.MediaPlayer2.Player")]
 impl PlayerIface {
     fn next(&self) {
-        self.send(Cmd::Next)
+        self.send(Cmd::Next);
     }
     fn previous(&self) {
-        self.send(Cmd::Previous)
+        self.send(Cmd::Previous);
     }
     fn pause(&self) {
-        self.send(Cmd::Pause)
+        self.send(Cmd::Pause);
     }
     fn play_pause(&self) {
-        self.send(Cmd::PlayPause)
+        self.send(Cmd::PlayPause);
     }
     fn stop(&self) {
-        self.send(Cmd::Stop)
+        self.send(Cmd::Stop);
     }
     fn play(&self) {
-        self.send(Cmd::Play)
+        self.send(Cmd::Play);
     }
     fn seek(&self, offset: i64) {
-        self.send(Cmd::Seek(offset))
+        self.send(Cmd::Seek(offset));
     }
     fn set_position(&self, _track_id: ObjectPath<'_>, position: i64) {
-        self.send(Cmd::SetPosition(position))
+        self.send(Cmd::SetPosition(position));
     }
     fn open_uri(&self, _uri: &str) {}
 
@@ -306,7 +306,7 @@ fn serve(tx: async_channel::Sender<Cmd>, rx: mpsc::Receiver<Update>) -> zbus::Re
         let has_track = !iface.get().metadata.is_empty();
         if has_track && !owned {
             match conn.request_name(BUS_NAME) {
-                Ok(_) => owned = true,
+                Ok(()) => owned = true,
                 Err(e) => log::error!("name already taken {BUS_NAME}: {e}"),
             }
         } else if !has_track && owned {

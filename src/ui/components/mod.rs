@@ -15,12 +15,12 @@ use std::cell::Cell;
 use std::rc::Rc;
 
 use adw::prelude::*;
-use gtk::{gdk, gio, glib, pango};
+use gtk::{gdk, gio, pango};
 
 use crate::api::legacy::{self, item_type, ItemData};
 use crate::i18n::tr;
 use crate::model::{self, Cover};
-use crate::ui::dsl::*;
+use crate::ui::dsl::{W, label, spacing, hstack, clamp, on_signal, spacer, vstack};
 use crate::{imgutil, router};
 
 pub use horizontal_list::HorizontalList;
@@ -38,7 +38,7 @@ impl CancelToken {
     }
 }
 
-/// Port of RenderCover: sets the static cover, then the animated one once prepared.
+/// Port of `RenderCover`: sets the static cover, then the animated one once prepared.
 pub fn render_cover(cover: Cover, target: impl Fn(gdk::Paintable) + 'static) -> CancelToken {
     let token = CancelToken::default();
     if !cover.has_static() && !cover.has_animated() {
@@ -114,7 +114,7 @@ pub fn squircle_picture(p: gtk::Picture) -> gtk::Picture {
 
 // ---------------------------------------------------------------- route button
 
-/// Port of RouteButton: a header button that is "raised" while its route is active.
+/// Port of `RouteButton`: a header button that is "raised" while its route is active.
 pub struct RouteButton {
     pub button: gtk::Button,
     image: gtk::Image,
@@ -219,7 +219,7 @@ fn unsupported_element() -> gtk::Widget {
     hstack(&[l.upcast_ref()]).hexp(true).hmargin(40).upcast()
 }
 
-/// Port of ForPageItem (v2 pages).
+/// Port of `ForPageItem` (v2 pages).
 pub fn for_page_item(item: &legacy::PageItem) -> gtk::Widget {
     match item.type_.as_str() {
         item_type::HORIZONTAL_LIST | item_type::HORIZONTAL_LIST_WITH_CONTEXT => {
@@ -285,7 +285,7 @@ pub fn for_page_item(item: &legacy::PageItem) -> gtk::Widget {
     }
 }
 
-/// Port of ForModule (v1 pages).
+/// Port of `ForModule` (v1 pages).
 pub fn for_module(module: &legacy::Module) -> gtk::Widget {
     match module.type_.as_str() {
         "VIDEO_LIST" => gtk::Box::new(gtk::Orientation::Horizontal, 0).upcast(),

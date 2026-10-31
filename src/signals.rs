@@ -47,7 +47,7 @@ impl<T> Signal<T> {
     }
 }
 
-/// A signal that remembers its last value (StatefulSignal).
+/// A signal that remembers its last value (`StatefulSignal`).
 pub struct State<T> {
     value: RefCell<T>,
     signal: Signal<T>,

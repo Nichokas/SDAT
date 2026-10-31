@@ -1,5 +1,5 @@
 //! HTTP client for TIDAL (port of `pkg/tidalapi`): middleware (headers, base
-//! URL, default query params), auth strategies (refresh token and OpenAPI
+//! URL, default query params), auth strategies (refresh token and `OpenAPI`
 //! client credentials), device linking and every endpoint Tonearm uses.
 //!
 //! All functions are blocking; UI code runs them through [`crate::api::run`].
@@ -159,7 +159,7 @@ fn locale() -> String {
     }
 }
 
-/// Builds a request with the same middleware as Go's MiddlewareRoundTripper.
+/// Builds a request with the same middleware as Go's `MiddlewareRoundTripper`.
 fn request(method: Method, path: &str, query: &[(&str, String)]) -> Result<RequestBuilder> {
     let url = if path.starts_with("http://") || path.starts_with("https://") {
         path.to_string()
@@ -175,7 +175,7 @@ fn request(method: Method, path: &str, query: &[(&str, String)]) -> Result<Reque
             .collect();
         let mut q = url.query_pairs_mut();
         q.clear();
-        for (k, v) in existing.iter() {
+        for (k, v) in &existing {
             q.append_pair(k, v);
         }
         for (k, v) in query {
@@ -185,8 +185,8 @@ fn request(method: Method, path: &str, query: &[(&str, String)]) -> Result<Reque
         q.append_pair("platform", "WEB");
         q.append_pair("countryCode", country_code());
         q.append_pair("timeOffset", &utc_offset());
-        q.append_pair("locale", &locale());
-    }
+        q.append_pair("locale", &locale())
+    };
     let mut auth = user_access_token()?;
     if auth.is_none() && url.as_str().contains(&settings::openapi_base_url()) {
         auth = Some(openapi_access_token()?);

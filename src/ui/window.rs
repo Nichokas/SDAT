@@ -5,13 +5,13 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 
 use adw::prelude::*;
-use gtk::{gio, glib};
+use gtk::gio;
 
 use crate::i18n::{tr, trf};
 use crate::ui::accels::PRIMARY;
 use crate::ui::components::sidebar::{lyrics, player_view, queue};
 use crate::ui::components::{RouteButton, linking, media_viewer};
-use crate::ui::dsl::*;
+use crate::ui::dsl::{on_signal, clamp, W, spacing, hstack, on_state, vstack};
 use crate::{api, model, player, router, secrets, service, settings, state};
 
 thread_local! {
@@ -27,7 +27,7 @@ pub fn toast(msg: &str) {
 }
 
 fn accel(app: &adw::Application, action: &str, accels: &[String]) {
-    let a: Vec<&str> = accels.iter().map(|s| s.as_str()).collect();
+    let a: Vec<&str> = accels.iter().map(std::string::String::as_str).collect();
     app.set_accels_for_action(action, &a);
 }
 
@@ -96,7 +96,7 @@ pub fn version_number(version: Option<&str>, commit: &str) -> String {
             }
             if let Some((tag, off, hash)) = describe_parts(commit) {
                 let tag = tag.strip_prefix('v').unwrap_or(&tag).to_string();
-                let suffix = if off != "0" { "β" } else { "" };
+                let suffix = if off == "0" { "" } else { "β" };
                 format!("{}{} {}(r{}.{})", version_prefix(&tag), tag, suffix, off, hash)
             } else {
                 format!("α git+{}", &commit[..commit.len().min(7)])
@@ -180,7 +180,7 @@ fn loading_view() -> gtk::Widget {
     thread_local! {
         static V: gtk::Widget = clamp(50, &adw::Spinner::new()).upcast();
     }
-    V.with(|v| v.clone())
+    V.with(std::clone::Clone::clone)
 }
 
 fn build_content_layout() -> gtk::Widget {
@@ -381,7 +381,7 @@ fn sign_in(window: &adw::ApplicationWindow) {
         let cancelled = Arc::new(AtomicBool::new(false));
         let c = cancelled.clone();
         let win = w.upgrade();
-        let dialog = linking::new_linking(win.clone().map(|w| w.upcast()), &dlc.user_code, &dlc.verification_uri_complete, Rc::new(move || c.store(true, Ordering::SeqCst)));
+        let dialog = linking::new_linking(win.clone().map(gtk::prelude::Cast::upcast), &dlc.user_code, &dlc.verification_uri_complete, Rc::new(move || c.store(true, Ordering::SeqCst)));
         dialog.present(win.as_ref());
         let c = cancelled.clone();
         let r = api::run(move || api::poll_device_linking_status(&dlc.device_code, dlc.interval, &|| c.load(Ordering::SeqCst))).await;
@@ -413,27 +413,27 @@ fn install_actions(app: &adw::Application, window: &adw::ApplicationWindow) {
     let ww = wa.clone();
     app.add_action(&simple("about", move || {
         if let Some(w) = ww() {
-            present_about(&w)
+            present_about(&w);
         }
     }));
     let ww = wa.clone();
     app.add_action(&simple("preferences", move || {
         if let Some(w) = ww() {
-            present_preferences(&w)
+            present_preferences(&w);
         }
     }));
     accel(app, "app.preferences", &[p("comma"), p("p")]);
     let ww = wa.clone();
     app.add_action(&simple("shortcuts", move || {
         if let Some(w) = ww() {
-            present_shortcuts(&w)
+            present_shortcuts(&w);
         }
     }));
     accel(app, "app.shortcuts", &[p("question")]);
     let a = app.downgrade();
     app.add_action(&simple("quit", move || {
         if let Some(a) = a.upgrade() {
-            a.quit()
+            a.quit();
         }
     }));
     accel(app, "app.quit", &[p("q")]);
@@ -441,7 +441,7 @@ fn install_actions(app: &adw::Application, window: &adw::ApplicationWindow) {
     let ww = wa.clone();
     window.add_action(&simple("close", move || {
         if let Some(w) = ww() {
-            w.close()
+            w.close();
         }
     }));
     accel(app, "win.close", &[p("w")]);
@@ -452,7 +452,7 @@ fn install_actions(app: &adw::Application, window: &adw::ApplicationWindow) {
 
     window.add_action(&with_string("player.play-track", |id| spawn_logged("play track", async move { player::play_track_id(&id).await })));
     window.add_action(&with_string("player.play-playlist", |id| {
-        spawn_logged("play playlist", async move { player::play_playlist(&id, false, 0).await })
+        spawn_logged("play playlist", async move { player::play_playlist(&id, false, 0).await });
     }));
     window.add_action(&simple("player.shuffle", player::toggle_shuffle));
     accel(app, "win.player.shuffle", &[p("s")]);
@@ -475,7 +475,7 @@ fn install_actions(app: &adw::Application, window: &adw::ApplicationWindow) {
     let ww = wa.clone();
     window.add_action(&simple("sign-in", move || {
         if let Some(w) = ww() {
-            sign_in(&w)
+            sign_in(&w);
         }
     }));
     window.add_action(&simple("sign-out", || {
@@ -670,7 +670,7 @@ fn present_preferences(window: &adw::ApplicationWindow) {
         .subtitle(tr("Choose whether Tonearm should prefer album replay gain, track replay gain or decide automatically"))
         .build();
     let strs = settings::replay_gain_mode_strings();
-    let strs: Vec<&str> = strs.iter().map(|s| s.as_str()).collect();
+    let strs: Vec<&str> = strs.iter().map(std::string::String::as_str).collect();
     rg.set_model(Some(&gtk::StringList::new(&strs)));
     rg.set_selected(settings::replay_gain_mode() as u32);
     rg.connect_selected_notify(|r| {

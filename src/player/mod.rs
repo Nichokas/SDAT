@@ -1,5 +1,5 @@
 //! Port of `internal/player`: playbin3 wrapper, queues, controls, gapless
-//! playback, ReplayGain, stream quality and MPRIS.
+//! playback, `ReplayGain`, stream quality and MPRIS.
 #![allow(dead_code, unused_imports)]
 
 pub mod mpris;
@@ -73,7 +73,7 @@ fn playbin() -> Option<gst::Element> {
     with(|p| p.playbin.clone())
 }
 
-/// Initialises GStreamer, playbin3, the state machine and MPRIS.
+/// Initialises `GStreamer`, playbin3, the state machine and MPRIS.
 /// Must be called once on the GTK main thread.
 pub fn init() -> Result<()> {
     if with(|_| ()).is_some() {

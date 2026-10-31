@@ -4,7 +4,7 @@
 use anyhow::Result;
 
 use crate::api::{self, openapi};
-use crate::model::*;
+use crate::model::{Track, track_from_openapi, Album, album_from_openapi, AlbumInfo, album_info_from_openapi, Artist, artist_page_from_v2, ArtistInfo, artist_from_openapi, Playlist, playlist_from_openapi, PlaylistInfo, playlist_info_from_openapi, TrackInfo, track_info_from_openapi, TrackManifest, manifest_from_openapi};
 
 pub const CURSOR_END: &str = "END_REACHED";
 
@@ -25,7 +25,7 @@ impl<T: Clone> Paginator<T> {
     pub fn new(fetch: PageFn, resolve: ResolveFn<T>) -> Self {
         Paginator { fetch, resolve, cursor: String::new(), items: vec![], fixed: false }
     }
-    /// ArrayPaginator: already consumed, `next_page` returns the array.
+    /// `ArrayPaginator`: already consumed, `next_page` returns the array.
     pub fn from_vec(items: Vec<T>) -> Self {
         Paginator { fetch: Box::new(|_| Ok(Default::default())), resolve: Box::new(|_| vec![]), cursor: CURSOR_END.into(), items, fixed: true }
     }

@@ -315,7 +315,7 @@ impl Machine {
     }
 
     fn target(&self, t: &Trigger) -> Option<State> {
-        use State::*;
+        use State::{Stopped, Paused, Playing, PlayingGapless, PlayingRetrying, Preparing};
         let s = self.state.get();
         match (s, t) {
             (Stopped | Paused | Playing | PlayingGapless | PlayingRetrying, Trigger::PlayTrackId(..) | Trigger::PlayTrack(..)) => {
