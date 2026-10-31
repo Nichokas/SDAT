@@ -151,6 +151,8 @@ pub fn new_window(app: &adw::Application) -> adw::ApplicationWindow {
     window.connect_default_width_notify(save);
     window.connect_default_height_notify(save);
 
+    // Kept top-level pages hold per-account data; reload them after sign in/out.
+    on_state(state::signed_in_changed(), &window, |_, _| router::invalidate_kept_pages());
     router::navigate(&settings::default_page());
 
     if !is_stable(VERSION, COMMIT) {
@@ -616,6 +618,7 @@ fn country_row() -> adw::ComboRow {
         crate::country::set_preferred(code);
         api::client::reset_country_code();
         crate::cache::clear();
+        crate::router::invalidate_kept_pages();
     });
     row
 }

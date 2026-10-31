@@ -66,6 +66,18 @@ thread_local! {
     static ROUTES: RefCell<Vec<(Regex, Handler)>> = const { RefCell::new(Vec::new()) };
     static HISTORY: RefCell<History> = RefCell::new(History::default());
     static GENERATION: std::cell::Cell<u64> = const { std::cell::Cell::new(0) };
+    /// Loaded top-level pages, reused on revisit so switching tabs shows no spinner.
+    static KEPT: RefCell<std::collections::HashMap<String, HistoryEntry>> = RefCell::default();
+}
+
+/// Top-level tabs whose loaded page is kept alive (widgets, data and scroll position).
+pub fn is_kept_route(path: &str) -> bool {
+    matches!(path, "home" | "explore" | "my-collection")
+}
+
+/// Drops the kept pages (sign in/out, region change); the next visit reloads them.
+pub fn invalidate_kept_pages() {
+    KEPT.with(|k| k.borrow_mut().clear());
 }
 
 /// Registers `path` (with `:arg` placeholders) to an async handler.
@@ -140,6 +152,15 @@ fn navigate_inner(path: String, off_record: bool) {
         log::debug!("skipped navigation as we are already on the same page");
         return;
     }
+    if !off_record && is_kept_route(&path)
+        && let Some(entry) = KEPT.with(|k| k.borrow().get(&path).cloned())
+    {
+        // Already loaded once: show it instantly, no loading state.
+        GENERATION.with(|g| g.set(g.get() + 1));
+        push(entry.clone());
+        complete(entry);
+        return;
+    }
     navigation().notify(&NavigationEvent { completed: false, path: path.clone(), result: None });
     let generation = GENERATION.with(|g| {
         g.set(g.get() + 1);
@@ -174,6 +195,9 @@ fn navigate_inner(path: String, off_record: bool) {
         };
         if !should_cache {
             entry.expires_at = Some(Instant::now());
+        }
+        if should_cache && is_kept_route(&path) {
+            KEPT.with(|k| k.borrow_mut().insert(path.clone(), entry.clone()));
         }
         if off_record {
             HISTORY.with(|h| {
@@ -227,7 +251,13 @@ pub fn back() {
     if HISTORY.with(|h| h.borrow().entries.is_empty()) {
         return;
     }
-    let Some(prev) = pop() else { return };
+    let Some(mut prev) = pop() else { return };
+    if prev.view.is_none()
+        && let Some(kept) = KEPT.with(|k| k.borrow().get(&prev.path).cloned())
+    {
+        prev = kept.clone();
+        HISTORY.with(|h| h.borrow_mut().current = Some(kept));
+    }
     if prev.view.is_some() {
         GENERATION.with(|g| g.set(g.get() + 1));
         complete(prev);
@@ -242,6 +272,7 @@ pub fn refresh() {
         let c = h.current.as_mut()?;
         c.view = None;
         c.toolbar = None;
+        KEPT.with(|k| k.borrow_mut().remove(&c.path));
         Some(c.path.clone())
     }) else {
         return;
@@ -270,5 +301,54 @@ mod tests {
         let c = re.captures("album/123").unwrap();
         assert_eq!(&c[1], "123");
         assert!(!re.is_match("album/123/x"));
+    }
+}
+
+#[cfg(test)]
+mod kept_tests {
+    use super::*;
+    use std::cell::Cell;
+
+    fn pump() {
+        let ctx = glib::MainContext::default();
+        for _ in 0..50 {
+            ctx.iteration(false);
+        }
+    }
+
+    #[test]
+    #[ignore = "needs a display (gtk::init)"]
+    fn revisiting_a_tab_reuses_the_page_without_loading() {
+        gtk::init().expect("gtk");
+        let builds = Rc::new(Cell::new(0));
+        for p in ["home", "explore"] {
+            let b = Rc::clone(&builds);
+            register(p, move |_| {
+                b.set(b.get() + 1);
+                async { Response::new("t", gtk::Label::new(None)) }
+            });
+        }
+        let loading = Rc::new(Cell::new(0));
+        let l = Rc::clone(&loading);
+        let _h = navigation().on(move |ev| {
+            if !ev.completed {
+                l.set(l.get() + 1);
+            }
+            false
+        });
+        navigate("home");
+        pump();
+        let first = current().and_then(|c| c.view).expect("home view");
+        navigate("explore");
+        pump();
+        navigate("home");
+        pump();
+        assert_eq!(builds.get(), 2);
+        assert_eq!(loading.get(), 2);
+        assert_eq!(current().and_then(|c| c.view), Some(first));
+        invalidate_kept_pages();
+        navigate("explore");
+        pump();
+        assert_eq!(builds.get(), 3);
     }
 }
