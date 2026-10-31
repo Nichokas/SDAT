@@ -493,15 +493,28 @@ pub async fn play_track_radio(track_id: &str, skip_self: bool) -> Result<()> {
 
 /// playTracklist: the tracks are already fetched (Go fetched inside; we fetch
 /// on a worker thread before calling this to keep the UI responsive).
+/// Plays `tracks` as the queue starting at the clicked row; earlier rows go to
+/// the history so "previous" walks back through the list.
+pub fn play_list_from(source: PlaybackSource, tracks: Vec<Track>, clicked: &Track, pos: usize) {
+    let start = crate::model::queue_start(&tracks, clicked.id(), pos);
+    glib::spawn_future_local(async move {
+        if let Err(e) = play_tracklist(source, tracks, false, start).await {
+            toasts().notify(&tr("An error occurred while playing the track"));
+            log::error!("playing the track list failed error={e:#}");
+        }
+    });
+}
+
 fn play_tracks(tracks: Vec<Track>, shuffle: bool, starting_position: usize) -> Result<Track> {
     clear_queues();
     stop();
     base_queue().set(tracks);
     set_shuffle(shuffle, "");
-    if starting_position > 0
-        && let Err(e) = base_queue().skip(starting_position)
-    {
-        log::warn!("could not skip to position {starting_position}: {e:#}");
+    if starting_position > 0 {
+        match base_queue().skip(starting_position) {
+            Ok(skipped) => skipped.into_iter().for_each(|t| history().prepend(t)),
+            Err(e) => log::warn!("could not skip to position {starting_position}: {e:#}"),
+        }
     }
     let Some(t) = next_track(false).0 else {
         anyhow::bail!("tracklist produced no valid tracks to be played");

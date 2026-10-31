@@ -348,6 +348,30 @@ impl TrackList {
         *self.0.click.borrow_mut() = Rc::new(f);
     }
 
+    /// Like [`Self::set_click_handler`] but also hands out the list (held weakly,
+    /// so the handler does not keep the list alive).
+    pub fn set_list_click_handler(&self, f: impl Fn(&Self, &Track, usize) + 'static) {
+        let (wi, wv) = (Rc::downgrade(&self.0), self.1.downgrade());
+        self.set_click_handler(move |t, pos| {
+            if let (Some(i), Some(v)) = (wi.upgrade(), wv.upgrade()) {
+                f(&Self(i, v), t, pos);
+            }
+        });
+    }
+
+    /// Clicking a row plays the whole list from that row, "playing from" `source`.
+    pub fn play_all_on_click(&self, source: impl Fn() -> crate::model::PlaybackSource + 'static) {
+        self.set_list_click_handler(move |l, t, pos| player::play_list_from(source(), l.tracks(), t, pos));
+    }
+
+    pub fn tracks(&self) -> Vec<Track> {
+        self.0.tracks.borrow().clone()
+    }
+
+    pub fn len(&self) -> usize {
+        self.0.tracks.borrow().len()
+    }
+
     pub fn set_reorder_callback(&self, f: Option<BoxedReorderFn>) {
         let on = f.is_some();
         *self.0.reorder.borrow_mut() = f.map(|f| Rc::from(f) as ReorderFn);

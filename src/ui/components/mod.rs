@@ -219,6 +219,12 @@ fn unsupported_element() -> gtk::Widget {
 }
 
 /// Port of `ForPageItem` (v2 pages).
+/// "Playing from" for a track list module on the current page.
+fn page_list_source(title: &str) -> model::PlaybackSource {
+    let route = router::current().map(|c| c.path).unwrap_or_default();
+    model::PlaybackSource::List { title: title.to_string(), route }
+}
+
 pub fn for_page_item(item: &legacy::PageItem) -> gtk::Widget {
     match item.type_.as_str() {
         item_type::HORIZONTAL_LIST | item_type::HORIZONTAL_LIST_WITH_CONTEXT => {
@@ -261,6 +267,8 @@ pub fn for_page_item(item: &legacy::PageItem) -> gtk::Widget {
                     list.add_track(model::track_from_v2(t));
                 }
             }
+            let title = item.title.clone();
+            list.play_all_on_click(move || page_list_source(&title));
             vstack(&[RowTitle::new().set_title(&item.title).widget.upcast_ref(), list.widget()]).hmargin(40).upcast()
         }
         item_type::SHORTCUT_LIST => {
@@ -382,6 +390,8 @@ pub fn for_module(module: &legacy::Module) -> gtk::Widget {
                 };
                 list.add_track(model::track_from_v2(&fake));
             }
+            let title = module.title.clone();
+            list.play_all_on_click(move || page_list_source(&title));
             vstack(&[RowTitle::new().set_title(&module.title).widget.upcast_ref(), list.widget()]).hmargin(40).upcast()
         }
         "PAGE_LINKS_CLOUD" | "PAGE_LINKS" => {

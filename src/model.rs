@@ -287,6 +287,18 @@ pub enum PlaybackSource {
     Playlist(PlaylistInfo),
     Track(Box<Track>),
     MyTracks,
+    /// Any other track list (search results, page modules): its title and route.
+    List { title: String, route: String },
+}
+
+/// Index in `tracks` to start a list playback at when the row `pos` showing
+/// `clicked_id` was activated. Falls back to looking the id up (the list may
+/// have changed since), then to the top.
+pub fn queue_start(tracks: &[Track], clicked_id: &str, pos: usize) -> usize {
+    if tracks.get(pos).is_some_and(|t| t.id() == clicked_id) {
+        return pos;
+    }
+    tracks.iter().position(|t| t.id() == clicked_id).unwrap_or(0)
 }
 
 impl PlaybackSource {
@@ -297,6 +309,7 @@ impl PlaybackSource {
             PlaybackSource::Playlist(p) => p.title.clone(),
             PlaybackSource::Track(t) => t.info.title.clone(),
             PlaybackSource::MyTracks => crate::i18n::tr("My Tracks"),
+            PlaybackSource::List { title, .. } => title.clone(),
         }
     }
     pub fn route(&self) -> String {
@@ -306,6 +319,7 @@ impl PlaybackSource {
             PlaybackSource::Playlist(p) => p.route(),
             PlaybackSource::Track(t) => t.route(),
             PlaybackSource::MyTracks => "my-collection/tracks".into(),
+            PlaybackSource::List { route, .. } => route.clone(),
         }
     }
     pub fn cover(&self, size: i32) -> Cover {
@@ -315,13 +329,14 @@ impl PlaybackSource {
             PlaybackSource::Playlist(p) => p.cover(size),
             PlaybackSource::Track(t) => t.cover(size),
             PlaybackSource::MyTracks => Cover::new("", "https://tidal.com/assets/my-tracks-DTG3pLQW.png"),
+            PlaybackSource::List { .. } => Cover::default(),
         }
     }
     pub fn source_type(&self) -> SourceType {
         match self {
             PlaybackSource::Album(_) => SourceType::Album,
             PlaybackSource::Artist(_) => SourceType::Artist,
-            PlaybackSource::Playlist(_) | PlaybackSource::MyTracks => SourceType::Playlist,
+            PlaybackSource::Playlist(_) | PlaybackSource::MyTracks | PlaybackSource::List { .. } => SourceType::Playlist,
             PlaybackSource::Track(_) => SourceType::Track,
         }
     }
@@ -332,6 +347,7 @@ impl PlaybackSource {
             PlaybackSource::Playlist(p) => p.url(),
             PlaybackSource::Track(t) => t.url(),
             PlaybackSource::MyTracks => "https://tidal.com/my-collection/tracks".into(),
+            PlaybackSource::List { route, .. } => format!("https://tidal.com/{route}"),
         }
     }
 }
@@ -533,6 +549,22 @@ pub fn artist_page_from_v2(p: &legacy::ArtistPage) -> Artist {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn tr_(id: &str) -> Track {
+        let mut t = Track::default();
+        t.info.id = id.into();
+        t
+    }
+
+    #[test]
+    fn list_queue_starts_at_the_clicked_track() {
+        let l: Vec<_> = ["a", "b", "c", "d"].map(tr_).into();
+        assert_eq!(queue_start(&l, "c", 2), 2);
+        // list shifted since the click (e.g. revalidated): find by id
+        assert_eq!(queue_start(&l, "b", 3), 1);
+        assert_eq!(queue_start(&l, "zz", 1), 0);
+        assert_eq!(queue_start(&[], "a", 0), 0);
+    }
     #[test]
     fn durations() {
         assert_eq!(format_duration(Duration::from_secs(65)), "1:05");

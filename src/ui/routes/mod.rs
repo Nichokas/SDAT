@@ -206,12 +206,45 @@ async fn paginated_media_card_page<T: Clone + Send + 'static>(p: Paginator<T>, f
 /// With a `cache` job, a cached list shows instantly and is revalidated in the
 /// background; otherwise pages load with foreground priority and the complete
 /// list is cached once the last page arrives.
-async fn paginated_tracklist_page(p: Paginator<Track>, columns: Vec<Col>, margin: i32, cache: Option<cache::Job>) -> anyhow::Result<(gtk::ScrolledWindow, TrackList)> {
+/// Appends the paginator's items the list doesn't show yet. Idempotent, so the
+/// scroll loader and a click-triggered full fetch can't duplicate rows.
+fn sync_from_paginator(list: &TrackList, p: &service::SharedPaginator<Track>) {
+    let guard = p.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+    for t in guard.items().iter().skip(list.len()).cloned() {
+        list.add_track(t);
+    }
+}
+
+/// Clicking a row plays the whole list from it; pages not loaded yet are
+/// fetched first (off the main thread) and appended to the list.
+fn play_whole_list_on_click(list: &TrackList, p: Option<SharedPaginator<Track>>, source: PlaybackSource) {
+    list.set_list_click_handler(move |l, t, pos| {
+        let (l, t, p, source) = (l.clone(), t.clone(), p.clone(), source.clone());
+        play(
+            async move {
+                if let Some(p) = p {
+                    let pp = std::sync::Arc::clone(&p);
+                    api::run(move || pp.lock().unwrap_or_else(std::sync::PoisonError::into_inner).get_all().map(drop)).await?;
+                    sync_from_paginator(&l, &p);
+                }
+                player::play_list_from(source, l.tracks(), &t, pos);
+                Ok(())
+            },
+            tr("An error occurred while playing the track"),
+            "An error occurred while loading the track list",
+        );
+    });
+}
+
+async fn paginated_tracklist_page(p: Paginator<Track>, columns: Vec<Col>, margin: i32, cache: Option<cache::Job>, source: Option<PlaybackSource>) -> anyhow::Result<(gtk::ScrolledWindow, TrackList)> {
     let key = cache.as_ref().map(cache::Job::key);
     if let (Some(job), Some(cached)) = (cache, key.as_deref().and_then(cache::get)) {
         let list = TrackList::new(columns);
         for t in cached.iter().cloned() {
             list.add_track(t);
+        }
+        if let Some(s) = source {
+            play_whole_list_on_click(&list, None, s);
         }
         let sw = tracklist_scroller(&list, margin);
         revalidate(job, cached, &list);
@@ -227,6 +260,9 @@ async fn paginated_tracklist_page(p: Paginator<Track>, columns: Vec<Col>, margin
     for t in first {
         list.add_track(t);
     }
+    if let Some(s) = source {
+        play_whole_list_on_click(&list, Some(std::sync::Arc::clone(&p)), s);
+    }
     let sw = tracklist_scroller(&list, margin);
     let l = list.clone();
     on_reach_bottom_soon(&sw, move |finish| {
@@ -240,10 +276,8 @@ async fn paginated_tracklist_page(p: Paginator<Track>, columns: Vec<Col>, margin
             let page = service::next_page(&p).await;
             drop(fg);
             match page {
-                Ok(items) => {
-                    for t in items {
-                        l.add_track(t);
-                    }
+                Ok(_) => {
+                    sync_from_paginator(&l, &p);
                     let guard = p.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
                     if guard.is_consumed()
                         && let (Some(k), Some(g)) = (key.as_deref(), generation_at_start)
@@ -339,6 +373,7 @@ async fn album(id: String) -> Response {
         vec![Col::position(), Col::title(), Col::artists(), Col::duration(), Col::controls()],
         30,
         Some(cache::Job::Album(id.clone())),
+        None,
     )
     .await
     {
@@ -375,7 +410,7 @@ async fn playlist(id: String) -> Response {
         Err(e) => return Response::from_error(tr("Playlist"), e),
     };
     let title = p.info.title.clone();
-    let (page, list) = match paginated_tracklist_page(service::get_playlist_tracks(&id), std_columns(), 30, Some(cache::Job::Playlist(id.clone()))).await {
+    let (page, list) = match paginated_tracklist_page(service::get_playlist_tracks(&id), std_columns(), 30, Some(cache::Job::Playlist(id.clone())), None).await {
         Ok(r) => r,
         Err(e) => return Response::from_error(title, e),
     };
@@ -623,6 +658,7 @@ fn top_hits(r: &api::openapi::SearchResultSingle) -> gtk::Widget {
     for t in r.included.tracks(hits) {
         tracks.add_track(model::track_from_openapi(&t));
     }
+    tracks.play_all_on_click(|| PlaybackSource::List { title: tr("Search"), route: "search".into() });
     let albums = HorizontalList::new(&tr("Albums"));
     albums.set_page_margin(40).set_view_all_route(&format!("search/{q}/albums"));
     for a in r.included.albums(hits) {
@@ -720,7 +756,7 @@ async fn search_playlists(q: String) -> Response {
     }
 }
 async fn search_tracks(q: String) -> Response {
-    match paginated_tracklist_page(service::search_tracks(&q), std_columns(), 40, None).await {
+    match paginated_tracklist_page(service::search_tracks(&q), std_columns(), 40, None, Some(PlaybackSource::List { title: tr("Search"), route: format!("search/{q}/tracks") })).await {
         Ok((v, _)) => Response::new(tr("Search"), v),
         Err(e) => Response::from_error(tr("Search"), e),
     }
@@ -774,6 +810,19 @@ async fn my_collection() -> Response {
     for t in tr_.included.tracks(&tr_.data) {
         tracks.add_track(model::track_from_openapi(&t));
     }
+    // The preview shows the first few favourites; play all of them from the clicked one.
+    tracks.set_click_handler(|t, pos| {
+        let t = t.clone();
+        play(
+            async move {
+                let all = cache::all_tracks(cache::Job::FavouriteTracks).await?;
+                player::play_list_from(PlaybackSource::MyTracks, all, &t, pos);
+                Ok(())
+            },
+            tr("An error occurred while playing the track"),
+            "An error occurred while playing the tracks",
+        );
+    });
     let title = RowTitle::new().set_title(&tr("Tracks")).set_view_all_route("my-collection/tracks");
     let tracks_box = vstack(&[title.widget.upcast_ref(), tracks.widget()]).hmargin(40);
     let body = spacing(
@@ -817,7 +866,7 @@ async fn my_tracks() -> Response {
     if let Some(r) = collection_auth() {
         return r;
     }
-    let (page, _) = match paginated_tracklist_page(service::user_collection_tracks("me"), std_columns(), 40, Some(cache::Job::FavouriteTracks)).await {
+    let (page, _) = match paginated_tracklist_page(service::user_collection_tracks("me"), std_columns(), 40, Some(cache::Job::FavouriteTracks), Some(PlaybackSource::MyTracks)).await {
         Ok(v) => v,
         Err(e) => return Response::from_error(tr("My Tracks"), e),
     };
