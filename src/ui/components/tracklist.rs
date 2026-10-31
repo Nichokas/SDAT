@@ -352,22 +352,40 @@ impl TrackList {
     }
 }
 
+/// Diffs `new` into the store. The RefCell is never borrowed while the store
+/// is mutated: splicing emits items-changed, which synchronously runs bind()
+/// (and other handlers) that borrow `tracks` again.
 fn sync(i: &Inner, new: &[Track]) {
-    let mut tracks = i.tracks.borrow_mut();
-    for (idx, t) in new.iter().enumerate() {
-        if idx >= tracks.len() {
-            tracks.push(t.clone());
-            i.store.append(&empty());
-        } else if tracks[idx].id() != t.id() {
-            tracks[idx] = t.clone();
-            i.store.splice(idx as u32, 1, &[empty()]);
+    let old = std::mem::replace(&mut *i.tracks.borrow_mut(), new.to_vec());
+    for (idx, op) in diff_ops(&old, new) {
+        match op {
+            Op::Append => i.store.append(&empty()),
+            Op::Replace => i.store.splice(idx as u32, 1, &[empty()]),
+            Op::Remove => i.store.remove(idx as u32),
         }
     }
-    while tracks.len() > new.len() {
-        let last = tracks.len() - 1;
-        tracks.pop();
-        i.store.remove(last as u32);
+}
+
+#[derive(Debug, PartialEq, Eq, Clone, Copy)]
+enum Op {
+    Append,
+    Replace,
+    Remove,
+}
+
+fn diff_ops(old: &[Track], new: &[Track]) -> Vec<(usize, Op)> {
+    let mut ops = Vec::new();
+    for (idx, t) in new.iter().enumerate() {
+        match old.get(idx) {
+            None => ops.push((idx, Op::Append)),
+            Some(o) if o.id() != t.id() => ops.push((idx, Op::Replace)),
+            _ => {}
+        }
     }
+    for idx in (new.len()..old.len()).rev() {
+        ops.push((idx, Op::Remove));
+    }
+    ops
 }
 
 fn bind(i: &Inner, item: &gtk::ListItem) {
@@ -445,14 +463,22 @@ fn setup(i: &Inner, w: &Weak<Inner>, item: &gtk::ListItem) {
                 }
                 let (s, t) = (i.moving_source.get(), i.moving_target.get());
                 if s >= 0 && t >= 0 {
-                    let mut tracks = i.tracks.borrow_mut();
-                    if (t as usize) < tracks.len() {
-                        tracks.remove(t as usize);
+                    // Never hold the borrow while touching the store (items-changed re-enters bind()).
+                    let removed = {
+                        let mut tracks = i.tracks.borrow_mut();
+                        ((t as usize) < tracks.len()).then(|| tracks.remove(t as usize)).is_some()
+                    };
+                    if removed {
                         i.store.remove(t as u32);
                     }
-                    if let Some(tr) = i.being_moved.borrow_mut().take() {
-                        let s = (s as usize).min(tracks.len());
-                        tracks.insert(s, tr);
+                    let tr = i.being_moved.borrow_mut().take();
+                    if let Some(tr) = tr {
+                        let s = {
+                            let mut tracks = i.tracks.borrow_mut();
+                            let s = (s as usize).min(tracks.len());
+                            tracks.insert(s, tr);
+                            s
+                        };
                         i.store.insert(s as u32, &empty());
                     }
                 }
@@ -484,17 +510,24 @@ fn toggle_drop_target(i: &Inner, w: &Weak<Inner>, on: bool) {
             let h = i.view.first_child().map(|c| c.height()).unwrap_or(1).max(1);
             let idx = (y / h as f64).floor().max(0.0) as i64;
             if idx != i.moving_target.get() {
-                let mut tracks = i.tracks.borrow_mut();
-                if idx as usize > tracks.len() {
+                if idx as usize > i.tracks.borrow().len() {
                     return gdk::DragAction::empty();
                 }
                 let cur = i.moving_target.get();
-                if cur >= 0 && (cur as usize) < tracks.len() {
+                // Mutate the Vec in short borrows; the store is touched with no borrow held.
+                let removed = {
+                    let mut tracks = i.tracks.borrow_mut();
+                    (cur >= 0 && (cur as usize) < tracks.len()).then(|| tracks.remove(cur as usize)).is_some()
+                };
+                if removed {
                     i.store.remove(cur as u32);
-                    tracks.remove(cur as usize);
                 }
-                let idx = (idx as usize).min(tracks.len());
-                tracks.insert(idx, tr);
+                let idx = {
+                    let mut tracks = i.tracks.borrow_mut();
+                    let idx = (idx as usize).min(tracks.len());
+                    tracks.insert(idx, tr);
+                    idx
+                };
                 i.store.insert(idx as u32, &empty());
                 i.moving_target.set(idx as i64);
             }
@@ -521,5 +554,26 @@ fn toggle_drop_target(i: &Inner, w: &Weak<Inner>, on: bool) {
         *dt = Some(target);
     } else if !on && let Some(t) = dt.take() {
         i.view.remove_controller(&t);
+    }
+}
+
+#[cfg(test)]
+#[allow(clippy::field_reassign_with_default)]
+mod sync_tests {
+    use super::*;
+
+    fn tr(id: i64) -> Track {
+        let mut t = Track::default();
+        t.info.id = id.to_string();
+        t
+    }
+
+    #[test]
+    fn diff_ops_append_replace_remove() {
+        let (a, b, c) = (tr(1), tr(2), tr(3));
+        assert_eq!(diff_ops(&[], &[a.clone(), b.clone()]), vec![(0, Op::Append), (1, Op::Append)]);
+        assert_eq!(diff_ops(&[a.clone(), b.clone()], &[a.clone(), c.clone()]), vec![(1, Op::Replace)]);
+        assert_eq!(diff_ops(&[a.clone(), b.clone(), c.clone()], std::slice::from_ref(&a)), vec![(2, Op::Remove), (1, Op::Remove)]);
+        assert!(diff_ops(std::slice::from_ref(&a), std::slice::from_ref(&a)).is_empty());
     }
 }

@@ -674,4 +674,17 @@ pub mod tests {
             assert_eq!(m.target(&t), want, "{from:?} + {t:?}");
         }
     }
+
+    #[test]
+    fn eos_from_playing_targets_stopped_and_is_ignored_when_stopped() {
+        let m = Machine::new(
+            Rc::new(Testbin::default()),
+            Hooks { next_track: |_| (None, false), on_eos_stopped: || Box::pin(async {}), clear_source: || {} },
+        );
+        assert_eq!(m.target(&Trigger::Eos), None);
+        for s in [State::Playing, State::PlayingGapless, State::PlayingRetrying] {
+            m.state.set(s);
+            assert_eq!(m.target(&Trigger::Eos), Some(State::Stopped), "{s:?}");
+        }
+    }
 }

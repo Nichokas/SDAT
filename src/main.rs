@@ -51,8 +51,20 @@ fn on_activate(app: &adw::Application) {
     }
 }
 
+/// Panics inside GLib callbacks abort the process (they cannot unwind through C),
+/// so log them with a backtrace before the default hook runs.
+fn install_panic_hook() {
+    let default = std::panic::take_hook();
+    std::panic::set_hook(Box::new(move |info| {
+        let bt = std::backtrace::Backtrace::force_capture();
+        log::error!("panic: {info}\n{bt}");
+        default(info);
+    }));
+}
+
 fn main() -> glib::ExitCode {
     env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("info")).init();
+    install_panic_hook();
     ensure_schema();
 
     register_resources();
