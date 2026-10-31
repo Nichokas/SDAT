@@ -174,6 +174,33 @@ impl DurableQueue {
     pub fn skip(&self, n: usize) -> Result<Vec<Track>> {
         self.queue.skip(n)
     }
+    /// Adds late-arriving tracks (rest of a paginated list) without touching
+    /// what is already queued: appended in order, or scattered at random
+    /// positions among the upcoming tracks when shuffled. Duplicates are skipped.
+    pub fn extend(&self, tracks: &[Track]) {
+        let new: Vec<Track> = {
+            let src = self.source.borrow();
+            let mut seen: std::collections::HashSet<&str> = src.iter().map(Track::id).collect();
+            tracks.iter().filter(|t| seen.insert(t.id())).cloned().collect()
+        };
+        if new.is_empty() {
+            return;
+        }
+        self.source.borrow_mut().extend(new.iter().cloned());
+        let shuffled = self.shuffled.get();
+        self.queue.entries.notify(|mut v| {
+            if shuffled {
+                let mut rng = rand::rng();
+                for t in new {
+                    let i = rand::Rng::random_range(&mut rng, 0..=v.len());
+                    v.insert(i, t);
+                }
+            } else {
+                v.extend(new);
+            }
+            v
+        });
+    }
 }
 
 /// History queue: the most recent entry is held back as "pending" (it is the
@@ -201,6 +228,35 @@ impl HistoryQueue {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn extend_appends_in_order_and_skips_duplicates() {
+        let q = super::DurableQueue::default();
+        q.set(vec![t("a"), t("b"), t("c")]);
+        q.skip(1).unwrap();
+        q.extend(&[t("c"), t("d"), t("e")]);
+        let ids: Vec<String> = q.entries().with(|v| v.iter().map(|x| x.id().to_string()).collect());
+        assert_eq!(ids, ["b", "c", "d", "e"]);
+        // restoring the order keeps the late tracks after the current one
+        q.restore("b");
+        let ids: Vec<String> = q.entries().with(|v| v.iter().map(|x| x.id().to_string()).collect());
+        assert_eq!(ids, ["c", "d", "e"]);
+    }
+
+    #[test]
+    fn extend_while_shuffled_keeps_queue_and_adds_everything() {
+        let q = super::DurableQueue::default();
+        q.set((0..20).map(|i| t(&i.to_string())).collect());
+        q.shuffle("0");
+        let before: Vec<String> = q.entries().with(|v| v.iter().map(|x| x.id().to_string()).collect());
+        q.extend(&(20..40).map(|i| t(&i.to_string())).collect::<Vec<_>>());
+        let after: Vec<String> = q.entries().with(|v| v.iter().map(|x| x.id().to_string()).collect());
+        assert!(q.is_shuffled());
+        assert_eq!(after.len(), 39);
+        // the existing shuffle order is preserved (new tracks only interleave)
+        let kept: Vec<&String> = after.iter().filter(|id| id.parse::<u32>().unwrap() < 20).collect();
+        assert_eq!(kept, before.iter().collect::<Vec<_>>());
+    }
+
     use super::*;
 
     fn t(id: &str) -> Track {

@@ -245,6 +245,16 @@ pub type BoxedReorderFn = Box<dyn Fn(usize, usize, &Track)>;
 #[derive(Clone)]
 pub struct TrackList(Rc<Inner>, gtk::ListView);
 
+/// Weak handle to a [`TrackList`]; does not keep a closed page alive.
+#[derive(Clone)]
+pub struct WeakTrackList(Weak<Inner>, glib::WeakRef<gtk::ListView>);
+
+impl WeakTrackList {
+    pub fn upgrade(&self) -> Option<TrackList> {
+        Some(TrackList(self.0.upgrade()?, self.1.upgrade()?))
+    }
+}
+
 fn empty() -> glib::Object {
     gtk::StringObject::new("").upcast()
 }
@@ -361,7 +371,13 @@ impl TrackList {
 
     /// Clicking a row plays the whole list from that row, "playing from" `source`.
     pub fn play_all_on_click(&self, source: impl Fn() -> crate::model::PlaybackSource + 'static) {
-        self.set_list_click_handler(move |l, t, pos| player::play_list_from(source(), l.tracks(), t, pos));
+        self.set_list_click_handler(move |l, t, pos| {
+            player::play_list_from(source(), l.tracks(), t, pos);
+        });
+    }
+
+    pub fn downgrade(&self) -> WeakTrackList {
+        WeakTrackList(Rc::downgrade(&self.0), self.1.downgrade())
     }
 
     pub fn tracks(&self) -> Vec<Track> {

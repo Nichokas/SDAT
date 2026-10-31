@@ -418,6 +418,7 @@ pub async fn play_track_id(track_id: &str) -> Result<()> {
 }
 
 pub fn play_track(track: Track) {
+    bump_list_generation();
     clear_queues();
     stop();
     source_changed().set(Some(PlaybackSource::Track(Box::new(track.clone()))));
@@ -491,21 +492,103 @@ pub async fn play_track_radio(track_id: &str, skip_self: bool) -> Result<()> {
     play_playlist(&mix.id, false, usize::from(skip_self)).await
 }
 
-/// playTracklist: the tracks are already fetched (Go fetched inside; we fetch
-/// on a worker thread before calling this to keep the UI responsive).
+thread_local! {
+    /// Bumped whenever the base queue is replaced, so background fetches for
+    /// an older list can tell they are stale.
+    static LIST_GENERATION: std::cell::Cell<u64> = const { std::cell::Cell::new(0) };
+}
+
 /// Plays `tracks` as the queue starting at the clicked row; earlier rows go to
-/// the history so "previous" walks back through the list.
-pub fn play_list_from(source: PlaybackSource, tracks: Vec<Track>, clicked: &Track, pos: usize) {
+/// the history so "previous" walks back through the list. Returns the queue
+/// generation for [`extend_list`], or `None` if nothing could be played.
+pub fn play_list_from(source: PlaybackSource, tracks: Vec<Track>, clicked: &Track, pos: usize) -> Option<u64> {
     let start = crate::model::queue_start(&tracks, clicked.id(), pos);
-    glib::spawn_future_local(async move {
-        if let Err(e) = play_tracklist(source, tracks, false, start).await {
+    match play_tracks(tracks, false, start) {
+        Ok(_) => {
+            source_changed().set(Some(source));
+            Some(LIST_GENERATION.with(std::cell::Cell::get))
+        }
+        Err(e) => {
             toasts().notify(&tr("An error occurred while playing the track"));
             log::error!("playing the track list failed error={e:#}");
+            None
         }
+    }
+}
+
+/// Fetches the next page of the playing list; gets a callback to call with
+/// `true` when more may follow, `false` at the end or on error.
+pub type ListFeeder = Rc<dyn Fn(Rc<dyn Fn(bool)>)>;
+
+/// Upcoming tracks left in the queue at which the next page is requested.
+pub const FEED_THRESHOLD: usize = 10;
+
+thread_local! {
+    static FEEDER: std::cell::RefCell<Option<(u64, ListFeeder)>> = const { std::cell::RefCell::new(None) };
+    static FEEDING: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+}
+
+/// Whether to ask for another page: only when few tracks remain upcoming.
+pub fn needs_more(upcoming: usize) -> bool {
+    upcoming <= FEED_THRESHOLD
+}
+
+/// Lets the list started at `generation` grow lazily: `feeder` is called
+/// (one request at a time) whenever the queue runs low.
+pub fn set_list_feeder(generation: u64, feeder: ListFeeder) {
+    static HOOKED: std::sync::Once = std::sync::Once::new();
+    HOOKED.call_once(|| {
+        base_queue().entries().on(|v| {
+            if needs_more(v.len()) {
+                glib::idle_add_local_once(maybe_feed);
+            }
+            CONTINUE
+        });
     });
+    if LIST_GENERATION.with(std::cell::Cell::get) != generation {
+        return;
+    }
+    FEEDER.with(|f| *f.borrow_mut() = Some((generation, feeder)));
+    maybe_feed();
+}
+
+fn maybe_feed() {
+    let generation = LIST_GENERATION.with(std::cell::Cell::get);
+    let Some(feeder) = FEEDER.with(|f| f.borrow().as_ref().filter(|(g, _)| *g == generation).map(|(_, f)| Rc::clone(f))) else { return };
+    if FEEDING.with(std::cell::Cell::get) || !needs_more(base_queue().entries().with(Vec::len)) {
+        return;
+    }
+    FEEDING.with(|f| f.set(true));
+    feeder(Rc::new(move |more| {
+        FEEDING.with(|f| f.set(false));
+        if !more {
+            FEEDER.with(|f| {
+                if f.borrow().as_ref().is_some_and(|(g, _)| *g == generation) {
+                    *f.borrow_mut() = None;
+                }
+            });
+        }
+    }));
+}
+
+/// Appends late-loaded tracks to the list started by [`play_list_from`].
+/// Returns `false` (and does nothing) once another list replaced it.
+pub fn extend_list(generation: u64, tracks: &[Track]) -> bool {
+    if LIST_GENERATION.with(std::cell::Cell::get) != generation {
+        return false;
+    }
+    base_queue().extend(tracks);
+    true
+}
+
+fn bump_list_generation() {
+    LIST_GENERATION.with(|g| g.set(g.get() + 1));
+    FEEDER.with(|f| *f.borrow_mut() = None);
+    FEEDING.with(|f| f.set(false));
 }
 
 fn play_tracks(tracks: Vec<Track>, shuffle: bool, starting_position: usize) -> Result<Track> {
+    bump_list_generation();
     clear_queues();
     stop();
     base_queue().set(tracks);
@@ -521,4 +604,14 @@ fn play_tracks(tracks: Vec<Track>, shuffle: bool, starting_position: usize) -> R
     };
     fire(Trigger::PlayTrack(t.clone(), false));
     Ok(t)
+}
+
+#[cfg(test)]
+mod feed_tests {
+    #[test]
+    fn asks_for_more_only_near_the_end_of_the_window() {
+        assert!(super::needs_more(0));
+        assert!(super::needs_more(super::FEED_THRESHOLD));
+        assert!(!super::needs_more(super::FEED_THRESHOLD + 1));
+    }
 }

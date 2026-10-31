@@ -215,25 +215,46 @@ fn sync_from_paginator(list: &TrackList, p: &service::SharedPaginator<Track>) {
     }
 }
 
-/// Clicking a row plays the whole list from it; pages not loaded yet are
-/// fetched first (off the main thread) and appended to the list.
+/// Clicking a row plays the list from it right away with what is loaded; more
+/// pages are fetched lazily (off the main thread) as the queue runs low and
+/// appended to both the list and the play queue.
 fn play_whole_list_on_click(list: &TrackList, p: Option<SharedPaginator<Track>>, source: PlaybackSource) {
     list.set_list_click_handler(move |l, t, pos| {
-        let (l, t, p, source) = (l.clone(), t.clone(), p.clone(), source.clone());
-        play(
-            async move {
-                if let Some(p) = p {
-                    let pp = std::sync::Arc::clone(&p);
-                    api::run(move || pp.lock().unwrap_or_else(std::sync::PoisonError::into_inner).get_all().map(drop)).await?;
-                    sync_from_paginator(&l, &p);
-                }
-                player::play_list_from(source, l.tracks(), &t, pos);
-                Ok(())
-            },
-            tr("An error occurred while playing the track"),
-            "An error occurred while loading the track list",
-        );
+        if let Some(p) = &p {
+            sync_from_paginator(l, p);
+        }
+        let Some(generation) = player::play_list_from(source.clone(), l.tracks(), t, pos) else { return };
+        if let Some(p) = &p {
+            player::set_list_feeder(generation, page_feeder(Some(l.downgrade()), std::sync::Arc::clone(p), generation));
+        }
     });
+}
+
+/// A [`player::ListFeeder`] that loads the next page of `p`, shows it in the
+/// list (if still open) and appends it to the queue of list `generation`.
+fn page_feeder(list: Option<crate::ui::components::tracklist::WeakTrackList>, p: SharedPaginator<Track>, generation: u64) -> player::ListFeeder {
+    Rc::new(move |done| {
+        let (list, p) = (list.clone(), std::sync::Arc::clone(&p));
+        glib::spawn_future_local(async move {
+            if p.lock().unwrap_or_else(std::sync::PoisonError::into_inner).is_consumed() {
+                return done(false);
+            }
+            let pp = std::sync::Arc::clone(&p);
+            let page = api::run(move || pp.lock().unwrap_or_else(std::sync::PoisonError::into_inner).next_page()).await;
+            let page = match page {
+                Ok(page) => page,
+                Err(e) => {
+                    log::error!("loading more of the playing list failed, keeping what we have error={e:#}");
+                    return done(false);
+                }
+            };
+            if let Some(l) = list.as_ref().and_then(crate::ui::components::tracklist::WeakTrackList::upgrade) {
+                sync_from_paginator(&l, &p);
+            }
+            let alive = player::extend_list(generation, &page);
+            done(alive && !p.lock().unwrap_or_else(std::sync::PoisonError::into_inner).is_consumed());
+        });
+    })
 }
 
 async fn paginated_tracklist_page(p: Paginator<Track>, columns: Vec<Col>, margin: i32, cache: Option<cache::Job>, source: Option<PlaybackSource>) -> anyhow::Result<(gtk::ScrolledWindow, TrackList)> {
@@ -810,18 +831,16 @@ async fn my_collection() -> Response {
     for t in tr_.included.tracks(&tr_.data) {
         tracks.add_track(model::track_from_openapi(&t));
     }
-    // The preview shows the first few favourites; play all of them from the clicked one.
-    tracks.set_click_handler(|t, pos| {
-        let t = t.clone();
-        play(
-            async move {
-                let all = cache::all_tracks(cache::Job::FavouriteTracks).await?;
-                player::play_list_from(PlaybackSource::MyTracks, all, &t, pos);
-                Ok(())
-            },
-            tr("An error occurred while playing the track"),
-            "An error occurred while playing the tracks",
-        );
+    // The preview shows the first few favourites; play them from the clicked
+    // one (the prefetched full list if cached) and load more lazily.
+    tracks.set_list_click_handler(|l, t, pos| {
+        if let Some(all) = cache::get(&cache::Job::FavouriteTracks.key()) {
+            player::play_list_from(PlaybackSource::MyTracks, all, t, pos);
+            return;
+        }
+        let Some(generation) = player::play_list_from(PlaybackSource::MyTracks, l.tracks(), t, pos) else { return };
+        let p = service::shared(service::user_collection_tracks("me"));
+        player::set_list_feeder(generation, page_feeder(None, p, generation));
     });
     let title = RowTitle::new().set_title(&tr("Tracks")).set_view_all_route("my-collection/tracks");
     let tracks_box = vstack(&[title.widget.upcast_ref(), tracks.widget()]).hmargin(40);
