@@ -41,8 +41,21 @@ fn entries(cache: Option<&[OwnPlaylist]>) -> Vec<Entry> {
     match cache {
         None => vec![Entry::Disabled(tr("Loading…"))],
         Some([]) => vec![Entry::Disabled(tr("No playlists"))],
-        Some(list) => list.iter().map(|p| Entry::Playlist { label: p.name.clone(), playlist_id: p.id.clone() }).collect(),
+        Some(list) => list.iter().map(|p| Entry::Playlist { label: shorten(&p.name), playlist_id: p.id.clone() }).collect(),
     }
+}
+
+/// Longest playlist name shown before it is cut with "…", so the menu doesn't widen.
+const MAX_LABEL_CHARS: usize = 32;
+
+fn shorten(name: &str) -> String {
+    if name.chars().count() <= MAX_LABEL_CHARS {
+        return name.to_owned();
+    }
+    let mut s: String = name.chars().take(MAX_LABEL_CHARS - 1).collect();
+    s.truncate(s.trim_end().len());
+    s.push('…');
+    s
 }
 
 fn fill(menu: &gio::Menu, track_id: &str) {
@@ -128,6 +141,16 @@ mod tests {
 
     fn pl(id: &str, name: &str) -> OwnPlaylist {
         OwnPlaylist { id: id.into(), name: name.into(), number_of_items: 3 }
+    }
+
+    #[test]
+    fn long_names_are_shortened() {
+        assert_eq!(shorten("Focus"), "Focus");
+        let long = "A very long playlist name that keeps on going";
+        let s = shorten(long);
+        assert!(s.ends_with('…'));
+        assert!(s.chars().count() <= MAX_LABEL_CHARS);
+        assert_eq!(shorten("ñññññññññññññññññññññññññññññññññññ").chars().count(), MAX_LABEL_CHARS);
     }
 
     #[test]

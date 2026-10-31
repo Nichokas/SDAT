@@ -50,9 +50,10 @@ impl Col {
                 return 1;
             };
             let popover = track_menu_popover(t);
-            // Open to the left of the button so the menu and its submenus stay inside
-            // the window (the button sits at the right edge); GTK flips it if needed.
-            popover.set_position(gtk::PositionType::Left);
+            // Hang below the button, right-aligned to it, so the menu and its submenus
+            // grow only leftwards/downwards and stay inside the window (GTK flips up if needed).
+            popover.set_position(gtk::PositionType::Bottom);
+            popover.set_halign(gtk::Align::End);
             let queue = gtk::Button::from_icon_name("queue-symbolic")
                 .tooltip(&tr("Add to Queue"))
                 .halign(gtk::Align::Center)
@@ -577,8 +578,38 @@ pub fn track_menu_popover(t: &Track) -> gtk::PopoverMenu {
     let (model, playlists) = track_menu(t);
     let popover = gtk::PopoverMenu::from_model(Some(&model));
     let tid = t.id().to_string();
-    popover.connect_show(move |_| super::add_to_playlist::ensure_loaded(&playlists, &tid));
+    popover.connect_show(move |p| {
+        super::add_to_playlist::ensure_loaded(&playlists, &tid);
+        stabilize(p.upcast_ref());
+    });
     popover
+}
+
+/// Maximum height of a (sub)menu page before it scrolls.
+const MENU_MAX_HEIGHT: i32 = 300;
+
+/// Keeps the popover's size steady when sliding into a submenu: every page gets
+/// the same width (no width animation), and tall pages scroll instead of growing.
+fn stabilize(w: &gtk::Widget) {
+    if let Some(stack) = w.downcast_ref::<gtk::Stack>() {
+        stack.set_hhomogeneous(true);
+        stack.set_interpolate_size(false);
+        if !stack.has_css_class("tonearm-stable") {
+            stack.add_css_class("tonearm-stable");
+            // Submenu pages can be rebuilt (e.g. playlists arriving); re-apply on navigation.
+            stack.connect_visible_child_notify(|s| stabilize(s.upcast_ref()));
+        }
+    }
+    if let Some(sw) = w.downcast_ref::<gtk::ScrolledWindow>() {
+        sw.set_hscrollbar_policy(gtk::PolicyType::Never);
+        sw.set_propagate_natural_height(true);
+        sw.set_max_content_height(MENU_MAX_HEIGHT);
+    }
+    let mut child = w.first_child();
+    while let Some(c) = child {
+        stabilize(&c);
+        child = c.next_sibling();
+    }
 }
 
 /// Right-click (and touch long-press) on `w` opens the track menu at the pointer.
