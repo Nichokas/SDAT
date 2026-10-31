@@ -39,6 +39,7 @@ fn main() {
 
     // Commit shown in the about dialog (Go: -ldflags -X ui.Commit=...).
     println!("cargo:rerun-if-env-changed=TONEARM_COMMIT");
+    println!("cargo:rerun-if-env-changed=TONEARM_VERSION");
     let commit = std::env::var("TONEARM_COMMIT").ok().filter(|c| !c.is_empty()).or_else(|| Command::new("git")
         .args(["describe", "--tags", "--long", "--abbrev=7"])
         .output()

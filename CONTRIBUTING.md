@@ -43,3 +43,15 @@ We aim to make screenshots follow the recommendations by [Flatpak](https://docs.
 - Write a one-line caption that describes the screenshot
 
 It is recommended to make screenshots in the 16:9 aspect ratio. We recommend scaling the window to 1270x815px resolution when refreshing the screenshots.
+
+## Release builds (packagers)
+
+Set `TONEARM_VERSION` at compile time to mark a build as a release (Rust equivalent of Go's `-ldflags "-X …/ui.Version=…"`):
+
+```sh
+TONEARM_VERSION=1.0.0 cargo build --release
+```
+
+- With `TONEARM_VERSION` set, the About dialog shows that version and the striped "devel" header bar is hidden.
+- Without it, the build is a development build: the header bar is striped and the version comes from `git describe` (`TONEARM_COMMIT` overrides it), falling back to `<Cargo.toml version>-dev`. As in Go, an exact tag checkout (`vX.Y.Z-0-g…`) also counts as stable.
+- COPR RPM spec: `TONEARM_VERSION=%{version} cargo build --release` in `%build`. Arch PKGBUILD: `TONEARM_VERSION="$pkgver" cargo build --release` in `build()`. Flatpak: add `TONEARM_VERSION: "1.0.0"` under the module's `build-options.env`.

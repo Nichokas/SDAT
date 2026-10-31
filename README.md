@@ -128,6 +128,10 @@ This assumes you are using the [yay helper](https://github.com/Jguer/yay). If us
 yay -S tonearm
 ```
 
+### Building a release
+
+Packagers should build with `TONEARM_VERSION=1.0.0 cargo build --release` so the app is marked as a release (no "devel" header). See [CONTRIBUTING.md](CONTRIBUTING.md#release-builds-packagers).
+
 ## Translations
 You can bring Tonearm to even more people by helping us translate it into their native language! To make this easier, Tonearm's translations can be edited on [Codeberg's Weblate instance](https://translate.codeberg.org/projects/tonearm/tonearm/)!
 

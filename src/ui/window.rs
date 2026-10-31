@@ -62,6 +62,8 @@ fn spawn_logged(what: &'static str, fut: impl std::future::Future<Output = anyho
 // ------------------------------------------------------------------ version
 
 const COMMIT: &str = env!("TONEARM_COMMIT");
+/// Set by packagers (`TONEARM_VERSION=1.0.0 cargo build --release`), like Go's
+/// `-ldflags -X ui.Version=…`. When set, the build is a release: no "devel" stripes.
 const VERSION: Option<&str> = option_env!("TONEARM_VERSION");
 
 fn describe_parts(commit: &str) -> Option<(String, String, String)> {
@@ -92,7 +94,8 @@ pub fn version_number(version: Option<&str>, commit: &str) -> String {
     match version.filter(|v| !v.is_empty()) {
         None => {
             if commit.is_empty() {
-                return "local".into();
+                // Dev build without git metadata: fall back to Cargo.toml's version.
+                return format!("{}-dev", env!("CARGO_PKG_VERSION"));
             }
             if let Some((tag, off, hash)) = describe_parts(commit) {
                 let tag = tag.strip_prefix('v').unwrap_or(&tag).to_string();
@@ -869,8 +872,19 @@ mod tests {
     use super::*;
 
     #[test]
+    fn release_builds_are_stable() {
+        assert!(is_stable(Some("1.0.0"), ""));
+        assert!(is_stable(Some("1.0.0"), "abcdef1234"));
+        assert!(!is_stable(None, ""));
+        assert!(!is_stable(Some(""), "abcdef1234"));
+        assert!(!is_stable(None, "v1.0.0-3-gabcdef1"));
+        // Like Go: an exact tag checkout also counts as stable.
+        assert!(is_stable(None, "v1.0.0-0-gabcdef1"));
+    }
+
+    #[test]
     fn versions() {
-        assert_eq!(version_number(None, ""), "local");
+        assert_eq!(version_number(None, ""), format!("{}-dev", env!("CARGO_PKG_VERSION")));
         assert_eq!(version_number(None, "v1.2.0-0-gabcdef1"), "v1.2.0 (r0.abcdef1)");
         assert_eq!(version_number(None, "v0.3.0-5-gabcdef1"), "α 0.3.0 β(r5.abcdef1)");
         assert_eq!(version_number(None, "abcdef1234"), "α git+abcdef1");
