@@ -182,6 +182,14 @@ fn on_volume_change(v: f64) {
 }
 
 async fn on_eos_stopped() {
+    if list_pending() {
+        // The loaded part ran out before the next page arrived: wait for it
+        // instead of stopping, starting a radio or repeating.
+        log::info!("queue ran dry while the list is still loading; waiting for the next page");
+        WAITING.with(|w| w.set(true));
+        feed(true);
+        return;
+    }
     let stop = || {
         source_changed().set(None);
         statemachine::on_stopped_stop();
@@ -219,6 +227,10 @@ fn get_next_track_from_queue(peek: bool) -> Option<Track> {
     let t = if peek { base_queue().peek() } else { base_queue().pop() };
     if t.is_some() {
         return t;
+    }
+    if list_pending() {
+        // More of the list is coming: don't wrap around (repeat) yet.
+        return None;
     }
     if repeat_mode_changed().get() == RepeatMode::Queue {
         log::debug!("queue repeat mode is enabled, replaying base queue");
@@ -526,6 +538,14 @@ pub const FEED_THRESHOLD: usize = 10;
 thread_local! {
     static FEEDER: std::cell::RefCell<Option<(u64, ListFeeder)>> = const { std::cell::RefCell::new(None) };
     static FEEDING: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+    /// Playback reached the end of the loaded tracks and waits for a page.
+    static WAITING: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+}
+
+/// Whether the playing list has pages that are not loaded yet.
+fn list_pending() -> bool {
+    let generation = LIST_GENERATION.with(std::cell::Cell::get);
+    FEEDER.with(|f| f.borrow().as_ref().is_some_and(|(g, _)| *g == generation))
 }
 
 /// Whether to ask for another page: only when few tracks remain upcoming.
@@ -553,9 +573,15 @@ pub fn set_list_feeder(generation: u64, feeder: ListFeeder) {
 }
 
 fn maybe_feed() {
+    feed(false);
+}
+
+/// Requests the next page (one at a time); `force` ignores the threshold
+/// (playback is waiting, or the queue view shows unloaded rows).
+pub fn feed(force: bool) {
     let generation = LIST_GENERATION.with(std::cell::Cell::get);
     let Some(feeder) = FEEDER.with(|f| f.borrow().as_ref().filter(|(g, _)| *g == generation).map(|(_, f)| Rc::clone(f))) else { return };
-    if FEEDING.with(std::cell::Cell::get) || !needs_more(base_queue().entries().with(Vec::len)) {
+    if FEEDING.with(std::cell::Cell::get) || !(force || needs_more(base_queue().entries().with(Vec::len))) {
         return;
     }
     FEEDING.with(|f| f.set(true));
@@ -567,6 +593,19 @@ fn maybe_feed() {
                     *f.borrow_mut() = None;
                 }
             });
+        }
+        if LIST_GENERATION.with(std::cell::Cell::get) != generation || !WAITING.with(std::cell::Cell::get) {
+            return;
+        }
+        if !base_queue().is_empty() {
+            WAITING.with(|w| w.set(false));
+            next();
+        } else if more {
+            feed(true); // page was empty or all duplicates: keep going
+        } else {
+            // The list ended (or failed) while waiting: finish like a normal end.
+            WAITING.with(|w| w.set(false));
+            glib::spawn_future_local(on_eos_stopped());
         }
     }));
 }
@@ -585,6 +624,7 @@ fn bump_list_generation() {
     LIST_GENERATION.with(|g| g.set(g.get() + 1));
     FEEDER.with(|f| *f.borrow_mut() = None);
     FEEDING.with(|f| f.set(false));
+    WAITING.with(|w| w.set(false));
 }
 
 fn play_tracks(tracks: Vec<Track>, shuffle: bool, starting_position: usize) -> Result<Track> {
