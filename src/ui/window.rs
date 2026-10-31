@@ -572,6 +572,31 @@ fn present_shortcuts(window: &adw::ApplicationWindow) {
     d.present(Some(window));
 }
 
+/// Country/region used for API requests. Applies to pages opened afterwards.
+fn country_row() -> adw::ComboRow {
+    let row = adw::ComboRow::builder()
+        .title(tr("Country / Region"))
+        .subtitle(tr("Catalogue region for TIDAL requests; Automatic uses your account's country. Applies to pages you open next"))
+        .enable_search(true)
+        .build();
+    let mut names = vec![tr("Automatic")];
+    names.extend(crate::country::COUNTRIES.iter().map(|(c, n)| format!("{n} ({c})")));
+    let names: Vec<&str> = names.iter().map(String::as_str).collect();
+    row.set_model(Some(&gtk::StringList::new(&names)));
+    row.set_expression(Some(gtk::PropertyExpression::new(gtk::StringObject::static_type(), gtk::Expression::NONE, "string")));
+    row.set_selected(crate::country::index_of(crate::country::preferred().as_deref()));
+    row.connect_selected_notify(|r| {
+        let code = crate::country::code_at(r.selected());
+        if code.map(str::to_owned) == crate::country::preferred() {
+            return;
+        }
+        crate::country::set_preferred(code);
+        api::client::reset_country_code();
+        crate::cache::clear();
+    });
+    row
+}
+
 fn present_about(window: &adw::ApplicationWindow) {
     let a = adw::AboutDialog::new();
     a.set_application_icon("logo");
@@ -675,7 +700,7 @@ fn present_preferences(window: &adw::ApplicationWindow) {
                 &tr("Configure the behaviour of Tonearm when navigating between pages"),
                 &[entry_row(&tr("Default Page"), &gen_s, "default-page").upcast_ref(), history.upcast_ref()],
             ),
-            group(&tr("TIDAL Settings"), &tr("TIDAL-specific settings for advanced users"), &[base.upcast_ref()]),
+            group(&tr("TIDAL Settings"), &tr("TIDAL-specific settings for advanced users"), &[country_row().upcast_ref(), base.upcast_ref()]),
         ],
     ));
 

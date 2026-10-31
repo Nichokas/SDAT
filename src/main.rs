@@ -5,6 +5,7 @@
 
 mod api;
 mod cache;
+mod country;
 mod i18n;
 mod imgutil;
 mod model;

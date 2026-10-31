@@ -67,6 +67,17 @@ pub fn put(key: &str, generation_at_start: u64, tracks: Vec<Track>) -> bool {
     })
 }
 
+/// Drops every cached list (e.g. when the country changes).
+pub fn clear() {
+    with(|s| {
+        for k in s.lists.keys() {
+            *s.generation.entry(k.clone()).or_default() += 1;
+        }
+        s.lists.clear();
+        s.total = 0;
+    });
+}
+
 pub fn invalidate(key: &str) {
     with(|s| {
         if let Some(old) = s.lists.remove(key) {

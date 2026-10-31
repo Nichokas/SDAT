@@ -62,7 +62,7 @@ impl CachedToken {
 
 static USER_TOKEN: Mutex<CachedToken> = Mutex::new(CachedToken { token: String::new(), expiry: None });
 static OPENAPI_TOKEN: Mutex<CachedToken> = Mutex::new(CachedToken { token: String::new(), expiry: None });
-static COUNTRY: OnceLock<String> = OnceLock::new();
+static COUNTRY: std::sync::Mutex<Option<String>> = std::sync::Mutex::new(None);
 
 /// Forget the cached user access token (after sign-in/out).
 pub fn reset_user_token() {
@@ -129,17 +129,54 @@ pub fn fetch_country_code() -> Result<String> {
     Ok(resp.json::<R>()?.country_code)
 }
 
-pub fn country_code() -> &'static str {
-    COUNTRY.get_or_init(|| match fetch_country_code() {
-        Ok(c) => {
-            log::info!("Discovered country code countryCode={c}");
-            c
-        }
-        Err(e) => {
-            log::error!("Failed to fetch country code, defaulting to WW: {e}");
-            "WW".into()
+/// The account's own country from its session (authenticated, read-only).
+fn session_country_code() -> Result<String> {
+    #[derive(Deserialize)]
+    struct R {
+        #[serde(rename = "countryCode")]
+        country_code: String,
+    }
+    let Some(token) = user_access_token()? else { bail!("not logged in") };
+    let resp = http()
+        .get(format!("{}/v1/sessions", settings::api_base_url()))
+        .header("x-tidal-token", client_id())
+        .header("Authorization", format!("Bearer {token}"))
+        .send()?;
+    if resp.status() != StatusCode::OK {
+        bail!("unexpected status code: {}", resp.status().as_u16());
+    }
+    Ok(resp.json::<R>()?.country_code)
+}
+
+/// Country used for requests: the user's preference, else the account's session
+/// country, else the IP-based context (Go used only the latter, which can be wrong).
+pub fn country_code() -> String {
+    if let Some(c) = crate::country::preferred() {
+        return c;
+    }
+    let mut g = COUNTRY.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+    g.get_or_insert_with(|| {
+        let r = session_country_code().or_else(|e| {
+            log::debug!("session country unavailable: {e:#}");
+            fetch_country_code()
+        });
+        match r {
+            Ok(c) => {
+                log::info!("Discovered country code countryCode={c}");
+                c
+            }
+            Err(e) => {
+                log::error!("Failed to fetch country code, defaulting to WW: {e}");
+                "WW".into()
+            }
         }
     })
+    .clone()
+}
+
+/// Forgets the discovered country (e.g. after login/logout or a preference change).
+pub fn reset_country_code() {
+    *COUNTRY.lock().unwrap_or_else(std::sync::PoisonError::into_inner) = None;
 }
 
 fn utc_offset() -> String {
@@ -182,7 +219,7 @@ fn request(method: Method, path: &str, query: &[(&str, String)]) -> Result<Reque
         }
         q.append_pair("deviceType", "BROWSER");
         q.append_pair("platform", "WEB");
-        q.append_pair("countryCode", country_code());
+        q.append_pair("countryCode", &country_code());
         q.append_pair("timeOffset", &utc_offset());
         q.append_pair("locale", &locale())
     };
