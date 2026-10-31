@@ -687,4 +687,34 @@ pub mod tests {
             assert_eq!(m.target(&Trigger::Eos), Some(State::Stopped), "{s:?}");
         }
     }
+
+    thread_local! {
+        static CLEARED: Cell<usize> = const { Cell::new(0) };
+    }
+
+    /// Regression: starting a new queue (another row of the same list, another
+    /// list, an album or a playlist) goes through `player::stop()` (clears the
+    /// source synchronously, queues `Stop`) and then sets the new source. The
+    /// queued `Stop` runs later and must not clear the new source, whatever
+    /// state the previous playback was in.
+    #[test]
+    fn queued_stop_does_not_clear_the_next_source() {
+        let ctx = glib::MainContext::new();
+        ctx.with_thread_default(|| {
+            for from in [State::Stopped, State::Playing, State::Paused, State::PlayingGapless, State::PlayingRetrying] {
+                CLEARED.with(|c| c.set(0));
+                let m = Machine::new(
+                    Rc::new(Testbin::default()),
+                    Hooks { next_track: |_| (None, false), on_eos_stopped: || Box::pin(async {}), clear_source: || CLEARED.with(|c| c.set(c.get() + 1)) },
+                );
+                m.state.set(from);
+                m.fire(Trigger::Stop);
+                // ...the new source is set here, before the trigger runs...
+                while ctx.iteration(false) {}
+                assert_eq!(m.state.get(), State::Stopped, "{from:?}");
+                assert_eq!(CLEARED.with(Cell::get), 0, "the queued Stop cleared the source (from {from:?})");
+            }
+        })
+        .unwrap();
+    }
 }
