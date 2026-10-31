@@ -145,7 +145,12 @@ fn collection<T: Clone + 'static>(
 }
 
 pub fn user_collection_tracks(user_id: &str) -> Paginator<Track> {
-    collection("Tracks", user_id.to_string(), &["items.artists", "items.albums.coverArt"], resolve_tracks)
+    // Newest favourites first (TIDAL's `sort=-addedAt`).
+    let user_id = user_id.to_string();
+    Paginator::new(
+        Box::new(move |c| api::user_collection_items_sorted("Tracks", &user_id, c, &["items.artists", "items.albums.coverArt"], "-addedAt")),
+        Box::new(resolve_tracks),
+    )
 }
 
 pub fn user_collection_albums(user_id: &str) -> Paginator<Album> {

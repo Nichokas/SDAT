@@ -199,6 +199,12 @@ pub async fn add_to_playlist(playlist_id: String, track_id: String) -> Result<()
     run(move || api::playlist_add_track(&playlist_id, &track_id)).await
 }
 
+/// Removes the first occurrence of a track from one of the user's playlists.
+#[uniffi::export]
+pub async fn remove_from_playlist(playlist_id: String, track_id: String) -> Result<(), FfiError> {
+    run(move || api::playlist_remove_track(&playlist_id, &track_id)).await
+}
+
 // ---- Recents and Explore
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, uniffi::Enum)]

@@ -301,6 +301,16 @@ pub fn user_collection_items(kind: &str, user_id: &str, cursor: &str, include: &
     relationship(&format!("/v2/userCollection{kind}/{user_id}/relationships/items"), cursor, include)
 }
 
+/// Like [`user_collection_items`] with an explicit `sort` (e.g. `-addedAt`).
+pub fn user_collection_items_sorted(kind: &str, user_id: &str, cursor: &str, include: &[&str], sort: &str) -> Result<openapi::Relationships> {
+    let mut q = vec![("sort", sort.to_string())];
+    if !cursor.is_empty() {
+        q.push(("page[cursor]", cursor.to_string()));
+    }
+    q.extend(include_q(include));
+    get_json(&openapi(&format!("/v2/userCollection{kind}/{user_id}/relationships/items")), &q)
+}
+
 fn query_escape(q: &str) -> String {
     // Go's url.QueryEscape (spaces become '+')
     urlencoding::encode(q).replace("%20", "+")
@@ -460,9 +470,52 @@ pub fn playlist_add_track(playlist_id: &str, track_id: &str) -> Result<()> {
     Ok(())
 }
 
+/// `meta.itemId` of the first entry of `track_id` in a page of playlist items.
+pub fn playlist_item_id(items: &[openapi::Relationship], track_id: &str) -> Option<String> {
+    items
+        .iter()
+        .filter(|r| r.id == track_id)
+        .find_map(|r| r.meta.as_ref()?.get("itemId")?.as_str().map(str::to_string))
+}
+
+/// Removes the first occurrence of a track from one of the user's playlists.
+pub fn playlist_remove_track(playlist_id: &str, track_id: &str) -> Result<()> {
+    let mut cursor = String::new();
+    let item_id = loop {
+        let page = playlist_items(playlist_id, &cursor, &[])?;
+        if let Some(id) = playlist_item_id(&page.data, track_id) {
+            break id;
+        }
+        match page.links.meta.and_then(|m| m.next_cursor) {
+            Some(c) if !c.is_empty() => cursor = c,
+            _ => bail!("track not found in playlist"),
+        }
+    };
+    let body = serde_json::json!({ "data": [{ "type": "tracks", "id": track_id, "meta": { "itemId": item_id } }] });
+    let resp = request(Method::DELETE, &openapi(&format!("/v2/playlists/{playlist_id}/relationships/items")), &[])?
+        .header("Content-Type", "application/vnd.api+json")
+        .body(body.to_string())
+        .send()?;
+    crate::cache::invalidate(&crate::cache::playlist_key(playlist_id));
+    if !resp.status().is_success() {
+        bail_http!(resp.status().as_u16(), "error while removing track from playlist: {}", resp.status().as_u16());
+    }
+    Ok(())
+}
+
 #[cfg(test)]
 mod playlist_tests {
     use super::*;
+
+    #[test]
+    fn finds_playlist_item_id() {
+        let r: openapi::Relationships = serde_json::from_str(
+            r#"{"data":[{"id":"1","type":"tracks","meta":{"itemId":"x1"}},{"id":"2","type":"tracks","meta":{"itemId":"x2"}}],"links":{}}"#,
+        )
+        .expect("json");
+        assert_eq!(playlist_item_id(&r.data, "2").as_deref(), Some("x2"));
+        assert_eq!(playlist_item_id(&r.data, "3"), None);
+    }
 
     #[test]
     fn parses_owned_playlists_and_cursor() {
