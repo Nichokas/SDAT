@@ -2,6 +2,9 @@
 use adw::prelude::*;
 use gtk::pango;
 
+use std::cell::Cell;
+use std::rc::Rc;
+
 use crate::i18n::tr;
 use crate::router;
 use crate::ui::dsl::{W, label, hstack, spacer, spacing, vstack};
@@ -44,29 +47,10 @@ impl HorizontalList {
                 c.set_overflow(gtk::Overflow::Visible);
             }
         });
-        let adj = sw.hadjustment();
-        let a = adj.downgrade();
-        next.connect_clicked(move |_| {
-            if let Some(adj) = a.upgrade() {
-                let mut cur = adj.value();
-                cur -= cur % 192.0;
-                adj.set_step_increment(192.0);
-                let target = cur + adj.step_increment();
-                // Go sets the value from a goroutine, i.e. after the click settles.
-                glib::idle_add_local_once(move || adj.set_value(target));
-            }
-        });
-        let a = adj.downgrade();
-        prev.connect_clicked(move |_| {
-            if let Some(adj) = a.upgrade() {
-                let mut cur = adj.value();
-                if cur % 192.0 > 0.0 {
-                    cur += 192.0 - cur % 192.0;
-                }
-                adj.set_step_increment(192.0);
-                adj.set_value(cur - adj.step_increment());
-            }
-        });
+        let scroller = Rc::new(SmoothScroll::new(&sw));
+        let sc = Rc::clone(&scroller);
+        next.connect_clicked(move |_| sc.step(1.0));
+        prev.connect_clicked(move |_| scroller.step(-1.0));
         let widget = vstack(&[hstack(&[header.upcast_ref()]).hmargin(10).mbottom(5).upcast_ref(), sw.upcast_ref()]);
         HorizontalList { widget, container, header, route }
     }
@@ -88,5 +72,66 @@ impl HorizontalList {
         b.connect_clicked(move |_| router::navigate(&p));
         self.route.set_center_widget(Some(&b));
         self
+    }
+}
+
+/// Card width the arrows scroll by (same step as Go).
+const STEP: f64 = 192.0;
+const SCROLL_MS: u32 = 280;
+
+/// Go's arrow step: snap to the card grid, then move one card in `dir` (±1).
+fn step_target(base: f64, dir: f64) -> f64 {
+    let rem = base % STEP;
+    if dir > 0.0 {
+        base - rem + STEP
+    } else {
+        let snapped = if rem > 0.0 { base + STEP - rem } else { base };
+        snapped - STEP
+    }
+}
+
+/// Animates the carousel's horizontal adjustment towards the next card. Repeated
+/// clicks retarget from where the previous click was heading. Adwaita skips the
+/// animation when the system has animations disabled.
+struct SmoothScroll {
+    adj: gtk::Adjustment,
+    anim: adw::TimedAnimation,
+    target: Cell<Option<f64>>,
+}
+
+impl SmoothScroll {
+    fn new(sw: &gtk::ScrolledWindow) -> Self {
+        let adj = sw.hadjustment();
+        let target = adw::PropertyAnimationTarget::new(&adj, "value");
+        let anim = adw::TimedAnimation::new(sw, 0.0, 0.0, SCROLL_MS, target);
+        anim.set_easing(adw::Easing::EaseOutCubic);
+        SmoothScroll { adj, anim, target: Cell::new(None) }
+    }
+
+    fn step(&self, dir: f64) {
+        let running = self.anim.state() == adw::AnimationState::Playing;
+        let base = self.target.get().filter(|_| running).unwrap_or_else(|| self.adj.value());
+        let max = (self.adj.upper() - self.adj.page_size()).max(self.adj.lower());
+        let to = step_target(base, dir).clamp(self.adj.lower(), max);
+        self.target.set(Some(to));
+        self.anim.pause();
+        self.anim.set_value_from(self.adj.value());
+        self.anim.set_value_to(to);
+        self.anim.play();
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::step_target;
+
+    #[test]
+    fn steps_match_go() {
+        assert!((step_target(0.0, 1.0) - 192.0).abs() < f64::EPSILON);
+        assert!((step_target(100.0, 1.0) - 192.0).abs() < f64::EPSILON);
+        assert!((step_target(384.0, -1.0) - 192.0).abs() < f64::EPSILON);
+        assert!((step_target(300.0, -1.0) - 192.0).abs() < f64::EPSILON);
+        // Retargeting from a pending target keeps whole-card steps.
+        assert!((step_target(step_target(0.0, 1.0), 1.0) - 384.0).abs() < f64::EPSILON);
     }
 }
