@@ -175,7 +175,7 @@ impl From<&model::Artist> for Artist {
             id: a.info.id.clone(),
             name: a.info.name.clone(),
             picture_url: opt(a.info.cover(LARGE).static_),
-            bio: a.description.clone(),
+            bio: tonearm_core::explore::plain_bio(&a.description),
             followers: a.follower_count,
         }
     }

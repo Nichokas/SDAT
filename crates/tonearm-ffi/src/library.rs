@@ -4,7 +4,7 @@
 use std::sync::{Arc, Mutex, PoisonError};
 
 use tonearm_core::service::{self, Paginator};
-use tonearm_core::{api, discover, model, state};
+use tonearm_core::{api, discover, explore, model, state};
 
 use crate::convert::tracks;
 use crate::{Album, Artist, ArtistRef, FfiError, Mix, Playlist, Track, run};
@@ -66,15 +66,20 @@ pub struct SearchResults {
     pub playlists: Vec<Playlist>,
 }
 
-/// First page of each kind; use the `search_*` pagers for "see all".
+const SEARCH_INCLUDES: [&str; 6] = ["topHits", "topHits.profileArt", "topHits.coverArt", "topHits.albums.coverArt", "topHits.albums.artists", "topHits.artists"];
+
+/// Top hits of each kind (one request, like the desktop search page); use the
+/// `search_*` pagers for "see all".
 #[uniffi::export]
 pub async fn search(query: String) -> Result<SearchResults, FfiError> {
     run(move || {
+        let r = api::search(&query, &SEARCH_INCLUDES)?;
+        let hits = &r.data.relationships.top_hits.data;
         Ok(SearchResults {
-            tracks: tracks(&service::search_tracks(&query).next_page()?),
-            albums: service::search_albums(&query).next_page()?.iter().map(Album::from).collect(),
-            artists: service::search_artists(&query).next_page()?.iter().map(ArtistRef::from).collect(),
-            playlists: service::search_playlists(&query).next_page()?.iter().map(Playlist::from).collect(),
+            tracks: r.included.tracks(hits).iter().map(|t| Track::from(&model::track_from_openapi(t))).collect(),
+            albums: r.included.albums(hits).iter().map(|a| Album::from(&model::album_from_openapi(a))).collect(),
+            artists: r.included.artists(hits).iter().map(|a| ArtistRef::from(&model::artist_from_openapi(a))).collect(),
+            playlists: r.included.playlists(hits).iter().map(|p| Playlist::from(&model::playlist_from_openapi(p))).collect(),
         })
     })
     .await
@@ -192,4 +197,99 @@ pub async fn own_playlists() -> Result<Vec<OwnPlaylist>, FfiError> {
 #[uniffi::export]
 pub async fn add_to_playlist(playlist_id: String, track_id: String) -> Result<(), FfiError> {
     run(move || api::playlist_add_track(&playlist_id, &track_id)).await
+}
+
+// ---- Recents and Explore
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, uniffi::Enum)]
+pub enum RecentKind {
+    Album,
+    Playlist,
+    Artist,
+    Mix,
+}
+
+/// A recently played item (home feed), shown as a cover tile.
+#[derive(Debug, Clone, uniffi::Record)]
+pub struct RecentItem {
+    pub kind: RecentKind,
+    pub id: String,
+    pub title: String,
+    pub subtitle: String,
+    pub cover_url: Option<String>,
+}
+
+impl From<&explore::RecentItem> for RecentItem {
+    fn from(r: &explore::RecentItem) -> Self {
+        match r {
+            explore::RecentItem::Album(a) => {
+                let a = Album::from(a);
+                RecentItem { kind: RecentKind::Album, subtitle: a.artists.iter().map(|x| x.name.clone()).collect::<Vec<_>>().join(", "), id: a.id, title: a.title, cover_url: a.cover_url_large.or(a.cover_url) }
+            }
+            explore::RecentItem::Playlist(p) => {
+                let p = Playlist::from(p);
+                RecentItem { kind: RecentKind::Playlist, subtitle: p.creator.clone().unwrap_or_default(), id: p.id, title: p.title, cover_url: p.cover_url_large.or(p.cover_url) }
+            }
+            explore::RecentItem::Artist(a) => {
+                let a = ArtistRef::from(a);
+                RecentItem { kind: RecentKind::Artist, subtitle: String::new(), id: a.id, title: a.name, cover_url: a.picture_url }
+            }
+            explore::RecentItem::Mix { id, title, subtitle, image_url } => RecentItem {
+                kind: RecentKind::Mix,
+                id: id.clone(),
+                title: title.clone(),
+                subtitle: subtitle.clone(),
+                cover_url: (!image_url.is_empty()).then(|| image_url.clone()),
+            },
+        }
+    }
+}
+
+/// What TIDAL lists as recently played on the home feed.
+#[uniffi::export]
+pub async fn recents() -> Result<Vec<RecentItem>, FfiError> {
+    Ok(run(explore::get_home_recents).await?.iter().map(RecentItem::from).collect())
+}
+
+#[derive(Debug, Clone, uniffi::Record)]
+pub struct PageLink {
+    pub title: String,
+    pub path: String,
+}
+
+#[derive(Debug, Clone, uniffi::Record)]
+pub struct ExploreSection {
+    pub title: String,
+    pub links: Vec<PageLink>,
+    pub albums: Vec<Album>,
+    pub playlists: Vec<Playlist>,
+    pub artists: Vec<ArtistRef>,
+    pub tracks: Vec<Track>,
+}
+
+#[derive(Debug, Clone, uniffi::Record)]
+pub struct ExplorePage {
+    pub title: String,
+    pub sections: Vec<ExploreSection>,
+}
+
+/// An Explore page: `explore` (genres, moods, decades) or a linked `path`.
+#[uniffi::export]
+pub async fn explore_page(path: String) -> Result<ExplorePage, FfiError> {
+    let p = run(move || explore::get_explore_page(&path)).await?;
+    Ok(ExplorePage {
+        title: p.title,
+        sections: p
+            .sections
+            .iter()
+            .map(|s| ExploreSection {
+                title: s.title.clone(),
+                links: s.links.iter().map(|l| PageLink { title: l.title.clone(), path: l.path.clone() }).collect(),
+                albums: s.albums.iter().map(Album::from).collect(),
+                playlists: s.playlists.iter().map(Playlist::from).collect(),
+                artists: s.artists.iter().map(ArtistRef::from).collect(),
+                tracks: tracks(&s.tracks),
+            })
+            .collect(),
+    })
 }
