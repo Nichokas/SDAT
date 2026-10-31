@@ -39,7 +39,9 @@ pub fn register() {
 fn scrolled(child: &impl IsA<gtk::Widget>) -> gtk::ScrolledWindow {
     let s = gtk::ScrolledWindow::new();
     s.set_child(Some(child));
-    s.set_policy(gtk::PolicyType::Never, gtk::PolicyType::Automatic);
+    // External: still scrolls (wheel, touchpad, keyboard, kinetic) and keeps the
+    // vadjustment working for scroll-to-load, but draws no scrollbar/indicator.
+    s.set_policy(gtk::PolicyType::Never, gtk::PolicyType::External);
     s
 }
 

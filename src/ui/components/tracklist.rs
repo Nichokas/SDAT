@@ -807,6 +807,7 @@ mod perf_probe {
         }
         // Same nesting as the real pages (routes::tracklist_scroller).
         let sw = gtk::ScrolledWindow::new();
+        sw.set_policy(gtk::PolicyType::Never, gtk::PolicyType::External);
         sw.set_child(Some(&crate::ui::components::main_content_scrollable(list.widget())));
         let win = gtk::Window::new();
         win.set_default_size(1000, 800);
@@ -879,6 +880,7 @@ mod perf_probe {
             list.add_track(tr);
         }
         let sw = gtk::ScrolledWindow::new();
+        sw.set_policy(gtk::PolicyType::Never, gtk::PolicyType::External);
         sw.set_child(Some(&crate::ui::components::main_content_scrollable(list.widget())));
         let win = gtk::Window::new();
         win.set_default_size(900, 600);
