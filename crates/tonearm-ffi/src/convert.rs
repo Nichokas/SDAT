@@ -6,6 +6,8 @@ use tonearm_core::model;
 /// Cover sizes: list rows / grids and the player / headers.
 const SMALL: i32 = 320;
 const LARGE: i32 = 1280;
+/// Largest artist picture TIDAL serves (artists: 160/320/480/750; 1280 is 403).
+const ARTIST_LARGE: i32 = 750;
 
 fn opt(s: String) -> Option<String> {
     (!s.is_empty()).then_some(s)
@@ -174,7 +176,7 @@ impl From<&model::Artist> for Artist {
         Artist {
             id: a.info.id.clone(),
             name: a.info.name.clone(),
-            picture_url: opt(a.info.cover(LARGE).static_),
+            picture_url: opt(a.info.cover(ARTIST_LARGE).static_),
             bio: tonearm_core::explore::plain_bio(&a.description),
             followers: a.follower_count,
         }

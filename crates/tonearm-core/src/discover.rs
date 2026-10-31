@@ -3,12 +3,13 @@
 
 use std::collections::{HashSet, VecDeque};
 
-use rand::seq::SliceRandom;
+use rand::seq::{IndexedRandom, SliceRandom};
 
 use crate::api::{self, legacy};
 use crate::error::CoreResult as Result;
 use crate::model::Track;
 use crate::service::{self, Paginator};
+use crate::state;
 
 /// A TIDAL mix (My Mix, My Daily Discovery, My New Arrivals, radios...).
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -57,6 +58,25 @@ pub fn track_radio_source(track_id: &str) -> Result<Option<PageSource>> {
     Ok(service::get_track_radio(track_id)?.map(|r| paginator_source(service::get_playlist_tracks(&r.id))))
 }
 
+/// A source opened on its first turn (`None` from `open` = empty source).
+fn lazy(open: impl FnOnce() -> Result<Option<PageSource>> + Send + 'static) -> PageSource {
+    let mut open = Some(open);
+    let mut inner: Option<PageSource> = None;
+    Box::new(move || {
+        if let Some(f) = open.take() {
+            inner = f()?;
+        }
+        match inner.as_mut() {
+            Some(next) => next(),
+            None => Ok(None),
+        }
+    })
+}
+
+fn random_favourite(cache: &state::FavouriteCache) -> Result<Option<String>> {
+    Ok(cache.get()?.choose(&mut rand::rng()).cloned())
+}
+
 struct Source {
     next: PageSource,
     buffer: Vec<Track>,
@@ -93,6 +113,44 @@ impl InfiniteShuffle {
         let mut s: Vec<Source> = sources.into_iter().map(|next| Source { next, buffer: vec![], done: false }).collect();
         s.shuffle(&mut rand::rng());
         InfiniteShuffle { sources: s.into(), seeds: VecDeque::new(), radio, seen: HashSet::new(), picked: 0 }
+    }
+
+    /// Wider Discover pool: the mixes plus the user's library, taken deeper and
+    /// at random — favourite tracks from a random page on, random favourite
+    /// albums, top tracks of random favourite artists and radios of random
+    /// favourite tracks — round-robined so sources interleave. Every library
+    /// source is lazy (nothing is fetched until its first turn).
+    pub fn from_mixes_and_library(mixes: &[MixRef]) -> Self {
+        let mut sources: Vec<PageSource> = mixes.iter().map(|m| paginator_source(service::get_playlist_tracks(&m.id))).collect();
+        sources.push(lazy(|| {
+            let uid = crate::auth::tokens().user_id();
+            if uid.is_empty() {
+                return Ok(None);
+            }
+            let mut p = service::user_collection_tracks(&uid);
+            // Start somewhere deeper than the newest favourites.
+            for _ in 0..rand::random_range(0..4) {
+                if p.is_consumed() {
+                    break;
+                }
+                p.next_page()?;
+            }
+            Ok(Some(paginator_source(p)))
+        }));
+        for _ in 0..6 {
+            sources.push(lazy(|| Ok(random_favourite(&state::ALBUMS)?.map(|id| paginator_source(service::get_album_tracks(&id))))));
+            sources.push(lazy(|| {
+                Ok(random_favourite(&state::ARTISTS)?.map(|id| {
+                    let mut once = Some(id);
+                    Box::new(move || once.take().map(|id| crate::explore::get_artist_overview(&id).map(|o| o.1)).transpose()) as PageSource
+                }))
+            }));
+            sources.push(lazy(|| match random_favourite(&state::TRACKS)? {
+                Some(id) => track_radio_source(&id),
+                None => Ok(None),
+            }));
+        }
+        Self::new(sources, Box::new(track_radio_source))
     }
 
     /// Shuffle over the songs of `mixes`, then their radios.

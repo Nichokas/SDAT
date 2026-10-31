@@ -66,7 +66,7 @@ impl Shuffle {
     #[uniffi::constructor]
     pub fn new(mixes: Vec<Mix>) -> Arc<Self> {
         let refs: Vec<discover::MixRef> = mixes.iter().map(Into::into).collect();
-        Arc::new(Shuffle(Arc::new(Mutex::new(InfiniteShuffle::from_mixes(&refs)))))
+        Arc::new(Shuffle(Arc::new(Mutex::new(InfiniteShuffle::from_mixes_and_library(&refs)))))
     }
     /// At least `min` new tracks; empty once every source is exhausted.
     pub async fn next_batch(&self, min: u32) -> Result<Vec<Track>, FfiError> {
