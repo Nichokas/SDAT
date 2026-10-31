@@ -1,5 +1,6 @@
-//! Port of `internal/signals`: stateful and stateless signals. Everything in
-//! Tonearm's UI and player lives on the GTK main thread, so these are
+//! Port of `internal/signals`: stateful and stateless signals.
+//!
+//! Everything in Tonearm's UI and player lives on the GTK main thread, so these are
 //! single-threaded (`Rc`/`RefCell`); each thread gets its own instances.
 
 use std::cell::{Cell, RefCell};
@@ -15,6 +16,18 @@ type Handler<T> = Rc<dyn Fn(&T) -> bool>;
 pub struct Signal<T> {
     handlers: RefCell<Vec<(Subscription, Handler<T>)>>,
     next_id: Cell<u64>,
+}
+
+impl<T> std::fmt::Debug for Signal<T> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Signal").field("next_id", &self.next_id).finish_non_exhaustive()
+    }
+}
+
+impl<T: std::fmt::Debug> std::fmt::Debug for State<T> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("State").field("value", &self.value.borrow()).field("signal", &self.signal).finish()
+    }
 }
 
 impl<T> Default for Signal<T> {

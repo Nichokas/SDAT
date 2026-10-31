@@ -1,4 +1,6 @@
-//! Service-independent domain model (port of `pkg/tonearm`). Go used interfaces
+//! Service-independent domain model (port of `pkg/tonearm`).
+//!
+//! Go used interfaces
 //! with one implementation per backend (openapi / v2); here every concept is a
 //! concrete struct that both backends convert into.
 
@@ -38,7 +40,6 @@ impl TrackQuality {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub struct TrackFlag(pub u8);
 impl TrackFlag {
-    #[expect(dead_code, reason = "named zero value mirrored from the Go TrackFlag enum")]
     pub const NONE: TrackFlag = TrackFlag(0);
     pub const EXPLICIT: u8 = 1;
     pub const AI: u8 = 2;
@@ -56,7 +57,6 @@ pub enum SourceType {
     Track,
     Artist,
     Playlist,
-    #[expect(dead_code, reason = "mirrors the Go SourceType enum")]
     Unknown,
 }
 
@@ -86,15 +86,14 @@ pub enum CoverSource {
     None,
     Artworks(openapi::Artworks),
     Ids { image: String, video: String },
-    #[expect(dead_code, reason = "mirrors Go covers backed by a plain URL")]
     Url(String),
 }
 
 pub fn image_url(id: &str) -> String {
-    format!("{}/images/{}/160x160.jpg", crate::settings::resources_base_url(), id.replace('-', "/"))
+    format!("{}/images/{}/160x160.jpg", crate::config::get().resources_base_url(), id.replace('-', "/"))
 }
 pub fn video_url(id: &str) -> String {
-    format!("{}/videos/{}/160x160.mp4", crate::settings::resources_base_url(), id.replace('-', "/"))
+    format!("{}/videos/{}/160x160.mp4", crate::config::get().resources_base_url(), id.replace('-', "/"))
 }
 
 impl CoverSource {

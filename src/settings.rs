@@ -42,6 +42,25 @@ pub fn bind(settings: &gio::Settings, key: &str, target: &impl IsA<glib::Object>
 }
 
 // ---- service.tidal ----
+
+/// The core's view of these settings (`tonearm_core::config`).
+#[derive(Debug, Clone, Copy)]
+pub struct GSettingsConfig;
+impl tonearm_core::config::Config for GSettingsConfig {
+    fn api_base_url(&self) -> String {
+        api_base_url()
+    }
+    fn openapi_base_url(&self) -> String {
+        openapi_base_url()
+    }
+    fn resources_base_url(&self) -> String {
+        resources_base_url()
+    }
+    fn auth_base_url(&self) -> String {
+        auth_base_url()
+    }
+}
+
 pub fn api_base_url() -> String {
     service_tidal().string("api-baseurl").into()
 }

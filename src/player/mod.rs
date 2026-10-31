@@ -3,7 +3,7 @@
 
 
 pub mod mpris;
-pub mod playqueue;
+pub use tonearm_core::playqueue;
 pub mod quality;
 pub mod replaygain;
 pub mod statemachine;

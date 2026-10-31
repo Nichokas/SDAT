@@ -6,18 +6,18 @@
 mod api;
 mod cache;
 mod country;
-mod i18n;
 mod imgutil;
-mod model;
 mod player;
 mod router;
 mod scrobbling;
 mod secrets;
 mod service;
 mod settings;
-mod signals;
 mod state;
 mod ui;
+
+use tonearm_core::{i18n, model, signals};
+pub(crate) use tonearm_core::global_signal;
 
 use adw::prelude::*;
 use gtk::gio;
@@ -73,6 +73,7 @@ fn main() -> glib::ExitCode {
     env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("info")).init();
     install_panic_hook();
     ensure_schema();
+    tonearm_core::config::install(Box::new(settings::GSettingsConfig));
 
     register_resources();
     let app = adw::Application::new(Some(settings::APP_ID), gio::ApplicationFlags::HANDLES_COMMAND_LINE);

@@ -2,8 +2,7 @@
 //! JSON models and the JSON:API (`openapi`) models.
 
 pub mod client;
-pub mod legacy;
-pub mod openapi;
+pub use tonearm_core::api::{legacy, openapi};
 
 pub use client::*;
 

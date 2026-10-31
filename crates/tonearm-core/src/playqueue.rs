@@ -7,6 +7,7 @@ use crate::model::Track;
 use crate::signals::State;
 
 /// Ephemeral FIFO queue whose entries are observable.
+#[derive(Debug)]
 pub struct Queue {
     entries: State<Vec<Track>>,
 }
@@ -105,6 +106,7 @@ impl Queue {
 
 /// Queue that remembers its original order so shuffle can be undone.
 #[derive(Default)]
+#[derive(Debug)]
 pub struct DurableQueue {
     queue: Queue,
     source: RefCell<Vec<Track>>,
@@ -210,6 +212,7 @@ impl DurableQueue {
 /// History queue: the most recent entry is held back as "pending" (it is the
 /// track currently playing) until the next one arrives.
 #[derive(Default)]
+#[derive(Debug)]
 pub struct HistoryQueue {
     pub queue: Queue,
     pending: RefCell<Option<Track>>,

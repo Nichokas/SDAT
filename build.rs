@@ -17,26 +17,6 @@ fn main() {
     }
     println!("cargo:rustc-env=TONEARM_SCHEMA_DIR={}", schema_out.display());
 
-    // Embedded translations (like Go's //go:embed of the .po files).
-    let loc_dir = Path::new(&manifest).join("internal/gettext/locales");
-    println!("cargo:rerun-if-changed=internal/gettext/locales");
-    let mut entries: Vec<String> = Vec::new();
-    if let Ok(rd) = std::fs::read_dir(&loc_dir) {
-        for e in rd.flatten() {
-            let po = e.path().join("default.po");
-            if po.is_file() {
-                println!("cargo:rerun-if-changed={}", po.display());
-                entries.push(format!("({:?}, include_str!({:?})),", e.file_name().to_string_lossy(), po.display().to_string()));
-            }
-        }
-    }
-    entries.sort();
-    std::fs::write(
-        Path::new(&out).join("locales.rs"),
-        format!("pub static LOCALES: &[(&str, &str)] = &[\n{}\n];\n", entries.join("\n")),
-    )
-    .expect("write locales.rs");
-
     // Commit shown in the about dialog (Go: -ldflags -X ui.Commit=...).
     println!("cargo:rerun-if-env-changed=TONEARM_COMMIT");
     println!("cargo:rerun-if-env-changed=TONEARM_VERSION");

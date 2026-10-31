@@ -104,7 +104,6 @@ pub struct PagedAlbum {
 /// An ID which may be encoded either as string or as number.
 #[derive(Debug, Clone, Default)]
 pub struct MagicId {
-    #[expect(dead_code, reason = "decoded for parity with the Go model; only `int` is read today")]
     pub string: String,
     pub int: i64,
 }
@@ -197,9 +196,7 @@ pub enum ItemData {
 
 #[derive(Debug, Clone)]
 pub struct Item2 {
-    #[expect(dead_code, reason = "decoded for parity with the Go model")]
     pub following: bool,
-    #[expect(dead_code, reason = "decoded for parity with the Go model")]
     pub number_of_followers: i64,
     pub type_: String,
     pub data: ItemData,

@@ -122,7 +122,6 @@ pub const OBJECT_TYPE_PLAYLISTS: &str = "playlists";
 pub const OBJECT_TYPE_TRACKS: &str = "tracks";
 
 impl IncludedObjects {
-    #[expect(clippy::wrong_self_convention, reason = "mirrors the Go accessor name")]
     pub fn from_relationships(&self, rels: &[Relationship], t: &str) -> Vec<&IncludedObject> {
         let mut found = Vec::new();
         for rel in rels {
