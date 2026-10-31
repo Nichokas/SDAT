@@ -4,6 +4,7 @@
 //! mirror the original one-to-one.
 
 mod api;
+mod cache;
 mod i18n;
 mod imgutil;
 mod model;

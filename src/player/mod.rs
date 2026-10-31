@@ -433,8 +433,9 @@ pub async fn play_tracklist(source: PlaybackSource, tracks: Vec<Track>, shuffle:
 
 pub async fn play_album(album_id: &str, shuffle: bool, position: usize) -> Result<()> {
     let id = album_id.to_string();
-    let (info, tracks) =
-        api::run(move || Ok((service::get_album_info(&id)?, service::get_album_tracks(&id).get_all()?))).await?;
+    let i = id.clone();
+    let info = api::run(move || service::get_album_info(&i)).await?;
+    let tracks = crate::cache::all_tracks(crate::cache::Job::Album(id)).await?;
     clear_queues();
     stop();
     play_tracks(tracks, shuffle, position)?;
@@ -470,8 +471,9 @@ pub async fn play_artist_top_songs(artist_id: &str, shuffle: bool, position: usi
 
 pub async fn play_playlist(playlist_id: &str, shuffle: bool, position: usize) -> Result<()> {
     let id = playlist_id.to_string();
-    let (info, tracks) =
-        api::run(move || Ok((service::get_playlist_info(&id)?, service::get_playlist_tracks(&id).get_all()?))).await?;
+    let i = id.clone();
+    let info = api::run(move || service::get_playlist_info(&i)).await?;
+    let tracks = crate::cache::all_tracks(crate::cache::Job::Playlist(id)).await?;
     clear_queues();
     stop();
     play_tracks(tracks, shuffle, position)?;

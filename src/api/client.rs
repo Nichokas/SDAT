@@ -314,7 +314,15 @@ pub fn favourite_ids(user_id: &str, if_none_match: &str) -> Result<Option<(legac
 }
 
 /// kind: tracks | albums | playlists | artists
+/// Drops cached lists that a favourites change affects.
+fn invalidate_favourites(kind: &str) {
+    if kind == "tracks" {
+        crate::cache::invalidate(crate::cache::FAVOURITE_TRACKS);
+    }
+}
+
 pub fn favourite_add(user_id: &str, kind: &str, id: &str) -> Result<()> {
+    invalidate_favourites(kind);
     let field = match kind {
         "tracks" => "trackIds",
         "albums" => "albumIds",
@@ -332,6 +340,7 @@ pub fn favourite_add(user_id: &str, kind: &str, id: &str) -> Result<()> {
 }
 
 pub fn favourite_remove(user_id: &str, kind: &str, id: &str) -> Result<()> {
+    invalidate_favourites(kind);
     let resp = request(Method::DELETE, &format!("/v1/users/{user_id}/favorites/{kind}/{id}"), &[])?.send()?;
     if resp.status() != StatusCode::OK {
         bail!("error while removing from favourites: {}", resp.status());
@@ -395,6 +404,7 @@ pub fn playlist_add_track(playlist_id: &str, track_id: &str) -> Result<()> {
         .header("Content-Type", "application/vnd.api+json")
         .body(add_items_body(&[track_id]).to_string())
         .send()?;
+    crate::cache::invalidate(&crate::cache::playlist_key(playlist_id));
     if !resp.status().is_success() {
         bail!("error while adding track to playlist: {}", resp.status().as_u16());
     }

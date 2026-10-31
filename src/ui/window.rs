@@ -12,7 +12,7 @@ use crate::ui::accels::PRIMARY;
 use crate::ui::components::sidebar::{lyrics, player_view, queue};
 use crate::ui::components::{RouteButton, linking, media_viewer};
 use crate::ui::dsl::{on_signal, clamp, W, spacing, hstack, on_state, vstack};
-use crate::{api, model, player, router, secrets, service, settings, state};
+use crate::{api, model, player, router, secrets, settings, state};
 
 thread_local! {
     static WINDOW: RefCell<Option<adw::ApplicationWindow>> = const { RefCell::new(None) };
@@ -328,12 +328,12 @@ fn queue_param(param: &str) {
     match parts[0] {
         "track" => spawn_logged("queue track", async move { player::add_track_to_user_queue(&id).await }),
         "album" => spawn_logged("queue album", async move {
-            let t = api::run(move || service::get_album_tracks(&id).get_all()).await?;
+            let t = crate::cache::all_tracks(crate::cache::Job::Album(id)).await?;
             player::add_tracklist_to_user_queue(t);
             Ok(())
         }),
         "playlist" => spawn_logged("queue playlist", async move {
-            let t = api::run(move || service::get_playlist_tracks(&id).get_all()).await?;
+            let t = crate::cache::all_tracks(crate::cache::Job::Playlist(id)).await?;
             player::add_tracklist_to_user_queue(t);
             Ok(())
         }),
@@ -360,7 +360,7 @@ fn queue_param(param: &str) {
                     log::warn!("user not logged in, ignoring action");
                     return Ok(());
                 }
-                let t = api::run(|| service::user_collection_tracks("me").get_all()).await?;
+                let t = crate::cache::all_tracks(crate::cache::Job::FavouriteTracks).await?;
                 player::add_tracklist_to_user_queue(t);
                 Ok(())
             }),

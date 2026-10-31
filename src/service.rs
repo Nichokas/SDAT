@@ -40,6 +40,10 @@ impl<T: Clone> Paginator<T> {
         self.items.extend(res.iter().cloned());
         Ok(res)
     }
+    /// Items fetched so far.
+    pub fn items(&self) -> &[T] {
+        &self.items
+    }
     pub fn get_all(&mut self) -> Result<Vec<T>> {
         while !self.is_consumed() {
             self.next_page()?;

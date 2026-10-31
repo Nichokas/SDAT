@@ -288,6 +288,11 @@ impl TrackList {
 
 
 
+    /// Replaces the rows with `tracks` (minimal diff).
+    pub fn replace_all(&self, tracks: &[Track]) {
+        sync(&self.0, tracks);
+    }
+
     pub fn set_click_handler(&self, f: impl Fn(&Track, usize) + 'static) {
         *self.0.click.borrow_mut() = Rc::new(f);
     }
