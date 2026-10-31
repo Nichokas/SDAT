@@ -111,7 +111,7 @@ async fn paginated_media_card_page<T: Clone + Send + 'static>(p: Paginator<T>, f
         let p: SharedPaginator<T> = std::sync::Arc::clone(&p);
         let lw = lw.clone();
         glib::spawn_future_local(async move {
-            if p.lock().unwrap().is_consumed() {
+            if p.lock().unwrap_or_else(std::sync::PoisonError::into_inner).is_consumed() {
                 log::debug!("No more items to fetch");
                 return finish(false);
             }
@@ -143,7 +143,7 @@ async fn paginated_tracklist_page(p: Paginator<Track>, columns: Vec<Col>, margin
     on_reach_bottom_soon(&sw, move |finish| {
         let (p, l) = (std::sync::Arc::clone(&p), l.clone());
         glib::spawn_future_local(async move {
-            if p.lock().unwrap().is_consumed() {
+            if p.lock().unwrap_or_else(std::sync::PoisonError::into_inner).is_consumed() {
                 log::debug!("No more items to fetch");
                 return finish(false);
             }
@@ -446,8 +446,10 @@ async fn feed() -> Response {
         }
     }
     body.append(&bx);
-    if has_unseen {
-        let _ = api::run(move || api::feed_seen(&uid)).await;
+    if has_unseen
+        && let Err(e) = api::run(move || api::feed_seen(&uid)).await
+    {
+        log::warn!("failed to mark the feed as seen: {e:#}");
     }
     let c = adw::Clamp::new().hpadding(8);
     c.set_child(Some(&body));

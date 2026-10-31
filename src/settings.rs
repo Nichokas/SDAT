@@ -62,14 +62,22 @@ pub fn should_run_in_background() -> bool {
 pub fn default_page() -> String {
     general().string("default-page").into()
 }
+/// `GSettings` writes only fail for a read-only or invalid key; log instead of
+/// ignoring the error (Go ignored it silently).
+fn warn_on_err(key: &str, r: Result<(), glib::BoolError>) {
+    if let Err(e) = r {
+        log::warn!("failed to write setting {key}: {e}");
+    }
+}
+
 pub fn set_default_page(p: &str) {
-    let _ = general().set_string("default-page", p);
+    warn_on_err("default-page", general().set_string("default-page", p));
 }
 pub fn should_hide_secret_service_warning() -> bool {
     general().boolean("hide-secret-service-warning")
 }
 pub fn set_hide_secret_service_warning(v: bool) {
-    let _ = general().set_boolean("hide-secret-service-warning", v);
+    warn_on_err("hide-secret-service-warning", general().set_boolean("hide-secret-service-warning", v));
 }
 pub fn window_width() -> i32 {
     general().int("window-width")
@@ -78,8 +86,8 @@ pub fn window_height() -> i32 {
     general().int("window-height")
 }
 pub fn set_window_size(w: i32, h: i32) {
-    let _ = general().set_int("window-width", w);
-    let _ = general().set_int("window-height", h);
+    warn_on_err("window-width", general().set_int("window-width", w));
+    warn_on_err("window-height", general().set_int("window-height", h));
 }
 
 // ---- performance ----
@@ -122,7 +130,7 @@ pub fn replay_gain_mode() -> ReplayGainMode {
     }
 }
 pub fn set_replay_gain_mode(m: ReplayGainMode) {
-    let _ = playback().set_int("replay-gain-mode", m as i32);
+    warn_on_err("replay-gain-mode", playback().set_int("replay-gain-mode", m as i32));
 }
 
 // ---- player ----
@@ -134,13 +142,13 @@ pub fn audio_quality() -> TrackQuality {
     })
 }
 pub fn set_audio_quality(q: TrackQuality) {
-    let _ = player().set_string("audio-quality", q.as_str());
+    warn_on_err("audio-quality", player().set_string("audio-quality", q.as_str()));
 }
 pub fn volume() -> f64 {
     player().double("volume")
 }
 pub fn set_volume(v: f64) {
-    let _ = player().set_double("volume", v);
+    warn_on_err("volume", player().set_double("volume", v));
 }
 
 // ---- scrobbling ----
@@ -160,7 +168,7 @@ pub fn lastfm_token() -> String {
     scrobbling().string("lastfm-token").into()
 }
 pub fn set_lastfm_token(t: &str) {
-    let _ = scrobbling().set_string("lastfm-token", t);
+    warn_on_err("lastfm-token", scrobbling().set_string("lastfm-token", t));
 }
 
 /// Calls `cb` immediately and again every time `key` changes (main thread only).

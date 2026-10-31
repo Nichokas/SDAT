@@ -93,7 +93,7 @@ impl FavouriteCache {
     }
 
     pub fn bust(&self) {
-        self.inner.lock().unwrap().last_fetched = None;
+        self.inner.lock().unwrap_or_else(std::sync::PoisonError::into_inner).last_fetched = None;
     }
 
     pub fn get(&self) -> Result<Vec<String>> {
@@ -102,7 +102,7 @@ impl FavouriteCache {
             log::debug!("not logged in, ignoring favourite fetch");
             return Ok(vec![]);
         }
-        let mut inner = self.inner.lock().unwrap();
+        let mut inner = self.inner.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
         if let (Some(items), Some(t)) = (&inner.items, inner.last_fetched)
             && t.elapsed() < TTL {
                 return Ok(items.clone());

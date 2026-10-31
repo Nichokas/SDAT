@@ -496,8 +496,10 @@ fn play_tracks(tracks: Vec<Track>, shuffle: bool, starting_position: usize) -> R
     stop();
     base_queue().set(tracks);
     set_shuffle(shuffle, "");
-    if starting_position > 0 {
-        let _ = base_queue().skip(starting_position);
+    if starting_position > 0
+        && let Err(e) = base_queue().skip(starting_position)
+    {
+        log::warn!("could not skip to position {starting_position}: {e:#}");
     }
     let Some(t) = next_track(false).0 else {
         anyhow::bail!("tracklist produced no valid tracks to be played");

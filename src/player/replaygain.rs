@@ -15,7 +15,7 @@ static ALBUM_MODE: AtomicBool = AtomicBool::new(false);
 static ENQUEUED: Mutex<Option<(Option<Normalization>, Option<Normalization>)>> = Mutex::new(None);
 
 pub fn set_enqueued(m: Option<&TrackManifest>) {
-    *ENQUEUED.lock().unwrap() = m.map(|m| (m.album_normalization, m.track_normalization));
+    *ENQUEUED.lock().unwrap_or_else(std::sync::PoisonError::into_inner) = m.map(|m| (m.album_normalization, m.track_normalization));
 }
 
 pub fn calculate_album_mode(mode: ReplayGainMode, source: Option<SourceType>) -> bool {
@@ -31,7 +31,7 @@ pub fn update_album_mode() {
 }
 
 fn inject_tags(rgvolume: &gst::Element) {
-    let Some((album, track)) = *ENQUEUED.lock().unwrap() else { return };
+    let Some((album, track)) = *ENQUEUED.lock().unwrap_or_else(std::sync::PoisonError::into_inner) else { return };
     let mut tags = gst::TagList::new();
     {
         let t = tags.make_mut();

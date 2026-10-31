@@ -57,7 +57,7 @@ pub fn shared<T>(p: Paginator<T>) -> SharedPaginator<T> {
 /// Fetches the next page on a worker thread.
 pub async fn next_page<T: Clone + Send + 'static>(p: &SharedPaginator<T>) -> Result<Vec<T>> {
     let p = std::sync::Arc::clone(p);
-    api::run(move || p.lock().unwrap().next_page()).await
+    api::run(move || p.lock().unwrap_or_else(std::sync::PoisonError::into_inner).next_page()).await
 }
 
 

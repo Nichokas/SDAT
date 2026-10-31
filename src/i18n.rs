@@ -145,13 +145,12 @@ fn parse_po(src: &str) -> Catalog {
         if line.starts_with('#') || line.is_empty() {
             continue;
         }
-        if let Some(rest) = line.strip_prefix("msgctxt ") {
+        if line.starts_with("msgctxt ") {
             if has_entry {
                 flush(&mut id, &mut id_plural, &mut strs, &mut cat);
             }
             has_entry = false;
             field = F::Ctx;
-            let _ = rest;
         } else if let Some(rest) = line.strip_prefix("msgid_plural ") {
             id_plural = unquote(rest);
             field = F::IdPlural;

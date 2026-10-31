@@ -66,7 +66,7 @@ static COUNTRY: OnceLock<String> = OnceLock::new();
 
 /// Forget the cached user access token (after sign-in/out).
 pub fn reset_user_token() {
-    *USER_TOKEN.lock().unwrap() = CachedToken::default();
+    *USER_TOKEN.lock().unwrap_or_else(std::sync::PoisonError::into_inner) = CachedToken::default();
 }
 
 #[derive(Deserialize)]
@@ -83,7 +83,7 @@ fn token_request(form: &[(&str, &str)]) -> Result<Response> {
 }
 
 fn fetch_access_token(cache: &Mutex<CachedToken>, form: &[(&str, &str)]) -> Result<String> {
-    if let Some(t) = cache.lock().unwrap().valid() {
+    if let Some(t) = cache.lock().unwrap_or_else(std::sync::PoisonError::into_inner).valid() {
         return Ok(t);
     }
     let resp = token_request(form)?;
@@ -91,7 +91,7 @@ fn fetch_access_token(cache: &Mutex<CachedToken>, form: &[(&str, &str)]) -> Resu
         bail!("failed to get token: {}", resp.status());
     }
     let t: AccessToken = resp.json()?;
-    *cache.lock().unwrap() = CachedToken { token: t.access_token.clone(), expiry: Some(Instant::now() + Duration::from_secs(t.expires_in)) };
+    *cache.lock().unwrap_or_else(std::sync::PoisonError::into_inner) = CachedToken { token: t.access_token.clone(), expiry: Some(Instant::now() + Duration::from_secs(t.expires_in)) };
     Ok(t.access_token)
 }
 

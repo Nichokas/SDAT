@@ -411,7 +411,9 @@ impl Machine {
                     // Deviation from Go: don't stay stuck in PREPARING with a spinner.
                     log::error!("failed to start playback: {e:#}");
                     self.state.set(State::Stopped);
-                    let _ = on_stopped(&*self.playbin);
+                    if let Err(e) = on_stopped(&*self.playbin) {
+                        log::error!("failed to reset the pipeline after a playback error: {e:#}");
+                    }
                 }
                 r
             }

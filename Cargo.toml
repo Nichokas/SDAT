@@ -47,6 +47,8 @@ unsafe_op_in_unsafe_fn = "warn"
 unused_lifetimes = "warn"
 
 [lints.clippy]
+# rust-skills anti-unwrap-abuse: no unwrap() outside tests (see clippy.toml).
+unwrap_used = "warn"
 cargo = { level = "warn", priority = -1 }
 complexity = { level = "warn", priority = -1 }
 correctness = { level = "warn", priority = -1 }
