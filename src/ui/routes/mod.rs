@@ -58,8 +58,20 @@ fn play(fut: impl std::future::Future<Output = anyhow::Result<()>> + 'static, to
 
 // ------------------------------------------------------------------ pages
 
-/// Port of ConnectReachEdgeSoon(PosBottom): calls `more` when within 20% of the end
-/// or when the content does not fill the viewport. `more` returns false once exhausted.
+/// How many viewport heights ahead of the end we keep loaded. Go loaded at 80%
+/// of the content, which left the spinner visible on long lists.
+const PREFETCH_SCREENS: f64 = 3.0;
+
+/// Whether to fetch another page: one request at a time, never after the end,
+/// and whenever less than `PREFETCH_SCREENS` viewports remain below the view
+/// (which also covers content that doesn't fill the viewport yet).
+fn should_fetch(busy: bool, done: bool, value: f64, page: f64, upper: f64) -> bool {
+    !busy && !done && upper - (value + page) <= PREFETCH_SCREENS * page.max(1.0)
+}
+
+/// Port of ConnectReachEdgeSoon(PosBottom), prefetching ahead. Calls `more` with a
+/// completion callback (true = more pages may exist). After each page it checks
+/// again, so pages chain until the buffer is filled.
 fn on_reach_bottom_soon(sw: &gtk::ScrolledWindow, more: impl Fn(Rc<dyn Fn(bool)>) + 'static) {
     let adj = sw.vadjustment();
     let busy = Rc::new(Cell::new(false));
@@ -67,27 +79,64 @@ fn on_reach_bottom_soon(sw: &gtk::ScrolledWindow, more: impl Fn(Rc<dyn Fn(bool)>
     let more = Rc::new(more);
     let check = {
         let (busy, done) = (Rc::clone(&busy), Rc::clone(&done));
-        Rc::new(move |adj: &gtk::Adjustment, filled_check: bool| {
-            if busy.get() || done.get() {
-                return;
-            }
-            let trigger = (filled_check && adj.upper() <= adj.page_size()) || adj.value() + adj.page_size() >= 0.8 * adj.upper();
-            if !trigger {
+        Rc::new(move |adj: &gtk::Adjustment| {
+            if !should_fetch(busy.get(), done.get(), adj.value(), adj.page_size(), adj.upper()) {
                 return;
             }
             busy.set(true);
-            let (busy, done) = (Rc::clone(&busy), Rc::clone(&done));
+            let (busy, done, adj) = (Rc::clone(&busy), Rc::clone(&done), adj.clone());
             more(Rc::new(move |has_more| {
                 busy.set(false);
-                if !has_more {
+                if has_more {
+                    // Chain: new rows change `upper`, which re-runs the check; also
+                    // nudge it in case the layout didn't change.
+                    adj.emit_by_name::<()>("changed", &[]);
+                } else {
                     done.set(true);
                 }
             }));
         })
     };
     let c = Rc::clone(&check);
-    adj.connect_value_changed(move |a| c(a, false));
-    adj.connect_changed(move |a| check(a, true));
+    adj.connect_value_changed(move |a| c(a));
+    let c = Rc::clone(&check);
+    adj.connect_changed(move |a| c(a));
+    // Start prefetching right away, not only once the user scrolls.
+    glib::idle_add_local_once(move || check(&adj));
+}
+
+/// After a failed page load, allow another attempt in a few seconds instead of
+/// retrying in a tight loop or giving up for good.
+fn retry_later(finish: Rc<dyn Fn(bool)>) {
+    glib::timeout_add_local_once(std::time::Duration::from_secs(5), move || finish(true));
+}
+
+#[cfg(test)]
+mod pagination_tests {
+    use super::should_fetch;
+
+    #[test]
+    fn fetches_only_when_close_to_the_end() {
+        // 600px viewport at the top of 10000px of content: far from the end.
+        assert!(!should_fetch(false, false, 0.0, 600.0, 10_000.0));
+        // Within three screens of the end: prefetch.
+        assert!(should_fetch(false, false, 7_700.0, 600.0, 10_000.0));
+        // Content shorter than the viewport.
+        assert!(should_fetch(false, false, 0.0, 600.0, 300.0));
+        // Just opened, first page fills 2 screens: prefetch the next one.
+        assert!(should_fetch(false, false, 0.0, 600.0, 1_200.0));
+    }
+
+    #[test]
+    fn single_flight_and_stops_at_end() {
+        assert!(!should_fetch(true, false, 0.0, 600.0, 300.0));
+        assert!(!should_fetch(false, true, 0.0, 600.0, 300.0));
+    }
+
+    #[test]
+    fn unrealized_viewport_still_fetches_small_content() {
+        assert!(should_fetch(false, false, 0.0, 0.0, 0.0));
+    }
 }
 
 /// Port of `NewPaginatedMediaCardPage`.
@@ -104,6 +153,25 @@ async fn paginated_media_card_page<T: Clone + Send + 'static>(p: Paginator<T>, f
             list.append(&c);
         }
     };
+    // Later pages are appended a few cards per main-loop iteration to avoid jank.
+    let add_batched = move |list: &adw::WrapBox, items: Vec<T>, finish: Rc<dyn Fn(bool)>| {
+        const BATCH: usize = 12;
+        let lw = list.downgrade();
+        let mut rest = items.into_iter();
+        glib::idle_add_local(move || {
+            let chunk: Vec<T> = rest.by_ref().take(BATCH).collect();
+            match lw.upgrade() {
+                Some(l) if !chunk.is_empty() => {
+                    add(&l, &chunk);
+                    glib::ControlFlow::Continue
+                }
+                _ => {
+                    finish(true);
+                    glib::ControlFlow::Break
+                }
+            }
+        });
+    };
     add(&list, &first);
     let sw = scrolled(&comp::main_content(&list));
     let lw = list.downgrade();
@@ -115,12 +183,16 @@ async fn paginated_media_card_page<T: Clone + Send + 'static>(p: Paginator<T>, f
                 log::debug!("No more items to fetch");
                 return finish(false);
             }
-            if let Ok(items) = service::next_page(&p).await
-                && let Some(l) = lw.upgrade()
-            {
-                add(&l, &items);
+            match service::next_page(&p).await {
+                Ok(items) => match lw.upgrade() {
+                    Some(l) => add_batched(&l, items, finish),
+                    None => finish(false),
+                },
+                Err(e) => {
+                    log::error!("loading next page failed error={e:#}");
+                    retry_later(finish);
+                }
             }
-            finish(true);
         });
     });
     Ok(sw.upcast())
@@ -147,12 +219,18 @@ async fn paginated_tracklist_page(p: Paginator<Track>, columns: Vec<Col>, margin
                 log::debug!("No more items to fetch");
                 return finish(false);
             }
-            if let Ok(items) = service::next_page(&p).await {
-                for t in items {
-                    l.add_track(t);
+            match service::next_page(&p).await {
+                Ok(items) => {
+                    for t in items {
+                        l.add_track(t);
+                    }
+                    finish(true);
+                }
+                Err(e) => {
+                    log::error!("loading next page failed error={e:#}");
+                    retry_later(finish);
                 }
             }
-            finish(true);
         });
     });
     Ok((sw, list))
