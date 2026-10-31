@@ -508,10 +508,11 @@ fn toggle_drop_target(i: &Inner, w: &Weak<Inner>, on: bool) {
             v.add_controller(target.clone());
         }
         *dt = Some(target);
-    } else if !on && let Some(t) = dt.take() {
-        if let Some(v) = i.view.upgrade() {
-            v.remove_controller(&t);
-        }
+    } else if !on
+        && let Some(t) = dt.take()
+        && let Some(v) = i.view.upgrade()
+    {
+        v.remove_controller(&t);
     }
 }
 
