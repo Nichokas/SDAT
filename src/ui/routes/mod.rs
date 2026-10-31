@@ -226,6 +226,19 @@ fn play_whole_list_on_click(list: &TrackList, p: Option<SharedPaginator<Track>>,
         let Some(generation) = player::play_list_from(source.clone(), l.tracks(), t, pos) else { return };
         if let Some(p) = &p {
             player::set_list_feeder(generation, page_feeder(Some(l.downgrade()), std::sync::Arc::clone(p), generation));
+            if matches!(source, PlaybackSource::MyTracks) {
+                set_favourites_total(generation);
+            }
+        }
+    });
+}
+
+/// The favourites list size comes from the (cached) favourite id list.
+fn set_favourites_total(generation: u64) {
+    glib::spawn_future_local(async move {
+        match api::run(|| crate::state::TRACKS.get().map(|ids| ids.len())).await {
+            Ok(n) => player::set_list_total(generation, n),
+            Err(e) => log::warn!("could not get the favourite track count error={e:#}"),
         }
     });
 }
@@ -841,6 +854,7 @@ async fn my_collection() -> Response {
         let Some(generation) = player::play_list_from(PlaybackSource::MyTracks, l.tracks(), t, pos) else { return };
         let p = service::shared(service::user_collection_tracks("me"));
         player::set_list_feeder(generation, page_feeder(None, p, generation));
+        set_favourites_total(generation);
     });
     let title = RowTitle::new().set_title(&tr("Tracks")).set_view_all_route("my-collection/tracks");
     let tracks_box = vstack(&[title.widget.upcast_ref(), tracks.widget()]).hmargin(40);

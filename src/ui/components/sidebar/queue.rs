@@ -59,6 +59,16 @@ fn queue_tracklist(kind: QueueKind) -> TrackList {
 fn queue_list() -> gtk::ScrolledWindow {
     let user = queue_tracklist(QueueKind::User);
     let base = queue_tracklist(QueueKind::Base);
+    // The rest of the playing list that is not loaded yet shows as placeholder
+    // rows; scrolling onto them loads the next page.
+    base.on_placeholder_shown(|_| player::feed(true));
+    let b = base.downgrade();
+    let sub = player::list_unloaded().on(move |n| {
+        let Some(b) = b.upgrade() else { return true };
+        b.set_placeholders(*n);
+        crate::signals::CONTINUE
+    });
+    base.widget().connect_destroy(move |_| player::list_unloaded().unsubscribe(sub));
     let user_w = user.widget().clone().background("alpha(var(--view-bg-color), 0.9)").corner_radius(10).mbottom(10);
     let content = vstack(&[&user_w, base.widget()]).valign(gtk::Align::Start);
     let sw = gtk::ScrolledWindow::new().hmargin(12).vexp(true);

@@ -542,6 +542,38 @@ thread_local! {
     static WAITING: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
 }
 
+// Tracks of the playing list that are not loaded yet (known from the list's
+// total size); the queue view shows them as placeholder rows.
+global_signal!(pub fn list_unloaded() -> State<usize> = State::new(0));
+
+thread_local! {
+    static LIST_TOTAL: std::cell::Cell<Option<usize>> = const { std::cell::Cell::new(None) };
+}
+
+/// How many of `total` list tracks are still to load once `loaded` are known.
+pub fn unloaded_count(total: Option<usize>, loaded: usize, pending: bool) -> usize {
+    match total {
+        Some(t) if pending => t.saturating_sub(loaded),
+        _ => 0,
+    }
+}
+
+fn update_unloaded() {
+    let n = unloaded_count(LIST_TOTAL.with(std::cell::Cell::get), base_queue().source_len(), list_pending());
+    if list_unloaded().get() != n {
+        list_unloaded().set(n);
+    }
+}
+
+/// Records the full size of the list started at `generation` (e.g. the
+/// number of favourite tracks) so the queue can show all of it.
+pub fn set_list_total(generation: u64, total: usize) {
+    if LIST_GENERATION.with(std::cell::Cell::get) == generation {
+        LIST_TOTAL.with(|t| t.set(Some(total)));
+        update_unloaded();
+    }
+}
+
 /// Whether the playing list has pages that are not loaded yet.
 fn list_pending() -> bool {
     let generation = LIST_GENERATION.with(std::cell::Cell::get);
@@ -594,6 +626,7 @@ pub fn feed(force: bool) {
                 }
             });
         }
+        update_unloaded();
         if LIST_GENERATION.with(std::cell::Cell::get) != generation || !WAITING.with(std::cell::Cell::get) {
             return;
         }
@@ -617,6 +650,7 @@ pub fn extend_list(generation: u64, tracks: &[Track]) -> bool {
         return false;
     }
     base_queue().extend(tracks);
+    update_unloaded();
     true
 }
 
@@ -625,6 +659,8 @@ fn bump_list_generation() {
     FEEDER.with(|f| *f.borrow_mut() = None);
     FEEDING.with(|f| f.set(false));
     WAITING.with(|w| w.set(false));
+    LIST_TOTAL.with(|t| t.set(None));
+    update_unloaded();
 }
 
 fn play_tracks(tracks: Vec<Track>, shuffle: bool, starting_position: usize) -> Result<Track> {
@@ -648,6 +684,15 @@ fn play_tracks(tracks: Vec<Track>, shuffle: bool, starting_position: usize) -> R
 
 #[cfg(test)]
 mod feed_tests {
+    #[test]
+    fn unloaded_rows_cover_the_rest_of_the_list() {
+        assert_eq!(super::unloaded_count(Some(3000), 50, true), 2950);
+        assert_eq!(super::unloaded_count(Some(10), 50, true), 0);
+        // fully loaded or unknown size: no placeholders
+        assert_eq!(super::unloaded_count(Some(3000), 50, false), 0);
+        assert_eq!(super::unloaded_count(None, 50, true), 0);
+    }
+
     #[test]
     fn asks_for_more_only_near_the_end_of_the_window() {
         assert!(super::needs_more(0));

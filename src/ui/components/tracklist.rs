@@ -210,6 +210,7 @@ impl Col {
 }
 
 type ClickFn = Rc<dyn Fn(&Track, usize)>;
+type PlaceholderFn = Rc<dyn Fn(usize)>;
 type ReorderFn = Rc<dyn Fn(usize, usize, &Track)>;
 
 struct Inner {
@@ -224,6 +225,9 @@ struct Inner {
     being_moved: RefCell<Option<Track>>,
     view: glib::WeakRef<gtk::ListView>,
     drop_target: RefCell<Option<gtk::DropTargetAsync>>,
+    /// Rows after the tracks that stand for tracks not loaded yet.
+    placeholders: Cell<usize>,
+    on_placeholder: RefCell<Option<PlaceholderFn>>,
 }
 
 /// The recycled widgets of one list item.
@@ -279,6 +283,8 @@ impl TrackList {
             being_moved: RefCell::new(None),
             view: view.downgrade(),
             drop_target: RefCell::new(None),
+            placeholders: Cell::new(0),
+            on_placeholder: RefCell::new(None),
         });
         let w = Rc::downgrade(&inner);
         factory.connect_setup(move |_, item| {
@@ -328,6 +334,26 @@ impl TrackList {
         self.1.upcast_ref()
     }
 
+
+    /// Shows `n` placeholder rows after the tracks (same row widgets and
+    /// height, dimmed, inactive) for tracks that are not loaded yet.
+    pub fn set_placeholders(&self, n: usize) {
+        let i = &self.0;
+        let (cur, len) = (i.placeholders.get(), i.tracks.borrow().len());
+        i.placeholders.set(n);
+        let at = (len + n.min(cur)) as u32;
+        if n > cur {
+            let extra: Vec<glib::Object> = (0..n - cur).map(|_| empty()).collect();
+            i.store.splice(at, 0, &extra);
+        } else if n < cur {
+            i.store.splice(at, (cur - n) as u32, &[] as &[glib::Object]);
+        }
+    }
+
+    /// Called (from idle) with the index of a placeholder row that got shown.
+    pub fn on_placeholder_shown(&self, f: impl Fn(usize) + 'static) {
+        *self.0.on_placeholder.borrow_mut() = Some(Rc::new(f));
+    }
 
     pub fn add_track(&self, t: Track) {
         self.0.tracks.borrow_mut().push(t);
@@ -402,6 +428,11 @@ fn sync(i: &Inner, new: &[Track]) {
     let old = std::mem::replace(&mut *i.tracks.borrow_mut(), new.to_vec());
     for (idx, op) in diff_ops(&old, new) {
         match op {
+            // A loaded track takes the place of the first placeholder row.
+            Op::Append if i.placeholders.get() > 0 => {
+                i.placeholders.set(i.placeholders.get() - 1);
+                i.store.splice(idx as u32, 1, &[empty()]);
+            }
             Op::Append => i.store.append(&empty()),
             Op::Replace => i.store.splice(idx as u32, 1, &[empty()]),
             Op::Remove => i.store.remove(idx as u32),
@@ -494,12 +525,16 @@ fn on_signal_state_playing(body: &gtk::Box, track: Rc<RefCell<Option<Track>>>) {
 
 fn bind(i: &Inner, item: &gtk::ListItem) {
     let pos = item.position() as usize;
-    let Some(track) = i.tracks.borrow().get(pos).cloned() else { return };
     let Some(container) = item.child().and_downcast::<adw::Bin>() else { return };
     if row_of(&container).is_none() {
         build_row(i, &container);
     }
     let Some(row) = row_of(&container) else { return };
+    let Some(track) = i.tracks.borrow().get(pos).cloned() else {
+        bind_placeholder(i, item, &container, &row, pos);
+        return;
+    };
+    container.set_opacity(1.0);
     if is_playing(track.id()) {
         row.body.add_css_class("playing");
     } else {
@@ -519,6 +554,22 @@ fn bind(i: &Inner, item: &gtk::ListItem) {
     }
 }
 
+fn bind_placeholder(i: &Inner, item: &gtk::ListItem, container: &adw::Bin, row: &Row, pos: usize) {
+    row.body.remove_css_class("playing");
+    let blank = Track::default();
+    for c in &row.cells {
+        (c.bind)(&blank, pos);
+    }
+    *row.track.borrow_mut() = None;
+    item.set_activatable(false);
+    container.set_sensitive(false);
+    container.set_opacity(0.35);
+    container.set_tooltip_text(Some(&tr("Loading…")));
+    if let Some(f) = i.on_placeholder.borrow().clone() {
+        glib::idle_add_local_once(move || f(pos));
+    }
+}
+
 const DRAG_MIME: &str = "application/x-tonearm-track";
 
 fn setup(i: &Inner, w: &Weak<Inner>, item: &gtk::ListItem) {
@@ -535,6 +586,9 @@ fn setup(i: &Inner, w: &Weak<Inner>, item: &gtk::ListItem) {
             ds.connect_prepare(move |_, _, _| {
                 let (i, item) = (w1.upgrade()?, li1.upgrade()?);
                 let p = i64::from(item.position());
+                if p as usize >= i.tracks.borrow().len() {
+                    return None; // placeholder rows can't be dragged
+                }
                 i.moving_source.set(p);
                 i.moving_target.set(p);
                 *i.being_moved.borrow_mut() = i.tracks.borrow().get(p as usize).cloned();
@@ -886,6 +940,33 @@ mod perf_probe {
         win.close();
     }
 
+    #[test]
+    #[ignore = "needs a display (gtk::init)"]
+    fn placeholders_are_taken_over_by_loaded_tracks() {
+        gtk::init().unwrap();
+        let tk = |id: &str| {
+            let mut t = Track::default();
+            t.info.id = id.into();
+            t
+        };
+        let list = TrackList::new(vec![Col::duration()]);
+        list.replace_all(&[tk("a"), tk("b")]);
+        list.set_placeholders(3000);
+        assert_eq!(list.0.store.n_items(), 3002);
+        // a page arrives: rows replace placeholders, the length stays the same
+        list.replace_all(&[tk("a"), tk("b"), tk("c"), tk("d")]);
+        assert_eq!(list.0.store.n_items(), 3002);
+        assert_eq!(list.0.placeholders.get(), 2998);
+        // the player then reports the new unloaded count
+        list.set_placeholders(2990);
+        assert_eq!(list.0.store.n_items(), 2994);
+        // playing on pops the head; total shrinks by one
+        list.replace_all(&[tk("b"), tk("c"), tk("d")]);
+        assert_eq!(list.0.store.n_items(), 2993);
+        list.set_placeholders(0);
+        assert_eq!(list.0.store.n_items(), 3);
+    }
+
     /// Renders a track list with real-length texts to a PNG (`PROBE_PNG` path).
     #[test]
     #[ignore = "visual probe, needs a display"]
@@ -918,6 +999,9 @@ mod perf_probe {
             tr.album = Some(crate::model::AlbumInfo { title: (*a).into(), ..Default::default() });
             tr.artists = ar.split(", ").map(|n| crate::model::ArtistInfo { name: n.into(), ..Default::default() }).collect();
             list.add_track(tr);
+        }
+        if let Some(n) = std::env::var("PROBE_PLACEHOLDERS").ok().and_then(|v| v.parse().ok()) {
+            list.set_placeholders(n);
         }
         let sw = gtk::ScrolledWindow::new();
         sw.set_policy(gtk::PolicyType::Never, gtk::PolicyType::External);

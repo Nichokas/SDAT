@@ -132,6 +132,10 @@ impl DurableQueue {
     pub fn entries(&self) -> &State<Vec<Track>> {
         self.queue.entries()
     }
+    /// Number of distinct list tracks known (loaded) so far.
+    pub fn source_len(&self) -> usize {
+        self.source.borrow().len()
+    }
     pub fn is_shuffled(&self) -> bool {
         self.shuffled.get()
     }
