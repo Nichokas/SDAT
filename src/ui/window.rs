@@ -90,26 +90,38 @@ fn version_prefix(v: &str) -> &'static str {
     }
 }
 
+/// The version shown in the About dialog.
+///
+/// `commit` is `git describe --tags --long` output (`v1.0.0-13-gabc1234`) or a bare hash.
+/// Release builds (`TONEARM_VERSION` set) show just the version when built exactly at
+/// the tag, else the short hash; dev builds show the nearest tag, the commits since it
+/// and the short hash. (Truncating the describe string used to produce "v1.0.0-".)
 pub fn version_number(version: Option<&str>, commit: &str) -> String {
+    let parts = describe_parts(commit);
+    let hash = match &parts {
+        Some((_, _, h)) => h.clone(),
+        None => commit.chars().take(7).collect(),
+    };
     match version.filter(|v| !v.is_empty()) {
         None => {
             if commit.is_empty() {
                 // Dev build without git metadata: fall back to Cargo.toml's version.
                 return format!("{}-dev", env!("CARGO_PKG_VERSION"));
             }
-            if let Some((tag, off, hash)) = describe_parts(commit) {
-                let tag = tag.strip_prefix('v').unwrap_or(&tag).to_string();
-                let suffix = if off == "0" { "" } else { "β" };
-                format!("{}{} {}(r{}.{})", version_prefix(&tag), tag, suffix, off, hash)
-            } else {
-                format!("α git+{}", &commit[..commit.len().min(7)])
+            match parts {
+                Some((tag, off, _)) => {
+                    let tag = tag.strip_prefix('v').unwrap_or(&tag).to_string();
+                    let ahead = if off == "0" { String::new() } else { format!("+{off}") };
+                    format!("{}{}{} ({})", version_prefix(&tag), tag, ahead, hash)
+                }
+                None => format!("α git+{hash}"),
             }
         }
         Some(v) => {
             let v = v.strip_prefix('v').unwrap_or(v);
-            // A `git describe` of the release tag itself ("v1.0.0") adds nothing.
-            let same_tag = commit.strip_prefix('v').unwrap_or(commit) == v;
-            let suffix = if commit.is_empty() || same_tag { String::new() } else { format!(" ({})", &commit[..commit.len().min(7)]) };
+            let at_tag = parts.as_ref().is_some_and(|(t, off, _)| off == "0" && t.strip_prefix('v').unwrap_or(t) == v)
+                || commit.strip_prefix('v').unwrap_or(commit) == v;
+            let suffix = if commit.is_empty() || at_tag { String::new() } else { format!(" ({hash})") };
             format!("{}{}{}", version_prefix(v), v, suffix)
         }
     }
@@ -915,8 +927,11 @@ mod tests {
     #[test]
     fn versions() {
         assert_eq!(version_number(None, ""), format!("{}-dev", env!("CARGO_PKG_VERSION")));
-        assert_eq!(version_number(None, "v1.2.0-0-gabcdef1"), "v1.2.0 (r0.abcdef1)");
-        assert_eq!(version_number(None, "v0.3.0-5-gabcdef1"), "α 0.3.0 β(r5.abcdef1)");
+        assert_eq!(version_number(None, "v1.2.0-0-gabcdef1"), "v1.2.0 (abcdef1)");
+        assert_eq!(version_number(None, "v1.0.0-13-gcbca30f"), "v1.0.0+13 (cbca30f)");
+        assert_eq!(version_number(None, "v0.3.0-5-gabcdef1"), "α 0.3.0+5 (abcdef1)");
+        assert_eq!(version_number(Some("1.0.0"), "v1.0.0-0-gabcdef1"), "v1.0.0");
+        assert_eq!(version_number(Some("1.0.0"), "v1.0.0-13-gcbca30f"), "v1.0.0 (cbca30f)");
         assert_eq!(version_number(None, "abcdef1234"), "α git+abcdef1");
         assert_eq!(version_number(Some("v1.0.0"), "abcdef1234"), "v1.0.0 (abcdef1)");
         assert_eq!(version_number(Some("1.0.0"), "v1.0.0"), "v1.0.0");
