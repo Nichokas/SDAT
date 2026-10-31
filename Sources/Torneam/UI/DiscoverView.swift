@@ -58,9 +58,17 @@ struct DiscoverView: View {
         guard tracks.isEmpty else { return }
         do {
             mixes = try await homeMixes()
-            let first = try await Shuffle(mixes: mixes).nextBatch(min: 80)
-            var seen = Set<String>()
-            tracks = first.filter { $0.album?.coverUrl != nil && seen.insert($0.album!.coverUrl!).inserted }
+            let source = Shuffle(mixes: mixes)
+            var pool: [Track] = []
+            var ids = Set<String>(), albums = Set<String>(), covers = Set<String>()
+            for _ in 0..<3 {
+                for t in try await source.nextBatch(min: 80) {
+                    guard let a = t.album, let c = a.coverUrl else { continue }
+                    if ids.insert(t.id).inserted, albums.insert(a.id).inserted, covers.insert(c).inserted { pool.append(t) }
+                }
+                if pool.count >= 70 { break }
+            }
+            tracks = pool
         } catch {
             self.error = error.localizedDescription
         }
@@ -112,9 +120,12 @@ final class PlaneScrollView: UIScrollView, UIScrollViewDelegate {
 
     private func track(_ cell: Cell) -> Track? {
         guard !tracks.isEmpty else { return nil }
-        // Rows shift by column so neighbours differ; the pattern repeats seamlessly.
-        let h = (cell.c &* 73_856_093) ^ (cell.r &* 19_349_663)
-        return tracks[Int(UInt(bitPattern: h) % UInt(tracks.count))]
+        // Each row walks the pool consecutively, and consecutive rows start N/rows apart, so a
+        // cover only repeats after the whole pool (within a row) or a full period of rows.
+        let n = tracks.count
+        let k = max(n / sizes.count, 1)
+        let i = ((cell.c + cell.r * k) % n + n) % n
+        return tracks[i]
     }
 
     /// Rows of flat covers: each row has one size, sizes vary between rows, and every row
