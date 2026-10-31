@@ -3,7 +3,7 @@ runtime: org.gnome.Platform
 runtime-version: "50"
 sdk: org.gnome.Sdk
 sdk-extensions:
-  - org.freedesktop.Sdk.Extension.golang
+  - org.freedesktop.Sdk.Extension.rust-stable
 command: tonearm
 
 finish-args:
@@ -16,16 +16,15 @@ finish-args:
 
 build-options:
   env:
-    GOBIN: /app/bin
-    GOROOT: /usr/lib/sdk/golang
-    PATH: /usr/lib/sdk/golang/bin:/app/bin:/usr/bin:/bin
+    CARGO_HOME: /run/build/tonearm/cargo
+    PATH: /usr/lib/sdk/rust-stable/bin:/app/bin:/usr/bin:/bin
 
 modules:
   - name: tonearm
     buildsystem: simple
     build-commands:
-      - $GOROOT/bin/go build -ldflags="-X codeberg.org/dergs/tonearm/internal/ui.Commit=$(git describe --tags --long --abbrev=7 2>/dev/null || git rev-parse HEAD 2>/dev/null) -w -s" -gcflags=all=-l -trimpath -o tonearm cmd/tonearm/main.go
-      - install -Dm00755 tonearm $FLATPAK_DEST/bin/tonearm
+      - TONEARM_COMMIT="$(git describe --tags --long --abbrev=7 2>/dev/null || git rev-parse HEAD 2>/dev/null)" cargo --offline build --release --locked
+      - install -Dm00755 target/release/tonearm $FLATPAK_DEST/bin/tonearm
       - install -Dm00644 internal/icons/hicolor/scalable/apps/$FLATPAK_ID.svg $FLATPAK_DEST/share/icons/hicolor/scalable/apps/$FLATPAK_ID.svg
       - install -Dm00644 internal/icons/hicolor/symbolic/apps/$FLATPAK_ID-symbolic.svg $FLATPAK_DEST/share/icons/hicolor/symbolic/apps/$FLATPAK_ID-symbolic.svg
       - install -Dm00644 build/$FLATPAK_ID.desktop $FLATPAK_DEST/share/applications/$FLATPAK_ID.desktop
@@ -33,6 +32,6 @@ modules:
       - install -Dm00644 internal/settings/$FLATPAK_ID.gschema.xml $FLATPAK_DEST/share/glib-2.0/schemas/$FLATPAK_ID.gschema.xml
       - glib-compile-schemas $FLATPAK_DEST/share/glib-2.0/schemas
     sources:
-      - go.mod.yml
+      - cargo-sources.json
       - type: dir
         path: ../../.

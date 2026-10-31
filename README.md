@@ -48,11 +48,26 @@ Tonearm is not affiliated with or endorsed by TIDAL. Tonearm is provided as-is w
 ## About the Project
 We set out to create a native, modern looking streaming client for TIDAL built with GTK4 and Libadwaita. We oriented a lot on existing GNOME apps (both official and third-party) to ensure the client really fits into the GNOME desktop and its applications, something web apps and electron apps often struggle with. We also try to keep the general spirit of TIDAL's UI so users can understand the app relatively quickly.
 
-Tonearm came to existence as a learning project on how to implement GTK apps using GoLang, a rather unconventional choice. It was also an attempt at re-creating the look and feel of writing GUI applications in SwiftUI. This resulted in the development of the UI library [schwifty](https://codeberg.org/dergs/Tonearm/src/branch/main/pkg/schwifty) which may be extracted into its own repository at some point.
+Tonearm came to existence as a learning project on how to implement GTK apps using GoLang, a rather unconventional choice. It was also an attempt at re-creating the look and feel of writing GUI applications in SwiftUI. This resulted in the development of the UI library [schwifty](https://codeberg.org/dergs/Tonearm/src/branch/main/pkg/schwifty). The application has since been ported to Rust (gtk4-rs, libadwaita-rs and gstreamer-rs) while keeping the exact same interface; the original Go sources remain in `cmd/`, `internal/` and `pkg/` for reference, and `internal/` still provides the shared assets (icons, styles, gschema, translations).
 
 The current design for Tonearm originally came to be when I tried myself on a re-design of High Tide. This is why the sidebar features a very similar player layout. The rest of the application has largely been designed after common GNOME app practices and the TIDAL web interface.
 
 ## Installation
+### Building from source
+Tonearm is a Cargo project. You need a Rust toolchain (edition 2024, Rust 1.85+) and the development files for GTK 4.20+, libadwaita 1.8+, GStreamer (base, good and bad plugins) and OpenSSL. On Fedora:
+```sh
+sudo dnf install cargo rust clippy gtk4-devel libadwaita-devel gstreamer1-devel gstreamer1-plugins-base-devel gstreamer1-plugins-good gstreamer1-plugins-bad-free openssl-devel
+cargo build --release
+./target/release/tonearm
+```
+The GSettings schema is compiled by `build.rs`, so the binary runs from the build tree without installing the schema. For a system install, also install `internal/settings/dev.dergs.Tonearm.gschema.xml`, the desktop file and metainfo from `build/`, and the icons from `internal/icons/hicolor`, then run `glib-compile-schemas`.
+
+### Flatpak
+```sh
+flatpak-builder --user --install build-dir build/flatpak/dev.dergs.Tonearm.yaml
+```
+`build/flatpak/cargo-sources.json` is generated from `Cargo.lock` with [flatpak-cargo-generator](https://github.com/flatpak/flatpak-builder-tools/tree/master/cargo) and must be regenerated whenever dependencies change.
+
 Currently the only tested installation method is the Nix flake provided in the repository. If you want to package this software for another distro or marketplace, please do open an issue so we can coordinate.
 
 ### NixOS (Flake)
@@ -115,7 +130,8 @@ You can bring Tonearm to even more people by helping us translate it into their 
 ## Acknowledgements
 The following projects and resources served as inspiration or were helpful during the development of Tonearm.
 - [High Tide](https://github.com/Nokse22/high-tide/) for the original design of the player in the sidebar
-- [puregotk](https://codeberg.org/puregotk/puregotk) for making this project possible with only minimal CGO bindings
+- [puregotk](https://codeberg.org/puregotk/puregotk) for making the original Go version possible with only minimal CGO bindings
+- [gtk-rs](https://gtk-rs.org/) and [gstreamer-rs](https://gitlab.freedesktop.org/gstreamer/gstreamer-rs) for the Rust bindings
 - [TIDAL](https://tidal.com/) for the overall page designs, which we adapted for GTK
 
 

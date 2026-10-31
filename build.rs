@@ -38,13 +38,14 @@ fn main() {
     .unwrap();
 
     // Commit shown in the about dialog (Go: -ldflags -X ui.Commit=...).
-    let commit = Command::new("git")
+    println!("cargo:rerun-if-env-changed=TONEARM_COMMIT");
+    let commit = std::env::var("TONEARM_COMMIT").ok().filter(|c| !c.is_empty()).or_else(|| Command::new("git")
         .args(["describe", "--tags", "--long", "--abbrev=7"])
         .output()
         .ok()
         .filter(|o| o.status.success())
         .or_else(|| Command::new("git").args(["rev-parse", "HEAD"]).output().ok().filter(|o| o.status.success()))
-        .map(|o| String::from_utf8_lossy(&o.stdout).trim().to_string())
+        .map(|o| String::from_utf8_lossy(&o.stdout).trim().to_string()))
         .unwrap_or_default();
     println!("cargo:rustc-env=TONEARM_COMMIT={commit}");
 }

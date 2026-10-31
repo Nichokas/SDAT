@@ -14,13 +14,21 @@ We expect all contributors to adhere to the [GNOME Code of Conduct](https://cond
 
 Tonearm provides a standardized development environment in the form of a direnv file as well as a Nix dev-shell. Please ensure that you have direnv and nix, the package manager, installed on your system.
 
+The dev-shell provides `cargo`, `rustc`, `clippy`, `rustfmt` and `rust-analyzer`. Before submitting changes, make sure these pass:
+
+```sh
+cargo build --release
+cargo clippy
+cargo test
+```
+
 We recommend using Zed to edit the codebase, as that is what we have been using for development. But anything that supports direnv should be fine.
 
 ## UI / UX
 
 Tonearm aims to follow the [GNOME Human Interface Guidelines (HIG)](https://developer.gnome.org/hig/) and use existing widgets and functionality where possible. In case you need to create something entirely new, please consider the GNOME HIG and try to follow their recommendations.
 
-Whenever possible implement any UI components using the Schwifty UI library. Tonearm is built on CGO-free GTK bindings which require manual reference management. Schwifty will take care of this for you and ensure proper memory management.
+Tonearm is written in Rust on top of gtk4-rs and libadwaita-rs. UI code lives in `src/ui`; small builder helpers in `src/ui/dsl.rs` mirror the old Schwifty syntax so the widget trees, CSS classes and margins stay identical to the original Go version. Styles and icons are the compiled GResources in `internal/styles` and `internal/icons`, translations are the `.po` files in `internal/gettext/locales`.
 
 ## Updating App Metadata & Screenshots
 When contributing to Tonearm, please ensure that you update the app metadata and screenshots accordingly. This includes updating the app icon, splash screen, and any other visual elements that may be affected by your changes.

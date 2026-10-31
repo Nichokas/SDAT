@@ -15,43 +15,25 @@
       system:
       let
         pkgs = import nixpkgs { inherit system; };
-        libraryPath = pkgs.symlinkJoin {
-          name = "tonearm-puregotk-lib-folder";
-          paths = (
-            with pkgs;
-            [
-              cairo
-              gdk-pixbuf
-              glib.out
-              graphene
-              pango.out
-              gtk4
-              libadwaita
-              gobject-introspection
-              librsvg
-              libsecret
-            ]
-          );
-        };
       in
       {
         devShell = pkgs.mkShell (
           {
-            PUREGOTK_LIB_FOLDER = "${libraryPath}/lib";
             GSETTINGS_SCHEMA_DIR = "./internal/settings";
             TONEARM_DEBUG = "1";
 
-            hardeningDisable = [ "fortify" ]; # Required for Delve
-            # For delve to work, you need to add the following line to your `programs.zed-editor`:
-            # package = pkgs.zed-editor.fhs;
             buildInputs =
               with pkgs;
               [
                 appstream
-                delve
-                go_1_26
-                gopls
+                cargo
+                rustc
+                clippy
+                rustfmt
+                rust-analyzer
                 gtk4
+                libadwaita
+                openssl
                 librsvg
                 libsecret
                 graphviz
@@ -60,7 +42,7 @@
                 gst_all_1.gst-plugins-base
                 gst_all_1.gst-plugins-good
                 gst_all_1.gst-plugins-bad
-                pkg-config # Needed for the first compile with CGO
+                pkg-config # Needed by the gtk4-rs / gstreamer-rs -sys crates
                 sass
                 cacert
               ]
@@ -78,16 +60,16 @@
           }
         );
 
-        packages.tonearm = pkgs.buildGoModule.override { go = pkgs.go_1_26; } (finalAttrs: {
+        packages.tonearm = pkgs.rustPlatform.buildRustPackage (finalAttrs: {
           pname = "tonearm";
           version = "1.5.1";
           src = pkgs.lib.cleanSource ./.;
-          vendorHash = "sha256-pa0C0zMaKIa1wK49JIxHyfE1rbzzBB3yn44swlrR4HY=";
+          cargoLock.lockFile = ./Cargo.lock;
 
-          ldflags = [
-            "-X \"codeberg.org/dergs/tonearm/internal/ui.Commit=${(if (self ? rev) then self.rev else "")}\""
-            "-X \"codeberg.org/dergs/tonearm/internal/ui.Version=${finalAttrs.version}\""
-          ];
+          env = {
+            TONEARM_COMMIT = if (self ? rev) then self.rev else "";
+            TONEARM_VERSION = finalAttrs.version;
+          };
 
           buildInputs = with pkgs; [
             glib-networking # TLS support for libsoup (HTTPS streaming)
@@ -96,18 +78,15 @@
             gst_all_1.gst-plugins-good
             gst_all_1.gst-plugins-bad
             gtk4
-            libsecret
+            libadwaita
           ];
           doCheck = false;
           nativeBuildInputs = with pkgs; [
             pkg-config
+            glib # glib-compile-schemas, used by build.rs
             copyDesktopItems
             makeWrapper
             wrapGAppsHook4
-          ];
-
-          subPackages = [
-            "cmd/tonearm"
           ];
 
           desktopItems = [
@@ -115,7 +94,7 @@
               name = "dev.dergs.Tonearm";
               exec = "tonearm %u";
               icon = "dev.dergs.Tonearm";
-              comment = "Tonearm is a GTK client for TIDAL written in GoLang.";
+              comment = "Tonearm is a GTK client for TIDAL written in Rust.";
               desktopName = "Tonearm";
               mimeTypes = [
                 "x-scheme-handler/tidal"
@@ -133,7 +112,6 @@
           postInstall = ''
             wrapProgram $out/bin/tonearm \
               --prefix GST_PLUGIN_PATH : "$GST_PLUGIN_SYSTEM_PATH_1_0" \
-              --set-default PUREGOTK_LIB_FOLDER ${libraryPath}/lib \
               ''${gappsWrapperArgs[@]}
             install -Dm644 internal/icons/hicolor/scalable/apps/dev.dergs.Tonearm.svg -t $out/share/icons/hicolor/scalable/apps
             install -Dm644 internal/icons/hicolor/128x128/apps/dev.dergs.Tonearm.png -t $out/share/icons/hicolor/128x128/apps
@@ -143,7 +121,7 @@
           '';
 
           meta = {
-            description = "Tonearm is a GTK client for TIDAL written in GoLang.";
+            description = "Tonearm is a GTK client for TIDAL written in Rust.";
             homepage = "https://codeberg.org/Dergs/Tonearm";
             license = pkgs.lib.licenses.gpl3Plus;
             maintainers = with pkgs.lib.maintainers; [
