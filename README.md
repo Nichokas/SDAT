@@ -27,6 +27,21 @@
 
 </div>
 
+## Credits — this is a Rust port of Tonearm
+
+> [!IMPORTANT]
+> This branch is an **unofficial Rust port** of **[Tonearm](https://codeberg.org/dergs/Tonearm)**.
+> Tonearm was designed and built by the **dergs / Dergs team and all of its contributors**.
+> Every bit of the user interface, the design, the TIDAL integration and the features you see here is
+> their work. This port only translates their Go code to Rust, and it keeps the same UI and design.
+>
+> - Original project: <https://codeberg.org/dergs/Tonearm>. Please star it, report bugs upstream,
+>   join their [Matrix room](https://matrix.to/#/%23tonearm:derg.social) and support the original authors.
+> - License: like the original, this port is **GPL-3.0-or-later** (see [LICENSE](LICENSE)). All upstream
+>   copyright notices, license headers and credits are kept.
+> - The port is not affiliated with or endorsed by the original Tonearm authors or by TIDAL.
+> - The port was done with the help of **Grok Bot**.
+
 ## Disclaimer
 Tonearm is not affiliated with or endorsed by TIDAL. Tonearm is provided as-is without any warranty or guarantees. We explicitly do not offer and are not planning to offer any kind of offline playback functionality, Tonearm is not a downloader. A paid TIDAL account is required for full-length playback.
 
