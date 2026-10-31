@@ -90,7 +90,9 @@ fn queue_list() -> gtk::ScrolledWindow {
     motion.connect_leave(move |_| action.set(0.0));
     sw.add_controller(motion);
     // Keep the tracklists alive with the scrolled window.
-    unsafe { sw.set_data("tracklists", (user, base)) };
+    sw.connect_destroy(move |_| {
+        let _keep_alive = (&user, &base);
+    });
     sw
 }
 
