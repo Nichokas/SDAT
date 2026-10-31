@@ -472,7 +472,7 @@ pub async fn play_artist_top_songs(artist_id: &str, shuffle: bool, position: usi
                 }
             }
         }
-        Ok((info, tracks))
+        Ok::<_, anyhow::Error>((info, tracks))
     })
     .await?;
     clear_queues();

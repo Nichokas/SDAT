@@ -473,7 +473,7 @@ async fn playlist(id: String) -> Response {
 
 async fn artist(id: String) -> Response {
     let i = id.clone();
-    let r = api::run(move || Ok((service::get_artist(&i)?, api::artist_page(&i)?))).await;
+    let r = api::run(move || Ok::<_, anyhow::Error>((service::get_artist(&i)?, api::artist_page(&i)?))).await;
     let (a, page) = match r {
         Ok(v) => v,
         Err(e) => return Response::from_error(tr("Artist"), e),
@@ -813,7 +813,7 @@ async fn my_collection() -> Response {
         return r;
     }
     let res = api::run(|| {
-        Ok((
+        Ok::<_, anyhow::Error>((
             api::user_collection_items("Artists", "me", "", &["items.profileArt"])?,
             api::user_collection_items("Albums", "me", "", &["items.coverArt"])?,
             api::user_collection_items("Playlists", "me", "", &["items.coverArt"])?,

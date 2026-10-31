@@ -5,9 +5,10 @@ pub use tonearm_core::api::*;
 
 
 /// Runs blocking API work on a worker thread and awaits it from the main loop.
-pub async fn run<T: Send + 'static>(f: impl FnOnce() -> anyhow::Result<T> + Send + 'static) -> anyhow::Result<T> {
+/// Accepts core (`CoreError`) and app (`anyhow`) closures alike.
+pub async fn run<T: Send + 'static, E: Into<anyhow::Error> + Send + 'static>(f: impl FnOnce() -> Result<T, E> + Send + 'static) -> anyhow::Result<T> {
     match gtk::gio::spawn_blocking(f).await {
-        Ok(r) => r,
+        Ok(r) => r.map_err(Into::into),
         Err(_) => Err(anyhow::anyhow!("worker thread panicked")),
     }
 }

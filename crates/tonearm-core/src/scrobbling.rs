@@ -8,7 +8,7 @@ use std::collections::BTreeMap;
 use std::sync::OnceLock;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
-use anyhow::{Result, anyhow, bail};
+use crate::error::{CoreError, CoreResult as Result};
 use md5::{Digest, Md5};
 use serde::Serialize;
 
@@ -161,17 +161,6 @@ fn hex(bytes: &[u8]) -> String {
     })
 }
 
-#[derive(Debug)]
-pub struct LastFmError {
-    pub code: i64,
-    pub message: String,
-}
-impl std::fmt::Display for LastFmError {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "Last.fm error {}: {}", self.code, self.message)
-    }
-}
-impl std::error::Error for LastFmError {}
 
 pub fn lastfm_call(method: &str, extra: &[(&str, String)], post: bool, sign: bool) -> Result<serde_json::Value> {
     let mut p: BTreeMap<String, String> = BTreeMap::new();
@@ -191,7 +180,7 @@ pub fn lastfm_call(method: &str, extra: &[(&str, String)], post: bool, sign: boo
     } };
     let v: serde_json::Value = resp.json()?;
     if let Some(code) = v.get("error").and_then(serde_json::Value::as_i64) {
-        return Err(LastFmError { code, message: v.get("message").and_then(|m| m.as_str()).unwrap_or_default().to_string() }.into());
+        return Err(CoreError::LastFm { code, message: v.get("message").and_then(|m| m.as_str()).unwrap_or_default().to_string() });
     }
     Ok(v)
 }
@@ -203,27 +192,25 @@ pub fn lastfm_auth_url(token: &str) -> String {
 
 pub fn lastfm_get_token() -> Result<String> {
     let v = lastfm_call("auth.getToken", &[], false, true)?;
-    v.get("token").and_then(|t| t.as_str()).map(String::from).ok_or_else(|| anyhow!("missing token"))
+    v.get("token").and_then(|t| t.as_str()).map(String::from).ok_or_else(|| CoreError::Decode("missing token".into()))
 }
 
 /// Exchanges an authorised token for a session key. `Ok(None)` while still unauthorised.
 pub fn lastfm_get_session(token: &str) -> Result<Option<String>> {
     match lastfm_call("auth.getSession", &[("token", token.to_string())], false, true) {
         Ok(v) => Ok(v.pointer("/session/key").and_then(|k| k.as_str()).map(String::from)),
-        Err(e) => match e.downcast_ref::<LastFmError>() {
-            Some(le) if le.code == LASTFM_ERR_UNAUTHORIZED_TOKEN => Ok(None),
-            _ => Err(e),
-        },
+        Err(CoreError::LastFm { code: LASTFM_ERR_UNAUTHORIZED_TOKEN, .. }) => Ok(None),
+        Err(e) => Err(e),
     }
 }
 
 /// Name of the logged in user (`user.getInfo` with the session key).
 pub fn lastfm_self_name(sk: &str) -> Result<String> {
     if sk.is_empty() {
-        bail!("not logged in");
+        return Err(CoreError::NotSignedIn);
     }
     let v = lastfm_call("user.getInfo", &[("sk", sk.to_string())], false, true)?;
-    v.pointer("/user/name").and_then(|n| n.as_str()).map(String::from).ok_or_else(|| anyhow!("missing user"))
+    v.pointer("/user/name").and_then(|n| n.as_str()).map(String::from).ok_or_else(|| CoreError::Decode("missing user".into()))
 }
 
 pub fn lastfm_track_params(t: &TrackMeta, sk: &str) -> Vec<(&'static str, String)> {

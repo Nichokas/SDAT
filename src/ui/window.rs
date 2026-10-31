@@ -364,7 +364,7 @@ fn queue_param(param: &str) {
                         }
                     }
                 }
-                Ok(tracks)
+                Ok::<_, anyhow::Error>(tracks)
             })
             .await?;
             player::add_tracklist_to_user_queue(t);

@@ -1,5 +1,5 @@
 //! Port of `internal/player/playqueue`.
-use anyhow::{bail, Result};
+use crate::error::{bail, CoreResult as Result};
 use rand::seq::SliceRandom;
 use std::cell::{Cell, RefCell};
 

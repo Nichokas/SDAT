@@ -9,7 +9,7 @@
 use std::sync::{Mutex, OnceLock};
 use std::time::{Duration, Instant};
 
-use anyhow::{anyhow, bail, Context, Result};
+use crate::error::{bail, bail_http, Context, CoreError, CoreResult as Result};
 use base64::Engine;
 use reqwest::blocking::{Client, RequestBuilder, Response};
 use reqwest::{Method, StatusCode};
@@ -91,7 +91,7 @@ fn fetch_access_token(cache: &Mutex<CachedToken>, form: &[(&str, &str)]) -> Resu
     }
     let resp = token_request(form)?;
     if resp.status() != StatusCode::OK {
-        bail!("failed to get token: {}", resp.status());
+        bail_http!(resp.status().as_u16(), "failed to get token: {}", resp.status());
     }
     let t: AccessToken = resp.json()?;
     *cache.lock().unwrap_or_else(std::sync::PoisonError::into_inner) = CachedToken { token: t.access_token.clone(), expiry: Some(Instant::now() + Duration::from_secs(t.expires_in)) };
@@ -127,7 +127,7 @@ pub fn fetch_country_code() -> Result<String> {
         .header("x-tidal-token", client_id())
         .send()?;
     if resp.status() != StatusCode::OK {
-        bail!("unexpected status code: {}", resp.status().as_u16());
+        bail_http!(resp.status().as_u16(), "unexpected status code: {}", resp.status().as_u16());
     }
     Ok(resp.json::<R>()?.country_code)
 }
@@ -139,14 +139,14 @@ fn session_country_code() -> Result<String> {
         #[serde(rename = "countryCode")]
         country_code: String,
     }
-    let Some(token) = user_access_token()? else { bail!("not logged in") };
+    let Some(token) = user_access_token()? else { return Err(CoreError::NotSignedIn) };
     let resp = http()
         .get(format!("{}/v1/sessions", crate::config::get().api_base_url()))
         .header("x-tidal-token", client_id())
         .header("Authorization", format!("Bearer {token}"))
         .send()?;
     if resp.status() != StatusCode::OK {
-        bail!("unexpected status code: {}", resp.status().as_u16());
+        bail_http!(resp.status().as_u16(), "unexpected status code: {}", resp.status().as_u16());
     }
     Ok(resp.json::<R>()?.country_code)
 }
@@ -244,7 +244,7 @@ fn request(method: Method, path: &str, query: &[(&str, String)]) -> Result<Reque
 fn get_json<T: DeserializeOwned>(path: &str, query: &[(&str, String)]) -> Result<T> {
     let resp = request(Method::GET, path, query)?.send()?;
     if resp.status() != StatusCode::OK {
-        bail!("unexpected status code: {}", resp.status().as_u16());
+        bail_http!(resp.status().as_u16(), "unexpected status code: {}", resp.status().as_u16());
     }
     let bytes = resp.bytes()?;
     openapi::from_slice_lenient(&bytes).with_context(|| format!("decoding {path}"))
@@ -347,7 +347,7 @@ pub fn favourite_ids(user_id: &str, if_none_match: &str) -> Result<Option<(legac
         return Ok(None);
     }
     if resp.status() != StatusCode::OK {
-        bail!("unexpected status code: {}", resp.status().as_u16());
+        bail_http!(resp.status().as_u16(), "unexpected status code: {}", resp.status().as_u16());
     }
     let etag = resp.headers().get("etag").and_then(|v| v.to_str().ok()).unwrap_or("").to_string();
     Ok(Some((openapi::from_slice_lenient(&resp.bytes()?)?, etag)))
@@ -383,7 +383,7 @@ pub fn favourite_remove(user_id: &str, kind: &str, id: &str) -> Result<()> {
     invalidate_favourites(kind);
     let resp = request(Method::DELETE, &format!("/v1/users/{user_id}/favorites/{kind}/{id}"), &[])?.send()?;
     if resp.status() != StatusCode::OK {
-        bail!("error while removing from favourites: {}", resp.status());
+        bail_http!(resp.status().as_u16(), "error while removing from favourites: {}", resp.status());
     }
     Ok(())
 }
@@ -421,7 +421,7 @@ pub fn own_playlists() -> Result<Vec<OwnPlaylist>> {
         }
         let resp = request(Method::GET, &openapi("/v2/playlists"), &q)?.send()?;
         if resp.status() != StatusCode::OK {
-            bail!("unexpected status code: {}", resp.status().as_u16());
+            bail_http!(resp.status().as_u16(), "unexpected status code: {}", resp.status().as_u16());
         }
         let (page, next) = parse_own_playlists(&resp.bytes()?)?;
         out.extend(page);
@@ -446,7 +446,7 @@ pub fn playlist_add_track(playlist_id: &str, track_id: &str) -> Result<()> {
         .send()?;
     crate::cache::invalidate(&crate::cache::playlist_key(playlist_id));
     if !resp.status().is_success() {
-        bail!("error while adding track to playlist: {}", resp.status().as_u16());
+        bail_http!(resp.status().as_u16(), "error while adding track to playlist: {}", resp.status().as_u16());
     }
     Ok(())
 }
@@ -504,7 +504,7 @@ pub fn feed_activities(user_id: &str) -> Result<Vec<legacy::Activity>> {
 pub fn feed_seen(user_id: &str) -> Result<()> {
     let resp = request(Method::PUT, "/v2/feed/activities/seen", &[("userId", user_id.into())])?.send()?;
     if resp.status() != StatusCode::OK {
-        bail!("unexpected status code: {}", resp.status().as_u16());
+        bail_http!(resp.status().as_u16(), "unexpected status code: {}", resp.status().as_u16());
     }
     Ok(())
 }
@@ -520,7 +520,7 @@ pub fn favourite_mix_add(id: &str) -> Result<()> {
 pub fn favourite_mix_remove(id: &str) -> Result<()> {
     let resp = request(Method::PUT, "/v2/favorites/mixes/remove", &[("mixIds", id.into())])?.send()?;
     if resp.status() != StatusCode::OK {
-        bail!("error while removing mix from favourites: {}", resp.status());
+        bail_http!(resp.status().as_u16(), "error while removing mix from favourites: {}", resp.status());
     }
     Ok(())
 }
@@ -593,7 +593,7 @@ pub fn request_device_linking_challenge() -> Result<DeviceLinkingChallenge> {
         .form(&[("client_id", client_id()), ("scope", SCOPE)])
         .send()?;
     if resp.status() != StatusCode::OK {
-        bail!("failed to get token: {}", resp.status());
+        bail_http!(resp.status().as_u16(), "failed to get token: {}", resp.status());
     }
     Ok(resp.json()?)
 }
@@ -609,7 +609,7 @@ pub fn poll_device_linking_status(device_code: &str, interval: i64, cancelled: &
     ];
     loop {
         if cancelled() {
-            bail!("linking canceled");
+            return Err(CoreError::Cancelled("linking canceled".into()));
         }
         let resp = token_request(&form)?;
         if resp.status() != StatusCode::OK {
@@ -620,14 +620,14 @@ pub fn poll_device_linking_status(device_code: &str, interval: i64, cancelled: &
                     let until = Instant::now() + Duration::from_secs(interval.max(1) as u64);
                     while Instant::now() < until {
                         if cancelled() {
-                            bail!("linking canceled");
+                            return Err(CoreError::Cancelled("linking canceled".into()));
                         }
                         std::thread::sleep(Duration::from_millis(200));
                     }
                     continue;
                 }
                 "expired_token" => bail!("linking session expired"),
-                _ => return Err(anyhow!(e.error_description)),
+                _ => return Err(CoreError::Other(e.error_description)),
             }
         }
         return Ok(resp.json()?);

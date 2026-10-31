@@ -1,6 +1,6 @@
 //! Port of `internal/services/tidal`: maps API responses to the domain model.
 
-use anyhow::Result;
+use crate::error::{bail, CoreResult as Result};
 
 use crate::api::{self, openapi};
 use crate::model::{Track, track_from_openapi, Album, album_from_openapi, AlbumInfo, album_info_from_openapi, Artist, artist_page_from_v2, ArtistInfo, artist_from_openapi, Playlist, playlist_from_openapi, PlaylistInfo, playlist_info_from_openapi, TrackManifest, manifest_from_openapi};
@@ -38,7 +38,7 @@ impl<T: Clone> Paginator<T> {
             return Ok(self.items.clone());
         }
         if self.is_consumed() {
-            anyhow::bail!("no more pages");
+            bail!("no more pages");
         }
         let resp = (self.fetch)(&self.cursor)?;
         let res = (self.resolve)(&resp);

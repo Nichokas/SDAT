@@ -82,7 +82,7 @@ pub async fn fetch(url: &str) -> Option<gdk::Texture> {
     // Download and decode on a worker thread so scrolling never waits on image decoding.
     let decoded = api::run(move || {
         let b = fetch_bytes(&u)?;
-        Ok(gdk::Texture::from_bytes(&glib::Bytes::from_owned(b))?)
+        Ok::<_, anyhow::Error>(gdk::Texture::from_bytes(&glib::Bytes::from_owned(b))?)
     })
     .await;
     let texture = match decoded {

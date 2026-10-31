@@ -3,7 +3,7 @@
 use std::sync::Mutex;
 use std::time::{Duration, Instant};
 
-use anyhow::Result;
+use crate::error::CoreResult as Result;
 
 use crate::signals::State;
 use crate::{api, global_signal};

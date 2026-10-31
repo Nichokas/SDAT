@@ -2728,7 +2728,6 @@ dependencies = [
 name = "tonearm-core"
 version = "1.0.0"
 dependencies = [
- "anyhow",
  "base64",
  "chrono",
  "log",
@@ -2738,6 +2737,7 @@ dependencies = [
  "serde",
  "serde_json",
  "thiserror",
+ "url",
  "urlencoding",
 ]
 
