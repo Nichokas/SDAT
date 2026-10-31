@@ -283,6 +283,27 @@ pub fn for_page_item(item: &legacy::PageItem) -> gtk::Widget {
     }
 }
 
+/// What clicking a featured promotion does.
+#[derive(Debug, PartialEq, Eq)]
+enum FeaturedTarget {
+    /// Activate this window action with the artifact id.
+    Route(&'static str),
+    /// Open the artifact id (a URL) in the browser.
+    ExternalUrl,
+}
+
+/// Maps a `FEATURED_PROMOTIONS` item type to its card behaviour. Go only
+/// handled PLAYLIST; ALBUM, ARTIST and EXTURL were "Unsupported" cards.
+fn featured_target(type_: &str) -> Option<FeaturedTarget> {
+    match type_ {
+        "PLAYLIST" => Some(FeaturedTarget::Route("win.route.playlist")),
+        "ALBUM" => Some(FeaturedTarget::Route("win.route.album")),
+        "ARTIST" => Some(FeaturedTarget::Route("win.route.artist")),
+        "EXTURL" => Some(FeaturedTarget::ExternalUrl),
+        _ => None,
+    }
+}
+
 /// Port of `ForModule` (v1 pages).
 pub fn for_module(module: &legacy::Module) -> gtk::Widget {
     match module.type_.as_str() {
@@ -293,12 +314,12 @@ pub fn for_module(module: &legacy::Module) -> gtk::Widget {
                 if it.type_ == "CATEGORY_PAGES" {
                     continue;
                 }
-                if it.type_ == "PLAYLIST" {
-                    let url = format!("{}/images/{}/550x400.jpg", crate::settings::resources_base_url(), it.image_id.replace('-', "/"));
-                    list.append(&media_card::mix_generic(&it.artifact_id, &it.short_header, &it.short_sub_header, &url));
-                } else {
-                    list.append(&unsupported_card(&it.type_));
-                }
+                let url = format!("{}/images/{}/550x400.jpg", crate::settings::resources_base_url(), it.image_id.replace('-', "/"));
+                match featured_target(&it.type_) {
+                    Some(FeaturedTarget::Route(action)) => list.append(&media_card::promo(&it.artifact_id, &it.short_header, &it.short_sub_header, &url, action)),
+                    Some(FeaturedTarget::ExternalUrl) => list.append(&media_card::external_link(&it.artifact_id, &it.short_header, &it.short_sub_header, &url)),
+                    None => list.append(&unsupported_card(&it.type_)),
+                };
             }
             list.set_page_margin(40);
             list.widget.upcast()
@@ -380,3 +401,34 @@ pub fn for_module(module: &legacy::Module) -> gtk::Widget {
     }
 }
 
+
+#[cfg(test)]
+mod featured_tests {
+    use super::*;
+
+    const EXPLORE: &str = r#"{"title":"Explore","rows":[{"modules":[{"type":"FEATURED_PROMOTIONS","title":"Featured","items":[
+      {"header":"TIDAL EXCLUSIVE","shortHeader":"Phoebe Bridgers","shortSubHeader":"Live EP","imageId":"fd953554-344a-46cf","type":"ALBUM","artifactId":"574136505","text":"","featured":false},
+      {"header":"TIDAL MAGAZINE","shortHeader":"Story","shortSubHeader":"Behind the EP","imageId":"4e7e-d775","type":"EXTURL","artifactId":"https://tidal.com/magazine/article/x/1-99441","text":"","featured":false},
+      {"header":"LISTEN","shortHeader":"Halloween","shortSubHeader":"Spooky","imageId":"ad38","type":"CATEGORY_PAGES","artifactId":"pages/m_halloween","text":"","featured":false},
+      {"header":"FOR PURCHASE","shortHeader":"John Legend","shortSubHeader":"Vinyl","imageId":"95b9","type":"ARTIST","artifactId":"490","text":"","featured":false},
+      {"header":"NEW SINGLE","shortHeader":"Cosita","shortSubHeader":"New Arrivals","imageId":"5a92","type":"PLAYLIST","artifactId":"1b418bb8-90a7","text":null,"featured":false}]}]}]}"#;
+
+    #[test]
+    fn featured_items_parse_and_map_to_cards() {
+        let page: legacy::Page = crate::api::openapi::from_slice_lenient(EXPLORE.as_bytes()).unwrap();
+        let items = &page.rows[0].modules[0].items;
+        let targets: Vec<_> = items.iter().map(|i| featured_target(&i.type_)).collect();
+        assert_eq!(
+            targets,
+            vec![
+                Some(FeaturedTarget::Route("win.route.album")),
+                Some(FeaturedTarget::ExternalUrl),
+                None,
+                Some(FeaturedTarget::Route("win.route.artist")),
+                Some(FeaturedTarget::Route("win.route.playlist")),
+            ]
+        );
+        assert_eq!(items[1].artifact_id, "https://tidal.com/magazine/article/x/1-99441");
+        assert_eq!(items[3].short_header, "John Legend");
+    }
+}

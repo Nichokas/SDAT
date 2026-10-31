@@ -68,9 +68,32 @@ pub fn track(t: &Track) -> gtk::Button {
 }
 
 pub fn mix_generic(id: &str, title: &str, sub: &str, cover_url: &str) -> gtk::Button {
+    promo(id, title, sub, cover_url, "win.route.playlist")
+}
+
+/// Card with its own image/title/subtitle that activates `action` with `id`
+/// (Explore featured promotions for playlists, albums and artists).
+pub fn promo(id: &str, title: &str, sub: &str, cover_url: &str, action: &str) -> gtk::Button {
     let s = subtitle(sub);
     s.set_lines(2);
-    with_action(card(title, &s, Cover::new("", cover_url)), "win.route.playlist", id)
+    with_action(card(title, &s, Cover::new("", cover_url)), action, id)
+}
+
+/// Card for an external link (Explore "EXTURL" promotions); opens the URL in the browser.
+pub fn external_link(url: &str, title: &str, sub: &str, cover_url: &str) -> gtk::Button {
+    let s = subtitle(sub);
+    s.set_lines(2);
+    let b = card(title, &s, Cover::new("", cover_url));
+    let url = url.to_owned();
+    b.connect_clicked(move |b| {
+        let window = b.root().and_downcast::<gtk::Window>();
+        gtk::UriLauncher::new(&url).launch(window.as_ref(), gtk::gio::Cancellable::NONE, |r| {
+            if let Err(e) = r {
+                log::warn!("failed to open external link: {e}");
+            }
+        });
+    });
+    b
 }
 
 pub fn legacy_mix(m: &legacy::MixItemData) -> gtk::Button {
