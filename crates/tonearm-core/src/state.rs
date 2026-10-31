@@ -6,14 +6,14 @@ use std::time::{Duration, Instant};
 use anyhow::Result;
 
 use crate::signals::State;
-use crate::{api, global_signal, secrets};
+use crate::{api, global_signal};
 
-global_signal!(pub fn signed_in_changed() -> State<bool> = State::new(secrets::has_refresh_token()));
+global_signal!(pub fn signed_in_changed() -> State<bool> = State::new(crate::auth::tokens().has_refresh_token()));
 
 /// Re-reads the keyring and notifies listeners if the signed-in state changed
 /// (Go: triggerSignedInChanged). Main thread only.
 pub fn notify_signed_in_changed() {
-    let now = secrets::has_refresh_token();
+    let now = crate::auth::tokens().has_refresh_token();
     if signed_in_changed().get() != now {
         signed_in_changed().set(now);
     }
@@ -28,13 +28,14 @@ pub enum Kind {
     Tracks,
 }
 
-#[derive(Default)]
+#[derive(Debug, Default)]
 struct Inner {
     etag: String,
     items: Option<Vec<String>>,
     last_fetched: Option<Instant>,
 }
 
+#[derive(Debug)]
 pub struct FavouriteCache {
     kind: Kind,
     inner: Mutex<Inner>,
@@ -65,7 +66,7 @@ impl FavouriteCache {
 
     /// Blocking. Call from a worker thread.
     pub fn add(&self, id: &str) -> Result<()> {
-        let uid = secrets::user_id();
+        let uid = crate::auth::tokens().user_id();
         if uid.is_empty() {
             log::debug!("not logged in, ignoring favourite addition");
             return Ok(());
@@ -79,7 +80,7 @@ impl FavouriteCache {
     }
 
     pub fn remove(&self, id: &str) -> Result<()> {
-        let uid = secrets::user_id();
+        let uid = crate::auth::tokens().user_id();
         if uid.is_empty() {
             log::debug!("not logged in, ignoring favourite removal");
             return Ok(());
@@ -97,7 +98,7 @@ impl FavouriteCache {
     }
 
     pub fn get(&self) -> Result<Vec<String>> {
-        let uid = secrets::user_id();
+        let uid = crate::auth::tokens().user_id();
         if uid.is_empty() {
             log::debug!("not logged in, ignoring favourite fetch");
             return Ok(vec![]);

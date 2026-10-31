@@ -1,8 +1,10 @@
-//! HTTP client for TIDAL (port of `pkg/tidalapi`): middleware (headers, base
+//! HTTP client for TIDAL (port of `pkg/tidalapi`).
+//!
+//! Middleware (headers, base
 //! URL, default query params), auth strategies (refresh token and `OpenAPI`
 //! client credentials), device linking and every endpoint Tonearm uses.
 //!
-//! All functions are blocking; UI code runs them through [`crate::api::run`].
+//! All functions are blocking; UI code runs them on a worker thread.
 
 use std::sync::{Mutex, OnceLock};
 use std::time::{Duration, Instant};
@@ -15,7 +17,6 @@ use serde::de::DeserializeOwned;
 use serde::Deserialize;
 
 use super::{legacy, openapi};
-use crate::settings;
 
 pub const CLIENT_VERSION: &str = "2025.12.13";
 pub const UNAUTHENTICATED_CLIENT_ID: &str = "txNoH4kkV41MfH25";
@@ -77,7 +78,7 @@ struct AccessToken {
 
 fn token_request(form: &[(&str, &str)]) -> Result<Response> {
     Ok(http()
-        .post(format!("{}/v1/oauth2/token", settings::auth_base_url()))
+        .post(format!("{}/v1/oauth2/token", crate::config::get().auth_base_url()))
         .form(form)
         .send()?)
 }
@@ -99,10 +100,10 @@ fn fetch_access_token(cache: &Mutex<CachedToken>, form: &[(&str, &str)]) -> Resu
 
 /// secrets.AuthStrategy: user's refresh token.
 fn user_access_token() -> Result<Option<String>> {
-    if !crate::secrets::has_refresh_token() {
+    if !crate::auth::tokens().has_refresh_token() {
         return Ok(None);
     }
-    let refresh = crate::secrets::get_refresh_token();
+    let refresh = crate::auth::tokens().get_refresh_token();
     fetch_access_token(
         &USER_TOKEN,
         &[("client_id", client_id()), ("client_secret", client_secret()), ("grant_type", "refresh_token"), ("refresh_token", &refresh)],
@@ -122,7 +123,7 @@ pub fn fetch_country_code() -> Result<String> {
         country_code: String,
     }
     let resp = http()
-        .get(format!("{}/v1/country/context?countryCode=WW&locale=en_US&deviceType=BROWSER", settings::api_base_url()))
+        .get(format!("{}/v1/country/context?countryCode=WW&locale=en_US&deviceType=BROWSER", crate::config::get().api_base_url()))
         .header("x-tidal-token", client_id())
         .send()?;
     if resp.status() != StatusCode::OK {
@@ -140,7 +141,7 @@ fn session_country_code() -> Result<String> {
     }
     let Some(token) = user_access_token()? else { bail!("not logged in") };
     let resp = http()
-        .get(format!("{}/v1/sessions", settings::api_base_url()))
+        .get(format!("{}/v1/sessions", crate::config::get().api_base_url()))
         .header("x-tidal-token", client_id())
         .header("Authorization", format!("Bearer {token}"))
         .send()?;
@@ -202,7 +203,7 @@ fn request(method: Method, path: &str, query: &[(&str, String)]) -> Result<Reque
     let url = if path.starts_with("http://") || path.starts_with("https://") {
         path.to_string()
     } else {
-        format!("{}{}", settings::api_base_url(), path)
+        format!("{}{}", crate::config::get().api_base_url(), path)
     };
     let mut url = reqwest::Url::parse(&url).with_context(|| format!("invalid url {url}"))?;
     {
@@ -226,7 +227,7 @@ fn request(method: Method, path: &str, query: &[(&str, String)]) -> Result<Reque
         q.append_pair("locale", &locale())
     };
     let mut auth = user_access_token()?;
-    if auth.is_none() && url.as_str().contains(&settings::openapi_base_url()) {
+    if auth.is_none() && url.as_str().contains(&crate::config::get().openapi_base_url()) {
         auth = Some(openapi_access_token()?);
     }
     let mut rb = http()
@@ -258,7 +259,7 @@ fn include_q(include: &[&str]) -> Vec<(&'static str, String)> {
 }
 
 fn openapi(path: &str) -> String {
-    format!("{}{}", settings::openapi_base_url(), path)
+    format!("{}{}", crate::config::get().openapi_base_url(), path)
 }
 
 // ---------------- OpenAPI v2 ----------------
@@ -588,7 +589,7 @@ const SCOPE: &str = "r_usr w_usr w_sub";
 
 pub fn request_device_linking_challenge() -> Result<DeviceLinkingChallenge> {
     let resp = http()
-        .post(format!("{}/v1/oauth2/device_authorization", settings::auth_base_url()))
+        .post(format!("{}/v1/oauth2/device_authorization", crate::config::get().auth_base_url()))
         .form(&[("client_id", client_id()), ("scope", SCOPE)])
         .send()?;
     if resp.status() != StatusCode::OK {
@@ -649,7 +650,7 @@ mod net_tests {
     #[ignore = "network"]
     fn country_code_live() {
         let r = super::http()
-            .get(format!("{}/v1/country/context?countryCode=WW&locale=en_US&deviceType=BROWSER", crate::settings::api_base_url()))
+            .get(format!("{}/v1/country/context?countryCode=WW&locale=en_US&deviceType=BROWSER", crate::config::get().api_base_url()))
             .header("x-tidal-token", super::client_id())
             .send()
             .unwrap();

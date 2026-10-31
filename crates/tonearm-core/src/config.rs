@@ -17,6 +17,15 @@ pub trait Config: Send + Sync {
     fn auth_base_url(&self) -> String {
         "https://auth.tidal.com".into()
     }
+    /// Streaming quality to request.
+    fn audio_quality(&self) -> crate::model::TrackQuality {
+        crate::model::TrackQuality::HighResLossless
+    }
+    /// Directory for the app's small preference files (e.g. the country
+    /// override); `None` disables them.
+    fn config_dir(&self) -> Option<std::path::PathBuf> {
+        None
+    }
 }
 
 /// [`Config`] with every default.

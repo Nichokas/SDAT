@@ -59,6 +59,12 @@ impl tonearm_core::config::Config for GSettingsConfig {
     fn auth_base_url(&self) -> String {
         auth_base_url()
     }
+    fn audio_quality(&self) -> TrackQuality {
+        audio_quality()
+    }
+    fn config_dir(&self) -> Option<std::path::PathBuf> {
+        Some(glib::user_config_dir().join("tonearm"))
+    }
 }
 
 pub fn api_base_url() -> String {

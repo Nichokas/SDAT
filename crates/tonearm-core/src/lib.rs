@@ -8,8 +8,14 @@
 #![allow(clippy::missing_errors_doc, reason = "errors are network/JSON failures, see the error type")]
 
 pub mod api;
+pub mod auth;
+pub mod cache;
 pub mod config;
+pub mod country;
 pub mod i18n;
 pub mod model;
 pub mod playqueue;
+pub mod scrobbling;
+pub mod service;
 pub mod signals;
+pub mod state;

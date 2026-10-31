@@ -22,8 +22,8 @@ pub const COUNTRIES: &[(&str, &str)] = &[
     ("US", "United States"), ("ZA", "South Africa"),
 ];
 
-fn path() -> PathBuf {
-    glib::user_config_dir().join("tonearm").join("country-code")
+fn path() -> Option<PathBuf> {
+    crate::config::get().config_dir().map(|d| d.join("country-code"))
 }
 
 /// Normalises a stored value: a known two-letter code, or `None` for automatic.
@@ -34,12 +34,12 @@ pub fn parse(s: &str) -> Option<String> {
 
 /// The user's choice, or `None` for automatic (account/session country).
 pub fn preferred() -> Option<String> {
-    std::fs::read_to_string(path()).ok().and_then(|s| parse(&s))
+    path().and_then(|p| std::fs::read_to_string(p).ok()).and_then(|s| parse(&s))
 }
 
 /// Saves the choice (`None` = automatic).
 pub fn set_preferred(code: Option<&str>) {
-    let p = path();
+    let Some(p) = path() else { return };
     let r = match code {
         Some(c) => p.parent().map_or(Ok(()), std::fs::create_dir_all).and_then(|()| std::fs::write(&p, c)),
         None => match std::fs::remove_file(&p) {

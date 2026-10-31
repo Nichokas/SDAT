@@ -149,3 +149,18 @@ mod live_tests {
         assert!(r.is_none());
     }
 }
+
+/// The core's view of the keyring (`tonearm_core::auth`).
+#[derive(Debug, Clone, Copy)]
+pub struct KeyringTokens;
+impl tonearm_core::auth::TokenStore for KeyringTokens {
+    fn has_refresh_token(&self) -> bool {
+        has_refresh_token()
+    }
+    fn get_refresh_token(&self) -> String {
+        get_refresh_token()
+    }
+    fn user_id(&self) -> String {
+        user_id()
+    }
+}

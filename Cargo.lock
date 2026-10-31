@@ -2729,11 +2729,15 @@ name = "tonearm-core"
 version = "1.0.0"
 dependencies = [
  "anyhow",
+ "base64",
  "chrono",
  "log",
+ "md-5",
  "rand 0.9.5",
+ "reqwest",
  "serde",
  "serde_json",
+ "urlencoding",
 ]
 
 [[package]]
