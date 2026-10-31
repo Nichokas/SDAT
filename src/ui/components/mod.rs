@@ -59,19 +59,36 @@ pub fn render_cover(cover: Cover, target: impl Fn(gdk::Paintable) + 'static) -> 
         let media = gtk::MediaFile::for_file(&gio::File::for_uri(&cover.animated));
         media.set_loop(true);
         media.set_muted(true);
-        media.play();
-        let target = Rc::new(target);
-        let handler: Rc<Cell<Option<glib::SignalHandlerId>>> = Rc::new(Cell::new(None));
-        let h2 = Rc::clone(&handler);
-        let id = media.connect_prepared_notify(move |m| {
-            if let Some(id) = h2.take() {
-                m.disconnect(id);
+        // Keep the media alive until it is prepared or fails. Dropping it while
+        // GTK's GStreamer backend is still loading finalizes the GstPlay while
+        // its worker thread still posts to it (SIGSEGV in api_bus_post_message).
+        let keep: Rc<std::cell::RefCell<Option<gtk::MediaFile>>> = Rc::new(std::cell::RefCell::new(Some(media.clone())));
+        let handlers: Rc<std::cell::RefCell<Vec<glib::SignalHandlerId>>> = Rc::default();
+        let settle = {
+            let (keep, handlers) = (Rc::clone(&keep), Rc::clone(&handlers));
+            move |m: &gtk::MediaFile| {
+                for id in handlers.borrow_mut().drain(..) {
+                    m.disconnect(id);
+                }
+                // Release on idle, outside the signal emission.
+                if let Some(m) = keep.borrow_mut().take() {
+                    glib::idle_add_local_once(move || drop(m));
+                }
             }
+        };
+        let s2 = settle.clone();
+        let prepared = media.connect_prepared_notify(move |m| {
+            s2(m);
             if !t.is_cancelled() {
                 target(m.clone().upcast());
             }
         });
-        handler.set(Some(id));
+        let failed = media.connect_error_notify(move |m| {
+            log::debug!("animated cover failed to load error={:?}", m.error());
+            settle(m);
+        });
+        handlers.borrow_mut().extend([prepared, failed]);
+        media.play();
     });
     token
 }

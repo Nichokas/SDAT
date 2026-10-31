@@ -77,6 +77,10 @@ pub fn playing_from() -> gtk::Button {
             let route = s.route();
             b.set_sensitive(!route.is_empty());
             *target.borrow_mut() = route;
+            if matches!(s, crate::model::PlaybackSource::MyTracks) {
+                img.set_icon_name(Some("heart-filled-symbolic"));
+                return;
+            }
             let cover = s.cover(80);
             if !cover.has_static() {
                 img.set_paintable(Some(&imgutil::missing_album()));

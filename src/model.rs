@@ -328,8 +328,8 @@ impl PlaybackSource {
             PlaybackSource::Artist(a) => a.cover(size),
             PlaybackSource::Playlist(p) => p.cover(size),
             PlaybackSource::Track(t) => t.cover(size),
-            PlaybackSource::MyTracks => Cover::new("", "https://tidal.com/assets/my-tracks-DTG3pLQW.png"),
-            PlaybackSource::List { .. } => Cover::default(),
+            // My Tracks: the tidal.com asset answers 403; the UI shows a bundled icon instead.
+            PlaybackSource::MyTracks | PlaybackSource::List { .. } => Cover::default(),
         }
     }
     pub fn source_type(&self) -> SourceType {
