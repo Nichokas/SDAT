@@ -1,74 +1,146 @@
-//! "Add to Playlist" dialog: lists the user's own playlists and appends a track.
+//! "Add to Playlist" submenu for the track context menu.
+//!
+//! The user's own playlists are fetched lazily the first time a track menu
+//! opens and then cached for the session.
 
-use adw::prelude::*;
+use std::cell::RefCell;
+
+use gtk::gio;
+use gtk::prelude::*;
 
 use crate::api::{self, client::OwnPlaylist};
-use crate::i18n::{tr, trf, trn};
+use crate::i18n::tr;
 use crate::player;
 
-/// Fetches the user's playlists, then lets them pick one to add `track_id` to.
-pub fn present(parent: &gtk::Widget, track_id: String) {
-    let parent = parent.downgrade();
-    glib::spawn_future_local(async move {
-        match api::run(api::client::own_playlists).await {
-            Ok(list) => {
-                if let Some(parent) = parent.upgrade() {
-                    dialog(&list, track_id).present(Some(&parent));
-                }
+/// Action that receives `(playlist_id, track_id)`.
+pub const ACTION: &str = "win.playlist.add-track";
+/// Unregistered action, so items pointing at it render disabled.
+const DISABLED: &str = "win.playlist.unavailable";
+
+#[derive(Default)]
+enum Cache {
+    #[default]
+    Empty,
+    Loading,
+    Ready(Vec<OwnPlaylist>),
+}
+
+thread_local! {
+    static CACHE: RefCell<Cache> = RefCell::default();
+    static WAITING: RefCell<Vec<(glib::WeakRef<gio::Menu>, String)>> = const { RefCell::new(Vec::new()) };
+}
+
+/// What the submenu should show.
+#[derive(Debug, PartialEq, Eq)]
+enum Entry {
+    Disabled(String),
+    Playlist { label: String, playlist_id: String },
+}
+
+fn entries(cache: Option<&[OwnPlaylist]>) -> Vec<Entry> {
+    match cache {
+        None => vec![Entry::Disabled(tr("Loading…"))],
+        Some([]) => vec![Entry::Disabled(tr("No playlists"))],
+        Some(list) => list.iter().map(|p| Entry::Playlist { label: p.name.clone(), playlist_id: p.id.clone() }).collect(),
+    }
+}
+
+fn fill(menu: &gio::Menu, track_id: &str) {
+    menu.remove_all();
+    let es = CACHE.with_borrow(|c| entries(if let Cache::Ready(l) = c { Some(l.as_slice()) } else { None }));
+    for e in es {
+        match e {
+            Entry::Disabled(label) => menu.append(Some(&label), Some(DISABLED)),
+            Entry::Playlist { label, playlist_id } => {
+                let item = gio::MenuItem::new(Some(&label), None);
+                item.set_action_and_target_value(Some(ACTION), Some(&(playlist_id, track_id.to_owned()).to_variant()));
+                menu.append_item(&item);
             }
+        }
+    }
+}
+
+/// Builds the submenu for `track_id`; call [`ensure_loaded`] when the menu opens.
+pub fn submenu(track_id: &str) -> gio::Menu {
+    let menu = gio::Menu::new();
+    fill(&menu, track_id);
+    menu
+}
+
+/// Starts loading the playlists if needed and refreshes `menu` when done.
+pub fn ensure_loaded(menu: &gio::Menu, track_id: &str) {
+    let start = CACHE.with_borrow_mut(|c| match c {
+        Cache::Ready(_) => false,
+        Cache::Loading => {
+            WAITING.with_borrow_mut(|w| w.push((menu.downgrade(), track_id.to_owned())));
+            false
+        }
+        Cache::Empty => {
+            *c = Cache::Loading;
+            WAITING.with_borrow_mut(|w| w.push((menu.downgrade(), track_id.to_owned())));
+            true
+        }
+    });
+    if !start {
+        return;
+    }
+    glib::spawn_future_local(async move {
+        let list = match api::run(api::client::own_playlists).await {
+            Ok(l) => Some(l),
             Err(e) => {
                 log::error!("loading own playlists failed error={e:#}");
                 player::toasts().notify(&tr("Could not load your playlists"));
+                None
+            }
+        };
+        CACHE.with_borrow_mut(|c| *c = list.map_or(Cache::Empty, Cache::Ready));
+        for (m, track) in WAITING.with_borrow_mut(std::mem::take) {
+            if let Some(m) = m.upgrade() {
+                fill(&m, &track);
             }
         }
     });
 }
 
-fn dialog(list: &[OwnPlaylist], track_id: String) -> adw::AlertDialog {
-    let d = adw::AlertDialog::new(Some(&tr("Add to Playlist")), None);
-    d.add_response("cancel", &tr("Cancel"));
-    d.set_close_response("cancel");
-    if list.is_empty() {
-        d.set_body(&tr("You don't have any playlists yet"));
-        return d;
-    }
-    let lb = gtk::ListBox::new();
-    lb.add_css_class("boxed-list");
-    lb.set_selection_mode(gtk::SelectionMode::None);
-    for p in list {
-        let row = adw::ActionRow::builder()
-            .title(glib::markup_escape_text(&p.name).as_str())
-            .subtitle(trn("%d Track", "%d Tracks", p.number_of_items, &[&p.number_of_items]))
-            .activatable(true)
-            .build();
-        lb.append(&row);
-    }
-    let sw = gtk::ScrolledWindow::builder()
-        .hscrollbar_policy(gtk::PolicyType::Never)
-        .propagate_natural_height(true)
-        .max_content_height(360)
-        .child(&lb)
-        .build();
-    d.set_extra_child(Some(&sw));
-    let targets: Vec<(String, String)> = list.iter().map(|p| (p.id.clone(), p.name.clone())).collect();
-    let weak = d.downgrade();
-    lb.connect_row_activated(move |_, row| {
-        let Some((id, name)) = usize::try_from(row.index()).ok().and_then(|i| targets.get(i)).cloned() else {
-            return;
-        };
-        if let Some(d) = weak.upgrade() {
-            d.close();
-        }
-        let track = track_id.clone();
-        glib::spawn_future_local(async move {
-            match api::run(move || api::client::playlist_add_track(&id, &track)).await {
-                Ok(()) => player::toasts().notify(&trf("Added to %s", &[&name])),
-                Err(e) => {
-                    log::error!("adding track to playlist failed error={e:#}");
-                    player::toasts().notify(&tr("Could not add the track to the playlist"));
-                }
-            }
-        });
+/// Adds a track to a playlist and reports the result with a toast.
+pub fn add(playlist_id: String, track_id: String) {
+    let name = CACHE.with_borrow(|c| match c {
+        Cache::Ready(l) => l.iter().find(|p| p.id == playlist_id).map(|p| p.name.clone()),
+        _ => None,
     });
-    d
+    glib::spawn_future_local(async move {
+        match api::run(move || api::client::playlist_add_track(&playlist_id, &track_id)).await {
+            Ok(()) => player::toasts().notify(&match name {
+                Some(n) => crate::i18n::trf("Added to %s", &[&n]),
+                None => tr("Added to playlist"),
+            }),
+            Err(e) => {
+                log::error!("adding track to playlist failed error={e:#}");
+                player::toasts().notify(&tr("Could not add the track to the playlist"));
+            }
+        }
+    });
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn pl(id: &str, name: &str) -> OwnPlaylist {
+        OwnPlaylist { id: id.into(), name: name.into(), number_of_items: 3 }
+    }
+
+    #[test]
+    fn loading_none_and_list() {
+        assert!(matches!(entries(None).as_slice(), [Entry::Disabled(_)]));
+        assert!(matches!(entries(Some(&[])).as_slice(), [Entry::Disabled(_)]));
+        let l = [pl("a", "Road trip"), pl("b", "Focus")];
+        assert_eq!(
+            entries(Some(&l)),
+            vec![
+                Entry::Playlist { label: "Road trip".into(), playlist_id: "a".into() },
+                Entry::Playlist { label: "Focus".into(), playlist_id: "b".into() },
+            ]
+        );
+    }
 }

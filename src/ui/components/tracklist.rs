@@ -67,10 +67,11 @@ impl Col {
                 item.set_action_and_target_value(Some("win.route.artist"), Some(&a.id.to_variant()));
                 model.append_item(&item);
             }
-            let item = gio::MenuItem::new(Some(&tr("Add to Playlist")), Some("win.playlist.add-track"));
-            item.set_action_and_target_value(Some("win.playlist.add-track"), Some(&t.id().to_variant()));
-            model.append_item(&item);
+            let playlists = super::add_to_playlist::submenu(t.id());
+            model.append_submenu(Some(&tr("Add to Playlist")), &playlists);
             let popover = gtk::PopoverMenu::from_model(Some(&model));
+            let tid = t.id().to_string();
+            popover.connect_show(move |_| super::add_to_playlist::ensure_loaded(&playlists, &tid));
             let queue = gtk::Button::from_icon_name("queue-symbolic")
                 .tooltip(&tr("Add to Queue"))
                 .halign(gtk::Align::Center)
