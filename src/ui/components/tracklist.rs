@@ -42,6 +42,7 @@ pub struct Col(pub Rc<ColFn>);
 
 fn ellipsized(l: &gtk::Label) {
     l.set_ellipsize(pango::EllipsizeMode::End);
+    l.set_xalign(0.0);
 }
 
 impl Col {
@@ -401,12 +402,29 @@ fn build_row(i: &Inner, container: &adw::Bin) {
     let t = Rc::clone(&track);
     attach_context_menu_with(&body, move || t.borrow().clone());
     let mut cells = Vec::with_capacity(i.columns.len());
+    // Expanding columns (title, artists) share one homogeneous box, so each gets the
+    // same fixed fraction of the row whatever its text: every row's artist column
+    // starts at the same x without a SizeGroup re-measuring rows on every scroll.
+    let flex = gtk::Box::new(gtk::Orientation::Horizontal, 0);
+    flex.set_homogeneous(true);
+    flex.set_hexpand(true);
+    let mut flex_added = false;
     for col in &i.columns {
         let cell = col.build();
         let grid = gtk::Grid::new();
         grid.set_valign(gtk::Align::Center);
         grid.attach(&cell.widget, 0, 0, 1, 1);
-        body.append(&grid);
+        if cell.widget.hexpands() {
+            cell.widget.set_halign(gtk::Align::Fill);
+            grid.set_hexpand(true);
+            flex.append(&grid);
+            if !flex_added {
+                body.append(&flex);
+                flex_added = true;
+            }
+        } else {
+            body.append(&grid);
+        }
         cells.push(cell);
     }
     container.set_child(Some(&body));
