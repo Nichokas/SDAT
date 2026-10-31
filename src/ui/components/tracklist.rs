@@ -49,11 +49,6 @@ impl Col {
                 g.attach(&gtk::Box::new(gtk::Orientation::Horizontal, 0), c, 0, 1, 1);
                 return 1;
             };
-            let popover = track_menu_popover(t);
-            // Hang below the button, right-aligned to it, so the menu and its submenus
-            // grow only leftwards/downwards and stay inside the window (GTK flips up if needed).
-            popover.set_position(gtk::PositionType::Bottom);
-            popover.set_halign(gtk::Align::End);
             let queue = gtk::Button::from_icon_name("queue-symbolic")
                 .tooltip(&tr("Add to Queue"))
                 .halign(gtk::Align::Center)
@@ -67,7 +62,19 @@ impl Col {
                 .valign(gtk::Align::Center)
                 .class("flat");
             more.set_icon_name("view-more-symbolic");
-            more.set_popover(Some(&popover));
+            // Build the menu only when it is first opened: creating a popover for
+            // every bound row made scrolling long lists stutter.
+            let track = t.clone();
+            more.set_create_popup_func(move |mb| {
+                if mb.popover().is_none() {
+                    let popover = track_menu_popover(&track);
+                    // Hang below the button, right-aligned to it, so the menu and its submenus
+                    // grow only leftwards/downwards and stay inside the window (GTK flips up if needed).
+                    popover.set_position(gtk::PositionType::Bottom);
+                    popover.set_halign(gtk::Align::End);
+                    mb.set_popover(Some(&popover));
+                }
+            });
             let fav = super::favourite_button::favourite_button(&state::TRACKS, t.id())
                 .halign(gtk::Align::Center)
                 .valign(gtk::Align::Center);
@@ -654,4 +661,58 @@ pub fn attach_track_context_menu(w: &impl IsA<gtk::Widget>, t: &Track) {
         }
     });
     w.add_controller(long);
+}
+
+#[cfg(test)]
+mod perf_probe {
+    use super::*;
+
+    #[test]
+    #[ignore = "perf probe, needs a display"]
+    fn scroll_cost() {
+        crate::ensure_schema();
+        gtk::init().unwrap();
+        let _ = adw::init();
+        crate::register_resources();
+        let cols = match std::env::var("PROBE_COLS").as_deref() {
+            Ok("nocontrols") => vec![Col::cover(), Col::title_album(), Col::artists(), Col::duration()],
+            Ok("controls") => vec![Col::controls()],
+            Ok("cover") => vec![Col::cover()],
+            Ok("text") => vec![Col::title_album(), Col::artists(), Col::duration()],
+            _ => vec![Col::cover(), Col::title_album(), Col::artists(), Col::duration(), Col::controls()],
+        };
+        let list = TrackList::new(cols);
+        for _ in 0..300 {
+            list.add_track(Track::default());
+        }
+        let sw = gtk::ScrolledWindow::new();
+        sw.set_child(Some(list.widget()));
+        let win = gtk::Window::new();
+        win.set_default_size(1000, 800);
+        win.set_child(Some(&sw));
+        win.present();
+        let ctx = glib::MainContext::default();
+        let settle = || {
+            let t = std::time::Instant::now();
+            while t.elapsed() < std::time::Duration::from_millis(300) {
+                while ctx.iteration(false) {}
+                std::thread::sleep(std::time::Duration::from_millis(5));
+            }
+        };
+        settle();
+        let adj = sw.vadjustment();
+        let mut worst = 0.0f64;
+        let mut total = 0.0;
+        let n = 60;
+        for k in 0..n {
+            let t = std::time::Instant::now();
+            adj.set_value(f64::from(k) * 300.0);
+            while ctx.iteration(false) {}
+            let ms = t.elapsed().as_secs_f64() * 1000.0;
+            worst = worst.max(ms);
+            total += ms;
+        }
+        eprintln!("PROBE upper={} avg_step_ms={:.2} worst_ms={:.2}", adj.upper(), total / f64::from(n), worst);
+        win.close();
+    }
 }

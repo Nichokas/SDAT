@@ -79,11 +79,16 @@ pub async fn fetch(url: &str) -> Option<gdk::Texture> {
         return rx.recv().await.ok().flatten();
     }
     let u = url.to_string();
-    let bytes = api::run(move || fetch_bytes(&u)).await;
-    let texture = match bytes {
-        Ok(b) => gdk::Texture::from_bytes(&glib::Bytes::from_owned(b)).map_err(|e| log::debug!("failed to decode image {url}: {e}")).ok(),
+    // Download and decode on a worker thread so scrolling never waits on image decoding.
+    let decoded = api::run(move || {
+        let b = fetch_bytes(&u)?;
+        Ok(gdk::Texture::from_bytes(&glib::Bytes::from_owned(b))?)
+    })
+    .await;
+    let texture = match decoded {
+        Ok(t) => Some(t),
         Err(e) => {
-            log::debug!("failed to fetch image {url}: {e:#}");
+            log::debug!("failed to load image {url}: {e:#}");
             None
         }
     };

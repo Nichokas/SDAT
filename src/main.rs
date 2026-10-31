@@ -23,7 +23,7 @@ use gtk::gio;
 static ICONS: &[u8] = include_bytes!("../internal/icons/icons.gresource");
 static STYLES: &[u8] = include_bytes!("../internal/styles/styles.gresource");
 
-fn register_resources() {
+pub(crate) fn register_resources() {
     for data in [ICONS, STYLES] {
         let r = gio::Resource::from_data(&glib::Bytes::from_static(data)).expect("Failed to create resources");
         gio::resources_register(&r);
@@ -31,7 +31,7 @@ fn register_resources() {
 }
 
 /// Falls back to the schema compiled at build time when it is not installed.
-fn ensure_schema() {
+pub(crate) fn ensure_schema() {
     let installed = gio::SettingsSchemaSource::default().and_then(|s| s.lookup(settings::APP_ID, true)).is_some();
     if !installed && std::env::var_os("GSETTINGS_SCHEMA_DIR").is_none() {
         // SAFETY: single threaded at this point (before GTK and any worker starts).
