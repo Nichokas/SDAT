@@ -73,7 +73,7 @@ struct DiscoverView: View {
             let source = Shuffle(mixes: mixes)
             var pool: [Track] = []
             var ids = Set<String>(), albums = Set<String>(), covers = Set<String>()
-            for _ in 0..<3 {
+            for _ in 0..<10 {
                 for t in try await source.nextBatch(min: hadCache || !pool.isEmpty ? 80 : 30) {
                     guard let a = t.album, let c = a.coverUrl else { continue }
                     if ids.insert(t.id).inserted, albums.insert(a.id).inserted, covers.insert(c).inserted { pool.append(t) }
@@ -82,7 +82,7 @@ struct DiscoverView: View {
                 if !hadCache, tracks.isEmpty, !pool.isEmpty { tracks = pool }
                 // First launch: show covers as soon as the first batch arrives.
                 if !hadCache, tracks.isEmpty, !pool.isEmpty { tracks = pool }
-                if pool.count >= 70 { break }
+                if pool.count >= 320 { break }
             }
             DiscoverCache.save(pool)
             // Keep the cached plane on screen this session; the fresh pool shows next launch,
@@ -137,14 +137,19 @@ final class PlaneScrollView: UIScrollView, UIScrollViewDelegate {
 
     required init?(coder: NSCoder) { fatalError() }
 
+    private var block: (Int, Int) {
+        let n = tracks.count
+        let rows = max(12, Int((Double(n) / 1.4).squareRoot()))
+        return (max(1, n / rows), rows)
+    }
+
     private func track(_ cell: Cell) -> Track? {
         guard !tracks.isEmpty else { return nil }
-        // Each row walks the pool consecutively, and consecutive rows start N/rows apart, so a
-        // cover only repeats after the whole pool (within a row) or a full period of rows.
-        let n = tracks.count
-        let k = max(n / sizes.count, 1)
-        let i = ((cell.c + cell.r * k) % n + n) % n
-        return tracks[i]
+        // The pool is laid out as one C×R block that tiles the plane: every cell in a block is a
+        // different cover, and a repeat is C columns or R rows away (both larger than the screen).
+        let (cols, rows) = block
+        let c = ((cell.c % cols) + cols) % cols, r = ((cell.r % rows) + rows) % rows
+        return tracks[min(r * cols + c, tracks.count - 1)]
     }
 
     /// Rows of flat covers: each row has one size, sizes vary between rows, and every row

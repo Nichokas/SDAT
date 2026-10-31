@@ -12,7 +12,7 @@ struct MiniPlayer: View {
         Group {
             if style == .circle {
                 // Tap: play/pause. Long-press: open the full player.
-                ringIcon(size: 56)
+                ringIcon(size: 62)
                     .contentShape(.circle)
                     .glassEffect(.regular.interactive(), in: .circle)
                     .onTapGesture { player.toggle() }
@@ -36,7 +36,7 @@ struct MiniPlayer: View {
                     }
                 }
                 .padding(.leading, 9).padding(.trailing, 10)
-                .frame(height: 56)
+                .frame(height: 62)
                 .frame(maxWidth: .infinity)
                 .contentShape(.capsule)
                 .onTapGesture { chrome.showPlayer = true }
