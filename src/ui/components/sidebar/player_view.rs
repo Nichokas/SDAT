@@ -344,12 +344,18 @@ fn quality_label(q: TrackQuality) -> (String, &'static str) {
 }
 
 fn quality_entry(q: TrackQuality, css: &str, title: &str, details: &str, popover: &gtk::Popover) -> gtk::Button {
-    let check = label("✓");
-    check.set_visible(settings::audio_quality() == q);
+    // Go draws a "✓" text label; a small symbolic icon (tinted with the entry's text
+    // colour) sits better. Its space is always reserved so labels never shift.
+    let check = gtk::Image::from_icon_name("object-select-symbolic");
+    check.set_pixel_size(14);
+    check.set_valign(gtk::Align::Center);
+    check.set_margin_end(2);
+    let show = move |c: &gtk::Image| c.set_opacity(if settings::audio_quality() == q { 1.0 } else { 0.0 });
+    show(&check);
     let cw = check.downgrade();
     let id = settings::connect_changed(&settings::player(), "audio-quality", move |_| {
         if let Some(c) = cw.upgrade() {
-            c.set_visible(settings::audio_quality() == q);
+            show(&c);
         }
     });
     let _ = id;
