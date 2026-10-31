@@ -1,6 +1,6 @@
 //! Port of `internal/player`: playbin3 wrapper, queues, controls, gapless
 //! playback, `ReplayGain`, stream quality and MPRIS.
-#![allow(dead_code, unused_imports)]
+
 
 pub mod mpris;
 pub mod playqueue;
@@ -19,10 +19,10 @@ use crate::model::{PlaybackSource, Track};
 use crate::signals::{Signal, State, CONTINUE};
 use crate::{api, global_signal, i18n::tr, service, settings};
 use playqueue::{DurableQueue, HistoryQueue, Queue};
-pub use quality::{audio_stream_quality, Codec, StreamQuality};
+pub use quality::audio_stream_quality;
 use statemachine::{Hooks, Machine, Trigger};
 pub use statemachine::{
-    playback_quality_changed, playback_state_changed, track_changed, PlaybackState, PlaybackStatus, TrackChangedEvent,
+    playback_quality_changed, playback_state_changed, track_changed, PlaybackState, PlaybackStatus,
 };
 
 // ---------------------------------------------------------------- signals
@@ -172,7 +172,9 @@ fn on_bus_message(msg: &gst::Message) {
 }
 
 fn on_volume_change(v: f64) {
-    if v == volume_changed().get() {
+    #[expect(clippy::float_cmp, reason = "exact echo of a value we published ourselves")]
+    let unchanged = v == volume_changed().get();
+    if unchanged {
         return;
     }
     settings::set_volume(v);
@@ -182,7 +184,7 @@ fn on_volume_change(v: f64) {
 async fn on_eos_stopped() {
     let stop = || {
         source_changed().set(None);
-        let _ = statemachine::on_stopped_stop();
+        statemachine::on_stopped_stop();
     };
     if !settings::allow_autoplay() {
         stop();
@@ -422,6 +424,7 @@ pub fn play_track(track: Track) {
     fire(Trigger::PlayTrack(track, false));
 }
 
+#[expect(clippy::unused_async, reason = "callers await it like the other playback entry points; mirrors Go's PlayTracklist")]
 pub async fn play_tracklist(source: PlaybackSource, tracks: Vec<Track>, shuffle: bool, position: usize) -> Result<()> {
     play_tracks(tracks, shuffle, position)?;
     source_changed().set(Some(source));

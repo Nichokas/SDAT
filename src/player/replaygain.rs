@@ -20,9 +20,8 @@ pub fn set_enqueued(m: Option<&TrackManifest>) {
 
 pub fn calculate_album_mode(mode: ReplayGainMode, source: Option<SourceType>) -> bool {
     match source {
-        None => mode == ReplayGainMode::Album,
         Some(SourceType::Album) => mode != ReplayGainMode::Track,
-        Some(_) => mode == ReplayGainMode::Album,
+        None | Some(_) => mode == ReplayGainMode::Album,
     }
 }
 

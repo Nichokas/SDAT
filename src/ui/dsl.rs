@@ -1,5 +1,4 @@
 //! Small helpers replacing schwifty's fluent widget modifiers.
-#![allow(dead_code, deprecated)]
 
 use gtk::prelude::*;
 
@@ -70,19 +69,8 @@ pub trait W: IsA<gtk::Widget> + Sized {
         self.set_overflow(gtk::Overflow::Hidden);
         self
     }
-    fn opacity(self, o: f64) -> Self {
-        self.set_opacity(o);
-        self
-    }
-    fn sensitive(self, s: bool) -> Self {
-        self.set_sensitive(s);
-        self
-    }
-    fn focusable(self, f: bool) -> Self {
-        self.set_focusable(f);
-        self
-    }
     /// Per-widget CSS (schwifty CSSWithCallback): `rule` receives the css name.
+    #[expect(deprecated, reason = "GTK has no non-deprecated per-widget style provider; mirrors schwifty")]
     fn css_with(self, rule: impl FnOnce(&str) -> String) -> Self {
         let provider = gtk::CssProvider::new();
         provider.load_from_string(&rule(self.css_name().as_str()));
@@ -129,14 +117,6 @@ pub trait W: IsA<gtk::Widget> + Sized {
     fn font_weight(self, w: i32) -> Self {
         self.css_with(|n| format!("{n} {{ font-weight: {w}; }}"))
     }
-    fn upcast_w(self) -> gtk::Widget {
-        self.upcast()
-    }
-    /// Runs `f` once the widget is destroyed (cleanup for signal subscriptions).
-    fn on_destroy(self, f: impl Fn() + 'static) -> Self {
-        self.connect_destroy(move |_| f());
-        self
-    }
 }
 
 impl<T: IsA<gtk::Widget>> W for T {}
@@ -170,9 +150,6 @@ pub fn label(t: &str) -> gtk::Label {
     gtk::Label::new(Some(t))
 }
 
-pub fn icon_button(icon: &str) -> gtk::Button {
-    gtk::Button::from_icon_name(icon)
-}
 
 pub fn clamp(max: i32, child: &impl IsA<gtk::Widget>) -> adw::Clamp {
     let c = adw::Clamp::new();
@@ -181,11 +158,6 @@ pub fn clamp(max: i32, child: &impl IsA<gtk::Widget>) -> adw::Clamp {
     c
 }
 
-/// Subscribes `f` to a global signal/state for the lifetime of `widget`.
-/// `sub` subscribes and returns an unsubscribe closure.
-pub fn bind_lifetime(widget: &impl IsA<gtk::Widget>, unsub: impl Fn() + 'static) {
-    widget.as_ref().connect_destroy(move |_| unsub());
-}
 
 /// Weak-ref helper: `with_weak!(widget, |w| ...)` inside a closure.
 #[macro_export]

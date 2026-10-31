@@ -110,6 +110,7 @@ pub fn user_id_from_token(token: &str) -> String {
         return String::new();
     };
     #[derive(serde::Deserialize)]
+    #[expect(clippy::items_after_statements, reason = "local payload type kept next to its only use")]
     struct Claims {
         uid: i64,
     }

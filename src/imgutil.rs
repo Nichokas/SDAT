@@ -1,6 +1,5 @@
 //! Port of `pkg/utils/imgutil`: image fetching with a 10 minute TTL cache
 //! (about 50 MiB) and square cropping.
-#![allow(dead_code)]
 
 use std::cell::RefCell;
 use std::collections::HashMap;

@@ -124,14 +124,13 @@ pub fn on_stopped(playbin: &dyn Playbin) -> Result<()> {
     Ok(())
 }
 
-pub fn on_stopped_stop() -> Result<()> {
+pub fn on_stopped_stop() {
     track_changed().set(None);
     playback_state_changed().notify(|mut s| {
         s.duration = Duration::ZERO;
         s.position = Duration::ZERO;
         s
     });
-    Ok(())
 }
 
 pub fn on_paused(playbin: &dyn Playbin) -> Result<()> {
@@ -164,9 +163,8 @@ pub fn on_playing(playbin: Rc<dyn Playbin>) -> Result<()> {
     Ok(())
 }
 
-pub fn on_playing_exit() -> Result<()> {
+pub fn on_playing_exit() {
     stop_worker();
-    Ok(())
 }
 
 pub fn on_playing_gapless_exit(track: Track, manifest: &TrackManifest, did_repeat: bool) {
@@ -229,8 +227,9 @@ impl State {
     }
 }
 
-#[allow(clippy::large_enum_variant)]
+#[expect(clippy::large_enum_variant, reason = "triggers are short-lived and queued rarely; boxing Track adds noise")]
 pub enum Trigger {
+    #[expect(dead_code, reason = "TRIGGER_PLAY_TRACK_ID is part of the Go state machine; no caller fires it yet")]
     PlayTrackId(String, bool),
     PlayTrack(Track, bool),
     Pause,
@@ -293,9 +292,6 @@ impl Machine {
         })
     }
 
-    pub fn state(&self) -> State {
-        self.state.get()
-    }
 
     /// Queues a trigger; transitions run in order on the main loop.
     pub fn fire(self: &Rc<Self>, t: Trigger) {
@@ -314,6 +310,7 @@ impl Machine {
         });
     }
 
+    #[expect(clippy::match_same_arms, reason = "one arm per (state, trigger) pair, mirroring the Go Permit table")]
     fn target(&self, t: &Trigger) -> Option<State> {
         use State::{Stopped, Paused, Playing, PlayingGapless, PlayingRetrying, Preparing};
         let s = self.state.get();
@@ -371,25 +368,25 @@ impl Machine {
             on_playing_retry_exit(&*self.playbin, self.retry_position.get());
         }
         if from.is_playing() && !to.is_playing() {
-            let _ = on_playing_exit();
+            on_playing_exit();
         }
         self.state.set(to);
 
         // Entry actions.
         let res: Result<()> = match (to, t) {
             (State::Stopped, t) => {
-                let mut r = on_stopped(&*self.playbin);
+                let r = on_stopped(&*self.playbin);
                 match t {
                     Trigger::Stop => {
                         (self.hooks.clear_source)();
-                        r = r.and(on_stopped_stop());
+                        on_stopped_stop();
                     }
                     Trigger::TokenExpired => {
                         log::error!(
                             "track was enqueued successfully, but playback was rejected by remote server. this may be due to a network issue, account restrictions or a temporary outage."
                         );
                         (self.hooks.clear_source)();
-                        r = r.and(on_stopped_stop());
+                        on_stopped_stop();
                     }
                     Trigger::Eos => (self.hooks.on_eos_stopped)().await,
                     _ => {}
@@ -470,6 +467,7 @@ pub mod tests {
     use crate::signals::UNSUBSCRIBE;
 
     #[derive(Default)]
+    #[expect(clippy::struct_excessive_bools, reason = "test double with one failure switch per method")]
     pub struct Testbin {
         pub duration: Cell<Duration>,
         pub duration_should_error: bool,
@@ -496,18 +494,18 @@ pub mod tests {
         fn query_position(&self) -> Option<Duration> {
             (!self.position_should_error).then(|| self.position.get())
         }
-        fn seek(&self, p: Duration, _: gst::SeekFlags) -> bool {
-            self.position.set(p);
+        fn seek(&self, position: Duration, _: gst::SeekFlags) -> bool {
+            self.position.set(position);
             !self.position_should_error
         }
         fn set_uri(&self, uri: &str) {
             *self.uri.borrow_mut() = uri.into();
         }
-        fn set_volume(&self, v: f64) -> Result<()> {
+        fn set_volume(&self, volume: f64) -> Result<()> {
             if self.volume_should_error {
                 anyhow::bail!("set volume failed");
             }
-            self.volume.set(v);
+            self.volume.set(volume);
             Ok(())
         }
     }
@@ -546,7 +544,7 @@ pub mod tests {
         let pb = Rc::new(Testbin { state: Cell::new(Some(gst::State::Paused)), ..Default::default() });
         on_playing(Rc::clone(&pb) as Rc<dyn Playbin>).unwrap();
         assert_eq!(pb.state.get(), Some(gst::State::Playing));
-        on_playing_exit().unwrap();
+        on_playing_exit();
     }
 
     #[test]
@@ -557,7 +555,7 @@ pub mod tests {
         playback_state_changed().set(initial);
         let seen = capture_next_state();
         on_playing(pb).unwrap();
-        on_playing_exit().unwrap();
+        on_playing_exit();
         let want = PlaybackState { duration: expected, status: PlaybackStatus::Playing, loading: false, ..initial };
         assert_eq!(seen.borrow().expect("not notified"), want);
     }
@@ -579,7 +577,7 @@ pub mod tests {
         playback_state_changed().set(initial);
         let seen = capture_next_state();
         on_playing(Rc::new(Testbin { duration: Cell::new(secs(300)), duration_should_error: true, ..Default::default() })).unwrap();
-        on_playing_exit().unwrap();
+        on_playing_exit();
         assert_eq!(seen.borrow().expect("not notified").duration, initial.duration);
     }
 
@@ -619,7 +617,7 @@ pub mod tests {
             s.set(Some(t.is_none()));
             UNSUBSCRIBE
         });
-        on_stopped_stop().unwrap();
+        on_stopped_stop();
         assert_eq!(seen.get(), Some(true), "TrackChanged not notified with None");
     }
 

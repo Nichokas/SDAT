@@ -421,9 +421,8 @@ async fn feed() -> Response {
                 bx.append(&b);
             }
             ("NEW_HISTORY_MIX", _, Some(mix)) => {
-                let tex = match imgutil::fetch(&mix.images.medium.url).await {
-                    Some(t) => t,
-                    None => return Response::from_error(tr("Feed"), anyhow::anyhow!("failed to load image {}", mix.images.medium.url)),
+                let Some(tex) = imgutil::fetch(&mix.images.medium.url).await else {
+                    return Response::from_error(tr("Feed"), anyhow::anyhow!("failed to load image {}", mix.images.medium.url));
                 };
                 let img = gtk::Image::from_paintable(Some(&tex));
                 let b = feed_entry(&img, &mix.title, &mix.subtitle, false);

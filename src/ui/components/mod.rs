@@ -1,5 +1,4 @@
 //! Port of `internal/ui/components`.
-#![allow(dead_code)]
 
 pub mod favourite_button;
 pub mod horizontal_list;
@@ -15,7 +14,7 @@ use std::cell::Cell;
 use std::rc::Rc;
 
 use adw::prelude::*;
-use gtk::{gdk, gio, pango};
+use gtk::{gdk, gio};
 
 use crate::api::legacy::{self, item_type, ItemData};
 use crate::i18n::tr;
@@ -50,8 +49,7 @@ pub fn render_cover(cover: Cover, target: impl Fn(gdk::Paintable) + 'static) -> 
         if cover.has_static() {
             match imgutil::fetch_cropped(&cover.static_).await {
                 Some(tex) if !t.is_cancelled() => target(tex.upcast()),
-                Some(_) => return,
-                None => return,
+                Some(_) | None => return,
             }
         }
         if !cover.has_animated() || t.is_cancelled() {
@@ -294,7 +292,8 @@ pub fn for_module(module: &legacy::Module) -> gtk::Widget {
             for it in &module.items {
                 if it.type_ == "CATEGORY_PAGES" {
                     continue;
-                } else if it.type_ == "PLAYLIST" {
+                }
+                if it.type_ == "PLAYLIST" {
                     let url = format!("{}/images/{}/550x400.jpg", crate::settings::resources_base_url(), it.image_id.replace('-', "/"));
                     list.append(&media_card::mix_generic(&it.artifact_id, &it.short_header, &it.short_sub_header, &url));
                 } else {
@@ -381,7 +380,3 @@ pub fn for_module(module: &legacy::Module) -> gtk::Widget {
     }
 }
 
-pub(crate) fn ellipsize(l: gtk::Label) -> gtk::Label {
-    l.set_ellipsize(pango::EllipsizeMode::End);
-    l
-}

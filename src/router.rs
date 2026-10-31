@@ -1,10 +1,9 @@
 //! Port of `internal/router`: path based navigation with a history stack.
-#![allow(dead_code)]
 
 use std::cell::RefCell;
 use std::pin::Pin;
 use std::rc::Rc;
-use std::time::{Duration, Instant};
+use std::time::Instant;
 
 use gtk::prelude::*;
 use regex::Regex;
@@ -34,10 +33,6 @@ impl Response {
     }
     pub fn toolbar(mut self, t: impl IsA<gtk::Widget>) -> Self {
         self.toolbar = Some(t.upcast());
-        self
-    }
-    pub fn expires_in(mut self, d: Duration) -> Self {
-        self.expires_at = Some(Instant::now() + d);
         self
     }
 }
@@ -183,8 +178,8 @@ fn navigate_inner(path: String, off_record: bool) {
         if off_record {
             HISTORY.with(|h| {
                 if let Some(c) = h.borrow_mut().current.as_mut().filter(|c| c.path == path) {
-                    c.view = entry.view.clone();
-                    c.toolbar = entry.toolbar.clone();
+                    c.view.clone_from(&entry.view);
+                    c.toolbar.clone_from(&entry.toolbar);
                     c.expires_at = entry.expires_at;
                 }
             });

@@ -27,6 +27,7 @@ impl Queue {
     pub fn clear(&self) {
         self.entries.set(Vec::new());
     }
+    #[cfg(test)]
     pub fn contains(&self, id: &str) -> bool {
         self.entries.with(|v| v.iter().any(|t| t.id() == id))
     }
@@ -42,6 +43,7 @@ impl Queue {
     pub fn get(&self, i: usize) -> Option<Track> {
         self.entries.with(|v| v.get(i).cloned())
     }
+    #[cfg(test)]
     pub fn insert(&self, t: Track, i: usize) -> Result<()> {
         let n = self.len();
         if i > n {
@@ -110,6 +112,7 @@ pub struct DurableQueue {
 }
 
 impl DurableQueue {
+    #[cfg(test)]
     pub fn append(&self, t: Track) {
         if self.contains(t.id()) {
             return;
@@ -122,32 +125,17 @@ impl DurableQueue {
         self.queue.clear();
         self.shuffled.set(false);
     }
+    #[cfg(test)]
     pub fn contains(&self, id: &str) -> bool {
         self.source.borrow().iter().any(|t| t.id() == id)
     }
     pub fn entries(&self) -> &State<Vec<Track>> {
         self.queue.entries()
     }
-    pub fn get(&self, i: usize) -> Option<Track> {
-        self.queue.get(i)
-    }
-    pub fn insert(&self, t: Track, i: usize) -> Result<()> {
-        if self.contains(t.id()) {
-            return Ok(());
-        }
-        // Keep the source order close to the visible order.
-        let src_idx = self
-            .queue
-            .get(i)
-            .and_then(|at| self.source.borrow().iter().position(|s| s.id() == at.id()))
-            .unwrap_or(self.source.borrow().len());
-        self.queue.insert(t.clone(), i)?;
-        self.source.borrow_mut().insert(src_idx, t);
-        Ok(())
-    }
     pub fn is_shuffled(&self) -> bool {
         self.shuffled.get()
     }
+    #[cfg(test)]
     pub fn len(&self) -> usize {
         self.queue.len()
     }
@@ -159,13 +147,6 @@ impl DurableQueue {
     }
     pub fn pop(&self) -> Option<Track> {
         self.queue.pop()
-    }
-    pub fn prepend(&self, t: Track) {
-        if self.contains(t.id()) {
-            return;
-        }
-        self.source.borrow_mut().insert(0, t.clone());
-        self.queue.prepend(t);
     }
     pub fn remove_at(&self, i: usize) -> Result<()> {
         let Some(t) = self.queue.get(i) else { bail!("track not found") };
@@ -180,7 +161,7 @@ impl DurableQueue {
         self.shuffled.set(false);
     }
     pub fn set(&self, tracks: Vec<Track>) {
-        *self.source.borrow_mut() = tracks.clone();
+        self.source.borrow_mut().clone_from(&tracks);
         self.queue.set(tracks);
     }
     /// Shuffles every source track except `current_id`.
@@ -215,10 +196,6 @@ impl HistoryQueue {
     }
     pub fn peek(&self) -> Option<Track> {
         self.queue.peek()
-    }
-    pub fn clear(&self) {
-        *self.pending.borrow_mut() = None;
-        self.queue.clear();
     }
 }
 

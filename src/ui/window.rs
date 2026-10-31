@@ -315,7 +315,7 @@ fn build_sidebar_layout(app: &adw::Application, window: &adw::ApplicationWindow)
 
 // ------------------------------------------------------------------ actions
 
-fn queue_param(param: String) {
+fn queue_param(param: &str) {
     let parts: Vec<&str> = param.split('/').collect();
     if parts.len() != 2 {
         log::error!("parameter doesn't follow the format 'type/id' action=win.player.queue parameter={param}");
@@ -464,7 +464,7 @@ fn install_actions(app: &adw::Application, window: &adw::ApplicationWindow) {
     window.add_action(&simple("player.repeat", player::cycle_repeat_mode));
     accel(app, "win.player.repeat", &[p("r")]);
     window.add_action(&with_string("player.queue-track", |id| spawn_logged("queue track", async move { player::add_track_to_user_queue(&id).await })));
-    window.add_action(&with_string("player.queue", queue_param));
+    window.add_action(&with_string("player.queue", |p| queue_param(&p)));
 
     window.add_action(&simple("route.home", || router::navigate(&settings::default_page())));
     accel(app, "win.route.home", &[p("h")]);
@@ -592,15 +592,15 @@ fn present_about(window: &adw::ApplicationWindow) {
     a.present(Some(window));
 }
 
-fn switch_row(title: &str, subtitle: &str, s: gio::Settings, key: &str) -> adw::SwitchRow {
+fn switch_row(title: &str, subtitle: &str, s: &gio::Settings, key: &str) -> adw::SwitchRow {
     let r = adw::SwitchRow::builder().title(title).subtitle(subtitle).build();
-    settings::bind(&s, key, &r, "active");
+    settings::bind(s, key, &r, "active");
     r
 }
 
-fn entry_row(title: &str, s: gio::Settings, key: &str) -> adw::EntryRow {
+fn entry_row(title: &str, s: &gio::Settings, key: &str) -> adw::EntryRow {
     let r = adw::EntryRow::builder().title(title).build();
-    settings::bind(&s, key, &r, "text");
+    settings::bind(s, key, &r, "text");
     r
 }
 
@@ -637,10 +637,10 @@ fn present_preferences(window: &adw::ApplicationWindow) {
     history.set_subtitle(&tr("Maximum history length before dropping old entries"));
     settings::bind(&perf, "max-router-history-size", &history, "value");
     let base = adw::ExpanderRow::builder().title(tr("Base URLs")).subtitle(tr("Configure the base URLs for TIDAL")).build();
-    base.add_row(&entry_row(&tr("API Base URL"), svc.clone(), "api-baseurl"));
-    base.add_row(&entry_row(&tr("Auth Base URL"), svc.clone(), "auth-baseurl"));
-    base.add_row(&entry_row(&tr("OpenAPI Base URL"), svc.clone(), "openapi-baseurl"));
-    base.add_row(&entry_row(&tr("Resources Base URL"), svc, "resources-baseurl"));
+    base.add_row(&entry_row(&tr("API Base URL"), &svc, "api-baseurl"));
+    base.add_row(&entry_row(&tr("Auth Base URL"), &svc, "auth-baseurl"));
+    base.add_row(&entry_row(&tr("OpenAPI Base URL"), &svc, "openapi-baseurl"));
+    base.add_row(&entry_row(&tr("Resources Base URL"), &svc, "resources-baseurl"));
     d.add(&page(
         &tr("General"),
         "settings-symbolic",
@@ -651,7 +651,7 @@ fn present_preferences(window: &adw::ApplicationWindow) {
                 &[switch_row(
                     &tr("Allow Background Activity"),
                     &tr("Allow Tonearm to run in the background by hiding the player window instead of quitting the application"),
-                    gen_s.clone(),
+                    &gen_s,
                     "allow-running-in-background",
                 )
                 .upcast_ref()],
@@ -659,7 +659,7 @@ fn present_preferences(window: &adw::ApplicationWindow) {
             group(
                 &tr("Navigation Behaviour"),
                 &tr("Configure the behaviour of Tonearm when navigating between pages"),
-                &[entry_row(&tr("Default Page"), gen_s, "default-page").upcast_ref(), history.upcast_ref()],
+                &[entry_row(&tr("Default Page"), &gen_s, "default-page").upcast_ref(), history.upcast_ref()],
             ),
             group(&tr("TIDAL Settings"), &tr("TIDAL-specific settings for advanced users"), &[base.upcast_ref()]),
         ],
@@ -691,11 +691,11 @@ fn present_preferences(window: &adw::ApplicationWindow) {
                 switch_row(
                     &tr("Enable Autoplay"),
                     &tr("Allow Tonearm to start a mix with the current playing song when you're at the end of an album/queue"),
-                    pb.clone(),
+                    &pb,
                     "allow-autoplay",
                 )
                 .upcast_ref(),
-                switch_row(&tr("Normalize Volume"), &tr("Set the same volume for all tracks"), pb, "normalize-volume").upcast_ref(),
+                switch_row(&tr("Normalize Volume"), &tr("Set the same volume for all tracks"), &pb, "normalize-volume").upcast_ref(),
                 rg.upcast_ref(),
             ],
         )],
@@ -708,14 +708,14 @@ fn present_preferences(window: &adw::ApplicationWindow) {
             &tr("Images"),
             &tr("Configure the behaviour of Tonearm regarding images"),
             &[
-                switch_row(&tr("Allow Media Card Images"), &tr("Allow Tonearm to load images for media card buttons"), perf.clone(), "allow-mediacard-images").upcast_ref(),
-                switch_row(&tr("Allow Shortcut Images"), &tr("Allow Tonearm to load images for shortcut buttons"), perf.clone(), "allow-shortcuts-images").upcast_ref(),
-                switch_row(&tr("Allow Tracklist Images"), &tr("Allow Tonearm to load images for tracklists with the cover column"), perf.clone(), "allow-tracklist-images")
+                switch_row(&tr("Allow Media Card Images"), &tr("Allow Tonearm to load images for media card buttons"), &perf, "allow-mediacard-images").upcast_ref(),
+                switch_row(&tr("Allow Shortcut Images"), &tr("Allow Tonearm to load images for shortcut buttons"), &perf, "allow-shortcuts-images").upcast_ref(),
+                switch_row(&tr("Allow Tracklist Images"), &tr("Allow Tonearm to load images for tracklists with the cover column"), &perf, "allow-tracklist-images")
                     .upcast_ref(),
                 switch_row(
                     &tr("Cache Images"),
                     &tr("Allow Tonearm to retain recently loaded images in memory to improve performance and reduce network traffic (estimated 50 MiB limit)"),
-                    perf,
+                    &perf,
                     "cache-images",
                 )
                 .upcast_ref(),
@@ -792,15 +792,15 @@ fn present_preferences(window: &adw::ApplicationWindow) {
                 "ListenBrainz",
                 &tr("Configure Tonearm to send scrobbling data to ListenBrainz"),
                 &[
-                    switch_row(&tr("Enable ListenBrainz"), &tr("Allow Tonearm to send scrobbling data to ListenBrainz"), scr.clone(), "enable-listenbrainz").upcast_ref(),
+                    switch_row(&tr("Enable ListenBrainz"), &tr("Allow Tonearm to send scrobbling data to ListenBrainz"), &scr, "enable-listenbrainz").upcast_ref(),
                     lb_token.upcast_ref(),
-                    entry_row(&tr("ListenBrainz API URL"), scr.clone(), "listenbrainz-url").upcast_ref(),
+                    entry_row(&tr("ListenBrainz API URL"), &scr, "listenbrainz-url").upcast_ref(),
                 ],
             ),
             group(
                 "Last.fm",
                 &tr("Configure Tonearm to send scrobbling data to Last.fm"),
-                &[switch_row(&tr("Enable Last.fm"), &tr("Allow Tonearm to send scrobbling data to Last.fm"), scr, "enable-lastfm").upcast_ref(), lfm_row.upcast_ref()],
+                &[switch_row(&tr("Enable Last.fm"), &tr("Allow Tonearm to send scrobbling data to Last.fm"), &scr, "enable-lastfm").upcast_ref(), lfm_row.upcast_ref()],
             ),
         ],
     ));
@@ -809,6 +809,7 @@ fn present_preferences(window: &adw::ApplicationWindow) {
 
 /// Port of LastFm.Configure: token, browser auth, poll every 5s for a session.
 /// Returns the user name, or `None` when the user cancelled.
+#[expect(clippy::many_single_char_names, reason = "short-lived clones captured by GTK closures")]
 async fn lastfm_configure(window: Option<adw::ApplicationWindow>) -> anyhow::Result<Option<String>> {
     let token = api::run(crate::scrobbling::lastfm_get_token).await?;
     let uri = crate::scrobbling::lastfm_auth_url(&token);
@@ -841,7 +842,7 @@ async fn lastfm_configure(window: Option<adw::ApplicationWindow>) -> anyhow::Res
         }
         let t = token.clone();
         match api::run(move || crate::scrobbling::lastfm_get_session(&t)).await {
-            Ok(None) => continue,
+            Ok(None) => {}
             Ok(Some(sk)) => {
                 settings::set_lastfm_token(&sk);
                 let name = api::run(move || crate::scrobbling::lastfm_self_name(&sk)).await;

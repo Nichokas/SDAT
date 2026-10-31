@@ -1,5 +1,4 @@
 //! JSON:API models of the TIDAL `OpenAPI` (openapi.tidal.com/v2).
-#![allow(dead_code)]
 
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Deserializer};
@@ -52,9 +51,6 @@ pub struct LinksMeta {
 }
 
 impl<D> Response<D> {
-    pub fn next_cursor(&self) -> Option<String> {
-        self.links.meta.as_ref().and_then(|m| m.next_cursor.clone())
-    }
 }
 
 #[derive(Debug, Clone, Default, Deserialize)]
@@ -102,8 +98,8 @@ fn merge_json(a: &mut Value, b: Value) {
 }
 
 impl<'de> Deserialize<'de> for IncludedObjects {
-    fn deserialize<D: Deserializer<'de>>(d: D) -> Result<Self, D::Error> {
-        let raw: Option<Vec<Value>> = Option::deserialize(d)?;
+    fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        let raw: Option<Vec<Value>> = Option::deserialize(deserializer)?;
         let mut out: Vec<IncludedObject> = Vec::new();
         for v in raw.unwrap_or_default() {
             let id = v.get("id").and_then(Value::as_str).unwrap_or_default().to_string();
@@ -126,17 +122,17 @@ pub const OBJECT_TYPE_PLAYLISTS: &str = "playlists";
 pub const OBJECT_TYPE_TRACKS: &str = "tracks";
 
 impl IncludedObjects {
-    #[allow(clippy::wrong_self_convention)]
+    #[expect(clippy::wrong_self_convention, reason = "mirrors the Go accessor name")]
     pub fn from_relationships(&self, rels: &[Relationship], t: &str) -> Vec<&IncludedObject> {
-        let mut res = Vec::new();
+        let mut found = Vec::new();
         for rel in rels {
             for obj in &self.0 {
                 if obj.id == rel.id && (obj.type_ == t || t.is_empty()) {
-                    res.push(obj);
+                    found.push(obj);
                 }
             }
         }
-        res
+        found
     }
 
     fn plain<T: DeserializeOwned>(&self, rels: &[Relationship], t: &str) -> Vec<T> {
@@ -590,23 +586,8 @@ pub const MANIFEST_FORMAT_FLAC_HIRES: &str = "FLAC_HIRES";
 
 // ---------- user collections ----------
 
-pub type UserCollection = Response<UserCollectionData>;
 
-#[derive(Debug, Clone, Default, Deserialize)]
-#[serde(default)]
-pub struct UserCollectionData {
-    pub id: String,
-    pub relationships: UserCollectionRelationships,
-}
 
-#[derive(Debug, Clone, Default, Deserialize)]
-#[serde(default)]
-pub struct UserCollectionRelationships {
-    pub albums: Relationships,
-    pub artists: Relationships,
-    pub playlists: Relationships,
-    pub tracks: Relationships,
-}
 
 pub const TRACK_AVAILABILITY_STREAM: &str = "STREAM";
 

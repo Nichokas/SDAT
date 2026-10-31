@@ -1,5 +1,4 @@
 //! Port of `internal/state`: favourite ID caches and the signed-in state.
-#![allow(dead_code)]
 
 use std::sync::Mutex;
 use std::time::{Duration, Instant};

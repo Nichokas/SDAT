@@ -1,10 +1,9 @@
 //! Port of `internal/services/tidal`: maps API responses to the domain model.
-#![allow(dead_code)]
 
 use anyhow::Result;
 
 use crate::api::{self, openapi};
-use crate::model::{Track, track_from_openapi, Album, album_from_openapi, AlbumInfo, album_info_from_openapi, Artist, artist_page_from_v2, ArtistInfo, artist_from_openapi, Playlist, playlist_from_openapi, PlaylistInfo, playlist_info_from_openapi, TrackInfo, track_info_from_openapi, TrackManifest, manifest_from_openapi};
+use crate::model::{Track, track_from_openapi, Album, album_from_openapi, AlbumInfo, album_info_from_openapi, Artist, artist_page_from_v2, ArtistInfo, artist_from_openapi, Playlist, playlist_from_openapi, PlaylistInfo, playlist_info_from_openapi, TrackManifest, manifest_from_openapi};
 
 pub const CURSOR_END: &str = "END_REACHED";
 
@@ -24,10 +23,6 @@ pub struct Paginator<T> {
 impl<T: Clone> Paginator<T> {
     pub fn new(fetch: PageFn, resolve: ResolveFn<T>) -> Self {
         Paginator { fetch, resolve, cursor: String::new(), items: vec![], fixed: false }
-    }
-    /// `ArrayPaginator`: already consumed, `next_page` returns the array.
-    pub fn from_vec(items: Vec<T>) -> Self {
-        Paginator { fetch: Box::new(|_| Ok(Default::default())), resolve: Box::new(|_| vec![]), cursor: CURSOR_END.into(), items, fixed: true }
     }
     pub fn is_consumed(&self) -> bool {
         self.cursor == CURSOR_END
@@ -65,10 +60,6 @@ pub async fn next_page<T: Clone + Send + 'static>(p: &SharedPaginator<T>) -> Res
     api::run(move || p.lock().unwrap().next_page()).await
 }
 
-pub async fn get_all<T: Clone + Send + 'static>(p: &SharedPaginator<T>) -> Result<Vec<T>> {
-    let p = std::sync::Arc::clone(p);
-    api::run(move || p.lock().unwrap().get_all()).await
-}
 
 fn resolve_tracks(r: &openapi::Relationships) -> Vec<Track> {
     r.included.tracks(&r.data).iter().map(track_from_openapi).collect()
@@ -104,9 +95,6 @@ pub fn get_playlist_tracks(id: &str) -> Paginator<Track> {
 }
 pub fn get_track(id: &str) -> Result<Track> {
     Ok(track_from_openapi(&api::track(id, &["albums.coverArt", "artists.profileArt"])?))
-}
-pub fn get_track_info(id: &str) -> Result<TrackInfo> {
-    Ok(track_info_from_openapi(&api::track(id, &[])?))
 }
 pub fn get_track_manifest(id: &str) -> Result<TrackManifest> {
     let formats = openapi::manifest_formats_for_quality(crate::settings::audio_quality());

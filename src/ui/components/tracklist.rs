@@ -41,20 +41,7 @@ impl Col {
         })
     }
 
-    pub fn button() -> Self {
-        Col::new(|t, g, _, c| {
-            let b = gtk::Button::new().class("flat");
-            b.set_action_name(Some("win.player.play-track"));
-            b.set_action_target_value(Some(&t.map(crate::model::Track::id).unwrap_or_default().to_variant()));
-            g.attach(&b, 0, 0, c, 1);
-            0
-        })
-    }
 
-    pub fn expand_button(extra: i32) -> Self {
-        let inner = Col::button();
-        Col::new(move |t, g, p, c| inner.call(t, g, p, c + extra))
-    }
 
     pub fn controls() -> Self {
         Col::new(|t, g, _, c| {
@@ -123,26 +110,7 @@ impl Col {
         })
     }
 
-    /// Port of `CustomButtonColumn`.
-    pub fn custom_button(on_click: impl Fn(&str, usize, i32) + 'static) -> Self {
-        let on_click = Rc::new(on_click);
-        Col::new(move |t, g, p, c| {
-            let Some(t) = t else {
-                g.attach(&gtk::Box::new(gtk::Orientation::Horizontal, 0), 0, 0, c, 1);
-                return 1;
-            };
-            let b = gtk::Button::new().class("flat");
-            let (id, f) = (t.id().to_string(), Rc::clone(&on_click));
-            b.connect_clicked(move |_| f(&id, p, c));
-            g.attach(&b, 0, 0, c, 1);
-            0
-        })
-    }
 
-    pub fn expand_custom_button(extra: i32, on_click: impl Fn(&str, usize, i32) + 'static) -> Self {
-        let inner = Col::custom_button(on_click);
-        Col::new(move |t, g, p, c| inner.call(t, g, p, c + extra))
-    }
 
     /// Port of `CustomWidgetButtonColumn`.
     pub fn custom_widget_button(button: impl Fn(&str, usize, i32) -> gtk::Widget + 'static) -> Self {
@@ -164,18 +132,6 @@ impl Col {
         })
     }
 
-    pub fn grouped(width: i32, align: gtk::Align, cols: Vec<Col>) -> Self {
-        Col::new(move |t, g, p, c| {
-            let sub = gtk::Grid::new();
-            sub.set_valign(gtk::Align::Center);
-            sub.set_halign(align);
-            for (i, col) in cols.iter().enumerate() {
-                col.call(t, &sub, p, c + i as i32);
-            }
-            g.attach(&sub, c, 0, width, 1);
-            width
-        })
-    }
 
     pub fn position() -> Self {
         Col::new(|_, g, p, c| {
@@ -309,9 +265,6 @@ impl TrackList {
         self.0.view.upcast_ref()
     }
 
-    pub fn list_view(&self) -> &gtk::ListView {
-        &self.0.view
-    }
 
     pub fn add_track(&self, t: Track) {
         self.0.tracks.borrow_mut().push(t);
@@ -331,15 +284,7 @@ impl TrackList {
         });
     }
 
-    /// Sets the tracks directly (diffing like `BindTracks`).
-    pub fn set_tracks(&self, new: &[Track]) {
-        sync(&self.0, new);
-    }
 
-    pub fn clear(&self) {
-        self.0.store.remove_all();
-        self.0.tracks.borrow_mut().clear();
-    }
 
     pub fn set_click_handler(&self, f: impl Fn(&Track, usize) + 'static) {
         *self.0.click.borrow_mut() = Rc::new(f);
@@ -558,7 +503,6 @@ fn toggle_drop_target(i: &Inner, w: &Weak<Inner>, on: bool) {
 }
 
 #[cfg(test)]
-#[allow(clippy::field_reassign_with_default)]
 mod sync_tests {
     use super::*;
 

@@ -1,7 +1,6 @@
 //! Service-independent domain model (port of `pkg/tonearm`). Go used interfaces
 //! with one implementation per backend (openapi / v2); here every concept is a
 //! concrete struct that both backends convert into.
-#![allow(dead_code)]
 
 use std::time::Duration;
 
@@ -39,6 +38,7 @@ impl TrackQuality {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub struct TrackFlag(pub u8);
 impl TrackFlag {
+    #[expect(dead_code, reason = "named zero value mirrored from the Go TrackFlag enum")]
     pub const NONE: TrackFlag = TrackFlag(0);
     pub const EXPLICIT: u8 = 1;
     pub const AI: u8 = 2;
@@ -56,19 +56,8 @@ pub enum SourceType {
     Track,
     Artist,
     Playlist,
+    #[expect(dead_code, reason = "mirrors the Go SourceType enum")]
     Unknown,
-}
-
-impl SourceType {
-    pub fn as_str(self) -> &'static str {
-        match self {
-            SourceType::Album => "album",
-            SourceType::Track => "track",
-            SourceType::Artist => "artist",
-            SourceType::Playlist => "playlist",
-            SourceType::Unknown => "unknown",
-        }
-    }
 }
 
 #[derive(Debug, Clone, Default, PartialEq)]
@@ -97,6 +86,7 @@ pub enum CoverSource {
     None,
     Artworks(openapi::Artworks),
     Ids { image: String, video: String },
+    #[expect(dead_code, reason = "mirrors Go covers backed by a plain URL")]
     Url(String),
 }
 
@@ -558,7 +548,7 @@ mod tests {
 }
 
 #[cfg(test)]
-#[allow(clippy::field_reassign_with_default)]
+#[expect(clippy::field_reassign_with_default, reason = "fixtures only set the fields under test")]
 mod cover_tests {
     use super::*;
     use crate::api::openapi::{ArtworkData, ArtworkFile, Artworks};

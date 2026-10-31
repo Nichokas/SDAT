@@ -1,5 +1,4 @@
 //! Models of the legacy TIDAL v1 / v2 JSON APIs (tidal.com/v1, tidal.com/v2).
-#![allow(dead_code)]
 
 use serde::{Deserialize, Deserializer};
 use serde_json::Value;
@@ -105,13 +104,14 @@ pub struct PagedAlbum {
 /// An ID which may be encoded either as string or as number.
 #[derive(Debug, Clone, Default)]
 pub struct MagicId {
+    #[expect(dead_code, reason = "decoded for parity with the Go model; only `int` is read today")]
     pub string: String,
     pub int: i64,
 }
 
 impl<'de> Deserialize<'de> for MagicId {
-    fn deserialize<D: Deserializer<'de>>(d: D) -> Result<Self, D::Error> {
-        let v = Value::deserialize(d)?;
+    fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        let v = Value::deserialize(deserializer)?;
         Ok(match v {
             Value::String(s) => MagicId { int: s.parse().unwrap_or(0), string: s },
             Value::Number(n) => {
@@ -159,11 +159,6 @@ pub struct PagedItem {
     pub square_image: String,
 }
 
-#[derive(Debug, Clone, Default, Deserialize)]
-#[serde(default)]
-pub struct TrackMix {
-    pub id: String,
-}
 
 // ---------------- v2 ----------------
 
@@ -202,7 +197,9 @@ pub enum ItemData {
 
 #[derive(Debug, Clone)]
 pub struct Item2 {
+    #[expect(dead_code, reason = "decoded for parity with the Go model")]
     pub following: bool,
+    #[expect(dead_code, reason = "decoded for parity with the Go model")]
     pub number_of_followers: i64,
     pub type_: String,
     pub data: ItemData,
@@ -214,14 +211,15 @@ impl Default for Item2 {
     }
 }
 
+fn p<T: for<'a> Deserialize<'a>>(raw: Value) -> Option<T> {
+    super::openapi::from_value_lenient(raw).ok()
+}
+
 impl<'de> Deserialize<'de> for Item2 {
-    fn deserialize<D: Deserializer<'de>>(d: D) -> Result<Self, D::Error> {
-        let v = Value::deserialize(d)?;
+    fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        let v = Value::deserialize(deserializer)?;
         let type_ = v.get("type").and_then(Value::as_str).unwrap_or_default().to_string();
         let raw = v.get("data").cloned().unwrap_or(Value::Null);
-        fn p<T: for<'a> Deserialize<'a>>(raw: Value) -> Option<T> {
-            super::openapi::from_value_lenient(raw).ok()
-        }
         let data = match type_.as_str() {
             item_type::ARTIST => p(raw).map(ItemData::Artist),
             item_type::DEEP_LINK => p(raw).map(ItemData::DeepLink),
@@ -359,6 +357,7 @@ pub struct PlaylistItemData {
 
 #[derive(Debug, Clone, Default, Deserialize)]
 #[serde(default, rename_all = "camelCase")]
+#[expect(clippy::struct_excessive_bools, reason = "mirrors the TIDAL v1 JSON payload")]
 pub struct TrackItemData {
     pub ai: bool,
     #[serde(deserialize_with = "de_null_default")]

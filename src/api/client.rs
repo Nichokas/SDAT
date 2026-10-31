@@ -3,7 +3,6 @@
 //! client credentials), device linking and every endpoint Tonearm uses.
 //!
 //! All functions are blocking; UI code runs them through [`crate::api::run`].
-#![allow(dead_code)]
 
 use std::sync::{Mutex, OnceLock};
 use std::time::{Duration, Instant};

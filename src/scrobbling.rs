@@ -104,7 +104,7 @@ fn listenbrainz_configured() -> bool {
     settings::enable_listenbrainz() && !settings::listenbrainz_token().is_empty()
 }
 
-fn listenbrainz_send(url: String, token: String, body: String) {
+fn listenbrainz_send(url: &str, token: &str, body: String) {
     let r = http()
         .post(format!("{url}/1/submit-listens"))
         .header("Authorization", format!("Token {token}"))
@@ -138,7 +138,16 @@ pub fn lastfm_signature(params: &BTreeMap<String, String>) -> String {
         s.push_str(v);
     }
     s.push_str(LASTFM_SECRET);
-    Md5::digest(s.as_bytes()).iter().map(|b| format!("{b:02x}")).collect()
+    hex(&Md5::digest(s.as_bytes()))
+}
+
+/// Lower-case hex encoding without per-byte allocations.
+fn hex(bytes: &[u8]) -> String {
+    use std::fmt::Write;
+    bytes.iter().fold(String::with_capacity(bytes.len() * 2), |mut s, b| {
+        let _ = write!(s, "{b:02x}");
+        s
+    })
 }
 
 #[derive(Debug)]
@@ -263,7 +272,7 @@ fn now_playing(meta: TrackMeta) {
     let c = config();
     std::thread::spawn(move || {
         if c.lb {
-            listenbrainz_send(c.lb_url.clone(), c.lb_token.clone(), listenbrainz_request(&meta, None));
+            listenbrainz_send(&c.lb_url, &c.lb_token, listenbrainz_request(&meta, None));
         }
         if lastfm_configured(c.lfm_enabled, &c.lfm_sk)
             && let Err(e) = lastfm_call("track.updateNowPlaying", &lastfm_track_params(&meta, &c.lfm_sk), true, true)
@@ -277,7 +286,7 @@ fn scrobble(meta: TrackMeta, listened_at: i64) {
     let c = config();
     std::thread::spawn(move || {
         if c.lb {
-            listenbrainz_send(c.lb_url.clone(), c.lb_token.clone(), listenbrainz_request(&meta, Some(listened_at)));
+            listenbrainz_send(&c.lb_url, &c.lb_token, listenbrainz_request(&meta, Some(listened_at)));
         }
         if lastfm_configured(c.lfm_enabled, &c.lfm_sk) {
             let mut p = lastfm_track_params(&meta, &c.lfm_sk);
@@ -385,7 +394,7 @@ mod tests {
         assert_eq!(v["listen_type"], "playing_now");
         assert!(v["payload"][0].get("listened_at").is_none());
         assert_eq!(v["payload"][0]["track_metadata"]["artist_name"], "A, B");
-        assert_eq!(v["payload"][0]["track_metadata"]["additional_info"]["duration_ms"], 200000);
+        assert_eq!(v["payload"][0]["track_metadata"]["additional_info"]["duration_ms"], 200_000);
         let v: serde_json::Value = serde_json::from_str(&listenbrainz_request(&meta(), Some(5))).unwrap();
         assert_eq!(v["listen_type"], "single");
         assert_eq!(v["payload"][0]["listened_at"], 5);
@@ -397,10 +406,7 @@ mod tests {
         p.insert("method".to_string(), "auth.getToken".to_string());
         p.insert("api_key".to_string(), LASTFM_API_KEY.to_string());
         p.insert("format".to_string(), "json".to_string());
-        let expected: String = Md5::digest(format!("api_key{LASTFM_API_KEY}methodauth.getToken{LASTFM_SECRET}").as_bytes())
-            .iter()
-            .map(|b| format!("{b:02x}"))
-            .collect();
+        let expected = hex(&Md5::digest(format!("api_key{LASTFM_API_KEY}methodauth.getToken{LASTFM_SECRET}").as_bytes()));
         assert_eq!(lastfm_signature(&p), expected);
     }
 }

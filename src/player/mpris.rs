@@ -2,6 +2,10 @@
 //! connection lives on its own thread; the GTK main thread sends property
 //! updates to it and receives method calls back through a channel.
 
+#![allow(
+    clippy::used_underscore_binding,
+    reason = "the zbus interface macro re-binds the unused, underscore-prefixed MPRIS arguments"
+)]
 use std::collections::HashMap;
 use std::sync::mpsc;
 use std::time::Duration;
@@ -10,7 +14,7 @@ use gtk::prelude::*;
 use zbus::object_server::SignalEmitter;
 use zbus::zvariant::{ObjectPath, OwnedValue, Value};
 
-use super::{DeviceProviderClassExt, DeviceProviderExtManual, ElementClassExt, ElementExtManual, TaskExt, DeviceMonitorExt, DeviceProviderExt, GstValueExt, GstObjectExt, playback_state_changed, PlaybackStatus, CONTINUE, repeat_mode_changed, RepeatMode, shuffle_state_changed, track_changed, volume_changed, seeked, next, previous, pause, play_pause, play, seek_to_position, set_repeat_mode, set_shuffle, current_track_id, set_volume};
+use super::{playback_state_changed, PlaybackStatus, CONTINUE, repeat_mode_changed, RepeatMode, shuffle_state_changed, track_changed, volume_changed, seeked, next, previous, pause, play_pause, play, seek_to_position, set_repeat_mode, set_shuffle, current_track_id, set_volume};
 
 const BUS_NAME: &str = "org.mpris.MediaPlayer2.dev.dergs.Tonearm";
 const PATH: &str = "/org/mpris/MediaPlayer2";
@@ -60,6 +64,7 @@ struct Root {
 }
 
 #[zbus::interface(name = "org.mpris.MediaPlayer2")]
+#[expect(clippy::unused_self, reason = "D-Bus interface methods must take &self")]
 impl Root {
     fn raise(&self) {
         let _ = self.tx.send_blocking(Cmd::Raise);
@@ -122,6 +127,7 @@ impl PlayerIface {
 }
 
 #[zbus::interface(name = "org.mpris.MediaPlayer2.Player")]
+#[expect(clippy::unused_self, reason = "D-Bus interface methods must take &self and keep the MPRIS argument list")]
 impl PlayerIface {
     fn next(&self) {
         self.send(Cmd::Next);
@@ -162,7 +168,7 @@ impl PlayerIface {
     }
     #[zbus(property)]
     fn set_loop_status(&mut self, v: String) {
-        self.loop_status = v.clone();
+        self.loop_status.clone_from(&v);
         self.send(Cmd::LoopStatus(v));
     }
     #[zbus(property)]
@@ -283,6 +289,7 @@ fn serve(tx: async_channel::Sender<Cmd>, rx: mpsc::Receiver<Update>) -> zbus::Re
                     p.shuffle = s;
                     p.shuffle_changed(em).await
                 }
+                #[expect(clippy::float_cmp, reason = "exact echo of a value we published ourselves")]
                 Update::Volume(v) if p.volume != v => {
                     p.volume = v;
                     p.volume_changed(em).await
@@ -324,14 +331,13 @@ fn us(d: Duration) -> i64 {
 pub fn init() {
     let (cmd_tx, cmd_rx) = async_channel::unbounded::<Cmd>();
     let (upd_tx, upd_rx) = mpsc::channel::<Update>();
-    std::thread::Builder::new()
-        .name("mpris".into())
-        .spawn(move || {
-            if let Err(e) = serve(cmd_tx, upd_rx) {
-                log::error!("failed to export MPRIS interface: {e}");
-            }
-        })
-        .ok();
+    if let Err(e) = std::thread::Builder::new().name("mpris".into()).spawn(move || {
+        if let Err(e) = serve(cmd_tx, upd_rx) {
+            log::error!("failed to export MPRIS interface: {e}");
+        }
+    }) {
+        log::error!("failed to spawn the MPRIS thread: {e}");
+    }
 
     glib::spawn_future_local(async move {
         while let Ok(cmd) = cmd_rx.recv().await {

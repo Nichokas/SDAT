@@ -121,7 +121,7 @@ fn layout_mobile(description: &str) -> adw::Layout {
     l
 }
 
-fn template(cover: crate::model::Cover, title: &str, subtitle: &str, description: &str, controls: gtk::Box, secondary: gtk::Box) -> gtk::Widget {
+fn template(cover: crate::model::Cover, title: &str, subtitle: &str, description: &str, controls: &gtk::Box, secondary: &gtk::Box) -> gtk::Widget {
     let layout = adw::MultiLayoutView::new();
     layout.set_child("cover", &cover_widget(cover));
     let t = label(title).class("title-2").halign(gtk::Align::Start);
@@ -130,8 +130,8 @@ fn template(cover: crate::model::Cover, title: &str, subtitle: &str, description
     let s = label(subtitle).class("heading").class("dimmed").halign(gtk::Align::Start);
     s.set_ellipsize(pango::EllipsizeMode::End);
     layout.set_child("subtitle", &s);
-    layout.set_child("controls", &controls);
-    layout.set_child("secondaryControls", &secondary);
+    layout.set_child("controls", controls);
+    layout.set_child("secondaryControls", secondary);
     layout.add_layout(layout_desktop(description));
     layout.add_layout(layout_mobile(description));
     let bin = adw::BreakpointBin::new();
@@ -183,8 +183,8 @@ pub fn album(a: &Album, play: impl Fn() + 'static, shuffle: impl Fn() + 'static)
         &a.info.title,
         &format!("{release} • {artists}"),
         &format!("\n{desc}\n"),
-        controls(play, shuffle),
-        secondary(a.info.url(), &popover, buttons),
+        &controls(play, shuffle),
+        &secondary(a.info.url(), &popover, buttons),
     )
 }
 
@@ -192,12 +192,12 @@ pub fn artist(a: &Artist, play: impl Fn() + 'static, shuffle: impl Fn() + 'stati
     let fav = super::favourite_button::favourite_button(&state::ARTISTS, &a.info.id);
     let fans = trn("%d Fan", "%d Fans", a.follower_count, &[&a.follower_count]);
     let popover = queue_menu(&tr("Add Top Tracks to Queue"), &format!("artist/{}", a.info.id));
-    template(a.info.cover(154), a.info.title(), &fans, &a.description, controls(play, shuffle), secondary(a.info.url(), &popover, vec![fav.upcast()]))
+    template(a.info.cover(154), a.info.title(), &fans, &a.description, &controls(play, shuffle), &secondary(a.info.url(), &popover, vec![fav.upcast()]))
 }
 
 pub fn collection(src: &PlaybackSource, play: impl Fn() + 'static, shuffle: impl Fn() + 'static) -> gtk::Widget {
     let popover = queue_menu(&tr("Add My Tracks to Queue"), "my_collection/tracks");
-    template(src.cover(154), &src.title(), &tr("My Collection"), "", controls(play, shuffle), secondary(src.url(), &popover, vec![]))
+    template(src.cover(154), &src.title(), &tr("My Collection"), "", &controls(play, shuffle), &secondary(src.url(), &popover, vec![]))
 }
 
 pub fn playlist(p: &Playlist, play: impl Fn() + 'static, shuffle: impl Fn() + 'static) -> gtk::Widget {
@@ -216,7 +216,7 @@ pub fn playlist(p: &Playlist, play: impl Fn() + 'static, shuffle: impl Fn() + 's
         &p.info.title,
         &format!("{release} • {creator}"),
         &format!("\n{desc}\n"),
-        controls(play, shuffle),
-        secondary(p.info.url(), &popover, vec![fav.upcast()]),
+        &controls(play, shuffle),
+        &secondary(p.info.url(), &popover, vec![fav.upcast()]),
     )
 }

@@ -1,6 +1,5 @@
 //! Thin typed wrappers around the `GSettings` schemas from
 //! `internal/settings/dev.dergs.Tonearm.gschema.xml` (unchanged keys).
-#![allow(dead_code)]
 
 use gtk::gio;
 use gtk::gio::prelude::*;
@@ -114,9 +113,6 @@ pub fn replay_gain_mode_strings() -> Vec<String> {
 
 pub fn allow_autoplay() -> bool {
     playback().boolean("allow-autoplay")
-}
-pub fn normalize_volume() -> bool {
-    playback().boolean("normalize-volume")
 }
 pub fn replay_gain_mode() -> ReplayGainMode {
     match playback().int("replay-gain-mode") {

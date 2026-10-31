@@ -108,6 +108,7 @@ fn unquote(s: &str) -> String {
 fn parse_po(src: &str) -> Catalog {
     let mut cat = Catalog::default();
     #[derive(PartialEq)]
+    #[expect(clippy::items_after_statements, reason = "parser state kept next to its only use")]
     enum F {
         None,
         Ctx,
@@ -273,14 +274,13 @@ pub fn sprintf(fmt: &str, args: &[&dyn std::fmt::Display]) -> String {
                 }
             }
             match it.next() {
-                Some('%') => out.push('%'),
+                Some('%') | None => out.push('%'),
                 Some(_) => {
                     if let Some(a) = args.get(ai) {
                         out.push_str(&a.to_string());
                     }
                     ai += 1;
                 }
-                None => out.push('%'),
             }
         } else {
             out.push(c);
