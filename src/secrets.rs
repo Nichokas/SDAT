@@ -136,3 +136,15 @@ mod tests {
         assert_eq!(super::user_id_from_token("garbage"), "");
     }
 }
+
+#[cfg(test)]
+mod live_tests {
+    /// Runs the same dummy-key lookup as the startup health check against the real session bus.
+    #[test]
+    #[ignore = "needs a session secret service"]
+    fn healthcheck_live() {
+        let r = super::healthcheck();
+        eprintln!("healthcheck: {:?}", r.as_ref().map(|e| &e.title));
+        assert!(r.is_none());
+    }
+}
