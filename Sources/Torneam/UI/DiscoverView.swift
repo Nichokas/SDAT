@@ -61,6 +61,8 @@ struct DiscoverView: View {
         }
         .padding(.horizontal, 20)
         .padding(.top, 4)
+        .padding(.bottom, 8)
+        .contentShape(.rect)
     }
 
     private func load() async {
@@ -72,10 +74,14 @@ struct DiscoverView: View {
             var pool: [Track] = []
             var ids = Set<String>(), albums = Set<String>(), covers = Set<String>()
             for _ in 0..<3 {
-                for t in try await source.nextBatch(min: 80) {
+                for t in try await source.nextBatch(min: hadCache || !pool.isEmpty ? 80 : 30) {
                     guard let a = t.album, let c = a.coverUrl else { continue }
                     if ids.insert(t.id).inserted, albums.insert(a.id).inserted, covers.insert(c).inserted { pool.append(t) }
                 }
+                // First launch: show covers as soon as the first batch arrives.
+                if !hadCache, tracks.isEmpty, !pool.isEmpty { tracks = pool }
+                // First launch: show covers as soon as the first batch arrives.
+                if !hadCache, tracks.isEmpty, !pool.isEmpty { tracks = pool }
                 if pool.count >= 70 { break }
             }
             DiscoverCache.save(pool)
@@ -226,6 +232,12 @@ final class PlaneScrollView: UIScrollView, UIScrollViewDelegate {
 
     @objc private func tapped(_ g: UITapGestureRecognizer) {
         let p = g.location(in: self)
+        // Ignore taps under the header (title + glass buttons) and the tab bar.
+        let onScreen = g.location(in: window)
+        let h = window?.bounds.height ?? bounds.height
+        let top = (window?.safeAreaInsets.top ?? 0) + 64
+        let bottom = (window?.safeAreaInsets.bottom ?? 0) + 90
+        guard onScreen.y > top, onScreen.y < h - bottom else { return }
         guard let (cell, _) = visible.first(where: { $0.value.frame.contains(p) }), let t = track(cell) else { return }
         UIImpactFeedbackGenerator(style: .light).impactOccurred()
         onTap?(t)

@@ -208,12 +208,12 @@ struct PlayShuffleButtons: View {
         GlassEffectContainer(spacing: 12) {
             HStack(spacing: 12) {
                 Button(action: play) {
-                    Label("Play", systemImage: "play.fill").font(.headline).frame(maxWidth: .infinity, minHeight: 34)
+                    HStack(spacing: 6) { Image(systemName: "play.fill"); Text("Play") }.font(.headline).foregroundStyle(.white).frame(maxWidth: .infinity, minHeight: 34)
                 }
                 .buttonStyle(.glassProminent)
                 .tint(.blue)
                 Button(action: shuffle) {
-                    Label("Shuffle", systemImage: "shuffle").font(.headline).frame(maxWidth: .infinity, minHeight: 34)
+                    HStack(spacing: 6) { Image(systemName: "shuffle"); Text("Shuffle") }.font(.headline).foregroundStyle(.white).frame(maxWidth: .infinity, minHeight: 34)
                 }
                 .buttonStyle(.glass)
             }

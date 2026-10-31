@@ -8,11 +8,13 @@ struct PlayerSheet: View {
     var body: some View {
         ZStack {
             CoverBackdrop(url: player.current?.album?.coverUrlLarge ?? player.current?.album?.coverUrl, animated: player.isPlaying)
+                .ignoresSafeArea()
             TabView(selection: $page) {
                 NowPlayingPage(showQueue: { withAnimation { page = 1 } }).tag(0)
                 QueuePage().tag(1)
             }
             .tabViewStyle(.page(indexDisplayMode: .never))
+            .ignoresSafeArea(edges: .bottom)
         }
         .presentationDragIndicator(.visible)
         .presentationBackground(.black)
@@ -25,6 +27,14 @@ private struct NowPlayingPage: View {
     @Environment(Preferences.self) private var prefs
     let showQueue: () -> Void
     @State private var scrub: Double?
+    @State private var forward = true
+    @State private var nextTap = 0
+    @State private var prevTap = 0
+
+    private var slide: AnyTransition {
+        .asymmetric(insertion: .move(edge: forward ? .trailing : .leading).combined(with: .opacity),
+                    removal: .move(edge: forward ? .leading : .trailing).combined(with: .opacity))
+    }
 
     var body: some View {
         let fav = player.current.flatMap { Favs.shared.known($0.id) } ?? false
@@ -58,6 +68,8 @@ private struct NowPlayingPage: View {
             Spacer(minLength: 0)
             Cover(url: player.current?.album?.coverUrlLarge ?? player.current?.album?.coverUrl, radius: 16)
                 .shadow(color: .black.opacity(0.45), radius: 28, y: 14)
+                .id(player.current?.id)
+                .transition(slide)
                 .scaleEffect(player.isPlaying ? 1 : 0.88)
                 .animation(.spring(duration: 0.45, bounce: 0.25), value: player.isPlaying)
             Spacer(minLength: 0)
@@ -66,6 +78,8 @@ private struct NowPlayingPage: View {
                 Text(player.current?.displayTitle ?? "").font(.title3.bold()).lineLimit(1)
                 Text(player.current?.artistLine ?? "").foregroundStyle(.white.opacity(0.65)).lineLimit(1)
             }
+            .id(player.current?.id)
+            .transition(slide)
             .frame(maxWidth: .infinity, alignment: .leading)
 
             VStack(spacing: 4) {
@@ -88,9 +102,15 @@ private struct NowPlayingPage: View {
                 get: { prefs.streamingQuality },
                 set: { prefs.streamingQuality = $0; player.reloadQuality() }
             )) {
-                QualityLogo(quality: player.stream?.actualQuality ?? prefs.streamingQuality, height: 16)
-                    .padding(.horizontal, 14).padding(.vertical, 8)
-                    .glassEffect(.regular.interactive(), in: .capsule)
+                let q = player.stream?.actualQuality ?? prefs.streamingQuality
+                HStack(spacing: 10) {
+                    QualityLogo(quality: q, height: 22)
+                    Text(q.badgeText).font(.subheadline.weight(.semibold)).foregroundStyle(.white.opacity(0.9))
+                    Image(systemName: "chevron.up.chevron.down").font(.caption.weight(.semibold)).foregroundStyle(.white.opacity(0.6))
+                }
+                .padding(.horizontal, 18).frame(minHeight: 44)
+                .contentShape(.capsule)
+                .glassEffect(.regular.interactive(), in: .capsule)
             }
             .foregroundStyle(.white)
 
@@ -99,7 +119,11 @@ private struct NowPlayingPage: View {
                     Image(systemName: "shuffle").font(.title3).foregroundStyle(player.shuffle ? Color.blue : .white.opacity(0.8))
                 }
                 Spacer()
-                Button { player.previous() } label: { Image(systemName: "backward.fill").font(.system(size: 30)) }
+                Button { forward = false; prevTap += 1; withAnimation(.spring(duration: 0.4, bounce: 0.2)) { player.previous() } } label: {
+                    Image(systemName: "backward.fill").font(.system(size: 30))
+                        .symbolEffect(.wiggle.left, value: prevTap)
+                }
+                .sensoryFeedback(.impact(weight: .light), trigger: prevTap)
                 Spacer()
                 Button { player.toggle() } label: {
                     Group {
@@ -111,7 +135,11 @@ private struct NowPlayingPage: View {
                     .frame(width: 64, height: 64)
                 }
                 Spacer()
-                Button { player.next() } label: { Image(systemName: "forward.fill").font(.system(size: 30)) }
+                Button { forward = true; nextTap += 1; withAnimation(.spring(duration: 0.4, bounce: 0.2)) { player.next() } } label: {
+                    Image(systemName: "forward.fill").font(.system(size: 30))
+                        .symbolEffect(.wiggle.right, value: nextTap)
+                }
+                .sensoryFeedback(.impact(weight: .light), trigger: nextTap)
                 Spacer()
                 Button { player.cycleRepeat() } label: {
                     Image(systemName: player.repeatMode == .one ? "repeat.1" : "repeat").font(.title3)
@@ -176,6 +204,7 @@ private struct QueuePage: View {
                 }
             }
             .scrollContentBackground(.hidden)
+            .contentMargins(.bottom, 24, for: .scrollContent)
             .environment(\.editMode, .constant(.active))
             .navigationTitle("Queue")
             .navigationBarTitleDisplayMode(.inline)
@@ -184,8 +213,7 @@ private struct QueuePage: View {
                     Image(systemName: "shuffle").foregroundStyle(player.shuffle ? Color.blue : .white)
                 }
             }
-            .background(.ultraThinMaterial.opacity(0.9))
-            .background(Color.black.opacity(0.55))
+            .background { ZStack { Color.black.opacity(0.55); Rectangle().fill(.ultraThinMaterial).opacity(0.9) }.ignoresSafeArea() }
         }
     }
 }

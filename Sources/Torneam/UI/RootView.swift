@@ -11,21 +11,21 @@ struct RootView: View {
 
     var body: some View {
         @Bindable var chrome = chrome
+        // Native iOS 26 tab bar: system Liquid Glass, sliding selection capsule,
+        // minimizes on scroll, miniplayer as the bottom accessory (inline when minimized).
         TabView(selection: $chrome.tab) {
-            Tab(value: AppTab.discover) {
+            Tab("Discover", systemImage: "signpost.right.and.left", value: AppTab.discover) {
                 NavigationStack(path: chrome.binding(.discover)) { DiscoverView().routes() }
-                    .toolbar(.hidden, for: .tabBar)
             }
-            Tab(value: AppTab.search) {
-                NavigationStack(path: chrome.binding(.search)) { SearchView().routes() }
-                    .toolbar(.hidden, for: .tabBar)
-            }
-            Tab(value: AppTab.collection) {
+            Tab("My Collection", systemImage: "music.note.house", value: AppTab.collection) {
                 NavigationStack(path: chrome.binding(.collection)) { CollectionView().routes() }
-                    .toolbar(.hidden, for: .tabBar)
+            }
+            Tab("Search", systemImage: "magnifyingglass", value: AppTab.search, role: .search) {
+                NavigationStack(path: chrome.binding(.search)) { SearchView().routes() }
             }
         }
-        .overlay(alignment: .bottom) { BottomChrome().ignoresSafeArea(.keyboard) }
+        .tabBarMinimizeBehavior(.onScrollDown)
+        .miniAccessory(player.current != nil)
         .overlay(alignment: .top) {
             if let t = chrome.toast {
                 Text(t).font(.subheadline.weight(.semibold)).padding(.horizontal, 16).padding(.vertical, 10)
@@ -33,7 +33,6 @@ struct RootView: View {
             }
         }
         .animation(.spring(duration: 0.35), value: chrome.toast)
-        .onChange(of: chrome.tab) { chrome.collapsed = false }
         .sheet(isPresented: $chrome.showPlayer) { PlayerSheet() }
         .sheet(item: $chrome.playlistPickerTrack) { t in PlaylistPicker(track: t) }
         .alert("Playback error", isPresented: Binding(
@@ -50,71 +49,44 @@ struct RootView: View {
 
 extension Track: Identifiable {}
 
-private struct BottomChrome: View {
+/// Miniplayer inside the system accessory (the system draws the glass).
+/// Tap opens the full player; the play button toggles.
+private struct AccessoryPlayer: View {
     @Environment(Player.self) private var player
     @Environment(Chrome.self) private var chrome
-    @Namespace private var ns
+    @Environment(\.tabViewBottomAccessoryPlacement) private var placement
 
     var body: some View {
-        let hasMini = player.current != nil && !chrome.inSettings
-        GlassEffectContainer(spacing: 10) {
-            HStack(spacing: 10) {
-                if !chrome.inDetail {
-                    TabBar(collapsed: chrome.collapsed && hasMini)
-                        .glassEffectID("tabs", in: ns)
-                }
-                if hasMini {
-                    MiniPlayer(style: chrome.inDetail ? .wide : (chrome.collapsed ? .capsule : .circle))
-                        .glassEffectID("mini", in: ns)
+        let inline = placement == .inline
+        HStack(spacing: 10) {
+            Cover(url: player.current?.album?.coverUrl, size: inline ? 26 : 32, radius: 6)
+            VStack(alignment: .leading, spacing: 0) {
+                Text(player.current?.displayTitle ?? "").font(.subheadline.weight(.semibold)).lineLimit(1)
+                if !inline {
+                    Text(player.current?.artistLine ?? "").font(.caption).foregroundStyle(.secondary).lineLimit(1)
                 }
             }
-        }
-        .padding(.horizontal, 16)
-        .padding(.bottom, 4)
-        .animation(.spring(duration: 0.4, bounce: 0.15), value: chrome.collapsed)
-        .animation(.spring(duration: 0.4, bounce: 0.15), value: chrome.inDetail)
-        .animation(.spring(duration: 0.4), value: hasMini)
-    }
-}
-
-private struct TabBar: View {
-    let collapsed: Bool
-    @Environment(Chrome.self) private var chrome
-
-    private let items: [(AppTab, String, String)] = [
-        (.discover, "Discover", "signpost.right.and.left"),
-        (.search, "Search", "magnifyingglass"),
-        (.collection, "My Collection", "music.note.house"),
-    ]
-
-    var body: some View {
-        if collapsed {
-            let cur = items.first { $0.0 == chrome.tab } ?? items[0]
-            Button { chrome.collapsed = false } label: {
-                Image(systemName: cur.2).font(.title3).foregroundStyle(.blue).frame(width: 56, height: 56)
+            Spacer(minLength: 0)
+            Button { player.toggle() } label: {
+                Group {
+                    if player.loading { ProgressView().controlSize(.small) } else {
+                        Image(systemName: player.isPlaying ? "pause.fill" : "play.fill")
+                            .contentTransition(.symbolEffect(.replace))
+                    }
+                }
+                .frame(width: 32, height: 32)
+                .overlay { ProgressRing(progress: player.progress, lineWidth: 2).padding(1) }
             }
             .buttonStyle(.plain)
-            .glassEffect(.regular.interactive(), in: .circle)
-        } else {
-            HStack(spacing: 0) {
-                ForEach(items, id: \.0) { tab, title, icon in
-                    Button {
-                        if chrome.tab == tab { chrome.paths[tab] = [] } else { chrome.tab = tab }
-                    } label: {
-                        VStack(spacing: 2) {
-                            Image(systemName: icon).font(.system(size: 19))
-                            Text(title).font(.system(size: 10, weight: .medium)).lineLimit(1)
-                        }
-                        .foregroundStyle(chrome.tab == tab ? Color.blue : .primary)
-                        .frame(maxWidth: .infinity, minHeight: 56)
-                        .contentShape(.rect)
-                    }
+            if !inline {
+                Button { player.next() } label: { Image(systemName: "forward.fill").frame(width: 32, height: 32) }
                     .buttonStyle(.plain)
-                }
             }
-            .padding(.horizontal, 6)
-            .glassEffect(.regular.interactive(), in: .capsule)
         }
+        .padding(.horizontal, 12)
+        .contentShape(.rect)
+        .onTapGesture { chrome.showPlayer = true }
+        .sensoryFeedback(.selection, trigger: player.isPlaying)
     }
 }
 
@@ -141,7 +113,7 @@ extension View {
 
     /// Room for the floating bottom chrome.
     func bottomSpace() -> some View {
-        safeAreaInset(edge: .bottom, spacing: 0) { Color.clear.frame(height: 66) }
+        self
     }
 
     /// Collapses the bottom chrome when a root list scrolls down.
@@ -205,5 +177,18 @@ struct PlaylistPicker: View {
         }
         .presentationDetents([.medium, .large])
         .task { await store.load(force: true) }
+    }
+}
+
+private extension View {
+    /// System bottom accessory; hidden when nothing is playing (iOS 26.1+).
+    @ViewBuilder func miniAccessory(_ on: Bool) -> some View {
+        if #available(iOS 26.1, *) {
+            tabViewBottomAccessory(isEnabled: on) { AccessoryPlayer() }
+        } else if on {
+            tabViewBottomAccessory { AccessoryPlayer() }
+        } else {
+            self
+        }
     }
 }

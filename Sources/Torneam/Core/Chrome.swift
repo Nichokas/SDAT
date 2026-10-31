@@ -64,8 +64,8 @@ final class Profile {
     private var loaded = false
     func load() async {
         guard !loaded else { return }
-        loaded = true
         if let u = try? await profilePictureUrl() {
+            loaded = true
             pictureURL = u
             UserDefaults.standard.set(u, forKey: "profilePicture")
         }
