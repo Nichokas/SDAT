@@ -12,8 +12,8 @@ use crate::signals::{Subscription, State};
 use crate::ui::dsl::{W, on_state, label, spacing, vstack};
 use crate::{api, global_signal};
 
-static TIMING_RE: LazyLock<regex::Regex> = LazyLock::new(|| regex::Regex::new(r"\[(\d{2}:\d{2}\.\d{2})\](.*)").unwrap());
-static TS_RE: LazyLock<regex::Regex> = LazyLock::new(|| regex::Regex::new(r"(\d{2}):(\d{2})\.(\d{2})").unwrap());
+static TIMING_RE: LazyLock<regex::Regex> = LazyLock::new(|| regex::Regex::new(r"\[(\d{2}:\d{2}\.\d{2})\](.*)").expect("TIMING_RE is a valid regex"));
+static TS_RE: LazyLock<regex::Regex> = LazyLock::new(|| regex::Regex::new(r"(\d{2}):(\d{2})\.(\d{2})").expect("TS_RE is a valid regex"));
 
 /// A parsed lyric line: `None` timing means plain (untimed) text, `text == None` is a blank spacer.
 #[derive(Debug, Clone, PartialEq)]
@@ -262,7 +262,7 @@ fn set_lines(lines: Vec<Line>, timed: bool) {
                 continue;
             }
             if t.start <= ps.position + Duration::from_millis(250) {
-                let (b, wait) = (b.clone(), t.start.checked_sub(ps.position).unwrap());
+                let (b, wait) = (b.clone(), t.start.saturating_sub(ps.position));
                 glib::timeout_add_local_once(wait, move || {
                     if view().generation.get() == generation
                         && let Some(b) = b.upgrade()

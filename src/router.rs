@@ -74,10 +74,10 @@ where
     F: Fn(Vec<String>) -> Fut + 'static,
     Fut: Future<Output = Response> + 'static,
 {
-    let arg = Regex::new(r"(:[^/]+)").unwrap();
+    let arg = Regex::new(r"(:[^/]+)").expect("valid route-argument regex");
     let pattern = format!("^{}$", arg.replace_all(path, r"([^/]+)"));
     let h: Handler = Rc::new(move |args| Box::pin(handler(args)));
-    ROUTES.with(|r| r.borrow_mut().push((Regex::new(&pattern).unwrap(), h)));
+    ROUTES.with(|r| r.borrow_mut().push((Regex::new(&pattern).expect("route patterns are built from literal paths"), h)));
 }
 
 fn find_handler(path: &str) -> Option<(Handler, Vec<String>)> {

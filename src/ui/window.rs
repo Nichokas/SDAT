@@ -65,7 +65,7 @@ const COMMIT: &str = env!("TONEARM_COMMIT");
 const VERSION: Option<&str> = option_env!("TONEARM_VERSION");
 
 fn describe_parts(commit: &str) -> Option<(String, String, String)> {
-    let re = regex::Regex::new(r"^(.*)-(\d+)-g([0-9a-f]{7})").unwrap();
+    let re = regex::Regex::new(r"^(.*)-(\d+)-g([0-9a-f]{7})").expect("valid version regex");
     let c = re.captures(commit)?;
     Some((c[1].to_string(), c[2].to_string(), c[3].to_string()))
 }

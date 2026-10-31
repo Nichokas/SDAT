@@ -1,3 +1,8 @@
+//! Tonearm, an unofficial GTK4 / libadwaita client for TIDAL.
+//!
+//! Rust port of the Go application; the UI, features and TIDAL integration
+//! mirror the original one-to-one.
+
 mod api;
 mod i18n;
 mod imgutil;

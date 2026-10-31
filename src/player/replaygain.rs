@@ -34,7 +34,7 @@ fn inject_tags(rgvolume: &gst::Element) {
     let Some((album, track)) = *ENQUEUED.lock().unwrap() else { return };
     let mut tags = gst::TagList::new();
     {
-        let t = tags.get_mut().unwrap();
+        let t = tags.make_mut();
         if let Some(a) = album {
             t.add::<gst::tags::AlbumPeak>(&a.peak, gst::TagMergeMode::Append);
             t.add::<gst::tags::AlbumGain>(&a.gain, gst::TagMergeMode::Append);
@@ -71,7 +71,7 @@ fn build_filter_bin() -> Result<gst::Bin> {
     let rglimiter = gst::ElementFactory::make("rglimiter").name("rglimiter").build()?;
     bin.add_many([&rgvolume, &rglimiter])?;
     rgvolume.link(&rglimiter)?;
-    let sink = rgvolume.static_pad("sink").unwrap();
+    let sink = rgvolume.static_pad("sink").expect("rgvolume always has a sink pad");
     let rgv = rgvolume.downgrade();
     sink.add_probe(gst::PadProbeType::EVENT_DOWNSTREAM, move |_, info| {
         if let Some(gst::PadProbeData::Event(ev)) = &info.data
@@ -82,7 +82,7 @@ fn build_filter_bin() -> Result<gst::Bin> {
         gst::PadProbeReturn::Ok
     });
     ghost(&bin, "sink", &sink)?;
-    ghost(&bin, "src", &rglimiter.static_pad("src").unwrap())?;
+    ghost(&bin, "src", &rglimiter.static_pad("src").expect("rglimiter always has a src pad"))?;
     Ok(bin)
 }
 
@@ -90,8 +90,8 @@ fn build_empty_bin() -> Result<gst::Bin> {
     let bin = gst::Bin::with_name("emptybin");
     let identity = gst::ElementFactory::make("identity").build()?;
     bin.add(&identity)?;
-    ghost(&bin, "sink", &identity.static_pad("sink").unwrap())?;
-    ghost(&bin, "src", &identity.static_pad("src").unwrap())?;
+    ghost(&bin, "sink", &identity.static_pad("sink").expect("identity always has a sink pad"))?;
+    ghost(&bin, "src", &identity.static_pad("src").expect("identity always has a src pad"))?;
     Ok(bin)
 }
 

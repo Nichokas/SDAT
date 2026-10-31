@@ -137,7 +137,7 @@ fn template(cover: crate::model::Cover, title: &str, subtitle: &str, description
     let bin = adw::BreakpointBin::new();
     bin.set_child(Some(&layout));
     bin.set_size_request(150, 150);
-    let bp = adw::Breakpoint::new(adw::BreakpointCondition::parse("max-width: 600px").unwrap());
+    let bp = adw::Breakpoint::new(adw::BreakpointCondition::parse("max-width: 600px").expect("valid breakpoint condition"));
     bp.add_setter(&layout, "layout-name", Some(&"mobile".to_value()));
     bin.add_breakpoint(bp);
     bin.upcast()

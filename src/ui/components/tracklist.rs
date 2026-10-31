@@ -227,17 +227,17 @@ impl TrackList {
         let w = Rc::downgrade(&inner);
         factory.connect_setup(move |_, item| {
             if let Some(i) = w.upgrade() {
-                setup(&i, &w, item.downcast_ref().unwrap());
+                setup(&i, &w, item.downcast_ref().expect("ListView factories hand out ListItems"));
             }
         });
         let w = Rc::downgrade(&inner);
         factory.connect_bind(move |_, item| {
             if let Some(i) = w.upgrade() {
-                bind(&i, item.downcast_ref().unwrap());
+                bind(&i, item.downcast_ref().expect("ListView factories hand out ListItems"));
             }
         });
         factory.connect_unbind(|_, item| {
-            let item: &gtk::ListItem = item.downcast_ref().unwrap();
+            let item: &gtk::ListItem = item.downcast_ref().expect("ListView factories hand out ListItems");
             if let Some(bin) = item.child().and_downcast::<adw::Bin>() {
                 bin.set_child(gtk::Widget::NONE);
             }

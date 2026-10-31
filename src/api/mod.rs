@@ -1,3 +1,6 @@
+//! TIDAL API access: the HTTP client and token cache, the legacy v1/v2
+//! JSON models and the JSON:API (`openapi`) models.
+
 pub mod client;
 pub mod legacy;
 pub mod openapi;

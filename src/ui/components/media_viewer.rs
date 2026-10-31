@@ -147,7 +147,7 @@ impl MediaViewer {
         paintable.snapshot(&snap, w, h);
         if let Some(node) = snap.to_node() {
             let r = gsk::CairoRenderer::new();
-            if r.realize_for_display(&gdk::Display::default().unwrap()).is_ok() {
+            if r.realize_for_display(&gdk::Display::default().expect("a GTK display is open while the app runs")).is_ok() {
                 *self.media.borrow_mut() = Some(r.render_texture(&node, None));
                 r.unrealize();
             }
