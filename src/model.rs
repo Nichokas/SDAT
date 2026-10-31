@@ -109,7 +109,8 @@ pub fn video_url(id: &str) -> String {
 
 impl CoverSource {
     pub fn cover(&self, preferred_size: i32) -> Cover {
-        let size = preferred_size.max(0) as i64;
+        // Go passes math.MaxInt to request the largest file; keep that sentinel.
+        let size = if preferred_size == i32::MAX { i64::MAX } else { preferred_size.max(0) as i64 };
         match self {
             CoverSource::None => Cover::default(),
             CoverSource::Artworks(a) => Cover::new(
@@ -553,5 +554,30 @@ mod tests {
         assert_eq!(t.formatted_title(), "Song (Live)");
         t.flags = TrackFlag(TrackFlag::AI | TrackFlag::EXPLICIT);
         assert_eq!(t.formatted_title(), "Song \u{1F170} \u{1F174}");
+    }
+}
+
+#[cfg(test)]
+mod cover_tests {
+    use super::*;
+    use crate::api::openapi::{ArtworkData, ArtworkFile, Artworks};
+
+    fn file(px: i64) -> ArtworkFile {
+        let mut f = ArtworkFile::default();
+        f.href = format!("{px}.jpg");
+        f.meta.width = px;
+        f.meta.height = px;
+        f
+    }
+
+    #[test]
+    fn max_size_picks_largest_file() {
+        let mut a = ArtworkData::default();
+        a.attributes.media_type = crate::api::openapi::ARTWORK_MEDIA_TYPE_IMAGE.into();
+        a.attributes.files = vec![file(80), file(1280), file(320)];
+        let src = CoverSource::Artworks(Artworks(vec![a]));
+        assert_eq!(src.cover(i32::MAX).static_, "1280.jpg");
+        assert_eq!(src.cover(80).static_, "80.jpg");
+        assert_eq!(src.cover(100).static_, "320.jpg");
     }
 }
