@@ -558,6 +558,7 @@ mod tests {
 }
 
 #[cfg(test)]
+#[allow(clippy::field_reassign_with_default)]
 mod cover_tests {
     use super::*;
     use crate::api::openapi::{ArtworkData, ArtworkFile, Artworks};
