@@ -3,7 +3,7 @@
 use crate::error::{bail, CoreResult as Result};
 
 use crate::api::{self, openapi};
-use crate::model::{Track, track_from_openapi, Album, album_from_openapi, AlbumInfo, album_info_from_openapi, Artist, artist_page_from_v2, ArtistInfo, artist_from_openapi, Playlist, playlist_from_openapi, PlaylistInfo, playlist_info_from_openapi, TrackManifest, manifest_from_openapi};
+use crate::model::{Track, track_from_openapi, Album, album_from_openapi, AlbumInfo, album_info_from_openapi, Artist, artist_page_from_v2, ArtistInfo, artist_from_openapi, Playlist, playlist_from_openapi, PlaylistInfo, playlist_info_from_openapi, TrackManifest, TrackQuality, manifest_from_openapi};
 
 pub const CURSOR_END: &str = "END_REACHED";
 
@@ -104,6 +104,11 @@ pub fn get_track(id: &str) -> Result<Track> {
 pub fn get_track_manifest(id: &str) -> Result<TrackManifest> {
     let formats = openapi::manifest_formats_for_quality(crate::config::get().audio_quality());
     Ok(manifest_from_openapi(&api::track_manifest(id, &formats)?))
+}
+/// HLS manifest for `quality` (for `AVPlayer`; it cannot read DASH).
+pub fn get_track_manifest_hls(id: &str, quality: TrackQuality) -> Result<TrackManifest> {
+    let formats = openapi::manifest_formats_for_quality(quality);
+    Ok(manifest_from_openapi(&api::track_manifest_hls(id, &formats)?))
 }
 pub fn get_track_radio(id: &str) -> Result<Option<PlaylistInfo>> {
     let r = api::track_radio(id, "", &["radio"])?;

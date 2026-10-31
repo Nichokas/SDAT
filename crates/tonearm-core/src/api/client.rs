@@ -317,17 +317,26 @@ pub fn search_relationship(query: &str, kind: &str, cursor: &str, include: &[&st
     relationship(&format!("/v2/searchResults/{}/relationships/{kind}", query_escape(query)), cursor, include)
 }
 
+/// Query for `GET /v2/trackManifests/{id}`.
+pub fn manifest_query(formats: &[&str], manifest_type: &str) -> Vec<(&'static str, String)> {
+    vec![
+        ("adaptive", "false".into()),
+        ("formats", formats.join(",")),
+        ("manifestType", manifest_type.into()),
+        ("uriScheme", "HTTPS".into()),
+        ("usage", "PLAYBACK".into()),
+    ]
+}
+
+/// MPEG-DASH manifest (desktop, `GStreamer`).
 pub fn track_manifest(id: &str, formats: &[&str]) -> Result<openapi::TrackManifest> {
-    get_json(
-        &openapi(&format!("/v2/trackManifests/{id}")),
-        &[
-            ("adaptive", "false".into()),
-            ("formats", formats.join(",")),
-            ("manifestType", openapi::MANIFEST_TYPE_MPEG_DASH.into()),
-            ("uriScheme", "HTTPS".into()),
-            ("usage", "PLAYBACK".into()),
-        ],
-    )
+    get_json(&openapi(&format!("/v2/trackManifests/{id}")), &manifest_query(formats, openapi::MANIFEST_TYPE_MPEG_DASH))
+}
+
+/// HLS manifest: `attributes.uri` is a master playlist with unencrypted fMP4
+/// segments, playable by `AVPlayer` for AAC, FLAC and `FLAC_HIRES`.
+pub fn track_manifest_hls(id: &str, formats: &[&str]) -> Result<openapi::TrackManifest> {
+    get_json(&openapi(&format!("/v2/trackManifests/{id}")), &manifest_query(formats, openapi::MANIFEST_TYPE_HLS))
 }
 
 // ---------------- v1 ----------------

@@ -362,7 +362,10 @@ pub struct TrackManifest {
     pub album_normalization: Option<Normalization>,
     pub track_normalization: Option<Normalization>,
     pub quality: TrackQuality,
+    /// Manifest URL: a DASH document or an HLS master playlist.
     pub url: String,
+    /// Formats TIDAL actually delivered (`HEAACV1`, `AACLC`, `FLAC`, `FLAC_HIRES`).
+    pub formats: Vec<String>,
 }
 
 /// Port of tidalapi.FormatDuration.
@@ -462,6 +465,7 @@ pub fn manifest_from_openapi(m: &openapi::TrackManifest) -> TrackManifest {
         track_normalization: norm(&a.track_audio_normalization_data),
         quality: openapi::quality_from_formats(&a.formats),
         url: a.uri.clone(),
+        formats: a.formats.clone(),
     }
 }
 

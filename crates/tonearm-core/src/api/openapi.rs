@@ -614,6 +614,7 @@ pub fn manifest_formats_for_quality(q: crate::model::TrackQuality) -> Vec<&'stat
     }
 }
 pub const MANIFEST_TYPE_MPEG_DASH: &str = "MPEG_DASH";
+pub const MANIFEST_TYPE_HLS: &str = "HLS";
 
 #[cfg(test)]
 mod tests {
