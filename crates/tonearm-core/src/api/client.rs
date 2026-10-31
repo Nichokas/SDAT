@@ -587,6 +587,18 @@ pub fn home_feed_static() -> Result<legacy::Page2> {
     get_json("/v2/home/feed/static", &[])
 }
 
+/// Items of a home row's "view all" page (`items` either at the top level or in its first row).
+pub fn view_all_items(path: &str, offset: usize, limit: usize) -> Result<Vec<legacy::Item2>> {
+    let path = if path.starts_with("http") || path.starts_with('/') { path.to_string() } else { format!("/v2/{path}") };
+    let v: serde_json::Value = get_json(&path, &[("offset", offset.to_string()), ("limit", limit.to_string())])?;
+    let items = v.get("items").cloned().unwrap_or_default();
+    let list = match items.as_array().and_then(|a| a.first()) {
+        Some(first) if first.get("data").is_none() && first.get("items").is_some() => first["items"].clone(),
+        _ => items,
+    };
+    Ok(serde_json::from_value(list).unwrap_or_default())
+}
+
 pub fn feed_activities(user_id: &str) -> Result<Vec<legacy::Activity>> {
     #[derive(Deserialize, Default)]
     #[serde(default)]

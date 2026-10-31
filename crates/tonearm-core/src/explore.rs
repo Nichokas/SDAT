@@ -25,36 +25,60 @@ pub fn home_recents(page: &legacy::Page2) -> Vec<RecentItem> {
     let mut seen = std::collections::HashSet::new();
     let mut out = Vec::new();
     for row in page.items.iter().filter(|r| is_recent_row(r)) {
-        for it in &row.items {
-            let item = match &it.data {
-                legacy::ItemData::Album(a) => RecentItem::Album(model::album_from_v2(a)),
-                legacy::ItemData::Playlist(p) => RecentItem::Playlist(model::playlist_from_v2(p)),
-                legacy::ItemData::Artist(a) => RecentItem::Artist(model::artist_from_v2(a)),
-                legacy::ItemData::Mix(m) => RecentItem::Mix {
-                    id: m.id.clone(),
-                    title: m.title_text_info.text.clone(),
-                    subtitle: m.subtitle_text_info.text.clone(),
-                    image_url: m.mix_images.last().map(|i| i.url.clone()).unwrap_or_default(),
-                },
-                _ => continue,
-            };
-            let key = match &item {
-                RecentItem::Album(a) => format!("a{}", a.info.id),
-                RecentItem::Playlist(p) => format!("p{}", p.info.id),
-                RecentItem::Artist(a) => format!("r{}", a.id),
-                RecentItem::Mix { id, .. } => format!("m{id}"),
-            };
-            if seen.insert(key) {
-                out.push(item);
-            }
-        }
+        push_recents(&row.items, &mut seen, &mut out);
     }
     out
 }
 
+fn push_recents(items: &[legacy::Item2], seen: &mut std::collections::HashSet<String>, out: &mut Vec<RecentItem>) {
+    for it in items {
+        let item = match &it.data {
+            legacy::ItemData::Album(a) => RecentItem::Album(model::album_from_v2(a)),
+            legacy::ItemData::Playlist(p) => RecentItem::Playlist(model::playlist_from_v2(p)),
+            legacy::ItemData::Artist(a) => RecentItem::Artist(model::artist_from_v2(a)),
+            legacy::ItemData::Mix(m) => RecentItem::Mix {
+                id: m.id.clone(),
+                title: m.title_text_info.text.clone(),
+                subtitle: m.subtitle_text_info.text.clone(),
+                image_url: m.mix_images.last().map(|i| i.url.clone()).unwrap_or_default(),
+            },
+            _ => continue,
+        };
+        let key = match &item {
+            RecentItem::Album(a) => format!("a{}", a.info.id),
+            RecentItem::Playlist(p) => format!("p{}", p.info.id),
+            RecentItem::Artist(a) => format!("r{}", a.id),
+            RecentItem::Mix { id, .. } => format!("m{id}"),
+        };
+        if seen.insert(key) {
+            out.push(item);
+        }
+    }
+}
+
 /// The signed-in user's recently played items.
+/// The home row only holds a handful; its "view all" page is followed (paged) for the full history.
 pub fn get_home_recents() -> Result<Vec<RecentItem>> {
-    Ok(home_recents(&api::home_feed_static()?))
+    let page = api::home_feed_static()?;
+    let mut seen = std::collections::HashSet::new();
+    let mut out = Vec::new();
+    for row in page.items.iter().filter(|r| is_recent_row(r)) {
+        push_recents(&row.items, &mut seen, &mut out);
+        if row.view_all.is_empty() {
+            continue;
+        }
+        let mut offset = 0;
+        while offset < 500 {
+            let Ok(items) = api::view_all_items(&row.view_all, offset, 50) else { break };
+            let n = items.len();
+            push_recents(&items, &mut seen, &mut out);
+            if n < 50 {
+                break;
+            }
+            offset += n;
+        }
+    }
+    Ok(out)
 }
 
 /// A link to another Explore page (a genre, mood or decade).
