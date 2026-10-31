@@ -2715,6 +2715,7 @@ dependencies = [
  "md-5",
  "qrcode",
  "rand 0.9.5",
+ "regex",
  "reqwest",
  "serde",
  "serde_json",

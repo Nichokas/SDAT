@@ -65,7 +65,7 @@ pub struct NavigationEvent {
 }
 
 global_signal!(pub fn navigation() -> Signal<NavigationEvent> = Signal::default());
-/// Carries the number of back entries.
+// Carries the number of back entries.
 global_signal!(pub fn history_updated() -> Signal<usize> = Signal::default());
 
 thread_local! {

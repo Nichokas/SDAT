@@ -1,16 +1,96 @@
 mod api;
 mod i18n;
+mod imgutil;
 mod model;
+mod player;
+mod router;
+mod scrobbling;
 mod secrets;
 mod service;
 mod settings;
 mod signals;
-mod player;
 mod state;
-mod router;
-mod imgutil;
 mod ui;
 
-fn main() {
+use adw::prelude::*;
+use gtk::{gio, glib};
+
+static ICONS: &[u8] = include_bytes!("../internal/icons/icons.gresource");
+static STYLES: &[u8] = include_bytes!("../internal/styles/styles.gresource");
+
+fn register_resources() {
+    for data in [ICONS, STYLES] {
+        let r = gio::Resource::from_data(&glib::Bytes::from_static(data)).expect("Failed to create resources");
+        gio::resources_register(&r);
+    }
+}
+
+/// Falls back to the schema compiled at build time when it is not installed.
+fn ensure_schema() {
+    let installed = gio::SettingsSchemaSource::default().and_then(|s| s.lookup(settings::APP_ID, true)).is_some();
+    if !installed && std::env::var_os("GSETTINGS_SCHEMA_DIR").is_none() {
+        // SAFETY: single threaded at this point (before GTK and any worker starts).
+        unsafe { std::env::set_var("GSETTINGS_SCHEMA_DIR", env!("TONEARM_SCHEMA_DIR")) };
+    }
+}
+
+fn on_activate(app: &adw::Application) {
+    let window = ui::window::new_window(app);
+    window.present();
+    window.connect_close_request(|w| {
+        // Only run in background if a track is loaded, so MPRIS can bring it back.
+        if settings::should_run_in_background() && player::track_changed().get().is_some() {
+            w.set_visible(false);
+            return glib::Propagation::Stop;
+        }
+        glib::Propagation::Proceed
+    });
+    if let Some(err) = secrets::healthcheck() {
+        log::error!("Secret service health check failed title={} fatal={}", err.title, err.fatal);
+        ui::window::present_secret_service_error(&window, &err);
+    }
+}
+
+fn main() -> glib::ExitCode {
     env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("info")).init();
+    ensure_schema();
+
+    register_resources();
+    let app = adw::Application::new(Some(settings::APP_ID), gio::ApplicationFlags::HANDLES_COMMAND_LINE);
+    app.connect_startup(|_| {
+        ui::components::tracklist_header::init();
+        ui::components::sidebar::player_view::init();
+        ui::components::sidebar::lyrics::init();
+        ui::routes::register();
+        if let Err(e) = player::init() {
+            log::error!("failed to initialise the player error={e:#}");
+        }
+        player::mpris::init();
+        scrobbling::init();
+    });
+    app.connect_activate(on_activate);
+    app.connect_command_line(|app, cmd| {
+        let args = cmd.arguments();
+        if ui::window::window().is_none() {
+            app.activate();
+        } else if let Some(w) = ui::window::window() {
+            w.set_visible(true);
+            w.present();
+        }
+        if args.len() == 2 {
+            let url = args[1].to_string_lossy().to_string();
+            if let Some(id) = url.strip_prefix("tidal://track/") {
+                let id = id.to_string();
+                glib::spawn_future_local(async move {
+                    if let Err(e) = player::play_track_id(&id).await {
+                        log::error!("failed to play track error={e:#}");
+                    }
+                });
+            } else {
+                router::navigate(&url);
+            }
+        }
+        glib::ExitCode::SUCCESS
+    });
+    app.run()
 }

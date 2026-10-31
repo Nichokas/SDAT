@@ -116,3 +116,55 @@ pub fn get_track_radio(id: &str) -> Result<Option<PlaylistInfo>> {
     let r = api::track_radio(id, "", &["radio"])?;
     Ok(r.included.playlists(&r.data).first().map(playlist_info_from_openapi))
 }
+
+fn collection<T: Clone + 'static>(
+    kind: &'static str,
+    user_id: String,
+    include: &'static [&'static str],
+    resolve: fn(&openapi::Relationships) -> Vec<T>,
+) -> Paginator<T> {
+    Paginator::new(Box::new(move |c| api::user_collection_items(kind, &user_id, c, include)), Box::new(resolve))
+}
+
+pub fn user_collection_tracks(user_id: &str) -> Paginator<Track> {
+    collection("Tracks", user_id.to_string(), &["items.artists", "items.albums.coverArt"], resolve_tracks)
+}
+
+pub fn user_collection_albums(user_id: &str) -> Paginator<Album> {
+    collection("Albums", user_id.to_string(), &["items.coverArt", "items.artists"], |r| r.included.albums(&r.data).iter().map(album_from_openapi).collect())
+}
+
+pub fn user_collection_artists(user_id: &str) -> Paginator<ArtistInfo> {
+    collection("Artists", user_id.to_string(), &["items.profileArt"], |r| r.included.artists(&r.data).iter().map(artist_from_openapi).collect())
+}
+
+pub fn user_collection_playlists(user_id: &str) -> Paginator<Playlist> {
+    collection("Playlists", user_id.to_string(), &["items.coverArt", "items.ownerProfiles"], |r| {
+        r.included.playlists(&r.data).iter().map(playlist_from_openapi).collect()
+    })
+}
+
+fn search_paginator<T: Clone + 'static>(
+    query: &str,
+    kind: &'static str,
+    include: &'static [&'static str],
+    resolve: fn(&openapi::Relationships) -> Vec<T>,
+) -> Paginator<T> {
+    let q = query.to_string();
+    Paginator::new(Box::new(move |c| api::search_relationship(&q, kind, c, include)), Box::new(resolve))
+}
+
+pub fn search_tracks(q: &str) -> Paginator<Track> {
+    search_paginator(q, "tracks", &["tracks.albums.coverArt", "tracks.albums.artists"], resolve_tracks)
+}
+pub fn search_albums(q: &str) -> Paginator<Album> {
+    search_paginator(q, "albums", &["albums.coverArt", "albums.artists"], |r| r.included.albums(&r.data).iter().map(album_from_openapi).collect())
+}
+pub fn search_artists(q: &str) -> Paginator<ArtistInfo> {
+    search_paginator(q, "artists", &["artists.profileArt"], |r| r.included.artists(&r.data).iter().map(artist_from_openapi).collect())
+}
+pub fn search_playlists(q: &str) -> Paginator<Playlist> {
+    search_paginator(q, "playlists", &["playlists.coverArt"], |r| {
+        r.included.playlists(&r.data).iter().map(playlist_from_openapi).collect()
+    })
+}
