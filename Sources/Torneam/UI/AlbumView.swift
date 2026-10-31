@@ -249,70 +249,118 @@ enum CoverColors {
     }
 }
 
+/// In-memory artist data so artist pages open instantly.
+@MainActor enum ArtistCache {
+    static var overviews: [String: ArtistOverview] = [:]
+    static var hints: [String: (name: String, picture: String?)] = [:]
+    static func hint(_ id: String, _ name: String, _ picture: String?) { hints[id] = (name, picture) }
+}
+
+/// Opens immediately (header from the cached overview or the tapped row), then loads in the background.
 struct ArtistView: View {
     let id: String
     @Environment(Player.self) private var player
-    @State private var following: Bool?
+    @State private var overview: ArtistOverview?
+    @State private var error: String?
 
     var body: some View {
-        Loader(load: { try await artistOverview(id: id) }) { o in
-            let a = o.artist
-            List {
+        let a = overview?.artist
+        let name = a?.name ?? ArtistCache.hints[id]?.name ?? ""
+        let pic = a?.pictureUrl ?? ArtistCache.hints[id]?.picture
+        ScrollView {
+            LazyVStack(alignment: .leading, spacing: 0) {
                 VStack(spacing: 10) {
-                    Cover(url: a.pictureUrl, size: 180, circle: true)
-                    Text(a.name).font(.title.bold())
-                    FollowButton(following: following) { toggleFollow(a) }
+                    Cover(url: pic, size: 180, circle: true)
+                    if name.isEmpty { Skeleton(width: 160, height: 28) } else { Text(name).font(.title.bold()).multilineTextAlignment(.center) }
+                    FollowButton(artistId: id)
                 }
                 .frame(maxWidth: .infinity)
-                .listRowSeparator(.hidden)
-                .listRowBackground(Color.clear)
-                if !o.topTracks.isEmpty {
-                    Section("Top Tracks") {
-                        TrackList(tracks: o.topTracks, source: a.name).listRowBackground(Color.clear)
+                .padding(.vertical, 12)
+
+                if let error, overview == nil {
+                    ErrorBanner(text: error).padding(16)
+                    Button("Retry") { self.error = nil; Task { await load() } }.buttonStyle(.glass).frame(maxWidth: .infinity)
+                } else if let o = overview {
+                    if !o.topTracks.isEmpty {
+                        header("Top Tracks")
+                        PlayShuffleButtons(
+                            play: { player.play(o.topTracks, from: o.artist.name) },
+                            shuffle: { player.playShuffled(o.topTracks, from: o.artist.name) }
+                        )
+                        .padding(.horizontal, 16).padding(.bottom, 8)
+                        VStack(spacing: 0) { TrackList(tracks: o.topTracks, source: o.artist.name) }
+                            .padding(.horizontal, 16)
                     }
-                }
-                if !o.albums.isEmpty {
-                    Section("Albums") { AlbumShelf(albums: o.albums).listRowBackground(Color.clear) }
-                }
-                if !a.bio.isEmpty {
-                    Section("About") { BioText(text: a.bio).listRowBackground(Color.clear) }
+                    if !o.albums.isEmpty {
+                        header("Albums")
+                        AlbumShelf(albums: o.albums).contentMargins(.horizontal, 16, for: .scrollContent)
+                    }
+                    if !o.artist.bio.isEmpty {
+                        header("About")
+                        BioText(text: o.artist.bio).padding(.horizontal, 16)
+                    }
+                } else {
+                    ForEach(0..<6, id: \.self) { _ in RowSkeleton().padding(.horizontal, 16) }
                 }
             }
-            .listStyle(.plain)
-            .scrollContentBackground(.hidden)
-            .scrollEdgeEffectStyle(.soft, for: .top)
-            .background { CoverBackdrop(url: a.pictureUrl) }
         }
-        .task { following = (try? await isFavourite(kind: .artist, id: id)) ?? false }
+        .scrollEdgeEffectStyle(.soft, for: .all)
+        .background { CoverBackdrop(url: pic).ignoresSafeArea() }
+        .task { await load() }
     }
 
-    private func toggleFollow(_ a: Artist) {
-        let target = !(following ?? false)
-        following = target
-        Task {
-            do { try await setFavourite(kind: .artist, id: a.id, favourite: target) } catch {
-                following = !target
-                Chrome.shared.flash(error.localizedDescription)
-            }
+    private func header(_ t: String) -> some View {
+        Text(t).font(.title2.bold()).padding(.horizontal, 16).padding(.top, 24).padding(.bottom, 10)
+    }
+
+    private func load() async {
+        if let o = ArtistCache.overviews[id] { overview = o }
+        do {
+            let o = try await artistOverview(id: id)
+            ArtistCache.overviews[id] = o
+            overview = o
+        } catch {
+            if overview == nil { self.error = error.localizedDescription }
         }
     }
 }
 
+/// Follow / Following: optimistic, persisted with setFavourite(.artist), reverts on error.
 struct FollowButton: View {
-    let following: Bool?
-    let action: () -> Void
+    let artistId: String
+    @State private var following: Bool?
+    @State private var busy = false
+
     var body: some View {
         Group {
             if following == true {
-                Button(action: action) { Label("Following", systemImage: "checkmark").font(.subheadline.weight(.semibold)) }
+                Button(action: toggle) { Label("Following", systemImage: "checkmark").font(.subheadline.weight(.semibold)).padding(.horizontal, 6) }
                     .buttonStyle(.glassProminent)
             } else {
-                Button(action: action) { Label("Follow", systemImage: "plus").font(.subheadline.weight(.semibold)) }
+                Button(action: toggle) { Label("Follow", systemImage: "plus").font(.subheadline.weight(.semibold)).padding(.horizontal, 6) }
                     .buttonStyle(.glass)
             }
         }
-        .disabled(following == nil)
+        .disabled(following == nil || busy)
         .animation(.snappy, value: following)
+        .sensoryFeedback(.success, trigger: following == true)
+        .task { following = (try? await isFavourite(kind: .artist, id: artistId)) ?? false }
+    }
+
+    private func toggle() {
+        let target = !(following ?? false)
+        following = target
+        busy = true
+        Task {
+            do {
+                try await setFavourite(kind: .artist, id: artistId, favourite: target)
+                Chrome.shared.flash(target ? "Following" : "Unfollowed")
+            } catch {
+                following = !target
+                Chrome.shared.flash("Couldn't update: \(error.localizedDescription)")
+            }
+            busy = false
+        }
     }
 }
 

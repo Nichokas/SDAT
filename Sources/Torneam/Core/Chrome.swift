@@ -165,10 +165,13 @@ struct Avatar: View {
         } else {
             Circle().fill(Color(white: 0.1))
                 .overlay {
-                    AvatarGlyph()
-                        .stroke(LinearGradient(colors: [Color(red: 0.55, green: 0.7, blue: 1), .white], startPoint: .topLeading, endPoint: .bottomTrailing),
-                                style: StrokeStyle(lineWidth: 2.2, lineCap: .round, lineJoin: .round))
-                        .padding(7)
+                    GeometryReader { g in
+                        let w = g.size.width
+                        AvatarGlyph()
+                            .stroke(LinearGradient(colors: [Color(red: 0.55, green: 0.7, blue: 1), .white], startPoint: .topLeading, endPoint: .bottomTrailing),
+                                    style: StrokeStyle(lineWidth: max(1.5, w * 0.06), lineCap: .round, lineJoin: .round))
+                            .padding(w * 0.24)
+                    }
                 }
         }
     }

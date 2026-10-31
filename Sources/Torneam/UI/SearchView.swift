@@ -9,6 +9,7 @@ struct SearchView: View {
     @State private var searching = false
     @State private var error: String?
     @State private var topArtist: ArtistOverview?
+    @State private var generation = 0
 
     var body: some View {
         Group {
@@ -37,27 +38,42 @@ struct SearchView: View {
         .searchable(text: $query, placement: .navigationBarDrawer(displayMode: .always), prompt: "Artists, songs, albums")
         .task(id: query) {
             let q = query.trimmingCharacters(in: .whitespaces)
-            if q.isEmpty { debounced = ""; results = nil; error = nil; return }
+            if q.isEmpty { debounced = ""; results = nil; topArtist = nil; error = nil; return }
+            // One-letter queries return junk; wait for at least two characters.
+            guard q.count >= 2 else { return }
+            // Re-appearing (tab switch, chrome changes) must not search again.
+            if q == debounced, results != nil || error != nil { return }
             try? await Task.sleep(for: .milliseconds(300))
             guard !Task.isCancelled else { return }
-            debounced = q
+            generation += 1
+            let gen = generation
             searching = true
-            defer { searching = false }
-            topArtist = nil
+            if debounced != q, results == nil { debounced = q }
             do {
                 let r = try await search(query: q)
-                results = r
-                error = nil
-                // Artist-looking query: show the artist's top tracks and albums.
+                // Only the latest query may write results (the FFI call can't be cancelled).
+                guard !Task.isCancelled, current(q, gen) else { return }
+                var artist: ArtistOverview?
                 if let a = r.artists.first, a.name.localizedCaseInsensitiveContains(q) || q.localizedCaseInsensitiveContains(a.name) {
-                    topArtist = try? await artistOverview(id: a.id)
+                    artist = ArtistCache.overviews[a.id]
+                    if artist == nil { artist = try? await artistOverview(id: a.id) }
+                    if let artist { ArtistCache.overviews[a.id] = artist }
+                    guard !Task.isCancelled, current(q, gen) else { return }
+                }
+                var t = Transaction(); t.disablesAnimations = true
+                withTransaction(t) {
+                    debounced = q; results = r; topArtist = artist; error = nil; searching = false
                 }
             } catch {
-                guard !Task.isCancelled else { return }
+                guard !Task.isCancelled, current(q, gen) else { return }
+                debounced = q
                 self.error = error.localizedDescription
+                searching = false
             }
         }
     }
+
+    private func current(_ q: String, _ gen: Int) -> Bool { gen == generation && query.trimmingCharacters(in: .whitespaces) == q }
 
     private var top: some View {
         List {
@@ -68,7 +84,7 @@ struct SearchView: View {
                 }
                 if let o = topArtist {
                     Section {
-                        Button { Chrome.shared.push(.artist(o.artist.id)) } label: {
+                        Button { ArtistCache.overviews[o.artist.id] = o; Chrome.shared.push(.artist(o.artist.id)) } label: {
                             HStack(spacing: 14) {
                                 Cover(url: o.artist.pictureUrl, size: 72, circle: true)
                                 VStack(alignment: .leading) {
@@ -88,6 +104,7 @@ struct SearchView: View {
                     Section("Artists") {
                         ForEach(r.artists.prefix(4), id: \.id) { a in
                             NavigationLink(value: Route.artist(a.id)) { MediaRow(title: a.name, subtitle: "Artist", cover: a.pictureUrl, round: true) }
+                                .onAppear { ArtistCache.hint(a.id, a.name, a.pictureUrl) }
                         }
                     }
                 }

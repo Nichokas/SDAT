@@ -87,9 +87,9 @@ extension Quality {
     /// Readable badge text (TIDAL's delivered formats: CD is always 16/44.1, AAC high is 320 kbps).
     var badgeText: String {
         switch self {
-        case .hiFi: "Hi-Res Lossless · up to 24-bit / 192 kHz"
-        case .cd: "CD · 16-bit / 44.1 kHz"
-        case .aac: "AAC · 320 kbps"
+        case .hiFi: "Hi-Res Lossless"
+        case .cd: "CD Quality"
+        case .aac: "AAC"
         }
     }
 }

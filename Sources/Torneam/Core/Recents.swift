@@ -28,7 +28,7 @@ final class Recents {
     func add(_ item: Item) {
         items.removeAll { $0.id == item.id && $0.kind == item.kind }
         items.insert(item, at: 0)
-        items = Array(items.prefix(30))
+        items = Array(items.prefix(100))
         if let data = try? JSONEncoder().encode(items) {
             UserDefaults.standard.set(data, forKey: key)
         }

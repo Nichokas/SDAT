@@ -102,15 +102,17 @@ private struct NowPlayingPage: View {
                 get: { prefs.streamingQuality },
                 set: { prefs.streamingQuality = $0; player.reloadQuality() }
             )) {
-                let q = player.stream?.actualQuality ?? prefs.streamingQuality
+                let q = player.shownQuality ?? prefs.streamingQuality
                 HStack(spacing: 10) {
                     QualityLogo(quality: q, height: 22)
                     Text(q.badgeText).font(.subheadline.weight(.semibold)).foregroundStyle(.white.opacity(0.9))
+                        .lineLimit(1).fixedSize()
                     Image(systemName: "chevron.up.chevron.down").font(.caption.weight(.semibold)).foregroundStyle(.white.opacity(0.6))
                 }
                 .padding(.horizontal, 18).frame(minHeight: 44)
                 .contentShape(.capsule)
                 .glassEffect(.regular.interactive(), in: .capsule)
+                .animation(.smooth, value: q)
             }
             .foregroundStyle(.white)
 

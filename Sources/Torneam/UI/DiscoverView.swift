@@ -204,7 +204,8 @@ final class PlaneScrollView: UIScrollView, UIScrollViewDelegate {
         for cell in needed where visible[cell] == nil {
             let v = pool.popLast() ?? makeTile()
             v.frame = frame(for: cell)
-            if let url = track(cell)?.album?.coverUrl {
+            if let small = track(cell)?.album?.coverUrl {
+                let url = CoverURL.sized(small, points: rowSize(cell.r))
                 if let img = ImageStore.shared.cached(url) { v.image = img } else {
                     v.image = nil
                     Task { @MainActor [weak self, weak v] in
@@ -222,7 +223,7 @@ final class PlaneScrollView: UIScrollView, UIScrollViewDelegate {
         let ahead = bounds.offsetBy(dx: -v.x * 0.35, dy: -v.y * 0.35).union(bounds).insetBy(dx: -step * 2, dy: -step * 2)
         for cell in cells(in: ahead) where !prefetched.contains(cell) {
             prefetched.insert(cell)
-            if let url = track(cell)?.album?.coverUrl { ImageStore.shared.prefetch(url) }
+            if let url = track(cell)?.album?.coverUrl { ImageStore.shared.prefetch(CoverURL.sized(url, points: rowSize(cell.r))) }
         }
         if prefetched.count > 4000 { prefetched.removeAll() }
     }

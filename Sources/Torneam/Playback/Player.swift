@@ -22,7 +22,11 @@ final class Player {
     private(set) var loading = false
     private(set) var position: Double = 0
     private(set) var duration: Double = 0
-    private(set) var stream: Stream?
+    private(set) var stream: Stream? {
+        didSet { if let q = stream?.actualQuality, q != shownQuality { shownQuality = q } }
+    }
+    /// Badge quality: keeps the previous value until the new stream's real quality is known.
+    private(set) var shownQuality: Quality?
     private(set) var sourceTitle: String?
     private(set) var shuffle = false
     var repeatMode: Repeat = .off

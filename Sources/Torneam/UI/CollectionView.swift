@@ -50,8 +50,12 @@ struct CollectionView: View {
 
     /// TIDAL listening history, falling back to what was opened on this device.
     private var tiles: [Tile] {
+        let localTiles = local.items.map {
+            Tile(title: $0.title, subtitle: $0.subtitle, cover: $0.coverUrl, round: false,
+                 route: $0.kind == .album ? .album($0.id) : .playlist($0.id))
+        }
         if !recents.isEmpty {
-            return recents.map { r in
+            let remote: [Tile] = recents.map { r in
                 let route: Route = switch r.kind {
                 case .album: .album(r.id)
                 case .artist: .artist(r.id)
@@ -59,11 +63,11 @@ struct CollectionView: View {
                 }
                 return Tile(title: r.title, subtitle: r.subtitle, cover: r.coverUrl, round: r.kind == .artist, route: route)
             }
+            // TIDAL history first, then anything opened on this device that it doesn't list.
+            let known = Set(remote.map(\.route))
+            return remote + localTiles.filter { !known.contains($0.route) }
         }
-        return local.items.map {
-            Tile(title: $0.title, subtitle: $0.subtitle, cover: $0.coverUrl, round: false,
-                 route: $0.kind == .album ? .album($0.id) : .playlist($0.id))
-        }
+        return localTiles
     }
 
     private func load() async {
@@ -184,6 +188,7 @@ struct PagedArtists: View {
             NavigationLink(value: Route.artist(items[i].id)) {
                 MediaRow(title: items[i].name, subtitle: "", cover: items[i].pictureUrl, round: true)
             }
+            .onAppear { ArtistCache.hint(items[i].id, items[i].name, items[i].pictureUrl) }
         }
     }
 }

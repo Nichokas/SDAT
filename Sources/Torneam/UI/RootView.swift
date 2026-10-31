@@ -71,9 +71,7 @@ private struct BottomChrome: View {
         }
         .padding(.horizontal, 16)
         .padding(.bottom, 4)
-        .animation(.spring(duration: 0.4, bounce: 0.15), value: chrome.collapsed)
-        .animation(.spring(duration: 0.4, bounce: 0.15), value: chrome.inDetail)
-        .animation(.spring(duration: 0.4), value: hasMini)
+        .animation(.smooth(duration: 0.38), value: ChromeState(collapsed: chrome.collapsed, detail: chrome.inDetail, mini: hasMini))
     }
 }
 
@@ -86,9 +84,9 @@ private struct TabBar: View {
     @State private var bounce = 0
 
     private let items: [(AppTab, String, String)] = [
-        (.discover, "Discover", "signpost.right.and.left"),
+        (.discover, "Discover", "signpost.right.and.left.fill"),
         (.search, "Search", "magnifyingglass"),
-        (.collection, "My Collection", "music.note.house"),
+        (.collection, "My Collection", "music.note.house.fill"),
     ]
 
     var body: some View {
@@ -107,12 +105,13 @@ private struct TabBar: View {
                     let on = chrome.tab == tab
                     Button {
                         if on { chrome.paths[tab] = [] } else {
-                            withAnimation(.spring(duration: 0.38, bounce: 0.22)) { chrome.tab = tab }
+                            withAnimation(.snappy(duration: 0.32)) { chrome.tab = tab }
                             bounce += 1
                         }
                     } label: {
                         VStack(spacing: 1) {
                             Image(systemName: icon)
+                                .symbolVariant(on ? .fill : .none)
                                 .font(.system(size: 19, weight: on ? .semibold : .medium))
                                 .symbolEffect(.bounce, value: on ? bounce : 0)
                                 .frame(height: 26)
@@ -169,14 +168,15 @@ extension View {
         onScrollGeometryChange(for: Bool.self) { g in
             g.contentOffset.y + g.contentInsets.top > 40
         } action: { _, down in
-            if Chrome.shared.collapsed != down { Chrome.shared.collapsed = down }
+            if Chrome.shared.collapsed != down { withAnimation(.smooth(duration: 0.38)) { Chrome.shared.collapsed = down } }
         }
     }
 
     /// Profile button that opens Settings.
     func profileToolbar() -> some View {
         toolbar {
-            ToolbarItem(placement: .topBarTrailing) { ProfileToolbarButton() }
+            ToolbarItem(placement: .topBarTrailing) { ProfileButton(size: 44) }
+                .sharedBackgroundVisibility(.hidden)
         }
     }
 }
@@ -223,3 +223,5 @@ struct PlaylistPicker: View {
         .task { await store.load(force: true) }
     }
 }
+
+private struct ChromeState: Equatable { var collapsed, detail, mini: Bool }

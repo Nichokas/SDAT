@@ -16,24 +16,49 @@ struct Cover: View {
     }
 }
 
+/// Picks the TIDAL image size for a display size: covers come as /<uuid>/<N>x<N>.jpg.
+enum CoverURL {
+    static let sizes = [80, 160, 320, 640, 1280]
+    static func sized(_ url: String, points: CGFloat) -> String {
+        guard url.contains("resources.tidal.com/images/"), points > 0,
+              let r = url.range(of: #"/\d+x\d+\.(jpg|png)$"#, options: .regularExpression) else { return url }
+        let px = Int(points * 3)
+        let n = sizes.first { $0 >= px } ?? 1280
+        let ext = url.hasSuffix(".png") ? "png" : "jpg"
+        // Profile pictures only exist at 320 and above.
+        let size = url.contains("320x320") && n < 320 ? 320 : n
+        return url.replacingCharacters(in: r, with: "/\(size)x\(size).\(ext)")
+    }
+}
+
+/// Image sized for its frame (× screen scale). Shows any lower-res copy already in memory
+/// while the right size loads, then swaps without flashing.
 struct CachedImage: View {
     let url: String?
     @State private var image: UIImage?
+    @State private var width: CGFloat = 0
+
+    private var target: String? { url.map { CoverURL.sized($0, points: width) } }
 
     var body: some View {
         Rectangle().fill(Color.white.opacity(0.08))
             .overlay {
-                if let img = image ?? url.flatMap(ImageStore.shared.cached) {
-                    Image(uiImage: img).resizable().scaledToFill()
+                if let img = image ?? target.flatMap(ImageStore.shared.cached) ?? url.flatMap(ImageStore.shared.cached) {
+                    Image(uiImage: img).resizable().interpolation(.high).scaledToFill()
                 } else {
                     Image(systemName: "music.note").foregroundStyle(.secondary)
                 }
             }
             .clipped()
-            .task(id: url) {
-                guard let url else { image = nil; return }
-                image = ImageStore.shared.cached(url)
-                if image == nil { image = await ImageStore.shared.image(url) }
+            .onGeometryChange(for: CGFloat.self) { max($0.size.width, $0.size.height) } action: { w in
+                // Only grow: avoid re-requesting while a view animates smaller.
+                if w > width { width = w }
+            }
+            .task(id: target) {
+                guard let t = target, width > 0 else { if url == nil { image = nil }; return }
+                if let c = ImageStore.shared.cached(t) { image = c; return }
+                if image == nil, let u = url { image = ImageStore.shared.cached(u) }
+                if let img = await ImageStore.shared.image(t) { image = img }
             }
     }
 }
