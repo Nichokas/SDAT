@@ -1,0 +1,5 @@
+module tonearm_ffiFFI {
+    header "tonearm_ffiFFI.h"
+    link "tonearm_ffi"
+    export *
+}
