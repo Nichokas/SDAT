@@ -6,6 +6,28 @@ use serde::{Deserialize, Deserializer};
 use serde_json::Value;
 use std::time::Duration;
 
+/// Removes `null` object members recursively so `#[serde(default)]` fills them in,
+/// matching Go's encoding/json where null leaves the zero value.
+pub fn strip_nulls(v: &mut Value) {
+    match v {
+        Value::Object(m) => {
+            m.retain(|_, x| !x.is_null());
+            m.values_mut().for_each(strip_nulls);
+        }
+        Value::Array(a) => a.iter_mut().for_each(strip_nulls),
+        _ => {}
+    }
+}
+
+pub fn from_value_lenient<T: DeserializeOwned>(mut v: Value) -> serde_json::Result<T> {
+    strip_nulls(&mut v);
+    serde_json::from_value(v)
+}
+
+pub fn from_slice_lenient<T: DeserializeOwned>(b: &[u8]) -> serde_json::Result<T> {
+    from_value_lenient(serde_json::from_slice(b)?)
+}
+
 #[derive(Debug, Clone, Default, Deserialize)]
 #[serde(default)]
 pub struct Response<D> {
@@ -120,7 +142,7 @@ impl IncludedObjects {
     fn plain<T: DeserializeOwned>(&self, rels: &[Relationship], t: &str) -> Vec<T> {
         self.from_relationships(rels, t)
             .into_iter()
-            .filter_map(|o| serde_json::from_value(o.raw.clone()).ok())
+            .filter_map(|o| from_value_lenient(o.raw.clone()).ok())
             .collect()
     }
 
@@ -483,6 +505,10 @@ pub struct SearchResultRelationships {
 /// Single-object variant (the Go struct decodes `data` either as object or array depending on endpoint).
 pub type SearchResultSingle = Response<SearchResultData>;
 
+pub fn first_search_result(r: SearchResult) -> SearchResultSingle {
+    Response { data: r.data.into_iter().next().unwrap_or_default(), included: r.included, links: r.links }
+}
+
 // ---------- tracks ----------
 
 pub type Track = Response<TrackData>;
@@ -611,6 +637,23 @@ pub const MANIFEST_TYPE_MPEG_DASH: &str = "MPEG_DASH";
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn search_result_data_is_an_array() {
+        let j = r#"{"data":[{"id":"abc","type":"searchResults","relationships":{"topHits":{"data":[{"id":"1","type":"artists"}]}}}],"included":[{"id":"1","type":"artists","attributes":{"name":"Franz Ferdinand"}}]}"#;
+        let r = super::first_search_result(serde_json::from_str(j).unwrap());
+        assert_eq!(r.data.id, "abc");
+        assert_eq!(r.included.artists(&r.data.relationships.top_hits.data).len(), 1);
+    }
+
+    #[test]
+    fn null_fields_do_not_drop_objects() {
+        let j = r#"{"data":[{"id":"1","type":"tracks"}],"included":[{"id":"1","type":"tracks","attributes":{"title":"Take Me Out","version":null,"key":null,"duration":"PT3M57S"}}]}"#;
+        let r: super::Response<Vec<super::Relationship>> = super::from_slice_lenient(j.as_bytes()).unwrap();
+        let t = r.included.tracks(&r.data);
+        assert_eq!(t.len(), 1);
+        assert_eq!(t[0].data.attributes.title, "Take Me Out");
+    }
+
     use super::*;
 
     #[test]

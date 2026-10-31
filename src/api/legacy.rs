@@ -220,7 +220,7 @@ impl<'de> Deserialize<'de> for Item2 {
         let type_ = v.get("type").and_then(Value::as_str).unwrap_or_default().to_string();
         let raw = v.get("data").cloned().unwrap_or(Value::Null);
         fn p<T: for<'a> Deserialize<'a>>(raw: Value) -> Option<T> {
-            serde_json::from_value(raw).ok()
+            super::openapi::from_value_lenient(raw).ok()
         }
         let data = match type_.as_str() {
             item_type::ARTIST => p(raw).map(ItemData::Artist),

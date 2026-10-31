@@ -208,7 +208,7 @@ fn get_json<T: DeserializeOwned>(path: &str, query: &[(&str, String)]) -> Result
         bail!("unexpected status code: {}", resp.status().as_u16());
     }
     let bytes = resp.bytes()?;
-    serde_json::from_slice(&bytes).with_context(|| format!("decoding {path}"))
+    openapi::from_slice_lenient(&bytes).with_context(|| format!("decoding {path}"))
 }
 
 fn include_q(include: &[&str]) -> Vec<(&'static str, String)> {
@@ -270,7 +270,9 @@ fn query_escape(q: &str) -> String {
 pub fn search(query: &str, include: &[&str]) -> Result<openapi::SearchResultSingle> {
     let mut q = vec![("filter[query]", query.to_string())];
     q.push(("include", include.join(",")));
-    get_json(&openapi("/v2/searchResults"), &q)
+    // The endpoint returns `data` as an array (Go: Response[[]SearchResultData]); use its first entry.
+    let r: openapi::SearchResult = get_json(&openapi("/v2/searchResults"), &q)?;
+    Ok(openapi::first_search_result(r))
 }
 pub fn search_relationship(query: &str, kind: &str, cursor: &str, include: &[&str]) -> Result<openapi::Relationships> {
     relationship(&format!("/v2/searchResults/{}/relationships/{kind}", query_escape(query)), cursor, include)
@@ -309,7 +311,7 @@ pub fn favourite_ids(user_id: &str, if_none_match: &str) -> Result<Option<(legac
         bail!("unexpected status code: {}", resp.status().as_u16());
     }
     let etag = resp.headers().get("etag").and_then(|v| v.to_str().ok()).unwrap_or("").to_string();
-    Ok(Some((resp.json()?, etag)))
+    Ok(Some((openapi::from_slice_lenient(&resp.bytes()?)?, etag)))
 }
 
 /// kind: tracks | albums | playlists | artists
@@ -396,7 +398,7 @@ pub fn favourite_mix_ids(cursor: &str, if_none_match: &str) -> Result<(legacy::F
         bail!("error while retrieving favourite mix IDs: {}", resp.text().unwrap_or_default());
     }
     let etag = resp.headers().get("etag").and_then(|v| v.to_str().ok()).unwrap_or("").to_string();
-    Ok((resp.json()?, etag))
+    Ok((openapi::from_slice_lenient(&resp.bytes()?)?, etag))
 }
 
 // ---------------- device linking ----------------
@@ -516,3 +518,26 @@ mod net_tests {
     }
 }
 
+
+#[cfg(test)]
+mod search_live {
+    #[test]
+    #[ignore = "network"]
+    fn search_live() {
+        let r = super::search("franz ferdinand", &["topHits", "topHits.coverArt", "topHits.profileArt", "topHits.albums.coverArt", "topHits.albums.artists", "topHits.artists"]).unwrap();
+        let hits = &r.data.relationships.top_hits.data;
+        let (ar, al, pl, tr) = (r.included.artists(hits).len(), r.included.albums(hits).len(), r.included.playlists(hits).len(), r.included.tracks(hits).len());
+        let mut c = std::collections::BTreeMap::new();
+        for o in &r.included.0 { *c.entry(o.type_.clone()).or_insert(0) += 1; }
+        let mut h = std::collections::BTreeMap::new();
+        for o in hits { *h.entry(o.type_.clone()).or_insert(0) += 1; }
+        eprintln!("included {c:?} hits {h:?}");
+        eprintln!("artists {ar} albums {al} playlists {pl} tracks {tr}");
+        assert!(ar > 0 && al > 0 && tr > 0);
+        // "View All" pages use the search result id, like Go.
+        for kind in ["tracks", "albums", "artists", "playlists"] {
+            let rel = super::search_relationship(&r.data.id, kind, "", &[]).unwrap();
+            eprintln!("view all {kind}: {} items, next={}", rel.data.len(), rel.links.next.is_some());
+        }
+    }
+}
