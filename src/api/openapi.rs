@@ -668,3 +668,41 @@ mod tests {
     }
 }
 
+
+#[cfg(test)]
+mod collection_tests {
+    use super::*;
+
+    const TRACKS: &str = r#"{"data":[{"id":"1","type":"tracks","meta":{"addedAt":"2026-10-31T11:40:28.832Z"}}],
+      "included":[
+        {"id":"1","type":"tracks","attributes":{"title":"Song","version":null,"isrc":"X","duration":"PT3M13S",
+          "copyright":{"text":"(p)"},"explicit":false,"key":"Ab","keyScale":"MINOR","bpm":94.0,"popularity":0.8,
+          "accessType":"PUBLIC","availability":["STREAM"],"mediaTags":["LOSSLESS"],"toneTags":[],
+          "externalLinks":[{"href":"https://tidal.com/browse/track/1","meta":{"type":"TIDAL_SHARING"}}],
+          "spotlighted":false,"createdAt":"2019-01-17T05:05:30Z"},
+         "relationships":{"albums":{"data":[{"id":"2","type":"albums"}],"links":{"self":"/x"}},
+                          "artists":{"data":[{"id":"3","type":"artists"}],"links":{"self":"/x"}}}},
+        {"id":"2","type":"albums","attributes":{"title":"Album","duration":"PT3M13S","releaseDate":"2019-01-23",
+          "copyright":{"text":"(c)"},"type":"SINGLE","albumType":"SINGLE"},
+         "relationships":{"coverArt":{"data":[{"id":"a","type":"artworks"}],"links":{"self":"/x"}}}},
+        {"id":"3","type":"artists","attributes":{"name":"Artist"}}],
+      "links":{"self":"/s","next":"/s?page%5Bcursor%5D=20","meta":{"nextCursor":"20"}}}"#;
+
+    #[test]
+    fn user_collection_tracks_parse() {
+        let r: Relationships = from_slice_lenient(TRACKS.as_bytes()).unwrap();
+        assert_eq!(r.links.meta.and_then(|m| m.next_cursor).as_deref(), Some("20"));
+        let t = r.included.tracks(&r.data);
+        assert_eq!(t.len(), 1);
+        assert_eq!(t[0].data.attributes.title, "Song");
+        assert_eq!(t[0].data.attributes.duration.as_secs(), 193);
+        let albums = t[0].included.albums(&t[0].data.relationships.albums.data);
+        assert_eq!(albums[0].data.attributes.title, "Album");
+    }
+
+    #[test]
+    fn empty_user_collection_parses() {
+        let r: Relationships = from_slice_lenient(br#"{"data":[],"links":{"self":"/s"}}"#).unwrap();
+        assert!(r.data.is_empty() && r.included.albums(&r.data).is_empty());
+    }
+}

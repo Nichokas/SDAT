@@ -187,15 +187,20 @@ struct Inner {
     moving_source: Cell<i64>,
     moving_target: Cell<i64>,
     being_moved: RefCell<Option<Track>>,
-    view: gtk::ListView,
+    view: glib::WeakRef<gtk::ListView>,
     drop_target: RefCell<Option<gtk::DropTargetAsync>>,
 }
 
 pub type BoxedReorderFn = Box<dyn Fn(usize, usize, &Track)>;
 
 /// Port of `TrackList`. Cheap to clone.
+///
+/// The list view owns its state (`Inner`) through a destroy handler, so the
+/// rows keep working after every `TrackList` handle is dropped (Go relies on
+/// the GC for this). `Inner` only holds a weak ref back to the view, so there
+/// is no reference cycle.
 #[derive(Clone)]
-pub struct TrackList(Rc<Inner>);
+pub struct TrackList(Rc<Inner>, gtk::ListView);
 
 fn empty() -> glib::Object {
     gtk::StringObject::new("").upcast()
@@ -221,7 +226,7 @@ impl TrackList {
             moving_source: Cell::new(-1),
             moving_target: Cell::new(-1),
             being_moved: RefCell::new(None),
-            view: view.clone(),
+            view: view.downgrade(),
             drop_target: RefCell::new(None),
         });
         let w = Rc::downgrade(&inner);
@@ -258,11 +263,15 @@ impl TrackList {
             toggle_drop_target(&i, &w, *on);
             false
         });
-        TrackList(inner)
+        let keep = Rc::clone(&inner);
+        view.connect_destroy(move |_| {
+            let _ = &keep;
+        });
+        TrackList(inner, view)
     }
 
     pub fn widget(&self) -> &gtk::Widget {
-        self.0.view.upcast_ref()
+        self.1.upcast_ref()
     }
 
 
@@ -276,7 +285,7 @@ impl TrackList {
         let w = Rc::downgrade(&self.0);
         let alive = Rc::new(Cell::new(true));
         let a = Rc::clone(&alive);
-        self.0.view.connect_destroy(move |_| a.set(false));
+        self.1.connect_destroy(move |_| a.set(false));
         st.on(move |new| {
             let Some(i) = w.upgrade().filter(|_| alive.get()) else { return true };
             sync(&i, new);
@@ -452,7 +461,7 @@ fn toggle_drop_target(i: &Inner, w: &Weak<Inner>, on: bool) {
         target.connect_drag_motion(move |_, _, _, y| {
             let Some(i) = w1.upgrade() else { return gdk::DragAction::empty() };
             let Some(tr) = i.being_moved.borrow().clone() else { return gdk::DragAction::empty() };
-            let h = i.view.first_child().map_or(1, |c| c.height()).max(1);
+            let h = i.view.upgrade().and_then(|v| v.first_child()).map_or(1, |c| c.height()).max(1);
             let idx = (y / f64::from(h)).floor().max(0.0) as i64;
             if idx != i.moving_target.get() {
                 if idx as usize > i.tracks.borrow().len() {
@@ -495,10 +504,14 @@ fn toggle_drop_target(i: &Inner, w: &Weak<Inner>, on: bool) {
             }
             true
         });
-        i.view.add_controller(target.clone());
+        if let Some(v) = i.view.upgrade() {
+            v.add_controller(target.clone());
+        }
         *dt = Some(target);
     } else if !on && let Some(t) = dt.take() {
-        i.view.remove_controller(&t);
+        if let Some(v) = i.view.upgrade() {
+            v.remove_controller(&t);
+        }
     }
 }
 
@@ -519,5 +532,30 @@ mod sync_tests {
         assert_eq!(diff_ops(&[a.clone(), b.clone()], &[a.clone(), c.clone()]), vec![(1, Op::Replace)]);
         assert_eq!(diff_ops(&[a.clone(), b.clone(), c.clone()], std::slice::from_ref(&a)), vec![(2, Op::Remove), (1, Op::Remove)]);
         assert!(diff_ops(std::slice::from_ref(&a), std::slice::from_ref(&a)).is_empty());
+    }
+}
+
+#[cfg(test)]
+mod lifetime_tests {
+    use super::*;
+
+    /// Regression: pages build a `TrackList`, add tracks and drop the handle,
+    /// keeping only the widget. The row factory must still find its state, or
+    /// every row binds empty (collection/search "Tracks" showed nothing).
+    #[test]
+    fn state_lives_as_long_as_the_view() {
+        if gtk::init().is_err() {
+            eprintln!("no display; skipping");
+            return;
+        }
+        let list = TrackList::new(vec![Col::duration()]);
+        list.add_track(Track::default());
+        let inner = Rc::downgrade(&list.0);
+        let view = list.widget().clone();
+        drop(list);
+        assert!(inner.upgrade().is_some(), "state dropped while the view is alive");
+        assert_eq!(inner.upgrade().map(|i| i.tracks.borrow().len()), Some(1));
+        drop(view);
+        assert!(inner.upgrade().is_none(), "state leaked after the view was destroyed");
     }
 }
