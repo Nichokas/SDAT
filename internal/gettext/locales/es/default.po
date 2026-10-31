@@ -724,6 +724,27 @@ msgstr ""
 msgid "translator-credits"
 msgstr "rubiojr https://codeberg.org/rubiojr"
 
+msgid "Network"
+msgstr "Red"
+
+msgid "Configure how much Tonearm downloads in the background"
+msgstr "Configura cuánto descarga Tonearm en segundo plano"
+
+msgid "Preload Content"
+msgstr "Precargar contenido"
+
+msgid "Download your playlists, albums and favourite tracks in the background so they open instantly. Turn off to save bandwidth; changes apply immediately"
+msgstr "Descarga tus listas, álbumes y canciones favoritas en segundo plano para que se abran al instante. Desactívalo para ahorrar ancho de banda; los cambios se aplican al momento"
+
+msgid "Country / Region"
+msgstr "País / región"
+
+msgid "Catalogue region for TIDAL requests; Automatic uses your account's country. Applies to pages you open next"
+msgstr "Región del catálogo para las peticiones a TIDAL; Automático usa el país de tu cuenta. Se aplica a las páginas que abras a continuación"
+
+msgid "Automatic"
+msgstr "Automático"
+
 #~ msgid ""
 #~ "Allow Tonearm to temporarily store images on the file system to improve "
 #~ "performance and reduce network traffic"

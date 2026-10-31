@@ -8,7 +8,7 @@
 //! Only public catalogue data is stored (track metadata); nothing is written to disk.
 
 use std::collections::{HashMap, HashSet, VecDeque};
-use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::{Mutex, PoisonError};
 use std::time::Duration;
 
@@ -194,13 +194,62 @@ const START_DELAY: Duration = Duration::from_secs(5);
 
 static STARTED: AtomicUsize = AtomicUsize::new(0);
 
+// ------------------------------------------------------------- preference
+// Stored as a marker file (like the country choice) so an older installed
+// GSettings schema without the key can't make reads abort.
+
+static PRELOAD_LOADED: AtomicBool = AtomicBool::new(false);
+static PRELOAD: AtomicBool = AtomicBool::new(true);
+
+fn preload_marker() -> std::path::PathBuf {
+    glib::user_config_dir().join("tonearm").join("preload-disabled")
+}
+
+/// Whether background preloading is enabled (default on).
+pub fn preload_enabled() -> bool {
+    if !PRELOAD_LOADED.swap(true, Ordering::SeqCst) {
+        PRELOAD.store(!preload_marker().exists(), Ordering::SeqCst);
+    }
+    PRELOAD.load(Ordering::SeqCst)
+}
+
+/// Saves the preference and applies it live: turning it off stops the running
+/// prefetch before its next request; turning it on starts it again.
+pub fn set_preload_enabled(on: bool) {
+    PRELOAD_LOADED.store(true, Ordering::SeqCst);
+    PRELOAD.store(on, Ordering::SeqCst);
+    let m = preload_marker();
+    let r = if on {
+        match std::fs::remove_file(&m) {
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(()),
+            r => r,
+        }
+    } else {
+        m.parent().map_or(Ok(()), std::fs::create_dir_all).and_then(|()| std::fs::write(&m, b""))
+    };
+    if let Err(e) = r {
+        log::warn!("saving preload preference failed error={e}");
+    }
+    if on && !crate::secrets::user_id().is_empty() {
+        start_prefetch();
+    }
+}
+
 /// Starts the background prefetcher once (after login, when Home is shown).
 pub fn start_prefetch() {
+    if !preload_enabled() {
+        log::debug!("prefetch: disabled in preferences");
+        return;
+    }
     if STARTED.fetch_add(1, Ordering::SeqCst) > 0 {
         return;
     }
     glib::spawn_future_local(async {
         glib::timeout_future(START_DELAY).await;
+        if !preload_enabled() {
+            STARTED.store(0, Ordering::SeqCst);
+            return;
+        }
         let mut queue = Queue::default();
         queue.push(Job::FavouriteTracks);
         match api::run(|| service::user_collection_playlists("me").get_all()).await {
@@ -213,13 +262,18 @@ pub fn start_prefetch() {
         }
         log::debug!("prefetch: {} lists queued", queue.len());
         while let Some(job) = queue.pop(|k| get(k).is_some()) {
-            prefetch_one(&job).await;
+            if !prefetch_one(&job).await {
+                log::debug!("prefetch: stopped (disabled in preferences)");
+                STARTED.store(0, Ordering::SeqCst);
+                return;
+            }
         }
         log::debug!("prefetch: done");
     });
 }
 
-async fn prefetch_one(job: &Job) {
+/// Returns `false` if preloading was disabled meanwhile.
+async fn prefetch_one(job: &Job) -> bool {
     let key = job.key();
     let generation_at_start = generation(&key);
     let p = service::shared(job.paginator());
@@ -227,17 +281,21 @@ async fn prefetch_one(job: &Job) {
         while foreground_busy() {
             glib::timeout_future(YIELD_PAUSE).await;
         }
+        if !preload_enabled() {
+            return false;
+        }
         if p.lock().unwrap_or_else(PoisonError::into_inner).is_consumed() {
             break;
         }
         if let Err(e) = service::next_page(&p).await {
             log::debug!("prefetch: {key} failed error={e:#}");
-            return;
+            return true;
         }
         glib::timeout_future(PAGE_PAUSE).await;
     }
     let all = p.lock().unwrap_or_else(PoisonError::into_inner).items().to_vec();
     put(&key, generation_at_start, all);
+    true
 }
 
 #[cfg(test)]

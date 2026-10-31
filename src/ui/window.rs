@@ -584,6 +584,17 @@ fn present_shortcuts(window: &adw::ApplicationWindow) {
     d.present(Some(window));
 }
 
+/// Background preloading of playlists, albums and favourite tracks.
+fn preload_row() -> adw::SwitchRow {
+    let row = adw::SwitchRow::builder()
+        .title(tr("Preload Content"))
+        .subtitle(tr("Download your playlists, albums and favourite tracks in the background so they open instantly. Turn off to save bandwidth; changes apply immediately"))
+        .active(crate::cache::preload_enabled())
+        .build();
+    row.connect_active_notify(|r| crate::cache::set_preload_enabled(r.is_active()));
+    row
+}
+
 /// Country/region used for API requests. Applies to pages opened afterwards.
 fn country_row() -> adw::ComboRow {
     let row = adw::ComboRow::builder()
@@ -771,6 +782,10 @@ fn present_preferences(window: &adw::ApplicationWindow) {
                 )
                 .upcast_ref(),
             ],
+        ), group(
+            &tr("Network"),
+            &tr("Configure how much Tonearm downloads in the background"),
+            &[preload_row().upcast_ref()],
         )],
     ));
 
