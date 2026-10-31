@@ -2313,6 +2313,130 @@ public func FfiConverterTypeArtistRef_lower(_ value: ArtistRef) -> RustBuffer {
 }
 
 
+public struct ExplorePage: Equatable, Hashable {
+    public var title: String
+    public var sections: [ExploreSection]
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(title: String, sections: [ExploreSection]) {
+        self.title = title
+        self.sections = sections
+    }
+
+    
+
+    
+}
+
+#if compiler(>=6)
+extension ExplorePage: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeExplorePage: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> ExplorePage {
+        return
+            try ExplorePage(
+                title: FfiConverterString.read(from: &buf), 
+                sections: FfiConverterSequenceTypeExploreSection.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: ExplorePage, into buf: inout [UInt8]) {
+        FfiConverterString.write(value.title, into: &buf)
+        FfiConverterSequenceTypeExploreSection.write(value.sections, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeExplorePage_lift(_ buf: RustBuffer) throws -> ExplorePage {
+    return try FfiConverterTypeExplorePage.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeExplorePage_lower(_ value: ExplorePage) -> RustBuffer {
+    return FfiConverterTypeExplorePage.lower(value)
+}
+
+
+public struct ExploreSection: Equatable, Hashable {
+    public var title: String
+    public var links: [PageLink]
+    public var albums: [Album]
+    public var playlists: [Playlist]
+    public var artists: [ArtistRef]
+    public var tracks: [Track]
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(title: String, links: [PageLink], albums: [Album], playlists: [Playlist], artists: [ArtistRef], tracks: [Track]) {
+        self.title = title
+        self.links = links
+        self.albums = albums
+        self.playlists = playlists
+        self.artists = artists
+        self.tracks = tracks
+    }
+
+    
+
+    
+}
+
+#if compiler(>=6)
+extension ExploreSection: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeExploreSection: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> ExploreSection {
+        return
+            try ExploreSection(
+                title: FfiConverterString.read(from: &buf), 
+                links: FfiConverterSequenceTypePageLink.read(from: &buf), 
+                albums: FfiConverterSequenceTypeAlbum.read(from: &buf), 
+                playlists: FfiConverterSequenceTypePlaylist.read(from: &buf), 
+                artists: FfiConverterSequenceTypeArtistRef.read(from: &buf), 
+                tracks: FfiConverterSequenceTypeTrack.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: ExploreSection, into buf: inout [UInt8]) {
+        FfiConverterString.write(value.title, into: &buf)
+        FfiConverterSequenceTypePageLink.write(value.links, into: &buf)
+        FfiConverterSequenceTypeAlbum.write(value.albums, into: &buf)
+        FfiConverterSequenceTypePlaylist.write(value.playlists, into: &buf)
+        FfiConverterSequenceTypeArtistRef.write(value.artists, into: &buf)
+        FfiConverterSequenceTypeTrack.write(value.tracks, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeExploreSection_lift(_ buf: RustBuffer) throws -> ExploreSection {
+    return try FfiConverterTypeExploreSection.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeExploreSection_lower(_ value: ExploreSection) -> RustBuffer {
+    return FfiConverterTypeExploreSection.lower(value)
+}
+
+
 /**
  * `ReplayGain` of a track or album (dB and linear peak).
  */
@@ -2667,6 +2791,60 @@ public func FfiConverterTypeOwnPlaylist_lower(_ value: OwnPlaylist) -> RustBuffe
 }
 
 
+public struct PageLink: Equatable, Hashable {
+    public var title: String
+    public var path: String
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(title: String, path: String) {
+        self.title = title
+        self.path = path
+    }
+
+    
+
+    
+}
+
+#if compiler(>=6)
+extension PageLink: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypePageLink: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> PageLink {
+        return
+            try PageLink(
+                title: FfiConverterString.read(from: &buf), 
+                path: FfiConverterString.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: PageLink, into buf: inout [UInt8]) {
+        FfiConverterString.write(value.title, into: &buf)
+        FfiConverterString.write(value.path, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypePageLink_lift(_ buf: RustBuffer) throws -> PageLink {
+    return try FfiConverterTypePageLink.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypePageLink_lower(_ value: PageLink) -> RustBuffer {
+    return FfiConverterTypePageLink.lower(value)
+}
+
+
 public struct Playlist: Equatable, Hashable {
     public var id: String
     public var title: String
@@ -2758,6 +2936,75 @@ public func FfiConverterTypePlaylist_lift(_ buf: RustBuffer) throws -> Playlist 
 #endif
 public func FfiConverterTypePlaylist_lower(_ value: Playlist) -> RustBuffer {
     return FfiConverterTypePlaylist.lower(value)
+}
+
+
+/**
+ * A recently played item (home feed), shown as a cover tile.
+ */
+public struct RecentItem: Equatable, Hashable {
+    public var kind: RecentKind
+    public var id: String
+    public var title: String
+    public var subtitle: String
+    public var coverUrl: String?
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(kind: RecentKind, id: String, title: String, subtitle: String, coverUrl: String?) {
+        self.kind = kind
+        self.id = id
+        self.title = title
+        self.subtitle = subtitle
+        self.coverUrl = coverUrl
+    }
+
+    
+
+    
+}
+
+#if compiler(>=6)
+extension RecentItem: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeRecentItem: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> RecentItem {
+        return
+            try RecentItem(
+                kind: FfiConverterTypeRecentKind.read(from: &buf), 
+                id: FfiConverterString.read(from: &buf), 
+                title: FfiConverterString.read(from: &buf), 
+                subtitle: FfiConverterString.read(from: &buf), 
+                coverUrl: FfiConverterOptionString.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: RecentItem, into buf: inout [UInt8]) {
+        FfiConverterTypeRecentKind.write(value.kind, into: &buf)
+        FfiConverterString.write(value.id, into: &buf)
+        FfiConverterString.write(value.title, into: &buf)
+        FfiConverterString.write(value.subtitle, into: &buf)
+        FfiConverterOptionString.write(value.coverUrl, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeRecentItem_lift(_ buf: RustBuffer) throws -> RecentItem {
+    return try FfiConverterTypeRecentItem.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeRecentItem_lower(_ value: RecentItem) -> RustBuffer {
+    return FfiConverterTypeRecentItem.lower(value)
 }
 
 
@@ -3368,6 +3615,86 @@ public func FfiConverterTypeQuality_lower(_ value: Quality) -> RustBuffer {
 }
 
 
+
+
+public enum RecentKind: Equatable, Hashable {
+    
+    case album
+    case playlist
+    case artist
+    case mix
+
+
+
+
+
+}
+
+#if compiler(>=6)
+extension RecentKind: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeRecentKind: FfiConverterRustBuffer {
+    typealias SwiftType = RecentKind
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> RecentKind {
+        let variant: Int32 = try readInt(&buf)
+        switch variant {
+        
+        case 1: return .album
+        
+        case 2: return .playlist
+        
+        case 3: return .artist
+        
+        case 4: return .mix
+        
+        default: throw UniffiInternalError.unexpectedEnumCase
+        }
+    }
+
+    public static func write(_ value: RecentKind, into buf: inout [UInt8]) {
+        switch value {
+        
+        
+        case .album:
+            writeInt(&buf, Int32(1))
+        
+        
+        case .playlist:
+            writeInt(&buf, Int32(2))
+        
+        
+        case .artist:
+            writeInt(&buf, Int32(3))
+        
+        
+        case .mix:
+            writeInt(&buf, Int32(4))
+        
+        }
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeRecentKind_lift(_ buf: RustBuffer) throws -> RecentKind {
+    return try FfiConverterTypeRecentKind.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeRecentKind_lower(_ value: RecentKind) -> RustBuffer {
+    return FfiConverterTypeRecentKind.lower(value)
+}
+
+
 #if swift(>=5.8)
 @_documentation(visibility: private)
 #endif
@@ -3686,6 +4013,31 @@ fileprivate struct FfiConverterSequenceTypeArtistRef: FfiConverterRustBuffer {
 #if swift(>=5.8)
 @_documentation(visibility: private)
 #endif
+fileprivate struct FfiConverterSequenceTypeExploreSection: FfiConverterRustBuffer {
+    typealias SwiftType = [ExploreSection]
+
+    public static func write(_ value: [ExploreSection], into buf: inout [UInt8]) {
+        let len = Int32(value.count)
+        writeInt(&buf, len)
+        for item in value {
+            FfiConverterTypeExploreSection.write(item, into: &buf)
+        }
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> [ExploreSection] {
+        let len: Int32 = try readInt(&buf)
+        var seq = [ExploreSection]()
+        seq.reserveCapacity(Int(len))
+        for _ in 0 ..< len {
+            seq.append(try FfiConverterTypeExploreSection.read(from: &buf))
+        }
+        return seq
+    }
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
 fileprivate struct FfiConverterSequenceTypeMix: FfiConverterRustBuffer {
     typealias SwiftType = [Mix]
 
@@ -3736,6 +4088,31 @@ fileprivate struct FfiConverterSequenceTypeOwnPlaylist: FfiConverterRustBuffer {
 #if swift(>=5.8)
 @_documentation(visibility: private)
 #endif
+fileprivate struct FfiConverterSequenceTypePageLink: FfiConverterRustBuffer {
+    typealias SwiftType = [PageLink]
+
+    public static func write(_ value: [PageLink], into buf: inout [UInt8]) {
+        let len = Int32(value.count)
+        writeInt(&buf, len)
+        for item in value {
+            FfiConverterTypePageLink.write(item, into: &buf)
+        }
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> [PageLink] {
+        let len: Int32 = try readInt(&buf)
+        var seq = [PageLink]()
+        seq.reserveCapacity(Int(len))
+        for _ in 0 ..< len {
+            seq.append(try FfiConverterTypePageLink.read(from: &buf))
+        }
+        return seq
+    }
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
 fileprivate struct FfiConverterSequenceTypePlaylist: FfiConverterRustBuffer {
     typealias SwiftType = [Playlist]
 
@@ -3753,6 +4130,31 @@ fileprivate struct FfiConverterSequenceTypePlaylist: FfiConverterRustBuffer {
         seq.reserveCapacity(Int(len))
         for _ in 0 ..< len {
             seq.append(try FfiConverterTypePlaylist.read(from: &buf))
+        }
+        return seq
+    }
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+fileprivate struct FfiConverterSequenceTypeRecentItem: FfiConverterRustBuffer {
+    typealias SwiftType = [RecentItem]
+
+    public static func write(_ value: [RecentItem], into buf: inout [UInt8]) {
+        let len = Int32(value.count)
+        writeInt(&buf, len)
+        for item in value {
+            FfiConverterTypeRecentItem.write(item, into: &buf)
+        }
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> [RecentItem] {
+        let len: Int32 = try readInt(&buf)
+        var seq = [RecentItem]()
+        seq.reserveCapacity(Int(len))
+        for _ in 0 ..< len {
+            seq.append(try FfiConverterTypeRecentItem.read(from: &buf))
         }
         return seq
     }
@@ -3950,6 +4352,23 @@ public func collectionTracks() -> TrackPager  {
 })
 }
 /**
+ * An Explore page: `explore` (genres, moods, decades) or a linked `path`.
+ */
+public func explorePage(path: String)async throws  -> ExplorePage  {
+    return
+        try  await uniffiRustCallAsync(
+            rustFutureFunc: {
+                uniffi_tonearm_ffi_fn_func_explore_page(FfiConverterString.lower(path)
+                )
+            },
+            pollFunc: ffi_tonearm_ffi_rust_future_poll_rust_buffer,
+            completeFunc: ffi_tonearm_ffi_rust_future_complete_rust_buffer,
+            freeFunc: ffi_tonearm_ffi_rust_future_free_rust_buffer,
+            liftFunc: FfiConverterTypeExplorePage_lift,
+            errorHandler: FfiConverterTypeFfiError_lift
+        )
+}
+/**
  * Mixes of the home feed (My Mixes, My Daily Discovery, My New Arrivals...).
  */
 public func homeMixes()async throws  -> [Mix]  {
@@ -4026,7 +4445,42 @@ public func playlistTracks(id: String) -> TrackPager  {
 })
 }
 /**
- * First page of each kind; use the `search_*` pagers for "see all".
+ * What TIDAL lists as recently played on the home feed.
+ */
+public func recents()async throws  -> [RecentItem]  {
+    return
+        try  await uniffiRustCallAsync(
+            rustFutureFunc: {
+                uniffi_tonearm_ffi_fn_func_recents(
+                )
+            },
+            pollFunc: ffi_tonearm_ffi_rust_future_poll_rust_buffer,
+            completeFunc: ffi_tonearm_ffi_rust_future_complete_rust_buffer,
+            freeFunc: ffi_tonearm_ffi_rust_future_free_rust_buffer,
+            liftFunc: FfiConverterSequenceTypeRecentItem.lift,
+            errorHandler: FfiConverterTypeFfiError_lift
+        )
+}
+/**
+ * Removes the first occurrence of a track from one of the user's playlists.
+ */
+public func removeFromPlaylist(playlistId: String, trackId: String)async throws   {
+    return
+        try  await uniffiRustCallAsync(
+            rustFutureFunc: {
+                uniffi_tonearm_ffi_fn_func_remove_from_playlist(FfiConverterString.lower(playlistId),FfiConverterString.lower(trackId)
+                )
+            },
+            pollFunc: ffi_tonearm_ffi_rust_future_poll_void,
+            completeFunc: ffi_tonearm_ffi_rust_future_complete_void,
+            freeFunc: ffi_tonearm_ffi_rust_future_free_void,
+            liftFunc: { $0 },
+            errorHandler: FfiConverterTypeFfiError_lift
+        )
+}
+/**
+ * Top hits of each kind (one request, like the desktop search page); use the
+ * `search_*` pagers for "see all".
  */
 public func search(query: String)async throws  -> SearchResults  {
     return
@@ -4310,6 +4764,9 @@ private let initializationResult: InitializationResult = {
     if (uniffi_tonearm_ffi_checksum_func_collection_tracks() != 13722) {
         return InitializationResult.apiChecksumMismatch
     }
+    if (uniffi_tonearm_ffi_checksum_func_explore_page() != 62318) {
+        return InitializationResult.apiChecksumMismatch
+    }
     if (uniffi_tonearm_ffi_checksum_func_home_mixes() != 60558) {
         return InitializationResult.apiChecksumMismatch
     }
@@ -4325,7 +4782,13 @@ private let initializationResult: InitializationResult = {
     if (uniffi_tonearm_ffi_checksum_func_playlist_tracks() != 6542) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_tonearm_ffi_checksum_func_search() != 19941) {
+    if (uniffi_tonearm_ffi_checksum_func_recents() != 35214) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_tonearm_ffi_checksum_func_remove_from_playlist() != 43565) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_tonearm_ffi_checksum_func_search() != 43811) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_tonearm_ffi_checksum_func_search_albums() != 32175) {

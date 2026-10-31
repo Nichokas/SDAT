@@ -517,6 +517,11 @@ uint64_t uniffi_tonearm_ffi_fn_func_collection_tracks(RustCallStatus *_Nonnull o
     
 );
 #endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_TONEARM_FFI_FN_FUNC_EXPLORE_PAGE
+#define UNIFFI_FFIDEF_UNIFFI_TONEARM_FFI_FN_FUNC_EXPLORE_PAGE
+uint64_t uniffi_tonearm_ffi_fn_func_explore_page(RustBuffer path
+);
+#endif
 #ifndef UNIFFI_FFIDEF_UNIFFI_TONEARM_FFI_FN_FUNC_HOME_MIXES
 #define UNIFFI_FFIDEF_UNIFFI_TONEARM_FFI_FN_FUNC_HOME_MIXES
 uint64_t uniffi_tonearm_ffi_fn_func_home_mixes(void
@@ -542,6 +547,17 @@ uint64_t uniffi_tonearm_ffi_fn_func_playlist(RustBuffer id
 #ifndef UNIFFI_FFIDEF_UNIFFI_TONEARM_FFI_FN_FUNC_PLAYLIST_TRACKS
 #define UNIFFI_FFIDEF_UNIFFI_TONEARM_FFI_FN_FUNC_PLAYLIST_TRACKS
 uint64_t uniffi_tonearm_ffi_fn_func_playlist_tracks(RustBuffer id, RustCallStatus *_Nonnull out_status
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_TONEARM_FFI_FN_FUNC_RECENTS
+#define UNIFFI_FFIDEF_UNIFFI_TONEARM_FFI_FN_FUNC_RECENTS
+uint64_t uniffi_tonearm_ffi_fn_func_recents(void
+    
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_TONEARM_FFI_FN_FUNC_REMOVE_FROM_PLAYLIST
+#define UNIFFI_FFIDEF_UNIFFI_TONEARM_FFI_FN_FUNC_REMOVE_FROM_PLAYLIST
+uint64_t uniffi_tonearm_ffi_fn_func_remove_from_playlist(RustBuffer playlist_id, RustBuffer track_id
 );
 #endif
 #ifndef UNIFFI_FFIDEF_UNIFFI_TONEARM_FFI_FN_FUNC_SEARCH
@@ -956,6 +972,12 @@ uint16_t uniffi_tonearm_ffi_checksum_func_collection_tracks(void
     
 );
 #endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_TONEARM_FFI_CHECKSUM_FUNC_EXPLORE_PAGE
+#define UNIFFI_FFIDEF_UNIFFI_TONEARM_FFI_CHECKSUM_FUNC_EXPLORE_PAGE
+uint16_t uniffi_tonearm_ffi_checksum_func_explore_page(void
+    
+);
+#endif
 #ifndef UNIFFI_FFIDEF_UNIFFI_TONEARM_FFI_CHECKSUM_FUNC_HOME_MIXES
 #define UNIFFI_FFIDEF_UNIFFI_TONEARM_FFI_CHECKSUM_FUNC_HOME_MIXES
 uint16_t uniffi_tonearm_ffi_checksum_func_home_mixes(void
@@ -983,6 +1005,18 @@ uint16_t uniffi_tonearm_ffi_checksum_func_playlist(void
 #ifndef UNIFFI_FFIDEF_UNIFFI_TONEARM_FFI_CHECKSUM_FUNC_PLAYLIST_TRACKS
 #define UNIFFI_FFIDEF_UNIFFI_TONEARM_FFI_CHECKSUM_FUNC_PLAYLIST_TRACKS
 uint16_t uniffi_tonearm_ffi_checksum_func_playlist_tracks(void
+    
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_TONEARM_FFI_CHECKSUM_FUNC_RECENTS
+#define UNIFFI_FFIDEF_UNIFFI_TONEARM_FFI_CHECKSUM_FUNC_RECENTS
+uint16_t uniffi_tonearm_ffi_checksum_func_recents(void
+    
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_TONEARM_FFI_CHECKSUM_FUNC_REMOVE_FROM_PLAYLIST
+#define UNIFFI_FFIDEF_UNIFFI_TONEARM_FFI_CHECKSUM_FUNC_REMOVE_FROM_PLAYLIST
+uint16_t uniffi_tonearm_ffi_checksum_func_remove_from_playlist(void
     
 );
 #endif

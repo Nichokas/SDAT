@@ -10,54 +10,66 @@ final class Player {
 
     enum Repeat { case off, all, one }
 
+    /// Base queue (album, playlist, mix...) and position in it.
     private(set) var queue: [Track] = []
     private(set) var index: Int?
+    /// "Play next" / "Add to queue" tracks; they play before the rest of the base queue.
+    private(set) var userQueue: [Track] = []
+    /// Track currently playing (may come from the user queue).
+    private(set) var current: Track?
     private(set) var isPlaying = false
     private(set) var position: Double = 0
     private(set) var duration: Double = 0
     private(set) var stream: Stream?
     private(set) var sourceTitle: String?
-    var shuffle = false
+    private(set) var shuffle = false
     var repeatMode: Repeat = .off
     var error: String?
 
-    var current: Track? { index.flatMap { queue.indices.contains($0) ? queue[$0] : nil } }
     var progress: Double { duration > 0 ? min(position / duration, 1) : 0 }
-    /// Tracks after the current one.
+    /// Base-queue tracks after the current one.
     var upNext: ArraySlice<Track> { index.map { queue.dropFirst($0 + 1) } ?? queue[...] }
+    /// Base queue in its unshuffled order, restored when shuffle is turned off.
+    private var original: [Track] = []
 
-    private let avPlayer = AVPlayer()
+    private let avPlayer = AVQueuePlayer()
     private var timeObserver: Any?
     private var endObserver: NSObjectProtocol?
     private var infinite: Shuffle?
     private var loadTask: Task<Void, Never>?
+    private var preloadTask: Task<Void, Never>?
+    private var preloaded: (trackId: String, item: AVPlayerItem, stream: Stream)?
     private var startedAt: Date?
     private var listened: Double = 0
     private var scrobbled = false
     private var artwork: MPMediaItemArtwork?
 
     private init() {
+        avPlayer.actionAtItemEnd = .advance
         configureSession()
         configureRemote()
         timeObserver = avPlayer.addPeriodicTimeObserver(
-            forInterval: CMTime(seconds: 0.5, preferredTimescale: 600), queue: .main
+            forInterval: CMTime(seconds: 0.25, preferredTimescale: 600), queue: .main
         ) { [weak self] time in
             MainActor.assumeIsolated { self?.tick(time.seconds) }
         }
         endObserver = NotificationCenter.default.addObserver(
             forName: AVPlayerItem.didPlayToEndTimeNotification, object: nil, queue: .main
-        ) { [weak self] _ in
-            MainActor.assumeIsolated { self?.trackEnded() }
+        ) { [weak self] note in
+            let item = note.object as? AVPlayerItem
+            MainActor.assumeIsolated { self?.trackEnded(item) }
         }
     }
 
     // MARK: queue
 
     func play(_ tracks: [Track], startAt: Int = 0, from source: String? = nil) {
+        guard tracks.indices.contains(startAt) else { return }
         infinite = nil
+        original = tracks
         var list = tracks
         var start = startAt
-        if shuffle, !list.isEmpty {
+        if shuffle {
             let first = list.remove(at: startAt)
             list.shuffle()
             list.insert(first, at: 0)
@@ -68,42 +80,89 @@ final class Player {
         load(start)
     }
 
+    /// Plays the list in a random order (Shuffle buttons).
+    func playShuffled(_ tracks: [Track], from source: String? = nil) {
+        guard !tracks.isEmpty else { return }
+        shuffle = true
+        play(tracks, startAt: Int.random(in: tracks.indices), from: source)
+    }
+
     /// Discover's shuffle: endless queue mixing mixes, radios and discoveries.
     func playInfinite(mixes: [Mix]) {
         let source = Shuffle(mixes: mixes)
         infinite = source
-        queue = []
         sourceTitle = "Discover"
         Task {
             do {
                 let batch = try await source.nextBatch(min: 10)
-                guard infinite === source else { return }
+                guard infinite === source, !batch.isEmpty else { return }
                 queue = batch
+                original = batch
                 load(0)
             } catch { self.error = error.localizedDescription }
         }
     }
 
+    func setShuffle(_ on: Bool) {
+        guard on != shuffle else { return }
+        shuffle = on
+        guard let i = index, infinite == nil else { return }
+        let head = Array(queue[...i])
+        if on {
+            queue = head + queue.dropFirst(i + 1).shuffled()
+        } else if let cur = queue[safe: i], let at = original.firstIndex(where: { $0.id == cur.id }) {
+            queue = original
+            index = at
+            _ = head
+        }
+        invalidatePreload()
+    }
+
     func playNext(_ track: Track) {
-        let at = (index ?? -1) + 1
-        queue.insert(track, at: min(at, queue.count))
-        if index == nil { load(0) }
+        if current == nil { play([track]); return }
+        userQueue.insert(track, at: 0)
+        invalidatePreload()
+    }
+
+    func addToQueue(_ track: Track) {
+        if current == nil { play([track]); return }
+        userQueue.append(track)
+        invalidatePreload()
+    }
+
+    func removeUserQueue(at offsets: IndexSet) {
+        userQueue.remove(atOffsets: offsets)
+        invalidatePreload()
+    }
+
+    func moveUserQueue(from: IndexSet, to: Int) {
+        userQueue.move(fromOffsets: from, toOffset: to)
+        invalidatePreload()
     }
 
     func moveUpNext(from: IndexSet, to: Int) {
         guard let i = index else { return }
         let offset = i + 1
         queue.move(fromOffsets: IndexSet(from.map { $0 + offset }), toOffset: to + offset)
+        invalidatePreload()
     }
 
     func removeUpNext(at offsets: IndexSet) {
         guard let i = index else { return }
         queue.remove(atOffsets: IndexSet(offsets.map { $0 + i + 1 }))
+        invalidatePreload()
     }
 
     func jump(toUpNext offset: Int) {
         guard let i = index else { return }
         load(i + 1 + offset)
+    }
+
+    func jump(toUser offset: Int) {
+        guard userQueue.indices.contains(offset) else { return }
+        let t = userQueue[offset]
+        userQueue.removeFirst(offset + 1)
+        start(t)
     }
 
     // MARK: transport
@@ -114,11 +173,7 @@ final class Player {
         updateNowPlaying()
     }
 
-    func next() {
-        guard let i = index else { return }
-        if i + 1 < queue.count { load(i + 1) }
-        else if repeatMode == .all, !queue.isEmpty { load(0) }
-    }
+    func next() { advance(auto: false) }
 
     func previous() {
         guard let i = index else { return }
@@ -133,45 +188,117 @@ final class Player {
 
     func cycleRepeat() {
         repeatMode = switch repeatMode { case .off: .all; case .all: .one; case .one: .off }
+        invalidatePreload()
     }
 
     /// Re-requests the current track's manifest after a quality change, keeping the position.
     func reloadQuality() {
-        guard let i = index else { return }
-        load(i, resumeAt: position)
+        guard let t = current else { return }
+        start(t, resumeAt: position)
     }
 
     // MARK: internals
 
+    /// What plays after the current track: (track, comes from user queue, base index).
+    private func following() -> (Track, Bool, Int?)? {
+        if repeatMode == .one, let c = current { return (c, false, index) }
+        if let u = userQueue.first { return (u, true, index) }
+        guard let i = index else { return nil }
+        if i + 1 < queue.count { return (queue[i + 1], false, i + 1) }
+        if repeatMode == .all, !queue.isEmpty { return (queue[0], false, 0) }
+        return nil
+    }
+
+    private func advance(auto: Bool) {
+        guard let (t, fromUser, newIndex) = following() else {
+            isPlaying = false
+            updateNowPlaying()
+            return
+        }
+        if fromUser { userQueue.removeFirst() }
+        index = newIndex
+        if auto, let p = preloaded, p.trackId == t.id, avPlayer.currentItem === p.item {
+            preloaded = nil
+            adopt(t, stream: p.stream)
+            avPlayer.play()
+            isPlaying = true
+            afterStart(t)
+        } else {
+            start(t)
+        }
+    }
+
     private func load(_ i: Int, resumeAt: Double = 0) {
         guard queue.indices.contains(i) else { return }
         index = i
-        let track = queue[i]
-        position = resumeAt
+        start(queue[i], resumeAt: resumeAt)
+    }
+
+    private func adopt(_ track: Track, stream s: Stream?) {
+        current = track
+        stream = s
+        position = 0
         duration = Double(track.durationSecs)
         listened = 0
         scrobbled = false
         startedAt = Date()
         artwork = nil
+    }
+
+    private func start(_ track: Track, resumeAt: Double = 0) {
+        adopt(track, stream: nil)
+        position = resumeAt
+        invalidatePreload()
         loadTask?.cancel()
         loadTask = Task {
             do {
                 let s = try await Torneam.stream(trackId: track.id, quality: Preferences.shared.streamingQuality)
                 guard !Task.isCancelled, current?.id == track.id, let url = URL(string: s.url) else { return }
                 stream = s
-                let item = AVPlayerItem(url: url)
-                avPlayer.replaceCurrentItem(with: item)
+                avPlayer.removeAllItems()
+                avPlayer.insert(AVPlayerItem(url: url), after: nil)
                 if resumeAt > 0 { await avPlayer.seek(to: CMTime(seconds: resumeAt, preferredTimescale: 600)) }
                 avPlayer.play()
                 isPlaying = true
-                updateNowPlaying()
-                await loadArtwork(track)
-                nowPlayingScrobble(track)
+                afterStart(track)
             } catch {
-                self.error = error.localizedDescription
+                if !Task.isCancelled { self.error = error.localizedDescription }
             }
         }
+    }
+
+    private func afterStart(_ track: Track) {
+        updateNowPlaying()
+        Task {
+            await loadArtwork(track)
+        }
+        nowPlayingScrobble(track)
         refillIfNeeded()
+        schedulePreload()
+    }
+
+    /// Prepares the next track's AVPlayerItem behind the current one (gapless-ish start).
+    private func schedulePreload() {
+        preloadTask?.cancel()
+        guard Preferences.shared.preloadNext, repeatMode != .one,
+              let (next, _, _) = following(), let cur = current else { return }
+        preloadTask = Task {
+            guard let s = try? await Torneam.stream(trackId: next.id, quality: Preferences.shared.streamingQuality),
+                  !Task.isCancelled, current?.id == cur.id, let url = URL(string: s.url),
+                  let curItem = avPlayer.currentItem else { return }
+            let item = AVPlayerItem(url: url)
+            item.preferredForwardBufferDuration = 10
+            guard avPlayer.canInsert(item, after: curItem) else { return }
+            avPlayer.insert(item, after: curItem)
+            preloaded = (next.id, item, s)
+        }
+    }
+
+    private func invalidatePreload() {
+        preloadTask?.cancel()
+        if let p = preloaded { avPlayer.remove(p.item) }
+        preloaded = nil
+        if current != nil, stream != nil { schedulePreload() }
     }
 
     private func tick(_ t: Double) {
@@ -185,12 +312,11 @@ final class Player {
         }
     }
 
-    private func trackEnded() {
-        if repeatMode == .one { seek(to: 0); avPlayer.play(); return }
-        guard let i = index else { return }
-        if i + 1 < queue.count { load(i + 1) }
-        else if repeatMode == .all, !queue.isEmpty { load(0) }
-        else { isPlaying = false; updateNowPlaying() }
+    private func trackEnded(_ item: AVPlayerItem?) {
+        // Only react to the item that was actually playing.
+        guard item == nil || item === avPlayer.items().first || item !== preloaded?.item else { return }
+        if repeatMode == .one, let c = current { start(c); return }
+        DispatchQueue.main.async { self.advance(auto: true) }
     }
 
     private func refillIfNeeded() {
@@ -198,6 +324,7 @@ final class Player {
         Task {
             guard let more = try? await source.nextBatch(min: 10), infinite === source else { return }
             queue.append(contentsOf: more)
+            original.append(contentsOf: more)
         }
     }
 
@@ -297,4 +424,8 @@ final class Player {
             Task.detached { await listenbrainzScrobble(userToken: tok, track: st, listenedAt: ts) }
         }
     }
+}
+
+extension Array {
+    subscript(safe i: Int) -> Element? { indices.contains(i) ? self[i] : nil }
 }

@@ -20,7 +20,7 @@ extension Quality: CaseIterable, Identifiable {
 
     var label: String {
         switch self {
-        case .hiFi: "HiFi"
+        case .hiFi: "Hi-Res"
         case .cd: "CD"
         case .aac: "AAC"
         }
@@ -48,21 +48,17 @@ final class Preferences {
         didSet { d.set(downloadQuality.key, forKey: "downloadQuality") }
     }
     var downloadOverCellular: Bool { didSet { d.set(downloadOverCellular, forKey: "downloadOverCellular") } }
-    var normalizeVolume: Bool { didSet { d.set(normalizeVolume, forKey: "normalizeVolume") } }
+    var preloadNext: Bool { didSet { d.set(preloadNext, forKey: "preloadNext") } }
     var scrobbleLastFm: Bool { didSet { d.set(scrobbleLastFm, forKey: "scrobbleLastFm") } }
     var scrobbleListenBrainz: Bool { didSet { d.set(scrobbleListenBrainz, forKey: "scrobbleListenBrainz") } }
-    var appearance: Int { didSet { d.set(appearance, forKey: "appearance") } } // 0 system, 1 light, 2 dark
-
-    var colorScheme: ColorScheme? { appearance == 1 ? .light : appearance == 2 ? .dark : nil }
 
     private init() {
         streamingQuality = Quality(key: d.string(forKey: "streamingQuality") ?? "") ?? .hiFi
         downloadQuality = Quality(key: d.string(forKey: "downloadQuality") ?? "") ?? .hiFi
         downloadOverCellular = d.bool(forKey: "downloadOverCellular")
-        normalizeVolume = d.bool(forKey: "normalizeVolume")
+        preloadNext = d.object(forKey: "preloadNext") as? Bool ?? true
         scrobbleLastFm = d.bool(forKey: "scrobbleLastFm")
         scrobbleListenBrainz = d.bool(forKey: "scrobbleListenBrainz")
-        appearance = d.integer(forKey: "appearance")
     }
 }
 
@@ -74,5 +70,15 @@ final class DefaultsAppConfig: AppConfig, @unchecked Sendable {
 
     func configDir() -> String? {
         FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first?.path
+    }
+}
+
+extension Stream {
+    /// Quality actually delivered (the user's setting is a maximum).
+    var actualQuality: Quality {
+        if formats.contains("FLAC_HIRES") { return .hiFi }
+        if formats.contains("FLAC") { return .cd }
+        if formats.isEmpty { return quality }
+        return .aac
     }
 }

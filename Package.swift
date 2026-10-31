@@ -31,6 +31,7 @@ let package = Package(
         .target(
             name: "Torneam",
             dependencies: ["tonearm_ffiFFI"],
+            resources: [.process("Resources")],
             swiftSettings: [.swiftLanguageMode(.v5)]
         ),
     ]

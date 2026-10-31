@@ -1,4 +1,5 @@
 import SwiftUI
+import SafariServices
 
 struct SettingsView: View {
     @Environment(Session.self) private var session
@@ -8,6 +9,8 @@ struct SettingsView: View {
     @State private var confirmLogout = false
     @State private var lastFmUser = Keychain.get("lastfm.user")
     @State private var lastFmPending: LastFmAuth?
+    @State private var safariURL: IdentURL?
+    @State private var lastFmError: String?
     @State private var listenBrainzToken = ""
     @State private var hasListenBrainz = Keychain.get("listenbrainz.token") != nil
 
@@ -24,7 +27,7 @@ struct SettingsView: View {
                     get: { prefs.streamingQuality },
                     set: { prefs.streamingQuality = $0; player.reloadQuality() }
                 ))
-                Toggle("Normalize volume", isOn: $prefs.normalizeVolume)
+                Toggle("Preload next tracks", isOn: $prefs.preloadNext)
             }
 
             Section("Downloads") {
@@ -39,14 +42,6 @@ struct SettingsView: View {
                 if prefs.scrobbleListenBrainz { listenBrainzRow }
             }
 
-            Section("Appearance") {
-                Picker("Theme", selection: $prefs.appearance) {
-                    Text("System").tag(0)
-                    Text("Light").tag(1)
-                    Text("Dark").tag(2)
-                }
-            }
-
             Section("About") {
                 LabeledContent("Version", value: Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "dev")
                 Link("Source code", destination: URL(string: "https://github.com/nichokas/Tonearm")!)
@@ -54,7 +49,7 @@ struct SettingsView: View {
         }
         .navigationTitle("Settings")
         .navigationBarTitleDisplayMode(.inline)
-        .toolbar(.hidden, for: .tabBar)
+        .sheet(item: $safariURL, onDismiss: finishLastFm) { u in SafariView(url: u.url).ignoresSafeArea() }
         .confirmationDialog("Log out of TIDAL?", isPresented: $confirmLogout, titleVisibility: .visible) {
             Button("Log out", role: .destructive) { session.logOut() }
         }
@@ -66,7 +61,7 @@ struct SettingsView: View {
             Spacer()
             QualityMenu(selection: selection) {
                 HStack(spacing: 4) {
-                    QualityBadge(quality: selection.wrappedValue)
+                    QualityLogo(quality: selection.wrappedValue, height: 15)
                     Image(systemName: "chevron.up.chevron.down").font(.caption2)
                 }
                 .foregroundStyle(.secondary)
@@ -83,25 +78,38 @@ struct SettingsView: View {
                 Keychain.set("lastfm.user", nil)
                 lastFmUser = nil
             }
-        } else if let pending = lastFmPending {
-            Button("I've approved it in Last.fm") {
-                Task {
-                    guard let sk = try? await lastfmFinishAuth(token: pending.token) else { return }
-                    Keychain.set("lastfm.session", sk)
-                    let name = (try? await lastfmUsername(sessionKey: sk)) ?? "Last.fm"
-                    Keychain.set("lastfm.user", name)
-                    lastFmUser = name
-                    lastFmPending = nil
-                }
-            }
         } else {
-            Button("Connect Last.fm") {
+            Button(lastFmPending == nil ? "Connect Last.fm" : "Connecting…") {
                 Task {
-                    guard let auth = try? await lastfmBeginAuth(), let url = URL(string: auth.url) else { return }
-                    lastFmPending = auth
-                    openURL(url)
+                    do {
+                        let auth = try await lastfmBeginAuth()
+                        guard let url = URL(string: auth.url) else { return }
+                        lastFmPending = auth
+                        safariURL = IdentURL(url: url)
+                    } catch { lastFmError = error.localizedDescription }
                 }
             }
+            .disabled(lastFmPending != nil)
+            if let lastFmError { ErrorBanner(text: lastFmError) }
+        }
+    }
+
+    /// Called when the in-app Safari sheet closes: finish the Last.fm handshake.
+    private func finishLastFm() {
+        guard let pending = lastFmPending else { return }
+        Task {
+            defer { lastFmPending = nil }
+            do {
+                guard let sk = try await lastfmFinishAuth(token: pending.token) else {
+                    lastFmError = "Last.fm access wasn't approved."
+                    return
+                }
+                Keychain.set("lastfm.session", sk)
+                let name = (try? await lastfmUsername(sessionKey: sk)) ?? "Last.fm"
+                Keychain.set("lastfm.user", name)
+                lastFmUser = name
+                lastFmError = nil
+            } catch { lastFmError = error.localizedDescription }
         }
     }
 
@@ -123,4 +131,17 @@ struct SettingsView: View {
                 }
         }
     }
+}
+
+struct IdentURL: Identifiable { let url: URL; var id: String { url.absoluteString } }
+
+struct SafariView: UIViewControllerRepresentable {
+    let url: URL
+    func makeUIViewController(context: Context) -> SFSafariViewController {
+        let vc = SFSafariViewController(url: url)
+        vc.preferredControlTintColor = .systemBlue
+        vc.dismissButtonStyle = .done
+        return vc
+    }
+    func updateUIViewController(_ vc: SFSafariViewController, context: Context) {}
 }

@@ -1,27 +1,70 @@
 import SwiftUI
 
 struct SearchView: View {
+    enum Filter: String, CaseIterable { case top = "Top", tracks = "Tracks", artists = "Artists", albums = "Albums", playlists = "Playlists" }
     @State private var query = ""
+    @State private var debounced = ""
+    @State private var filter: Filter = .top
     @State private var results: SearchResults?
     @State private var searching = false
+    @State private var error: String?
 
     var body: some View {
+        Group {
+            if debounced.isEmpty {
+                ExploreContent(path: "explore", showTitle: false)
+            } else {
+                VStack(spacing: 0) {
+                    ScrollView(.horizontal, showsIndicators: false) {
+                        HStack(spacing: 8) {
+                            ForEach(Filter.allCases, id: \.self) { f in Chip(title: f.rawValue, selected: filter == f) { filter = f } }
+                        }
+                        .padding(.horizontal, 16).padding(.vertical, 8)
+                    }
+                    switch filter {
+                    case .top: top
+                    case .tracks: PagedTracks(title: "Search", pager: searchTracks(query: debounced)).id(debounced)
+                    case .artists: PagedArtists(title: "Search", pager: searchArtists(query: debounced)).id(debounced)
+                    case .albums: PagedAlbums(title: "Search", pager: searchAlbums(query: debounced)).id(debounced)
+                    case .playlists: PagedPlaylists(title: "Search", pager: searchPlaylists(query: debounced)).id(debounced)
+                    }
+                }
+            }
+        }
+        .navigationTitle("Explore")
+        .profileToolbar()
+        .searchable(text: $query, placement: .navigationBarDrawer(displayMode: .always), prompt: "Artists, songs, albums")
+        .task(id: query) {
+            let q = query.trimmingCharacters(in: .whitespaces)
+            if q.isEmpty { debounced = ""; results = nil; error = nil; return }
+            try? await Task.sleep(for: .milliseconds(300))
+            guard !Task.isCancelled else { return }
+            debounced = q
+            searching = true
+            defer { searching = false }
+            do { results = try await search(query: q); error = nil } catch {
+                guard !Task.isCancelled else { return }
+                self.error = error.localizedDescription
+            }
+        }
+    }
+
+    private var top: some View {
         List {
+            if let error { ErrorBanner(text: error) }
             if let r = results {
-                if !r.tracks.isEmpty {
-                    Section("Tracks") { TrackList(tracks: r.tracks, source: "Search") }
+                if r.tracks.isEmpty && r.albums.isEmpty && r.artists.isEmpty && r.playlists.isEmpty {
+                    ContentUnavailableView.search(text: debounced)
                 }
                 if !r.artists.isEmpty {
                     Section("Artists") {
-                        ForEach(r.artists, id: \.id) { a in
-                            NavigationLink(value: Route.artist(a.id)) {
-                                HStack {
-                                    Cover(url: a.pictureUrl, size: 44, radius: 22)
-                                    Text(a.name)
-                                }
-                            }
+                        ForEach(r.artists.prefix(4), id: \.id) { a in
+                            NavigationLink(value: Route.artist(a.id)) { MediaRow(title: a.name, subtitle: "Artist", cover: a.pictureUrl, round: true) }
                         }
                     }
+                }
+                if !r.tracks.isEmpty {
+                    Section("Tracks") { TrackList(tracks: r.tracks, source: "Search") }
                 }
                 if !r.albums.isEmpty {
                     Section("Albums") {
@@ -40,34 +83,117 @@ struct SearchView: View {
             }
         }
         .listStyle(.plain)
-        .overlay { if searching { ProgressView() } }
-        .navigationTitle("Search")
-        .profileToolbar()
-        .searchable(text: $query, prompt: "Artists, songs, albums")
-        .task(id: query) {
-            let q = query.trimmingCharacters(in: .whitespaces)
-            guard !q.isEmpty else { results = nil; return }
-            try? await Task.sleep(for: .milliseconds(350))
-            guard !Task.isCancelled else { return }
-            searching = true
-            results = try? await search(query: q)
-            searching = false
-        }
+        .collapsesChrome()
+        .overlay { if searching && results == nil { ProgressView() } }
     }
 }
 
-struct MediaRow: View {
+struct ExploreView: View {
+    let path: String
     let title: String
-    let subtitle: String
-    let cover: String?
+    var body: some View {
+        ExploreContent(path: path, showTitle: true).navigationTitle(title)
+    }
+}
+
+/// TIDAL Explore page: chip clouds (Genres, Moods & Activities, Decades...) and media rows.
+struct ExploreContent: View {
+    let path: String
+    let showTitle: Bool
+    @State private var page: ExplorePage?
+    @State private var error: String?
+    @State private var asList: Set<String> = []
+    @Environment(Player.self) private var player
 
     var body: some View {
-        HStack(spacing: 12) {
-            Cover(url: cover, size: 52, radius: 6)
-            VStack(alignment: .leading, spacing: 2) {
-                Text(title).lineLimit(1)
-                Text(subtitle).font(.subheadline).foregroundStyle(.secondary).lineLimit(1)
+        ScrollView {
+            LazyVStack(alignment: .leading, spacing: 24) {
+                if let error {
+                    ErrorBanner(text: error)
+                    Button("Retry") { self.error = nil; Task { await load() } }
+                }
+                if page == nil && error == nil { ProgressView().frame(maxWidth: .infinity).padding(.top, 60) }
+                ForEach(Array((page?.sections ?? []).enumerated()), id: \.offset) { _, s in section(s) }
+            }
+            .padding(16)
+        }
+        .collapsesChrome()
+        .task { if page == nil { await load() } }
+    }
+
+    private func load() async {
+        do { page = try await explorePage(path: path) } catch { self.error = error.localizedDescription }
+    }
+
+    @ViewBuilder
+    private func section(_ s: ExploreSection) -> some View {
+        VStack(alignment: .leading, spacing: 12) {
+            if !s.title.isEmpty {
+                HStack {
+                    Text(s.title).font(.title3.bold())
+                    Spacer()
+                    if !s.links.isEmpty {
+                        Button(asList.contains(s.title) ? "View as chips" : "View as list") {
+                            if asList.contains(s.title) { asList.remove(s.title) } else { asList.insert(s.title) }
+                        }
+                        .font(.subheadline)
+                    }
+                }
+            }
+            if !s.links.isEmpty {
+                if asList.contains(s.title) {
+                    VStack(spacing: 0) {
+                        ForEach(s.links, id: \.path) { l in
+                            Button { Chrome.shared.push(.explore(path: l.path, title: l.title)) } label: {
+                                HStack { Text(l.title); Spacer(); Image(systemName: "chevron.right").foregroundStyle(.tertiary) }
+                                    .frame(height: 44).contentShape(.rect)
+                            }
+                            .buttonStyle(.plain)
+                            Divider()
+                        }
+                    }
+                } else {
+                    FlowLayout {
+                        ForEach(s.links, id: \.path) { l in
+                            Chip(title: l.title) { Chrome.shared.push(.explore(path: l.path, title: l.title)) }
+                        }
+                    }
+                }
+            }
+            if !s.playlists.isEmpty {
+                shelf(s.playlists.map { ($0.id, $0.title, $0.creator ?? "", $0.coverUrl, Route.playlist($0.id), false) })
+            }
+            if !s.albums.isEmpty {
+                shelf(s.albums.map { ($0.id, $0.title, $0.artistLine, $0.coverUrl, Route.album($0.id), false) })
+            }
+            if !s.artists.isEmpty {
+                shelf(s.artists.map { ($0.id, $0.name, "", $0.pictureUrl, Route.artist($0.id), true) })
+            }
+            if !s.tracks.isEmpty {
+                ForEach(Array(s.tracks.prefix(8).enumerated()), id: \.offset) { i, t in
+                    Button { player.play(s.tracks, startAt: i, from: s.title) } label: { TrackRow(track: t) }
+                        .buttonStyle(.plain).trackMenu(t)
+                }
             }
         }
+    }
+
+    private func shelf(_ items: [(String, String, String, String?, Route, Bool)]) -> some View {
+        ScrollView(.horizontal, showsIndicators: false) {
+            LazyHStack(alignment: .top, spacing: 12) {
+                ForEach(items, id: \.0) { id, title, sub, cover, route, round in
+                    Button { Chrome.shared.push(route) } label: {
+                        VStack(alignment: .leading, spacing: 4) {
+                            Cover(url: cover, size: 140, radius: 10, circle: round)
+                            Text(title).font(.subheadline.weight(.semibold)).lineLimit(1)
+                            if !sub.isEmpty { Text(sub).font(.caption).foregroundStyle(.secondary).lineLimit(1) }
+                        }
+                        .frame(width: 140, alignment: .leading)
+                    }
+                    .buttonStyle(.plain)
+                }
+            }
+        }
+        .padding(.horizontal, -16).contentMargins(.horizontal, 16)
     }
 }

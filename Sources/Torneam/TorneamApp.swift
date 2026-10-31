@@ -18,7 +18,9 @@ struct TorneamApp: App {
             .environment(Player.shared)
             .environment(prefs)
             .environment(Recents.shared)
-            .preferredColorScheme(prefs.colorScheme)
+            .environment(Chrome.shared)
+            .preferredColorScheme(.dark)
+            .tint(.blue)
         }
     }
 }
