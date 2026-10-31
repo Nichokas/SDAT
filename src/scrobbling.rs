@@ -2,7 +2,7 @@
 //! driven by a listening clock (scrobble after half the track or 4 minutes).
 use std::cell::RefCell;
 use std::collections::BTreeMap;
-use std::sync::{Arc, Mutex, OnceLock};
+use std::sync::OnceLock;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use anyhow::{Result, anyhow, bail};
@@ -44,9 +44,17 @@ impl TrackMeta {
     }
 }
 
-/// Whether the clock reached the scrobble threshold (Go: half the duration or 4 minutes).
+/// Tracks of this length or shorter are never scrobbled (Last.fm rule).
+const MIN_SCROBBLE_LENGTH: Duration = Duration::from_secs(30);
+/// Listening time after which any track is scrobbled.
+const MAX_SCROBBLE_THRESHOLD: u64 = 240;
+
+/// Whether `listened_secs` of real playback (wall-clock seconds spent in the
+/// Playing state; seeks and pauses add nothing) reached the scrobble
+/// threshold: half the track or 4 minutes, whichever comes first, and only
+/// for tracks longer than 30 seconds.
 pub fn should_scrobble(listened_secs: u64, duration: Duration) -> bool {
-    listened_secs >= duration.as_secs() / 2 || listened_secs >= 240
+    duration > MIN_SCROBBLE_LENGTH && (listened_secs * 2 >= duration.as_secs() || listened_secs >= MAX_SCROBBLE_THRESHOLD)
 }
 
 // ---------------- ListenBrainz ----------------
@@ -290,7 +298,8 @@ fn scrobble(meta: TrackMeta, listened_at: i64) {
         }
         if lastfm_configured(c.lfm_enabled, &c.lfm_sk) {
             let mut p = lastfm_track_params(&meta, &c.lfm_sk);
-            p.push(("timestamp", now_unix().to_string()));
+            // Last.fm expects the time the track started playing.
+            p.push(("timestamp", listened_at.to_string()));
             if let Err(e) = lastfm_call("track.scrobble", &p, true, true) {
                 log::error!("error while scrobbling error={e:#}");
             }
@@ -302,9 +311,27 @@ fn scrobble(meta: TrackMeta, listened_at: i64) {
 pub struct Clock {
     meta: TrackMeta,
     started_at: i64,
-    counter: Arc<Mutex<u64>>,
+    counter: u64,
     scrobbled: bool,
     source: Option<glib::SourceId>,
+}
+
+impl Clock {
+    fn new(meta: TrackMeta, started_at: i64) -> Self {
+        Clock { meta, started_at, counter: 0, scrobbled: false, source: None }
+    }
+
+    /// One second of real playback. The timer driving this only runs while the
+    /// player is Playing, so pauses add nothing, and seeking never touches the
+    /// counter. Returns true exactly once, when the track should be scrobbled.
+    fn tick(&mut self) -> bool {
+        if self.scrobbled {
+            return false;
+        }
+        self.counter += 1;
+        self.scrobbled = should_scrobble(self.counter, self.meta.duration);
+        self.scrobbled
+    }
 }
 
 thread_local! {
@@ -322,10 +349,7 @@ fn clock_start() {
             let done = CLOCK.with(|c| {
                 let mut c = c.borrow_mut();
                 let Some(clock) = c.as_mut() else { return true };
-                let mut n = clock.counter.lock().unwrap();
-                *n += 1;
-                if should_scrobble(*n, clock.meta.duration) {
-                    clock.scrobbled = true;
+                if clock.tick() {
                     clock.source = None;
                     scrobble(clock.meta.clone(), clock.started_at);
                     return true;
@@ -355,7 +379,7 @@ pub fn init() {
         now_playing(meta.clone());
         clock_stop();
         CLOCK.with(|c| {
-            *c.borrow_mut() = Some(Clock { meta, started_at: now_unix(), counter: Arc::new(Mutex::new(0)), scrobbled: false, source: None });
+            *c.borrow_mut() = Some(Clock::new(meta, now_unix()));
         });
         if player::playback_state_changed().get().status == PlaybackStatus::Playing {
             clock_start();
@@ -386,6 +410,32 @@ mod tests {
         assert!(should_scrobble(100, Duration::from_secs(200)));
         assert!(should_scrobble(240, Duration::from_hours(1)));
         assert!(!should_scrobble(239, Duration::from_hours(1)));
+        // 50% vs 4 minutes: whichever comes first.
+        assert!(should_scrobble(150, Duration::from_mins(5)));
+        assert!(!should_scrobble(149, Duration::from_mins(5)));
+        assert!(should_scrobble(240, Duration::from_mins(10)));
+        assert!(!should_scrobble(239, Duration::from_mins(10)));
+    }
+
+    #[test]
+    fn clock_scrobbles_once_after_real_listening() {
+        let mut c = Clock::new(meta(), 0); // 200 s track -> threshold 100 s
+        for _ in 0..99 {
+            assert!(!c.tick());
+        }
+        // A pause or a seek forward sends no ticks, so nothing is credited.
+        assert_eq!(c.counter, 99);
+        assert!(c.tick());
+        assert!(!c.tick(), "a track is scrobbled only once");
+    }
+
+    #[test]
+    fn short_or_unknown_tracks_never_scrobble() {
+        assert!(!should_scrobble(30, Duration::from_secs(30)));
+        assert!(!should_scrobble(1000, Duration::from_secs(29)));
+        assert!(!should_scrobble(1000, Duration::ZERO));
+        assert!(should_scrobble(16, Duration::from_secs(31)));
+        assert!(!should_scrobble(15, Duration::from_secs(31)));
     }
 
     #[test]
