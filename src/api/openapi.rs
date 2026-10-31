@@ -582,6 +582,33 @@ pub struct UserCollectionRelationships {
     pub tracks: Relationships,
 }
 
+pub const TRACK_AVAILABILITY_STREAM: &str = "STREAM";
+
+pub fn quality_from_formats(formats: &[String]) -> crate::model::TrackQuality {
+    use crate::model::TrackQuality;
+    let has = |f: &str| formats.iter().any(|x| x == f);
+    if has(MANIFEST_FORMAT_FLAC_HIRES) {
+        TrackQuality::HighResLossless
+    } else if has(MANIFEST_FORMAT_FLAC) {
+        TrackQuality::Lossless
+    } else if has(MANIFEST_FORMAT_AACLC) {
+        TrackQuality::High
+    } else {
+        TrackQuality::Lossy
+    }
+}
+
+pub fn manifest_formats_for_quality(q: crate::model::TrackQuality) -> Vec<&'static str> {
+    use crate::model::TrackQuality;
+    match q {
+        TrackQuality::HighResLossless => vec![MANIFEST_FORMAT_HEAACV1, MANIFEST_FORMAT_AACLC, MANIFEST_FORMAT_FLAC, MANIFEST_FORMAT_FLAC_HIRES],
+        TrackQuality::Lossless => vec![MANIFEST_FORMAT_HEAACV1, MANIFEST_FORMAT_AACLC, MANIFEST_FORMAT_FLAC],
+        TrackQuality::High => vec![MANIFEST_FORMAT_HEAACV1, MANIFEST_FORMAT_AACLC],
+        TrackQuality::Lossy => vec![MANIFEST_FORMAT_HEAACV1],
+    }
+}
+pub const MANIFEST_TYPE_MPEG_DASH: &str = "MPEG_DASH";
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -617,29 +644,3 @@ mod tests {
     }
 }
 
-pub const TRACK_AVAILABILITY_STREAM: &str = "STREAM";
-
-pub fn quality_from_formats(formats: &[String]) -> crate::model::TrackQuality {
-    use crate::model::TrackQuality;
-    let has = |f: &str| formats.iter().any(|x| x == f);
-    if has(MANIFEST_FORMAT_FLAC_HIRES) {
-        TrackQuality::HighResLossless
-    } else if has(MANIFEST_FORMAT_FLAC) {
-        TrackQuality::Lossless
-    } else if has(MANIFEST_FORMAT_AACLC) {
-        TrackQuality::High
-    } else {
-        TrackQuality::Lossy
-    }
-}
-
-pub fn manifest_formats_for_quality(q: crate::model::TrackQuality) -> Vec<&'static str> {
-    use crate::model::TrackQuality;
-    match q {
-        TrackQuality::HighResLossless => vec![MANIFEST_FORMAT_HEAACV1, MANIFEST_FORMAT_AACLC, MANIFEST_FORMAT_FLAC, MANIFEST_FORMAT_FLAC_HIRES],
-        TrackQuality::Lossless => vec![MANIFEST_FORMAT_HEAACV1, MANIFEST_FORMAT_AACLC, MANIFEST_FORMAT_FLAC],
-        TrackQuality::High => vec![MANIFEST_FORMAT_HEAACV1, MANIFEST_FORMAT_AACLC],
-        TrackQuality::Lossy => vec![MANIFEST_FORMAT_HEAACV1],
-    }
-}
-pub const MANIFEST_TYPE_MPEG_DASH: &str = "MPEG_DASH";
