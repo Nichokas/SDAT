@@ -2255,6 +2255,64 @@ public func FfiConverterTypeArtist_lower(_ value: Artist) -> RustBuffer {
 }
 
 
+public struct ArtistOverview: Equatable, Hashable {
+    public var artist: Artist
+    public var topTracks: [Track]
+    public var albums: [Album]
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(artist: Artist, topTracks: [Track], albums: [Album]) {
+        self.artist = artist
+        self.topTracks = topTracks
+        self.albums = albums
+    }
+
+    
+
+    
+}
+
+#if compiler(>=6)
+extension ArtistOverview: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeArtistOverview: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> ArtistOverview {
+        return
+            try ArtistOverview(
+                artist: FfiConverterTypeArtist.read(from: &buf), 
+                topTracks: FfiConverterSequenceTypeTrack.read(from: &buf), 
+                albums: FfiConverterSequenceTypeAlbum.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: ArtistOverview, into buf: inout [UInt8]) {
+        FfiConverterTypeArtist.write(value.artist, into: &buf)
+        FfiConverterSequenceTypeTrack.write(value.topTracks, into: &buf)
+        FfiConverterSequenceTypeAlbum.write(value.albums, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeArtistOverview_lift(_ buf: RustBuffer) throws -> ArtistOverview {
+    return try FfiConverterTypeArtistOverview.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeArtistOverview_lower(_ value: ArtistOverview) -> RustBuffer {
+    return FfiConverterTypeArtistOverview.lower(value)
+}
+
+
 public struct ArtistRef: Equatable, Hashable {
     public var id: String
     public var name: String
@@ -4323,6 +4381,23 @@ public func artist(id: String)async throws  -> Artist  {
             errorHandler: FfiConverterTypeFfiError_lift
         )
 }
+/**
+ * Artist header plus top tracks and albums (artist page and search top result).
+ */
+public func artistOverview(id: String)async throws  -> ArtistOverview  {
+    return
+        try  await uniffiRustCallAsync(
+            rustFutureFunc: {
+                uniffi_tonearm_ffi_fn_func_artist_overview(FfiConverterString.lower(id)
+                )
+            },
+            pollFunc: ffi_tonearm_ffi_rust_future_poll_rust_buffer,
+            completeFunc: ffi_tonearm_ffi_rust_future_complete_rust_buffer,
+            freeFunc: ffi_tonearm_ffi_rust_future_free_rust_buffer,
+            liftFunc: FfiConverterTypeArtistOverview_lift,
+            errorHandler: FfiConverterTypeFfiError_lift
+        )
+}
 public func collectionAlbums() -> AlbumPager  {
     return try!  FfiConverterTypeAlbumPager_lift(try! rustCall() {
         uniffiCallStatus in
@@ -4443,6 +4518,23 @@ public func playlistTracks(id: String) -> TrackPager  {
         FfiConverterString.lower(id),uniffiCallStatus
     )
 })
+}
+/**
+ * URL of the logged-in user's TIDAL profile picture (None when not set).
+ */
+public func profilePictureUrl()async throws  -> String?  {
+    return
+        try  await uniffiRustCallAsync(
+            rustFutureFunc: {
+                uniffi_tonearm_ffi_fn_func_profile_picture_url(
+                )
+            },
+            pollFunc: ffi_tonearm_ffi_rust_future_poll_rust_buffer,
+            completeFunc: ffi_tonearm_ffi_rust_future_complete_rust_buffer,
+            freeFunc: ffi_tonearm_ffi_rust_future_free_rust_buffer,
+            liftFunc: FfiConverterOptionString.lift,
+            errorHandler: FfiConverterTypeFfiError_lift
+        )
 }
 /**
  * What TIDAL lists as recently played on the home feed.
@@ -4752,6 +4844,9 @@ private let initializationResult: InitializationResult = {
     if (uniffi_tonearm_ffi_checksum_func_artist() != 21206) {
         return InitializationResult.apiChecksumMismatch
     }
+    if (uniffi_tonearm_ffi_checksum_func_artist_overview() != 63615) {
+        return InitializationResult.apiChecksumMismatch
+    }
     if (uniffi_tonearm_ffi_checksum_func_collection_albums() != 15587) {
         return InitializationResult.apiChecksumMismatch
     }
@@ -4780,6 +4875,9 @@ private let initializationResult: InitializationResult = {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_tonearm_ffi_checksum_func_playlist_tracks() != 6542) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_tonearm_ffi_checksum_func_profile_picture_url() != 50891) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_tonearm_ffi_checksum_func_recents() != 35214) {

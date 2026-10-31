@@ -192,10 +192,10 @@ struct Loader<T, Content: View>: View {
                 ContentUnavailableView {
                     Label("Couldn't load", systemImage: "wifi.exclamationmark")
                 } description: { Text(error) } actions: {
-                    Button("Retry") { self.error = nil; Task { await run() } }
+                    Button("Retry") { self.error = nil; Task { await run() } }.buttonStyle(.glass)
                 }
             } else {
-                ProgressView().controlSize(.large).frame(maxWidth: .infinity, maxHeight: .infinity)
+                DetailSkeleton()
             }
         }
         .task { await run() }
@@ -207,33 +207,70 @@ struct Loader<T, Content: View>: View {
     }
 }
 
-/// Hi-Res logo / CD / AAC badge.
+/// Official Hi-Res (colour) / CD / AAC (white) logos.
 struct QualityLogo: View {
     let quality: Quality
     var height: CGFloat = 18
 
     var body: some View {
-        switch quality {
-        case .hiFi:
-            if let ui = UIImage(named: "hires", in: .module, with: nil) {
-                Image(uiImage: ui).resizable().scaledToFit().frame(height: height * 1.25)
-            } else { textBadge("Hi-Res") }
-        case .cd: textBadge("CD")
-        case .aac: textBadge("AAC")
+        let (name, scale): (String, CGFloat) = switch quality {
+        case .hiFi: ("hires", 1.25)
+        case .cd: ("cd", 0.95)
+        case .aac: ("aac", 1.3)
+        }
+        if let ui = UIImage(named: name, in: .module, with: nil) {
+            Image(uiImage: ui).resizable().interpolation(.high).scaledToFit().frame(height: height * scale)
+        } else {
+            Text(quality.label).font(.system(size: height * 0.6, weight: .heavy))
         }
     }
 
-    private func textBadge(_ s: String) -> some View {
-        Text(s).font(.system(size: height * 0.6, weight: .heavy)).kerning(0.5)
-            .padding(.horizontal, height * 0.3)
-            .frame(height: height)
-            .overlay(RoundedRectangle(cornerRadius: height * 0.22).stroke(lineWidth: 1.3))
-    }
-
     @MainActor static func uiImage(_ q: Quality) -> UIImage? {
-        let r = ImageRenderer(content: QualityLogo(quality: q, height: 18).foregroundStyle(.white).environment(\.colorScheme, .dark))
+        let r = ImageRenderer(content: QualityLogo(quality: q, height: 18))
         r.scale = 3
-        return r.uiImage
+        return r.uiImage?.withRenderingMode(.alwaysOriginal)
+    }
+}
+
+/// Shimmering placeholder block.
+struct Skeleton: View {
+    var width: CGFloat? = nil
+    var height: CGFloat = 14
+    var radius: CGFloat = 6
+    @State private var phase = false
+    var body: some View {
+        RoundedRectangle(cornerRadius: radius)
+            .fill(Color.white.opacity(phase ? 0.14 : 0.06))
+            .frame(width: width, height: height)
+            .onAppear { withAnimation(.easeInOut(duration: 0.9).repeatForever()) { phase = true } }
+    }
+}
+
+/// Skeleton page shown while an album/playlist/artist loads.
+struct DetailSkeleton: View {
+    var round = false
+    var body: some View {
+        ScrollView {
+            VStack(spacing: 14) {
+                Skeleton(width: 250, height: 250, radius: round ? 125 : 14).padding(.top, 20)
+                Skeleton(width: 200, height: 22)
+                Skeleton(width: 130, height: 14)
+                HStack(spacing: 12) { Skeleton(height: 48, radius: 14); Skeleton(height: 48, radius: 14) }.padding(.vertical, 6)
+                ForEach(0..<8, id: \.self) { _ in RowSkeleton() }
+            }
+            .padding(.horizontal, 16)
+        }
+        .scrollDisabled(true)
+    }
+}
+
+struct RowSkeleton: View {
+    var body: some View {
+        HStack(spacing: 12) {
+            Skeleton(width: 44, height: 44)
+            VStack(alignment: .leading, spacing: 6) { Skeleton(width: 180, height: 12); Skeleton(width: 110, height: 10) }
+            Spacer()
+        }
     }
 }
 
@@ -307,12 +344,21 @@ struct Chip: View {
     let action: () -> Void
     var body: some View {
         Button(action: action) {
-            Text(title).font(.subheadline.weight(.medium))
-                .padding(.horizontal, 14).padding(.vertical, 8)
-                .foregroundStyle(selected ? .white : .primary)
-                .background(selected ? Color.blue : Color.white.opacity(0.1), in: .capsule)
+            Text(title).font(.subheadline.weight(.medium)).padding(.horizontal, 4)
         }
-        .buttonStyle(.plain)
+        .buttonStyle(GlassChipStyle(selected: selected))
+    }
+}
+
+/// Real Liquid Glass chip: interactive glass, tinted blue when selected.
+struct GlassChipStyle: ButtonStyle {
+    let selected: Bool
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .padding(.horizontal, 12).padding(.vertical, 8)
+            .foregroundStyle(.white)
+            .glassEffect(selected ? .regular.tint(.blue).interactive() : .regular.interactive(), in: .capsule)
+            .scaleEffect(configuration.isPressed ? 0.96 : 1)
     }
 }
 

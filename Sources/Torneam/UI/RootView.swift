@@ -156,10 +156,23 @@ extension View {
     /// Profile button that opens Settings.
     func profileToolbar() -> some View {
         toolbar {
-            ToolbarItem(placement: .topBarTrailing) {
-                Button { Chrome.shared.push(.settings) } label: { Image(systemName: "person.crop.circle") }
+            ToolbarItem(placement: .topBarTrailing) { ProfileToolbarButton() }
+        }
+    }
+}
+
+/// Toolbar profile photo (the toolbar supplies the native glass).
+struct ProfileToolbarButton: View {
+    @State private var profile = Profile.shared
+    var body: some View {
+        Button { Chrome.shared.push(.settings) } label: {
+            if let u = profile.pictureURL {
+                CachedImage(url: u).frame(width: 30, height: 30).clipShape(.circle)
+            } else {
+                Image(systemName: "person.crop.circle")
             }
         }
+        .task { await profile.load() }
     }
 }
 

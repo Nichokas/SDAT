@@ -493,6 +493,11 @@ uint64_t uniffi_tonearm_ffi_fn_func_album(RustBuffer id
 uint64_t uniffi_tonearm_ffi_fn_func_artist(RustBuffer id
 );
 #endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_TONEARM_FFI_FN_FUNC_ARTIST_OVERVIEW
+#define UNIFFI_FFIDEF_UNIFFI_TONEARM_FFI_FN_FUNC_ARTIST_OVERVIEW
+uint64_t uniffi_tonearm_ffi_fn_func_artist_overview(RustBuffer id
+);
+#endif
 #ifndef UNIFFI_FFIDEF_UNIFFI_TONEARM_FFI_FN_FUNC_COLLECTION_ALBUMS
 #define UNIFFI_FFIDEF_UNIFFI_TONEARM_FFI_FN_FUNC_COLLECTION_ALBUMS
 uint64_t uniffi_tonearm_ffi_fn_func_collection_albums(RustCallStatus *_Nonnull out_status
@@ -547,6 +552,12 @@ uint64_t uniffi_tonearm_ffi_fn_func_playlist(RustBuffer id
 #ifndef UNIFFI_FFIDEF_UNIFFI_TONEARM_FFI_FN_FUNC_PLAYLIST_TRACKS
 #define UNIFFI_FFIDEF_UNIFFI_TONEARM_FFI_FN_FUNC_PLAYLIST_TRACKS
 uint64_t uniffi_tonearm_ffi_fn_func_playlist_tracks(RustBuffer id, RustCallStatus *_Nonnull out_status
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_TONEARM_FFI_FN_FUNC_PROFILE_PICTURE_URL
+#define UNIFFI_FFIDEF_UNIFFI_TONEARM_FFI_FN_FUNC_PROFILE_PICTURE_URL
+uint64_t uniffi_tonearm_ffi_fn_func_profile_picture_url(void
+    
 );
 #endif
 #ifndef UNIFFI_FFIDEF_UNIFFI_TONEARM_FFI_FN_FUNC_RECENTS
@@ -948,6 +959,12 @@ uint16_t uniffi_tonearm_ffi_checksum_func_artist(void
     
 );
 #endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_TONEARM_FFI_CHECKSUM_FUNC_ARTIST_OVERVIEW
+#define UNIFFI_FFIDEF_UNIFFI_TONEARM_FFI_CHECKSUM_FUNC_ARTIST_OVERVIEW
+uint16_t uniffi_tonearm_ffi_checksum_func_artist_overview(void
+    
+);
+#endif
 #ifndef UNIFFI_FFIDEF_UNIFFI_TONEARM_FFI_CHECKSUM_FUNC_COLLECTION_ALBUMS
 #define UNIFFI_FFIDEF_UNIFFI_TONEARM_FFI_CHECKSUM_FUNC_COLLECTION_ALBUMS
 uint16_t uniffi_tonearm_ffi_checksum_func_collection_albums(void
@@ -1005,6 +1022,12 @@ uint16_t uniffi_tonearm_ffi_checksum_func_playlist(void
 #ifndef UNIFFI_FFIDEF_UNIFFI_TONEARM_FFI_CHECKSUM_FUNC_PLAYLIST_TRACKS
 #define UNIFFI_FFIDEF_UNIFFI_TONEARM_FFI_CHECKSUM_FUNC_PLAYLIST_TRACKS
 uint16_t uniffi_tonearm_ffi_checksum_func_playlist_tracks(void
+    
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_TONEARM_FFI_CHECKSUM_FUNC_PROFILE_PICTURE_URL
+#define UNIFFI_FFIDEF_UNIFFI_TONEARM_FFI_CHECKSUM_FUNC_PROFILE_PICTURE_URL
+uint16_t uniffi_tonearm_ffi_checksum_func_profile_picture_url(void
     
 );
 #endif

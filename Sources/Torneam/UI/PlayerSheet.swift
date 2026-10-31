@@ -102,9 +102,13 @@ private struct NowPlayingPage: View {
                 Button { player.previous() } label: { Image(systemName: "backward.fill").font(.system(size: 30)) }
                 Spacer()
                 Button { player.toggle() } label: {
-                    Image(systemName: player.isPlaying ? "pause.fill" : "play.fill").font(.system(size: 46))
-                        .contentTransition(.symbolEffect(.replace))
-                        .frame(width: 64, height: 64)
+                    Group {
+                        if player.loading { ProgressView().controlSize(.large).tint(.white) } else {
+                            Image(systemName: player.isPlaying ? "pause.fill" : "play.fill").font(.system(size: 46))
+                                .contentTransition(.symbolEffect(.replace))
+                        }
+                    }
+                    .frame(width: 64, height: 64)
                 }
                 Spacer()
                 Button { player.next() } label: { Image(systemName: "forward.fill").font(.system(size: 30)) }

@@ -13,14 +13,26 @@ struct DiscoverView: View {
         ZStack(alignment: .top) {
             CoverPlane(tracks: tracks) { t in player.play([t], from: "Discover") }
                 .ignoresSafeArea()
-            LinearGradient(colors: [.black.opacity(0.75), .clear], startPoint: .top, endPoint: .bottom)
-                .frame(height: 120).ignoresSafeArea().allowsHitTesting(false)
+            // Smooth scrims so the title, buttons and bottom bar stay legible over bright covers.
+            LinearGradient(stops: [
+                .init(color: .black, location: 0), .init(color: .black.opacity(0.92), location: 0.35),
+                .init(color: .black.opacity(0.55), location: 0.7), .init(color: .clear, location: 1),
+            ], startPoint: .top, endPoint: .bottom)
+            .frame(height: 170).ignoresSafeArea(edges: .top).allowsHitTesting(false)
+            VStack {
+                Spacer()
+                LinearGradient(stops: [
+                    .init(color: .clear, location: 0), .init(color: .black.opacity(0.5), location: 0.5), .init(color: .black.opacity(0.85), location: 1),
+                ], startPoint: .top, endPoint: .bottom)
+                .frame(height: 150)
+            }
+            .ignoresSafeArea().allowsHitTesting(false)
             header
             if let error, tracks.isEmpty {
                 ContentUnavailableView {
                     Label("Couldn't load Discover", systemImage: "wifi.exclamationmark")
                 } description: { Text(error) } actions: {
-                    Button("Retry") { self.error = nil; Task { await load() } }
+                    Button("Retry") { self.error = nil; Task { await load() } }.buttonStyle(.glass)
                 }
                 .frame(maxHeight: .infinity)
             } else if tracks.isEmpty {
@@ -42,10 +54,7 @@ struct DiscoverView: View {
                     }
                     .disabled(mixes.isEmpty)
                     .glassEffect(.regular.interactive(), in: .circle)
-                    Button { Chrome.shared.push(.settings) } label: {
-                        Image(systemName: "person.crop.circle").font(.system(size: 20)).frame(width: 44, height: 44)
-                    }
-                    .glassEffect(.regular.interactive(), in: .circle)
+                    ProfileButton()
                 }
             }
             .buttonStyle(.plain)
@@ -55,7 +64,8 @@ struct DiscoverView: View {
     }
 
     private func load() async {
-        guard tracks.isEmpty else { return }
+        if tracks.isEmpty { tracks = DiscoverCache.load() }
+        let hadCache = !tracks.isEmpty
         do {
             mixes = try await homeMixes()
             let source = Shuffle(mixes: mixes)
@@ -68,9 +78,12 @@ struct DiscoverView: View {
                 }
                 if pool.count >= 70 { break }
             }
-            tracks = pool
+            DiscoverCache.save(pool)
+            // Keep the cached plane on screen this session; the fresh pool shows next launch,
+            // unless there was nothing to show.
+            if !hadCache { tracks = pool }
         } catch {
-            self.error = error.localizedDescription
+            if !hadCache { self.error = error.localizedDescription }
         }
     }
 }
@@ -216,5 +229,36 @@ final class PlaneScrollView: UIScrollView, UIScrollViewDelegate {
         guard let (cell, _) = visible.first(where: { $0.value.frame.contains(p) }), let t = track(cell) else { return }
         UIImpactFeedbackGenerator(style: .light).impactOccurred()
         onTap?(t)
+    }
+}
+
+/// Last Discover pool on disk, so the plane appears instantly on launch.
+enum DiscoverCache {
+    struct T: Codable {
+        var id, title, version: String
+        var dur: UInt32
+        var explicit, streamable: Bool
+        var artists: [[String]]
+        var albumId, albumTitle: String?
+        var cover, coverLarge: String?
+    }
+    private static var url: URL {
+        FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask)[0].appendingPathComponent("discover.json")
+    }
+    static func save(_ tracks: [Track]) {
+        let list = tracks.map { t in
+            T(id: t.id, title: t.title, version: t.version, dur: t.durationSecs, explicit: t.explicit, streamable: t.streamable,
+              artists: t.artists.map { [$0.id, $0.name] }, albumId: t.album?.id, albumTitle: t.album?.title,
+              cover: t.album?.coverUrl, coverLarge: t.album?.coverUrlLarge)
+        }
+        try? JSONEncoder().encode(list).write(to: url, options: .atomic)
+    }
+    static func load() -> [Track] {
+        guard let d = try? Data(contentsOf: url), let list = try? JSONDecoder().decode([T].self, from: d) else { return [] }
+        return list.map { c in
+            Track(id: c.id, title: c.title, version: c.version, durationSecs: c.dur, explicit: c.explicit, streamable: c.streamable,
+                  artists: c.artists.map { ArtistRef(id: $0[0], name: $0.count > 1 ? $0[1] : "", pictureUrl: nil) },
+                  album: c.albumId.map { AlbumRef(id: $0, title: c.albumTitle ?? "", coverUrl: c.cover, coverUrlLarge: c.coverLarge) })
+        }
     }
 }

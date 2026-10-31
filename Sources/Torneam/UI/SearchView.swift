@@ -8,6 +8,7 @@ struct SearchView: View {
     @State private var results: SearchResults?
     @State private var searching = false
     @State private var error: String?
+    @State private var topArtist: ArtistOverview?
 
     var body: some View {
         Group {
@@ -16,9 +17,9 @@ struct SearchView: View {
             } else {
                 VStack(spacing: 0) {
                     ScrollView(.horizontal, showsIndicators: false) {
-                        HStack(spacing: 8) {
-                            ForEach(Filter.allCases, id: \.self) { f in Chip(title: f.rawValue, selected: filter == f) { filter = f } }
-                        }
+                        GlassEffectContainer(spacing: 8) { HStack(spacing: 8) {
+                            ForEach(Filter.allCases, id: \.self) { f in Chip(title: f.rawValue, selected: filter == f) { withAnimation(.snappy) { filter = f } } }
+                        } }
                         .padding(.horizontal, 16).padding(.vertical, 8)
                     }
                     switch filter {
@@ -42,7 +43,16 @@ struct SearchView: View {
             debounced = q
             searching = true
             defer { searching = false }
-            do { results = try await search(query: q); error = nil } catch {
+            topArtist = nil
+            do {
+                let r = try await search(query: q)
+                results = r
+                error = nil
+                // Artist-looking query: show the artist's top tracks and albums.
+                if let a = r.artists.first, a.name.localizedCaseInsensitiveContains(q) || q.localizedCaseInsensitiveContains(a.name) {
+                    topArtist = try? await artistOverview(id: a.id)
+                }
+            } catch {
                 guard !Task.isCancelled else { return }
                 self.error = error.localizedDescription
             }
@@ -55,6 +65,24 @@ struct SearchView: View {
             if let r = results {
                 if r.tracks.isEmpty && r.albums.isEmpty && r.artists.isEmpty && r.playlists.isEmpty {
                     ContentUnavailableView.search(text: debounced)
+                }
+                if let o = topArtist {
+                    Section {
+                        Button { Chrome.shared.push(.artist(o.artist.id)) } label: {
+                            HStack(spacing: 14) {
+                                Cover(url: o.artist.pictureUrl, size: 72, circle: true)
+                                VStack(alignment: .leading) {
+                                    Text(o.artist.name).font(.title3.bold())
+                                    Text("Artist").font(.subheadline).foregroundStyle(.secondary)
+                                }
+                                Spacer()
+                                Image(systemName: "chevron.right").foregroundStyle(.tertiary)
+                            }
+                        }
+                        .buttonStyle(.plain)
+                        TrackList(tracks: Array(o.topTracks.prefix(5)), source: o.artist.name)
+                        if !o.albums.isEmpty { AlbumShelf(albums: o.albums) }
+                    } header: { Text("Top Result") }
                 }
                 if !r.artists.isEmpty {
                     Section("Artists") {
@@ -84,7 +112,11 @@ struct SearchView: View {
         }
         .listStyle(.plain)
         .collapsesChrome()
-        .overlay { if searching && results == nil { ProgressView() } }
+        .overlay(alignment: .top) {
+            if searching && results == nil {
+                VStack(spacing: 14) { ForEach(0..<8, id: \.self) { _ in RowSkeleton() } }.padding(16)
+            }
+        }
     }
 }
 
@@ -110,9 +142,11 @@ struct ExploreContent: View {
             LazyVStack(alignment: .leading, spacing: 24) {
                 if let error {
                     ErrorBanner(text: error)
-                    Button("Retry") { self.error = nil; Task { await load() } }
+                    Button("Retry") { self.error = nil; Task { await load() } }.buttonStyle(.glass)
                 }
-                if page == nil && error == nil { ProgressView().frame(maxWidth: .infinity).padding(.top, 60) }
+                if page == nil && error == nil {
+                    FlowLayout { ForEach(0..<14, id: \.self) { i in Skeleton(width: CGFloat(60 + (i * 37) % 70), height: 34, radius: 17) } }
+                }
                 ForEach(Array((page?.sections ?? []).enumerated()), id: \.offset) { _, s in section(s) }
             }
             .padding(16)
@@ -153,11 +187,11 @@ struct ExploreContent: View {
                         }
                     }
                 } else {
-                    FlowLayout {
+                    GlassEffectContainer(spacing: 8) { FlowLayout {
                         ForEach(s.links, id: \.path) { l in
                             Chip(title: l.title) { Chrome.shared.push(.explore(path: l.path, title: l.title)) }
                         }
-                    }
+                    } }
                 }
             }
             if !s.playlists.isEmpty {

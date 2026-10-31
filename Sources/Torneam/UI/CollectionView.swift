@@ -35,6 +35,7 @@ struct CollectionView: View {
         }
         .collapsesChrome()
         .navigationTitle("My Collection")
+        .scrollEdgeEffectStyle(.soft, for: .all)
         .profileToolbar()
         .refreshable { await load() }
         .task { if recents.isEmpty { await load() } }
@@ -118,7 +119,7 @@ struct Paged<Item, Row: View>: View {
             if let error {
                 VStack(alignment: .leading, spacing: 8) {
                     ErrorBanner(text: error)
-                    Button("Retry") { self.error = nil; Task { await more() } }
+                    Button("Retry") { self.error = nil; Task { await more() } }.buttonStyle(.glass)
                 }
             } else if !done {
                 ProgressView().frame(maxWidth: .infinity).task { await more() }
@@ -128,6 +129,7 @@ struct Paged<Item, Row: View>: View {
         }
         .listStyle(.plain)
         .navigationTitle(title)
+        .scrollEdgeEffectStyle(.soft, for: .all)
     }
 
     private func more() async {
@@ -198,21 +200,24 @@ struct PagedPlaylists: View {
     }
 }
 
-/// Blue filled Play + grey Shuffle, as in the design.
+/// Play (prominent blue glass) + Shuffle (glass), as in the design.
 struct PlayShuffleButtons: View {
     let play: () -> Void
     let shuffle: () -> Void
     var body: some View {
-        HStack(spacing: 12) {
-            Button(action: play) {
-                Label("Play", systemImage: "play.fill").font(.headline).frame(maxWidth: .infinity, minHeight: 48)
-                    .foregroundStyle(.white).background(Color.blue, in: .rect(cornerRadius: 14))
+        GlassEffectContainer(spacing: 12) {
+            HStack(spacing: 12) {
+                Button(action: play) {
+                    Label("Play", systemImage: "play.fill").font(.headline).frame(maxWidth: .infinity, minHeight: 34)
+                }
+                .buttonStyle(.glassProminent)
+                .tint(.blue)
+                Button(action: shuffle) {
+                    Label("Shuffle", systemImage: "shuffle").font(.headline).frame(maxWidth: .infinity, minHeight: 34)
+                }
+                .buttonStyle(.glass)
             }
-            Button(action: shuffle) {
-                Label("Shuffle", systemImage: "shuffle").font(.headline).frame(maxWidth: .infinity, minHeight: 48)
-                    .foregroundStyle(.blue).background(Color.white.opacity(0.12), in: .rect(cornerRadius: 14))
-            }
+            .controlSize(.large)
         }
-        .buttonStyle(.plain)
     }
 }

@@ -61,7 +61,7 @@ struct PlaylistView: View {
             } else if let error {
                 ContentUnavailableView("Couldn't load", systemImage: "wifi.exclamationmark", description: Text(error))
             } else {
-                ProgressView().controlSize(.large).frame(maxWidth: .infinity, maxHeight: .infinity)
+                DetailSkeleton()
             }
         }
         .task { await load() }
@@ -141,6 +141,7 @@ struct DetailPage: View {
         .listStyle(.plain)
         .scrollContentBackground(.hidden)
         .background { CoverBackdrop(url: cover) }
+        .scrollEdgeEffectStyle(.soft, for: .all)
         .toolbar {
             if let favourite {
                 Button { toggleFav(favourite) } label: { Image(systemName: isFav ? "checkmark" : "plus") }
@@ -250,28 +251,89 @@ enum CoverColors {
 
 struct ArtistView: View {
     let id: String
+    @Environment(Player.self) private var player
+    @State private var following: Bool?
 
     var body: some View {
-        Loader(load: { try await artist(id: id) }) { a in
+        Loader(load: { try await artistOverview(id: id) }) { o in
+            let a = o.artist
             List {
                 VStack(spacing: 10) {
                     Cover(url: a.pictureUrl, size: 180, circle: true)
                     Text(a.name).font(.title.bold())
-                    Button { Task { try? await setFavourite(kind: .artist, id: a.id, favourite: true); Chrome.shared.flash("Following \(a.name)") } } label: {
-                        Label("Follow", systemImage: "plus").font(.subheadline.weight(.semibold))
-                    }
-                    .buttonStyle(.glass)
+                    FollowButton(following: following) { toggleFollow(a) }
                 }
                 .frame(maxWidth: .infinity)
                 .listRowSeparator(.hidden)
                 .listRowBackground(Color.clear)
+                if !o.topTracks.isEmpty {
+                    Section("Top Tracks") {
+                        TrackList(tracks: o.topTracks, source: a.name).listRowBackground(Color.clear)
+                    }
+                }
+                if !o.albums.isEmpty {
+                    Section("Albums") { AlbumShelf(albums: o.albums).listRowBackground(Color.clear) }
+                }
                 if !a.bio.isEmpty {
-                    BioText(text: a.bio).listRowBackground(Color.clear)
+                    Section("About") { BioText(text: a.bio).listRowBackground(Color.clear) }
                 }
             }
             .listStyle(.plain)
             .scrollContentBackground(.hidden)
+            .scrollEdgeEffectStyle(.soft, for: .top)
             .background { CoverBackdrop(url: a.pictureUrl) }
+        }
+        .task { following = (try? await isFavourite(kind: .artist, id: id)) ?? false }
+    }
+
+    private func toggleFollow(_ a: Artist) {
+        let target = !(following ?? false)
+        following = target
+        Task {
+            do { try await setFavourite(kind: .artist, id: a.id, favourite: target) } catch {
+                following = !target
+                Chrome.shared.flash(error.localizedDescription)
+            }
+        }
+    }
+}
+
+struct FollowButton: View {
+    let following: Bool?
+    let action: () -> Void
+    var body: some View {
+        Group {
+            if following == true {
+                Button(action: action) { Label("Following", systemImage: "checkmark").font(.subheadline.weight(.semibold)) }
+                    .buttonStyle(.glassProminent)
+            } else {
+                Button(action: action) { Label("Follow", systemImage: "plus").font(.subheadline.weight(.semibold)) }
+                    .buttonStyle(.glass)
+            }
+        }
+        .disabled(following == nil)
+        .animation(.snappy, value: following)
+    }
+}
+
+/// Horizontal carousel of albums.
+struct AlbumShelf: View {
+    let albums: [Album]
+    var body: some View {
+        ScrollView(.horizontal, showsIndicators: false) {
+            LazyHStack(alignment: .top, spacing: 12) {
+                ForEach(albums, id: \.id) { al in
+                    Button { Chrome.shared.push(.album(al.id)) } label: {
+                        VStack(alignment: .leading, spacing: 4) {
+                            Cover(url: al.coverUrl, size: 140, radius: 10)
+                            Text(al.title).font(.subheadline.weight(.semibold)).lineLimit(1)
+                            Text(al.releaseDate.map { String($0.prefix(4)) } ?? al.artistLine).font(.caption).foregroundStyle(.secondary).lineLimit(1)
+                        }
+                        .frame(width: 140, alignment: .leading)
+                    }
+                    .buttonStyle(.plain)
+                }
+            }
         }
     }
 }

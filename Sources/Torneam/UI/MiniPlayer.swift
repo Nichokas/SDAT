@@ -11,10 +11,16 @@ struct MiniPlayer: View {
     var body: some View {
         Group {
             if style == .circle {
-                playButton(size: 56)
+                // Tap: play/pause. Long-press: open the full player.
+                ringIcon(size: 56)
+                    .contentShape(.circle)
                     .glassEffect(.regular.interactive(), in: .circle)
-                    .gesture(DragGesture(minimumDistance: 12).onEnded { if $0.translation.height < -10 { chrome.showPlayer = true } })
-                    .contextMenu { Button("Open Player", systemImage: "chevron.up") { chrome.showPlayer = true } }
+                    .onTapGesture { player.toggle() }
+                    .onLongPressGesture(minimumDuration: 0.35) {
+                        UIImpactFeedbackGenerator(style: .medium).impactOccurred()
+                        chrome.showPlayer = true
+                    }
+                    .sensoryFeedback(.selection, trigger: player.isPlaying)
             } else {
                 HStack(spacing: 10) {
                     Cover(url: player.current?.album?.coverUrl, size: 38, radius: 8)
@@ -40,15 +46,21 @@ struct MiniPlayer: View {
     }
 
     private func playButton(size: CGFloat) -> some View {
-        Button { player.toggle() } label: {
-            Image(systemName: player.isPlaying ? "pause.fill" : "play.fill")
-                .font(.system(size: size * 0.32))
-                .contentTransition(.symbolEffect(.replace))
+        Button { player.toggle() } label: { ringIcon(size: size) }
+            .buttonStyle(.plain)
+    }
+
+    private func ringIcon(size: CGFloat) -> some View {
+            Group {
+                if player.loading { ProgressView().controlSize(.small) } else {
+                    Image(systemName: player.isPlaying ? "pause.fill" : "play.fill")
+                        .font(.system(size: size * 0.32))
+                        .contentTransition(.symbolEffect(.replace))
+                }
+            }
                 .frame(width: size, height: size)
                 .overlay { ProgressRing(progress: player.progress).padding(size * 0.14) }
                 .contentShape(.circle)
-        }
-        .buttonStyle(.plain)
     }
 }
 

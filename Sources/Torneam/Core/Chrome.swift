@@ -56,6 +56,43 @@ final class OwnPlaylists {
     func contains(_ id: String) -> Bool { list.contains { $0.id == id } }
 }
 
+/// The user's TIDAL profile picture, cached across launches.
+@MainActor @Observable
+final class Profile {
+    static let shared = Profile()
+    private(set) var pictureURL: String? = UserDefaults.standard.string(forKey: "profilePicture")
+    private var loaded = false
+    func load() async {
+        guard !loaded else { return }
+        loaded = true
+        if let u = try? await profilePictureUrl() {
+            pictureURL = u
+            UserDefaults.standard.set(u, forKey: "profilePicture")
+        }
+    }
+}
+
+/// Circular profile photo button (generic icon only as a fallback). Opens Settings.
+struct ProfileButton: View {
+    var size: CGFloat = 44
+    @State private var profile = Profile.shared
+    var body: some View {
+        Button { Chrome.shared.push(.settings) } label: {
+            Group {
+                if let u = profile.pictureURL {
+                    CachedImage(url: u).clipShape(.circle).padding(4)
+                } else {
+                    Image(systemName: "person.crop.circle").font(.system(size: size * 0.45))
+                }
+            }
+            .frame(width: size, height: size)
+        }
+        .buttonStyle(.plain)
+        .glassEffect(.regular.interactive(), in: .circle)
+        .task { await profile.load() }
+    }
+}
+
 /// Cached favourite state for tracks, so context menus reflect it.
 @MainActor @Observable
 final class Favs {

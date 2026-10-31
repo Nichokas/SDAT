@@ -18,6 +18,8 @@ final class Player {
     /// Track currently playing (may come from the user queue).
     private(set) var current: Track?
     private(set) var isPlaying = false
+    /// Fetching the current track's stream.
+    private(set) var loading = false
     private(set) var position: Double = 0
     private(set) var duration: Double = 0
     private(set) var stream: Stream?
@@ -247,6 +249,7 @@ final class Player {
 
     private func start(_ track: Track, resumeAt: Double = 0) {
         adopt(track, stream: nil)
+        loading = true
         position = resumeAt
         invalidatePreload()
         loadTask?.cancel()
@@ -260,8 +263,10 @@ final class Player {
                 if resumeAt > 0 { await avPlayer.seek(to: CMTime(seconds: resumeAt, preferredTimescale: 600)) }
                 avPlayer.play()
                 isPlaying = true
+                loading = false
                 afterStart(track)
             } catch {
+                if !Task.isCancelled { loading = false }
                 if !Task.isCancelled { self.error = error.localizedDescription }
             }
         }
