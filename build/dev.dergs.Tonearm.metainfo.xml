@@ -40,10 +40,10 @@
     <color type="primary" scheme_preference="dark">#690daf</color>
   </branding>
 
-  <url type="homepage">https://dergs.dev/projects/tonearm</url>
-  <url type="bugtracker">https://codeberg.org/dergs/Tonearm/issues</url>
-  <url type="vcs-browser">https://codeberg.org/dergs/Tonearm</url>
-  <url type="contact">https://matrix.to/#/%23tonearm:derg.social</url>
+  <!-- Rust port (tonearm-rs) of the original Tonearm by the dergs team: https://codeberg.org/dergs/Tonearm -->
+  <url type="homepage">https://github.com/Nichokas/tonearm-rs</url>
+  <url type="bugtracker">https://github.com/Nichokas/tonearm-rs/issues</url>
+  <url type="vcs-browser">https://github.com/Nichokas/tonearm-rs</url>
 
   <releases>
     <release version="1.5.1" date="2026-09-24">

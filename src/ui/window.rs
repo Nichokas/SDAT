@@ -106,8 +106,10 @@ pub fn version_number(version: Option<&str>, commit: &str) -> String {
             }
         }
         Some(v) => {
-            let suffix = if commit.is_empty() { String::new() } else { format!(" ({})", &commit[..commit.len().min(7)]) };
             let v = v.strip_prefix('v').unwrap_or(v);
+            // A `git describe` of the release tag itself ("v1.0.0") adds nothing.
+            let same_tag = commit.strip_prefix('v').unwrap_or(commit) == v;
+            let suffix = if commit.is_empty() || same_tag { String::new() } else { format!(" ({})", &commit[..commit.len().min(7)]) };
             format!("{}{}{}", version_prefix(v), v, suffix)
         }
     }
@@ -577,11 +579,13 @@ fn present_about(window: &adw::ApplicationWindow) {
     a.set_version(&version_number(VERSION, COMMIT));
     a.set_license_type(gtk::License::Gpl30);
     a.set_developers(&["Nila The Dragon https://github.com/NilaTheDragon", "Dråfølin https://github.com/Drafolin"]);
+    a.add_credit_section(Some(&tr("Original Tonearm (Go) by")), &["The dergs team https://codeberg.org/dergs/Tonearm"]);
+    a.add_credit_section(Some(&tr("Rust port")), &["Nichokas, with the help of Grok Bot https://github.com/Nichokas/tonearm-rs"]);
     a.set_translator_credits(&tr("translator-credits"));
     a.set_copyright("© 2026 Nila The Dragon");
-    a.set_website("https://dergs.dev/projects/tonearm");
-    a.set_issue_url("https://codeberg.org/dergs/Tonearm/issues");
-    a.set_support_url("https://matrix.to/#/%23tonearm:derg.social");
+    a.set_website("https://github.com/Nichokas/tonearm-rs");
+    a.set_issue_url("https://github.com/Nichokas/tonearm-rs/issues");
+    a.set_support_url("https://github.com/Nichokas/tonearm-rs/issues");
     let mit = gtk::License::MitX11;
     for (name, copy, lic) in [
         ("GTK4 / Libadwaita Bindings (gtk-rs)", "© The gtk-rs Project Developers https://gtk-rs.org", mit),
@@ -890,6 +894,7 @@ mod tests {
         assert_eq!(version_number(None, "v0.3.0-5-gabcdef1"), "α 0.3.0 β(r5.abcdef1)");
         assert_eq!(version_number(None, "abcdef1234"), "α git+abcdef1");
         assert_eq!(version_number(Some("v1.0.0"), "abcdef1234"), "v1.0.0 (abcdef1)");
+        assert_eq!(version_number(Some("1.0.0"), "v1.0.0"), "v1.0.0");
         assert!(is_stable(Some("1.0"), ""));
         assert!(is_stable(None, "v1.2.0-0-gabcdef1"));
         assert!(!is_stable(None, "v1.2.0-3-gabcdef1"));
