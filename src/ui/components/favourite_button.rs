@@ -31,12 +31,12 @@ pub fn favourite_button(cache: &'static FavouriteCache, id: &str) -> gtk::Button
     let loading = Rc::new(Cell::new(false));
     let id = id.to_string();
     {
-        let (fav, loading, id) = (fav.clone(), loading.clone(), id.clone());
+        let (fav, loading, id) = (Rc::clone(&fav), Rc::clone(&loading), id.clone());
         b.connect_realize(move |b| {
             loading.set(true);
             render(b, true, fav.get());
             let w = b.downgrade();
-            let (fav, loading, id) = (fav.clone(), loading.clone(), id.clone());
+            let (fav, loading, id) = (Rc::clone(&fav), Rc::clone(&loading), id.clone());
             glib::spawn_future_local(async move {
                 let id2 = id.clone();
                 match api::run(move || cache.contains(&id2)).await {
@@ -57,7 +57,7 @@ pub fn favourite_button(cache: &'static FavouriteCache, id: &str) -> gtk::Button
         loading.set(true);
         render(b, true, fav.get());
         let w = b.downgrade();
-        let (fav, loading, id) = (fav.clone(), loading.clone(), id.clone());
+        let (fav, loading, id) = (Rc::clone(&fav), Rc::clone(&loading), id.clone());
         glib::spawn_future_local(async move {
             let was = fav.get();
             let id2 = id.clone();

@@ -61,12 +61,12 @@ pub fn shared<T>(p: Paginator<T>) -> SharedPaginator<T> {
 
 /// Fetches the next page on a worker thread.
 pub async fn next_page<T: Clone + Send + 'static>(p: &SharedPaginator<T>) -> Result<Vec<T>> {
-    let p = p.clone();
+    let p = std::sync::Arc::clone(p);
     api::run(move || p.lock().unwrap().next_page()).await
 }
 
 pub async fn get_all<T: Clone + Send + 'static>(p: &SharedPaginator<T>) -> Result<Vec<T>> {
-    let p = p.clone();
+    let p = std::sync::Arc::clone(p);
     api::run(move || p.lock().unwrap().get_all()).await
 }
 

@@ -132,7 +132,7 @@ impl Col {
                 return 1;
             };
             let b = gtk::Button::new().class("flat");
-            let (id, f) = (t.id().to_string(), on_click.clone());
+            let (id, f) = (t.id().to_string(), Rc::clone(&on_click));
             b.connect_clicked(move |_| f(&id, p, c));
             g.attach(&b, 0, 0, c, 1);
             0
@@ -322,7 +322,7 @@ impl TrackList {
     pub fn bind_tracks(&self, st: &'static State<Vec<Track>>) {
         let w = Rc::downgrade(&self.0);
         let alive = Rc::new(Cell::new(true));
-        let a = alive.clone();
+        let a = Rc::clone(&alive);
         self.0.view.connect_destroy(move |_| a.set(false));
         st.on(move |new| {
             let Some(i) = w.upgrade().filter(|_| alive.get()) else { return true };
@@ -427,7 +427,7 @@ const DRAG_MIME: &str = "application/x-tonearm-track";
 fn setup(i: &Inner, w: &Weak<Inner>, item: &gtk::ListItem) {
     let container = adw::Bin::new();
     let source: Rc<RefCell<Option<gtk::DragSource>>> = Rc::default();
-    let (w, cw, li) = (w.clone(), container.downgrade(), item.downgrade());
+    let (w, cw, li) = (Weak::clone(w), container.downgrade(), item.downgrade());
     i.reorderable.on(move |on| {
         let (Some(inner), Some(container), Some(item)) = (w.upgrade(), cw.upgrade(), li.upgrade()) else { return true };
         let mut src = source.borrow_mut();
@@ -500,10 +500,10 @@ fn toggle_drop_target(i: &Inner, w: &Weak<Inner>, on: bool) {
     let mut dt = i.drop_target.borrow_mut();
     if on && dt.is_none() {
         let target = gtk::DropTargetAsync::new(Some(gdk::ContentFormats::new(&[DRAG_MIME])), gdk::DragAction::MOVE);
-        let w0 = w.clone();
+        let w0 = Weak::clone(w);
         // Only this list's own drags carry a track being moved.
         target.connect_accept(move |_, _| w0.upgrade().is_some_and(|i| i.being_moved.borrow().is_some()));
-        let w1 = w.clone();
+        let w1 = Weak::clone(w);
         target.connect_drag_motion(move |_, _, _, y| {
             let Some(i) = w1.upgrade() else { return gdk::DragAction::empty() };
             let Some(tr) = i.being_moved.borrow().clone() else { return gdk::DragAction::empty() };
@@ -533,7 +533,7 @@ fn toggle_drop_target(i: &Inner, w: &Weak<Inner>, on: bool) {
             }
             gdk::DragAction::MOVE
         });
-        let w2 = w.clone();
+        let w2 = Weak::clone(w);
         target.connect_drop(move |_, drop, _, _| {
             drop.finish(gdk::DragAction::MOVE);
             let Some(i) = w2.upgrade() else { return false };

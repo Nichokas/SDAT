@@ -67,7 +67,7 @@ pub fn playing_from() -> gtk::Button {
     b.set_child(Some(&hstack(&[texts.upcast_ref(), img.upcast_ref()]).halign(gtk::Align::Fill)));
     b.set_sensitive(false);
     let target = Rc::new(std::cell::RefCell::new(String::new()));
-    let t2 = target.clone();
+    let t2 = Rc::clone(&target);
     b.connect_clicked(move |_| router::navigate(&t2.borrow()));
     let (tw, iw) = (title.downgrade(), img.downgrade());
     on_state_lazy(player::source_changed(), &b, move |b, s| {
@@ -197,7 +197,7 @@ fn favourite_button() -> gtk::Button {
     let loading = Rc::new(Cell::new(false));
     on_state(state::signed_in_changed(), &b, |b, s| b.set_sensitive(*s && current_track_id().is_some()));
     {
-        let (fav, loading) = (fav.clone(), loading.clone());
+        let (fav, loading) = (Rc::clone(&fav), Rc::clone(&loading));
         on_state(player::track_changed(), &b, move |b, ev| {
             b.set_sensitive(ev.is_some() && state::signed_in_changed().get());
             let Some(id) = ev.as_ref().map(|e| e.track.id().to_string()) else {
@@ -208,7 +208,7 @@ fn favourite_button() -> gtk::Button {
             loading.set(true);
             render_fav(b, true, fav.get());
             let w = b.downgrade();
-            let (fav, loading) = (fav.clone(), loading.clone());
+            let (fav, loading) = (Rc::clone(&fav), Rc::clone(&loading));
             glib::spawn_future_local(async move {
                 match crate::api::run(move || state::TRACKS.contains(&id)).await {
                     Ok(v) => fav.set(v),
@@ -229,7 +229,7 @@ fn favourite_button() -> gtk::Button {
         loading.set(true);
         render_fav(b, true, fav.get());
         let w = b.downgrade();
-        let (fav, loading) = (fav.clone(), loading.clone());
+        let (fav, loading) = (Rc::clone(&fav), Rc::clone(&loading));
         glib::spawn_future_local(async move {
             let was = fav.get();
             let r = crate::api::run(move || {
@@ -419,7 +419,7 @@ fn track_timeline() -> gtk::Overlay {
     let actual = Rc::new(std::cell::RefCell::new("N/A".to_string()));
     let details = Rc::new(Cell::new(false));
     let refresh: Rc<dyn Fn()> = {
-        let (tw, selected, actual, details) = (text.downgrade(), selected.clone(), actual.clone(), details.clone());
+        let (tw, selected, actual, details) = (text.downgrade(), Rc::clone(&selected), Rc::clone(&actual), Rc::clone(&details));
         Rc::new(move || {
             let Some(t) = tw.upgrade() else { return };
             let (sel, class) = selected.borrow().clone();
@@ -432,7 +432,7 @@ fn track_timeline() -> gtk::Overlay {
     };
     refresh();
     {
-        let (selected, refresh) = (selected.clone(), refresh.clone());
+        let (selected, refresh) = (Rc::clone(&selected), Rc::clone(&refresh));
         on_state(player::playback_quality_changed(), &text, move |_, q| {
             *selected.borrow_mut() = quality_label(*q);
             refresh();
@@ -447,7 +447,7 @@ fn track_timeline() -> gtk::Overlay {
         })
     };
     {
-        let (actual, refresh) = (actual.clone(), refresh.clone());
+        let (actual, refresh) = (Rc::clone(&actual), Rc::clone(&refresh));
         on_state(player::audio_stream_quality(), &text, move |_, sq| {
             *actual.borrow_mut() = match sq.codec.0.as_str() {
                 player::quality::CODEC_AAC => format!("{} kbps AAC", truncate_float(f64::from(sq.bit_rate) / 1000.0, 1)),
@@ -458,7 +458,7 @@ fn track_timeline() -> gtk::Overlay {
         });
     };
     let toggle: Rc<dyn Fn()> = {
-        let (details, refresh) = (details.clone(), refresh.clone());
+        let (details, refresh) = (Rc::clone(&details), Rc::clone(&refresh));
         Rc::new(move || {
             details.set(!details.get());
             refresh();
@@ -469,12 +469,12 @@ fn track_timeline() -> gtk::Overlay {
     mb.set_popover(Some(&popover));
     let click = gtk::GestureClick::new();
     click.set_button(3);
-    let t1 = toggle.clone();
+    let t1 = Rc::clone(&toggle);
     click.connect_pressed(move |_, _, _, _| t1());
     mb.add_controller(click);
     let long = gtk::GestureLongPress::new();
     let pressed = Rc::new(Cell::new(false));
-    let (t2, p2) = (toggle.clone(), pressed.clone());
+    let (t2, p2) = (Rc::clone(&toggle), Rc::clone(&pressed));
     long.connect_pressed(move |_, _, _| {
         p2.set(true);
         t2();

@@ -105,7 +105,7 @@ pub fn new_linking(window: Option<gtk::Window>, code: &str, link: &str, cancel: 
         gtk::UriLauncher::new(&l2).launch(window.as_ref(), gtk::gio::Cancellable::NONE, |_| {});
     });
     let cancel_b = gtk::Button::with_label(&tr("Cancel Login")).hpadding(20).vpadding(10);
-    let c = cancel.clone();
+    let c = Rc::clone(&cancel);
     cancel_b.connect_clicked(move |_| c());
     let body = spacing(
         vstack(&[frame.upcast_ref(), code_l.upcast_ref(), helper.upcast_ref(), spacing(vstack(&[open.upcast_ref(), cancel_b.upcast_ref()]), 10).upcast_ref()]),

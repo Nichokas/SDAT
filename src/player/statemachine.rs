@@ -303,7 +303,7 @@ impl Machine {
         if self.running.replace(true) {
             return;
         }
-        let this = self.clone();
+        let this = Rc::clone(self);
         glib::spawn_future_local(async move {
             loop {
                 let next = this.queue.borrow_mut().pop_front();
@@ -419,7 +419,7 @@ impl Machine {
                 r
             }
             (State::Playing, _) if sub_to_parent => Ok(()),
-            (State::Playing, _) => on_playing(self.playbin.clone()),
+            (State::Playing, _) => on_playing(Rc::clone(&self.playbin)),
             (State::PlayingGapless, Trigger::GaplessHint(done)) => {
                 let _ = into_sub;
                 let r = async {
@@ -514,7 +514,7 @@ pub mod tests {
 
     fn capture_next_state() -> Rc<RefCell<Option<PlaybackState>>> {
         let seen = Rc::new(RefCell::new(None));
-        let s = seen.clone();
+        let s = Rc::clone(&seen);
         playback_state_changed().on_lazy(move |st| {
             *s.borrow_mut() = Some(*st);
             UNSUBSCRIBE
@@ -544,7 +544,7 @@ pub mod tests {
     #[test]
     fn on_playing_sets_playbin_state() {
         let pb = Rc::new(Testbin { state: Cell::new(Some(gst::State::Paused)), ..Default::default() });
-        on_playing(pb.clone()).unwrap();
+        on_playing(Rc::clone(&pb) as Rc<dyn Playbin>).unwrap();
         assert_eq!(pb.state.get(), Some(gst::State::Playing));
         on_playing_exit().unwrap();
     }
@@ -614,7 +614,7 @@ pub mod tests {
     fn on_stopped_stop_clears_current_track() {
         track_changed().set(Some(TrackChangedEvent { track: Track::default(), skip_history: false }));
         let seen = Rc::new(Cell::new(None::<bool>));
-        let s = seen.clone();
+        let s = Rc::clone(&seen);
         track_changed().on_lazy(move |t| {
             s.set(Some(t.is_none()));
             UNSUBSCRIBE

@@ -379,11 +379,11 @@ fn sign_in(window: &adw::ApplicationWindow) {
             }
         };
         let cancelled = Arc::new(AtomicBool::new(false));
-        let c = cancelled.clone();
+        let c = Arc::clone(&cancelled);
         let win = w.upgrade();
         let dialog = linking::new_linking(win.clone().map(gtk::prelude::Cast::upcast), &dlc.user_code, &dlc.verification_uri_complete, Rc::new(move || c.store(true, Ordering::SeqCst)));
         dialog.present(win.as_ref());
-        let c = cancelled.clone();
+        let c = Arc::clone(&cancelled);
         let r = api::run(move || api::poll_device_linking_status(&dlc.device_code, dlc.interval, &|| c.load(Ordering::SeqCst))).await;
         dialog.force_close();
         match r {
@@ -731,7 +731,7 @@ fn present_preferences(window: &adw::ApplicationWindow) {
     lfm_row.add_suffix(&lfm_button);
     let logged_in = Rc::new(std::cell::Cell::new(!settings::lastfm_token().is_empty()));
     let refresh: Rc<dyn Fn()> = {
-        let (row, btn, li) = (lfm_row.downgrade(), lfm_button.downgrade(), logged_in.clone());
+        let (row, btn, li) = (lfm_row.downgrade(), lfm_button.downgrade(), Rc::clone(&logged_in));
         Rc::new(move || {
             let (Some(row), Some(btn)) = (row.upgrade(), btn.upgrade()) else { return };
             if li.get() {
@@ -768,7 +768,7 @@ fn present_preferences(window: &adw::ApplicationWindow) {
             dialog_toast(&dw, &tr("Logged out of Last.fm"));
             return;
         }
-        let (dw, li, refresh, win) = (dw.clone(), logged_in.clone(), refresh.clone(), win.clone());
+        let (dw, li, refresh, win) = (dw.clone(), Rc::clone(&logged_in), Rc::clone(&refresh), win.clone());
         glib::spawn_future_local(async move {
             match lastfm_configure(win.upgrade()).await {
                 Err(e) => {
@@ -816,7 +816,7 @@ async fn lastfm_configure(window: Option<adw::ApplicationWindow>) -> anyhow::Res
 
     let ad = adw::AlertDialog::new(Some(&tr("Logging in to Last.fm")), Some(&tr("Continue the authentication process in your browser.")));
     ad.add_css_class("no-response");
-    let c = cancelled.clone();
+    let c = Rc::clone(&cancelled);
     ad.connect_closed(move |_| c.set(true));
     let spinner = adw::Spinner::new().size(128, 128);
     let reopen = gtk::Button::with_label(&tr("Reopen Browser")).corner_radius(12).vpadding(10).hpadding(20).min_height(24).min_width(60);

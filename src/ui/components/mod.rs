@@ -63,7 +63,7 @@ pub fn render_cover(cover: Cover, target: impl Fn(gdk::Paintable) + 'static) -> 
         media.play();
         let target = Rc::new(target);
         let handler: Rc<Cell<Option<glib::SignalHandlerId>>> = Rc::new(Cell::new(None));
-        let h2 = handler.clone();
+        let h2 = Rc::clone(&handler);
         let id = media.connect_prepared_notify(move |m| {
             if let Some(id) = h2.take() {
                 m.disconnect(id);

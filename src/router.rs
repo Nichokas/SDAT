@@ -90,7 +90,7 @@ fn find_handler(path: &str) -> Option<(Handler, Vec<String>)> {
         for (re, h) in r.borrow().iter() {
             if let Some(c) = re.captures(path) {
                 let args = c.iter().skip(1).map(|m| m.map(|m| m.as_str().to_string()).unwrap_or_default()).collect();
-                return Some((h.clone(), args));
+                return Some((std::rc::Rc::clone(h), args));
             }
         }
         None

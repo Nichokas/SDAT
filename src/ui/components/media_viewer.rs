@@ -73,7 +73,7 @@ impl MediaViewer {
         sw.add_controller(scroll);
         let zoom = gtk::GestureZoom::new();
         let start = std::rc::Rc::new(Cell::new(1.0));
-        let s = start.clone();
+        let s = std::rc::Rc::clone(&start);
         zoom.connect_begin(move |_, _| s.set(get().zoom.get()));
         zoom.connect_scale_changed(move |_, scale| get().set_zoom(start.get() * scale));
         sw.add_controller(zoom);

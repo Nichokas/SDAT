@@ -65,7 +65,7 @@ fn queue_list() -> gtk::ScrolledWindow {
     sw.set_child(Some(&content));
     // Auto-scroll while dragging near the edges.
     let action = Rc::new(Cell::new(0.0f64));
-    let (a, w) = (action.clone(), sw.downgrade());
+    let (a, w) = (Rc::clone(&action), sw.downgrade());
     glib::timeout_add_local(Duration::from_millis(10), move || {
         let Some(sw) = w.upgrade() else { return glib::ControlFlow::Break };
         if a.get() != 0.0 {
@@ -75,7 +75,7 @@ fn queue_list() -> gtk::ScrolledWindow {
         glib::ControlFlow::Continue
     });
     let motion = gtk::DropControllerMotion::new();
-    let (a, w) = (action.clone(), sw.downgrade());
+    let (a, w) = (Rc::clone(&action), sw.downgrade());
     motion.connect_motion(move |_, _, y| {
         let Some(sw) = w.upgrade() else { return };
         let h = f64::from(sw.height());
@@ -111,7 +111,7 @@ pub fn new_queue() -> gtk::Box {
         }
     };
     let update = Rc::new(update);
-    let u = update.clone();
+    let u = Rc::clone(&update);
     on_state(player::user_queue().entries(), &bin, move |b, _| u(b));
     on_state(player::base_queue().entries(), &bin, move |b, _| update(b));
     vstack(&[mini.upcast_ref(), bin.upcast_ref()])

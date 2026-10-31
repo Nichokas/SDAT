@@ -66,7 +66,7 @@ fn on_reach_bottom_soon(sw: &gtk::ScrolledWindow, more: impl Fn(Rc<dyn Fn(bool)>
     let done = Rc::new(Cell::new(false));
     let more = Rc::new(more);
     let check = {
-        let (busy, done) = (busy.clone(), done.clone());
+        let (busy, done) = (Rc::clone(&busy), Rc::clone(&done));
         Rc::new(move |adj: &gtk::Adjustment, filled_check: bool| {
             if busy.get() || done.get() {
                 return;
@@ -76,7 +76,7 @@ fn on_reach_bottom_soon(sw: &gtk::ScrolledWindow, more: impl Fn(Rc<dyn Fn(bool)>
                 return;
             }
             busy.set(true);
-            let (busy, done) = (busy.clone(), done.clone());
+            let (busy, done) = (Rc::clone(&busy), Rc::clone(&done));
             more(Rc::new(move |has_more| {
                 busy.set(false);
                 if !has_more {
@@ -85,7 +85,7 @@ fn on_reach_bottom_soon(sw: &gtk::ScrolledWindow, more: impl Fn(Rc<dyn Fn(bool)>
             }));
         })
     };
-    let c = check.clone();
+    let c = Rc::clone(&check);
     adj.connect_value_changed(move |a| c(a, false));
     adj.connect_changed(move |a| check(a, true));
 }
@@ -108,7 +108,7 @@ async fn paginated_media_card_page<T: Clone + Send + 'static>(p: Paginator<T>, f
     let sw = scrolled(&comp::main_content(&list));
     let lw = list.downgrade();
     on_reach_bottom_soon(&sw, move |finish| {
-        let p: SharedPaginator<T> = p.clone();
+        let p: SharedPaginator<T> = std::sync::Arc::clone(&p);
         let lw = lw.clone();
         glib::spawn_future_local(async move {
             if p.lock().unwrap().is_consumed() {
@@ -141,7 +141,7 @@ async fn paginated_tracklist_page(p: Paginator<Track>, columns: Vec<Col>, margin
     let sw = scrolled(&comp::main_content_scrollable(list.widget()));
     let l = list.clone();
     on_reach_bottom_soon(&sw, move |finish| {
-        let (p, l) = (p.clone(), l.clone());
+        let (p, l) = (std::sync::Arc::clone(&p), l.clone());
         glib::spawn_future_local(async move {
             if p.lock().unwrap().is_consumed() {
                 log::debug!("No more items to fetch");
@@ -520,7 +520,7 @@ fn search() -> Response {
             return;
         }
         sw.set_child(Some(&search_loading_view()));
-        let (g, cur) = (generation.clone(), generation.get());
+        let (g, cur) = (Rc::clone(&generation), generation.get());
         let swr = sw.downgrade();
         glib::spawn_future_local(async move {
             let r = api::run(move || api::search(&q, &SEARCH_INCLUDES)).await;
@@ -541,10 +541,10 @@ fn search() -> Response {
     let entry = gtk::SearchEntry::new().hexp(true);
     entry.set_placeholder_text(Some(&tr("For example, Fox Stevenson")));
     entry.set_search_delay(1000);
-    let (h, s) = (handler.clone(), searching.clone());
+    let (h, s) = (Rc::clone(&handler), Rc::clone(&searching));
     entry.connect_activate(move |se| {
         s.set(true);
-        let s2 = s.clone();
+        let s2 = Rc::clone(&s);
         glib::timeout_add_seconds_local_once(1, move || s2.set(false));
         h(se);
     });

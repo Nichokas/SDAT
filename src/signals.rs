@@ -77,7 +77,7 @@ impl<T: Clone + 'static> State<T> {
     pub fn on(&self, f: impl Fn(&T) -> bool + 'static) -> Subscription {
         let cur = self.get();
         let id = self.signal.on(f);
-        let h = self.signal.handlers.borrow().iter().find(|(i, _)| *i == id).map(|(_, h)| h.clone());
+        let h = self.signal.handlers.borrow().iter().find(|(i, _)| *i == id).map(|(_, h)| std::rc::Rc::<dyn for<'a> std::ops::Fn(&'a T) -> bool>::clone(h));
         if let Some(h) = h
             && h(&cur) {
                 self.signal.unsubscribe(id);
@@ -114,7 +114,7 @@ mod tests {
     fn stateful_semantics() {
         let s = State::new(1);
         let seen = Rc::new(RefCell::new(vec![]));
-        let s2 = seen.clone();
+        let s2 = Rc::clone(&seen);
         s.on(move |v| {
             s2.borrow_mut().push(*v);
             *v >= 3
@@ -124,7 +124,7 @@ mod tests {
         s.set(4);
         assert_eq!(*seen.borrow(), vec![1, 2, 3]);
         let lazy = Rc::new(Cell::new(0));
-        let l2 = lazy.clone();
+        let l2 = Rc::clone(&lazy);
         s.on_lazy(move |v| {
             l2.set(*v);
             CONTINUE
