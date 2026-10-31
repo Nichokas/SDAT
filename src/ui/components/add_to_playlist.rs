@@ -46,7 +46,7 @@ fn entries(cache: Option<&[OwnPlaylist]>) -> Vec<Entry> {
 }
 
 /// Longest playlist name shown before it is cut with "…", so the menu doesn't widen.
-const MAX_LABEL_CHARS: usize = 32;
+const MAX_LABEL_CHARS: usize = 24;
 
 fn shorten(name: &str) -> String {
     if name.chars().count() <= MAX_LABEL_CHARS {
