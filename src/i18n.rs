@@ -131,11 +131,10 @@ fn parse_po(src: &str) -> Catalog {
             if strs.iter().any(|s| !s.is_empty()) {
                 cat.plural.insert(id.clone(), strs.clone());
             }
-        } else if let Some(s) = strs.first() {
-            if !s.is_empty() {
+        } else if let Some(s) = strs.first()
+            && !s.is_empty() {
                 cat.singular.insert(id.clone(), s.clone());
             }
-        }
         id.clear();
         id_plural.clear();
         strs.clear();

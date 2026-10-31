@@ -88,11 +88,10 @@ pub async fn fetch(url: &str) -> Option<gdk::Texture> {
             None
         }
     };
-    if let Some(t) = &texture {
-        if settings::should_cache_images() {
+    if let Some(t) = &texture
+        && settings::should_cache_images() {
             insert(url, t);
         }
-    }
     let waiters = CACHE.with(|c| c.borrow_mut().pending.remove(url)).unwrap_or_default();
     for w in waiters {
         let _ = w.try_send(texture.clone());

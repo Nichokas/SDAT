@@ -13,7 +13,7 @@ const QUIET: usize = 2;
 
 /// Is (x, y) inside one of the three finder patterns?
 fn in_finder(x: usize, y: usize, w: usize) -> bool {
-    (x < 7 && y < 7) || (x >= w - 7 && y < 7) || (x < 7 && y >= w - 7)
+    (y < 7 && (x < 7 || x >= w - 7)) || (x < 7 && y >= w - 7)
 }
 
 /// Rounded-rectangle hit test in module units.

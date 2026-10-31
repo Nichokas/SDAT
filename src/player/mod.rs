@@ -130,11 +130,10 @@ pub fn init() -> Result<()> {
     });
 
     track_changed().on(|ev| {
-        if let Some(ev) = ev {
-            if !ev.skip_history {
+        if let Some(ev) = ev
+            && !ev.skip_history {
                 history().prepend(ev.track.clone());
             }
-        }
         CONTINUE
     });
     source_changed().on(|_| {
@@ -248,11 +247,10 @@ fn next_track(peek: bool) -> (Option<Track>, bool) {
 }
 
 fn previous_track(peek: bool) -> Option<Track> {
-    if repeat_mode_changed().get() == RepeatMode::Track {
-        if let Some(t) = track_changed().with(|t| t.as_ref().map(|e| e.track.clone())) {
+    if repeat_mode_changed().get() == RepeatMode::Track
+        && let Some(t) = track_changed().with(|t| t.as_ref().map(|e| e.track.clone())) {
             return Some(t);
         }
-    }
     if peek { history().peek() } else { history().pop() }
 }
 

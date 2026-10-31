@@ -235,6 +235,8 @@ struct Inner {
     drop_target: RefCell<Option<gtk::DropTargetAsync>>,
 }
 
+pub type BoxedReorderFn = Box<dyn Fn(usize, usize, &Track)>;
+
 /// Port of TrackList. Cheap to clone.
 #[derive(Clone)]
 pub struct TrackList(Rc<Inner>);
@@ -343,7 +345,7 @@ impl TrackList {
         *self.0.click.borrow_mut() = Rc::new(f);
     }
 
-    pub fn set_reorder_callback(&self, f: Option<Box<dyn Fn(usize, usize, &Track)>>) {
+    pub fn set_reorder_callback(&self, f: Option<BoxedReorderFn>) {
         let on = f.is_some();
         *self.0.reorder.borrow_mut() = f.map(|f| Rc::from(f) as ReorderFn);
         self.0.reorderable.set(on);

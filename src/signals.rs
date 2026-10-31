@@ -78,11 +78,10 @@ impl<T: Clone + 'static> State<T> {
         let cur = self.get();
         let id = self.signal.on(f);
         let h = self.signal.handlers.borrow().iter().find(|(i, _)| *i == id).map(|(_, h)| h.clone());
-        if let Some(h) = h {
-            if h(&cur) {
+        if let Some(h) = h
+            && h(&cur) {
                 self.signal.unsubscribe(id);
             }
-        }
         id
     }
     /// Subscribes without calling the handler for the current value.

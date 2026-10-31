@@ -104,11 +104,10 @@ impl FavouriteCache {
             return Ok(vec![]);
         }
         let mut inner = self.inner.lock().unwrap();
-        if let (Some(items), Some(t)) = (&inner.items, inner.last_fetched) {
-            if t.elapsed() < TTL {
+        if let (Some(items), Some(t)) = (&inner.items, inner.last_fetched)
+            && t.elapsed() < TTL {
                 return Ok(items.clone());
             }
-        }
         match self.kind {
             Kind::Mixes => {
                 let (mut list, mut etag) = api::favourite_mix_ids("", "")?;

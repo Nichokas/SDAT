@@ -42,7 +42,8 @@ pub fn client_secret() -> &'static str {
 
 fn http() -> &'static Client {
     static C: OnceLock<Client> = OnceLock::new();
-    C.get_or_init(|| Client::builder().build().expect("failed to build http client"))
+    C.get_or_init(|| // Go's net/http sends this UA by default; TIDAL's CDN rejects requests without one.
+        Client::builder().user_agent("Go-http-client/1.1").build().expect("failed to build http client"))
 }
 
 #[derive(Default)]
@@ -497,5 +498,20 @@ mod tests {
         assert_eq!(super::client_id().len(), 16);
         assert!(!super::client_secret().is_empty());
         assert_eq!(super::query_escape("a b/c"), "a+b%2Fc");
+    }
+}
+
+#[cfg(test)]
+mod net_tests {
+    #[test]
+    #[ignore = "network"]
+    fn country_code_live() {
+        let r = super::http()
+            .get(format!("{}/v1/country/context?countryCode=WW&locale=en_US&deviceType=BROWSER", crate::settings::api_base_url()))
+            .header("x-tidal-token", super::client_id())
+            .send()
+            .unwrap();
+        eprintln!("status {} url {}", r.status(), r.url());
+        eprintln!("{}", r.text().unwrap());
     }
 }

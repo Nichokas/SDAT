@@ -10,8 +10,8 @@ use crate::ui::dsl::*;
 use crate::{global_signal, imgutil, player};
 
 global_signal!(fn controls_available() -> State<bool> = {
-    let s = State::new(false);
-    s
+    
+    State::new(false)
 });
 
 /// Mirrors `!PlaybackState.Loading` (the Go init() subscription).

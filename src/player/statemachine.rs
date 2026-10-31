@@ -229,6 +229,7 @@ impl State {
     }
 }
 
+#[allow(clippy::large_enum_variant)]
 pub enum Trigger {
     PlayTrackId(String, bool),
     PlayTrack(Track, bool),

@@ -16,7 +16,7 @@ use crate::settings;
 
 fn http() -> &'static reqwest::blocking::Client {
     static C: OnceLock<reqwest::blocking::Client> = OnceLock::new();
-    C.get_or_init(|| reqwest::blocking::Client::builder().timeout(Duration::from_secs(30)).build().expect("http client"))
+    C.get_or_init(|| reqwest::blocking::Client::builder().user_agent("Go-http-client/1.1").timeout(Duration::from_secs(30)).build().expect("http client"))
 }
 
 fn now_unix() -> i64 {

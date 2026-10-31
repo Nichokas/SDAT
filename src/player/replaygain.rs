@@ -75,13 +75,11 @@ fn build_filter_bin() -> Result<gst::Bin> {
     let sink = rgvolume.static_pad("sink").unwrap();
     let rgv = rgvolume.downgrade();
     sink.add_probe(gst::PadProbeType::EVENT_DOWNSTREAM, move |_, info| {
-        if let Some(gst::PadProbeData::Event(ev)) = &info.data {
-            if ev.type_() == gst::EventType::Segment && NORMALIZE.load(Ordering::Relaxed) {
-                if let Some(rgv) = rgv.upgrade() {
+        if let Some(gst::PadProbeData::Event(ev)) = &info.data
+            && ev.type_() == gst::EventType::Segment && NORMALIZE.load(Ordering::Relaxed)
+                && let Some(rgv) = rgv.upgrade() {
                     inject_tags(&rgv);
                 }
-            }
-        }
         gst::PadProbeReturn::Ok
     });
     ghost(&bin, "sink", &sink)?;

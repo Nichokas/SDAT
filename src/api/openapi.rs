@@ -104,6 +104,7 @@ pub const OBJECT_TYPE_PLAYLISTS: &str = "playlists";
 pub const OBJECT_TYPE_TRACKS: &str = "tracks";
 
 impl IncludedObjects {
+    #[allow(clippy::wrong_self_convention)]
     pub fn from_relationships(&self, rels: &[Relationship], t: &str) -> Vec<&IncludedObject> {
         let mut res = Vec::new();
         for rel in rels {
@@ -343,7 +344,7 @@ pub fn files_at_least(files: &[ArtworkFile], size: i64) -> Option<ArtworkFile> {
     if square.is_empty() {
         square = files.to_vec();
     }
-    square.sort_by(|a, b| (a.meta.height, a.meta.width).cmp(&(b.meta.height, b.meta.width)));
+    square.sort_by_key(|a| (a.meta.height, a.meta.width));
     if size == i64::MAX {
         let mut best = ArtworkFile::default();
         let mut max_h = 0;
@@ -369,11 +370,10 @@ pub struct Artworks(pub Vec<ArtworkData>);
 impl Artworks {
     pub fn at_least(&self, size: i64, media_type: &str) -> String {
         for a in &self.0 {
-            if a.attributes.media_type == media_type {
-                if let Some(f) = files_at_least(&a.attributes.files, size) {
+            if a.attributes.media_type == media_type
+                && let Some(f) = files_at_least(&a.attributes.files, size) {
                     return f.href;
                 }
-            }
         }
         String::new()
     }

@@ -38,7 +38,7 @@ pub fn healthcheck() -> Option<ServiceError> {
         Ok(_) => return None,
         Err(e) => e.to_string(),
     };
-    if err.contains("name is not activatable") || err.contains("ServiceUnknown") {
+    if err.contains("name is not activatable") || err.contains("ServiceUnknown") || err.contains("was not provided by any .service files") {
         return Some(ServiceError {
             title: tr("Secret Service Unavailable"),
             body: tr("No secret service provider is available.\n\nTonearm will not be able to store any authentication-related data and you will not be able to sign in.\n\nPlease install a secret service provider such as GNOME Keyring or KDE Wallet."),
