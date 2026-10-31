@@ -14,7 +14,7 @@ struct DiscoverView: View {
             CoverPlane(tracks: tracks) { t in player.play([t], from: "Discover") }
                 .ignoresSafeArea()
             LinearGradient(colors: [.black.opacity(0.75), .clear], startPoint: .top, endPoint: .bottom)
-                .frame(height: 170).ignoresSafeArea().allowsHitTesting(false)
+                .frame(height: 120).ignoresSafeArea().allowsHitTesting(false)
             header
             if let error, tracks.isEmpty {
                 ContentUnavailableView {
@@ -33,7 +33,7 @@ struct DiscoverView: View {
 
     private var header: some View {
         HStack(alignment: .center) {
-            Text("Discover").font(.system(size: 34, weight: .bold))
+            Text("Discover").font(.system(size: 34, weight: .bold)).frame(height: 44)
             Spacer()
             GlassEffectContainer(spacing: 10) {
                 HStack(spacing: 10) {
@@ -87,9 +87,8 @@ final class PlaneScrollView: UIScrollView, UIScrollViewDelegate {
     var onTap: ((Track) -> Void)?
     var tracks: [Track] = [] { didSet { visible.values.forEach { $0.removeFromSuperview() }; visible = [:]; setNeedsLayout() } }
 
-    private let tile: CGFloat = 148
     private let gap: CGFloat = 12
-    private var step: CGFloat { tile + gap }
+    private let step: CGFloat = 150
     private let span: CGFloat = 4_000_000
     private struct Cell: Hashable { let c: Int, r: Int }
     private var visible: [Cell: UIImageView] = [:]
@@ -118,17 +117,44 @@ final class PlaneScrollView: UIScrollView, UIScrollViewDelegate {
         return tracks[Int(UInt(bitPattern: h) % UInt(tracks.count))]
     }
 
+    /// Rows of flat covers: each row has one size, sizes vary between rows, and every row
+    /// is shifted horizontally (staggered). The pattern repeats every `sizes.count` rows.
+    private let sizes: [CGFloat] = [96, 140, 118, 100, 132, 150, 108]
+    private var period: CGFloat { sizes.reduce(0) { $0 + $1 + gap } }
+
+    private func rowSize(_ r: Int) -> CGFloat { sizes[((r % sizes.count) + sizes.count) % sizes.count] }
+
+    private func rowY(_ r: Int) -> CGFloat {
+        let n = sizes.count
+        let k = Int(floor(Double(r) / Double(n)))
+        var y = CGFloat(k) * period
+        for i in 0..<(r - k * n) { y += sizes[i] + gap }
+        return y
+    }
+
+    private func rowOffset(_ r: Int) -> CGFloat {
+        let step = rowSize(r) + gap
+        let h = CGFloat(UInt(bitPattern: r &* 2_654_435_761) % 1000) / 1000
+        return h * step
+    }
+
     private func frame(for cell: Cell) -> CGRect {
-        let stagger = (cell.c & 1) == 0 ? 0 : step / 2
-        return CGRect(x: CGFloat(cell.c) * step, y: CGFloat(cell.r) * step + stagger, width: tile, height: tile)
+        let size = rowSize(cell.r)
+        return CGRect(x: CGFloat(cell.c) * (size + gap) - rowOffset(cell.r), y: rowY(cell.r), width: size, height: size)
     }
 
     private func cells(in rect: CGRect) -> [Cell] {
-        let c0 = Int(floor(rect.minX / step)), c1 = Int(floor(rect.maxX / step))
-        let r0 = Int(floor((rect.minY - step / 2) / step)), r1 = Int(floor(rect.maxY / step))
         var out: [Cell] = []
-        out.reserveCapacity((c1 - c0 + 1) * (r1 - r0 + 1))
-        for c in c0...c1 { for r in r0...r1 { out.append(Cell(c: c, r: r)) } }
+        let n = sizes.count
+        var r = Int(floor(Double(rect.minY / period))) * n - 1
+        while rowY(r) <= rect.maxY {
+            let size = rowSize(r), step = size + gap, off = rowOffset(r)
+            if rowY(r) + size >= rect.minY {
+                let c0 = Int(floor((rect.minX + off - size) / step)), c1 = Int(floor((rect.maxX + off) / step))
+                for c in c0...max(c0, c1) { out.append(Cell(c: c, r: r)) }
+            }
+            r += 1
+        }
         return out
     }
 
@@ -170,8 +196,6 @@ final class PlaneScrollView: UIScrollView, UIScrollViewDelegate {
         let v = UIImageView()
         v.contentMode = .scaleAspectFill
         v.clipsToBounds = true
-        v.layer.cornerRadius = 14
-        v.layer.cornerCurve = .continuous
         v.backgroundColor = UIColor(white: 1, alpha: 0.07)
         return v
     }
