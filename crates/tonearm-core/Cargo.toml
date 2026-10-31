@@ -19,9 +19,16 @@ md-5 = "0.11.0"
 rand = "0.9"
 serde = { version = "1.0.229", features = ["derive"] }
 serde_json = "1.0.154"
-reqwest = { version = "0.13.5", features = ["json", "blocking", "form"] }
+# rustls only (never native-tls). The crypto provider is a feature so an
+# iOS build can pick aws-lc-rs (default, needs Xcode clang) or install its own.
+reqwest = { version = "0.13.5", default-features = false, features = ["json", "blocking", "form", "charset", "http2", "system-proxy", "rustls-no-provider"] }
 urlencoding = "2.1.3"
 thiserror = "2"
+
+[features]
+default = ["tls-aws-lc"]
+# rustls with the aws-lc-rs provider (reqwest's default TLS).
+tls-aws-lc = ["reqwest/rustls"]
 
 [lints]
 workspace = true
