@@ -33,7 +33,7 @@ struct SearchView: View {
                 }
             }
         }
-        .navigationTitle("Explore")
+        .navigationTitle("Search")
         .profileToolbar()
         .searchable(text: $query, placement: .navigationBarDrawer(displayMode: .always), prompt: "Artists, songs, albums")
         .task(id: query) {

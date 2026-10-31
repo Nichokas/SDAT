@@ -9,7 +9,7 @@ struct Cover: View {
     var circle = false
 
     var body: some View {
-        CachedImage(url: url)
+        CachedImage(url: url, kind: circle ? .artist : .album)
             .frame(width: size, height: size)
             .aspectRatio(1, contentMode: .fit)
             .clipShape(circle ? AnyShape(.circle) : AnyShape(.rect(cornerRadius: radius)))
@@ -18,15 +18,23 @@ struct Cover: View {
 
 /// Picks the TIDAL image size for a display size: covers come as /<uuid>/<N>x<N>.jpg.
 enum CoverURL {
-    static let sizes = [80, 160, 320, 640, 1280]
-    static func sized(_ url: String, points: CGFloat) -> String {
+    /// TIDAL serves different square sizes per resource type.
+    enum Kind { case album, artist, profile
+        var sizes: [Int] {
+            switch self {
+            case .album: [80, 160, 320, 640, 1280]
+            case .artist: [160, 320, 480, 750]
+            case .profile: [320]
+            }
+        }
+    }
+    static func sized(_ url: String, points: CGFloat, kind: Kind = .album) -> String {
         guard url.contains("resources.tidal.com/images/"), points > 0,
               let r = url.range(of: #"/\d+x\d+\.(jpg|png)$"#, options: .regularExpression) else { return url }
         let px = Int(points * 3)
-        let n = sizes.first { $0 >= px } ?? 1280
+        let sizes = url.hasSuffix(".png") ? Kind.profile.sizes : kind.sizes
+        let size = sizes.first { $0 >= px } ?? sizes.last!
         let ext = url.hasSuffix(".png") ? "png" : "jpg"
-        // Profile pictures only exist at 320 and above.
-        let size = url.contains("320x320") && n < 320 ? 320 : n
         return url.replacingCharacters(in: r, with: "/\(size)x\(size).\(ext)")
     }
 }
@@ -35,10 +43,11 @@ enum CoverURL {
 /// while the right size loads, then swaps without flashing.
 struct CachedImage: View {
     let url: String?
+    var kind: CoverURL.Kind = .album
     @State private var image: UIImage?
     @State private var width: CGFloat = 0
 
-    private var target: String? { url.map { CoverURL.sized($0, points: width) } }
+    private var target: String? { url.map { CoverURL.sized($0, points: width, kind: kind) } }
 
     var body: some View {
         Rectangle().fill(Color.white.opacity(0.08))
@@ -59,6 +68,8 @@ struct CachedImage: View {
                 if let c = ImageStore.shared.cached(t) { image = c; return }
                 if image == nil, let u = url { image = ImageStore.shared.cached(u) }
                 if let img = await ImageStore.shared.image(t) { image = img }
+                // Size missing on the server: fall back to the original URL.
+                else if image == nil, let u = url, u != t, let img = await ImageStore.shared.image(u) { image = img }
             }
     }
 }
@@ -85,6 +96,7 @@ struct TrackRow: View {
     let track: Track
     var showCover = true
     var number: Int? = nil
+    var coverSize: CGFloat = 44
     @Environment(Player.self) private var player
 
     var body: some View {
@@ -99,7 +111,7 @@ struct TrackRow: View {
                 .frame(width: 24)
             }
             if showCover {
-                Cover(url: track.album?.coverUrl, size: 44, radius: 6)
+                Cover(url: track.album?.coverUrl, size: coverSize, radius: 6)
                     .overlay { if isCurrent && number == nil { Color.black.opacity(0.45).overlay(Equalizer(playing: player.isPlaying)).clipShape(.rect(cornerRadius: 6)) } }
             }
             VStack(alignment: .leading, spacing: 2) {

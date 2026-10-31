@@ -16,7 +16,7 @@ struct MiniPlayer: View {
                     .contentShape(.circle)
                     .glassEffect(.regular.interactive(), in: .circle)
                     .onTapGesture { player.toggle() }
-                    .onLongPressGesture(minimumDuration: 0.35) {
+                    .onLongPressGesture(minimumDuration: 0.25) {
                         UIImpactFeedbackGenerator(style: .medium).impactOccurred()
                         chrome.showPlayer = true
                     }

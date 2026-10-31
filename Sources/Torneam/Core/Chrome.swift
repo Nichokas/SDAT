@@ -161,7 +161,7 @@ struct Avatar: View {
     let url: String?
     var body: some View {
         if let url {
-            CachedImage(url: url).clipShape(.circle)
+            CachedImage(url: url, kind: .profile).clipShape(.circle)
         } else {
             Circle().fill(Color(white: 0.1))
                 .overlay {

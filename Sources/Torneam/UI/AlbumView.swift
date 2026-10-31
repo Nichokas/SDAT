@@ -266,7 +266,7 @@ struct ArtistView: View {
     var body: some View {
         let a = overview?.artist
         let name = a?.name ?? ArtistCache.hints[id]?.name ?? ""
-        let pic = a?.pictureUrl ?? ArtistCache.hints[id]?.picture
+        let pic = [a?.pictureUrl, ArtistCache.hints[id]?.picture].compactMap { $0 }.first { !$0.isEmpty }
         ScrollView {
             LazyVStack(alignment: .leading, spacing: 0) {
                 VStack(spacing: 10) {
@@ -288,8 +288,17 @@ struct ArtistView: View {
                             shuffle: { player.playShuffled(o.topTracks, from: o.artist.name) }
                         )
                         .padding(.horizontal, 16).padding(.bottom, 8)
-                        VStack(spacing: 0) { TrackList(tracks: o.topTracks, source: o.artist.name) }
-                            .padding(.horizontal, 16)
+                        VStack(spacing: 0) {
+                            ForEach(Array(o.topTracks.enumerated()), id: \.offset) { i, t in
+                                Button { player.play(o.topTracks, startAt: i, from: o.artist.name) } label: {
+                                    TrackRow(track: t, coverSize: 56).frame(minHeight: 72)
+                                }
+                                .buttonStyle(.plain)
+                                .trackMenu(t, ownPlaylistId: nil, onRemoved: {})
+                                if i < o.topTracks.count - 1 { Divider().padding(.leading, 68) }
+                            }
+                        }
+                        .padding(.horizontal, 16)
                     }
                     if !o.albums.isEmpty {
                         header("Albums")
