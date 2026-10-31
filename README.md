@@ -3,7 +3,7 @@
   <a href="https://codeberg.org/dergs/Tonearm">
     <img src="internal/icons/hicolor/128x128/apps/dev.dergs.Tonearm.png" alt="Logo" width="80" height="80">
   </a>
-  <h2 align="center">Tonearm</h2>
+  <h2 align="center">Tonearm (tonearm-rs)</h2>
 
   [![Forks][forks-shield]][forks-url]
   [![Stargazers][stars-shield]][stars-url]
@@ -11,14 +11,14 @@
   [![License][license-shield]][license-url]
 
   <p align="center">
-    Tonearm is an <strong>unofficial</strong> native GTK4 / Adwaita music streaming client for <a href="https://tidal.com">TIDAL</a>
+    <strong>tonearm-rs</strong> is a Rust port of Tonearm, an <strong>unofficial</strong> native GTK4 / Adwaita music streaming client for <a href="https://tidal.com">TIDAL</a>
     <br />
     <a href="#installation"><strong>How to Install »</strong></a>
     <br />
     <br />
     <a href="#features">Features</a>
     &middot;
-    <a href="https://codeberg.org/dergs/Tonearm/issues/new">Report Bug or Request Feature</a>
+    <a href="https://github.com/Nichokas/tonearm-rs/issues/new">Report Bug or Request Feature</a>
     &middot;
     <a href="https://matrix.to/#/%23tonearm:derg.social">Join the Matrix Room</a>
   </p>
@@ -41,6 +41,18 @@
 >   copyright notices, license headers and credits are kept.
 > - The port is not affiliated with or endorsed by the original Tonearm authors or by TIDAL.
 > - The port was done with the help of **Grok Bot**.
+
+## What's new compared to the original
+- **Add to Playlist** submenu in the track menu.
+- **Right-click / long-press** context menu on tracks (rows and track cards); menus stay inside the window.
+- **Explore**: featured album, artist and external-link cards.
+- **Last.fm scrobbling** follows the Last.fm rules: tracks longer than 30 s, scrobbled after half the track or 4 minutes, with the start timestamp.
+- **Smooth carousel arrows** (animated scrolling).
+- **Infinite scroll prefetching**: the next pages load before you reach the end.
+- **Background cache/prefetch** of playlists, albums and favourite tracks, so they open and play instantly.
+- **Country / Region** preference for the TIDAL catalogue (defaults to your account's country).
+- Smoother scrolling: track menus are built lazily and covers are decoded off the main thread.
+- Release builds via `TONEARM_VERSION` (no "devel" header).
 
 ## Disclaimer
 Tonearm is not affiliated with or endorsed by TIDAL. Tonearm is provided as-is without any warranty or guarantees. We explicitly do not offer and are not planning to offer any kind of offline playback functionality, Tonearm is not a downloader. A paid TIDAL account is required for full-length playback.
@@ -76,6 +88,8 @@ cargo build --release
 ./target/release/tonearm
 ```
 The GSettings schema is compiled by `build.rs`, so the binary runs from the build tree without installing the schema. For a system install, also install `internal/settings/dev.dergs.Tonearm.gschema.xml`, the desktop file and metainfo from `build/`, and the icons from `internal/icons/hicolor`, then run `glib-compile-schemas`.
+
+Packages for Fedora (COPR) and Arch Linux are coming soon.
 
 ### Flatpak
 ```sh
