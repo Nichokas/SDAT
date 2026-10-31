@@ -60,14 +60,15 @@ final class OwnPlaylists {
 @MainActor @Observable
 final class Profile {
     static let shared = Profile()
-    private(set) var pictureURL: String? = UserDefaults.standard.string(forKey: "profilePicture")
+    private(set) var pictureURL: String? = UserDefaults.standard.string(forKey: "profilePicture320")
     private var loaded = false
     func load() async {
         guard !loaded else { return }
+        if pictureURL == nil { pictureURL = UserDefaults.standard.string(forKey: "profilePicture320") }
         if let u = try? await profilePictureUrl() {
             loaded = true
             pictureURL = u
-            UserDefaults.standard.set(u, forKey: "profilePicture")
+            UserDefaults.standard.set(u, forKey: "profilePicture320")
         }
     }
 }
@@ -79,11 +80,7 @@ struct ProfileButton: View {
     var body: some View {
         Button { Chrome.shared.push(.settings) } label: {
             Group {
-                if let u = profile.pictureURL {
-                    CachedImage(url: u).clipShape(.circle).padding(4)
-                } else {
-                    Image(systemName: "person.crop.circle").font(.system(size: size * 0.45))
-                }
+                Avatar(url: profile.pictureURL).padding(4)
             }
             .frame(width: size, height: size)
         }
@@ -156,5 +153,54 @@ final class ImageStore: @unchecked Sendable {
     func prefetch(_ url: String) {
         guard cached(url) == nil else { return }
         Task { _ = await image(url) }
+    }
+}
+
+/// Profile photo, or a default avatar in the TIDAL style (a looped squiggle on a dark circle).
+struct Avatar: View {
+    let url: String?
+    var body: some View {
+        if let url {
+            CachedImage(url: url).clipShape(.circle)
+        } else {
+            Circle().fill(Color(white: 0.1))
+                .overlay {
+                    AvatarGlyph()
+                        .stroke(LinearGradient(colors: [Color(red: 0.55, green: 0.7, blue: 1), .white], startPoint: .topLeading, endPoint: .bottomTrailing),
+                                style: StrokeStyle(lineWidth: 2.2, lineCap: .round, lineJoin: .round))
+                        .padding(7)
+                }
+        }
+    }
+}
+
+/// Two crossing loops, like a pretzel/infinity squiggle.
+struct AvatarGlyph: Shape {
+    func path(in r: CGRect) -> Path {
+        let w = r.width, h = r.height, x = r.minX, y = r.minY
+        var p = Path()
+        p.move(to: CGPoint(x: x + w * 0.15, y: y + h * 0.95))
+        p.addCurve(to: CGPoint(x: x + w * 0.42, y: y + h * 0.15),
+                   control1: CGPoint(x: x + w * 0.45, y: y + h * 0.75), control2: CGPoint(x: x + w * 0.62, y: y + h * 0.2))
+        p.addCurve(to: CGPoint(x: x + w * 0.2, y: y + h * 0.45),
+                   control1: CGPoint(x: x + w * 0.25, y: y + h * 0.1), control2: CGPoint(x: x + w * 0.05, y: y + h * 0.3))
+        p.addCurve(to: CGPoint(x: x + w * 0.8, y: y + h * 0.4),
+                   control1: CGPoint(x: x + w * 0.4, y: y + h * 0.65), control2: CGPoint(x: x + w * 0.95, y: y + h * 0.6))
+        p.addCurve(to: CGPoint(x: x + w * 0.58, y: y + h * 0.15),
+                   control1: CGPoint(x: x + w * 0.7, y: y + h * 0.18), control2: CGPoint(x: x + w * 0.62, y: y + h * 0.12))
+        p.addCurve(to: CGPoint(x: x + w * 0.88, y: y + h * 0.95),
+                   control1: CGPoint(x: x + w * 0.5, y: y + h * 0.55), control2: CGPoint(x: x + w * 0.65, y: y + h * 0.8))
+        return p
+    }
+}
+
+extension Profile {
+    func reset() { pictureURL = nil; loaded = false }
+}
+
+extension ImageStore {
+    func clear() {
+        cache.removeAllObjects()
+        session.configuration.urlCache?.removeAllCachedResponses()
     }
 }

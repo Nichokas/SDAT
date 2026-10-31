@@ -46,4 +46,26 @@ final class Session {
         sessionChanged()
         signedIn = false
     }
+
+    /// Dev: wipes Keychain, defaults, caches and files, stops playback, back to login.
+    func eraseAll() {
+        Player.shared.stopAndClear()
+        Keychain.wipe()
+        if let id = Bundle.main.bundleIdentifier { UserDefaults.standard.removePersistentDomain(forName: id) }
+        URLCache.shared.removeAllCachedResponses()
+        ImageStore.shared.clear()
+        let fm = FileManager.default
+        for dir in [FileManager.SearchPathDirectory.cachesDirectory, .applicationSupportDirectory, .documentDirectory] {
+            for base in fm.urls(for: dir, in: .userDomainMask) {
+                for f in (try? fm.contentsOfDirectory(at: base, includingPropertiesForKeys: nil)) ?? [] { try? fm.removeItem(at: f) }
+            }
+        }
+        for f in (try? fm.contentsOfDirectory(at: fm.temporaryDirectory, includingPropertiesForKeys: nil)) ?? [] { try? fm.removeItem(at: f) }
+        try? fm.createDirectory(at: fm.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0], withIntermediateDirectories: true)
+        Profile.shared.reset()
+        Chrome.shared.paths = [:]
+        Chrome.shared.tab = .discover
+        sessionChanged()
+        signedIn = false
+    }
 }

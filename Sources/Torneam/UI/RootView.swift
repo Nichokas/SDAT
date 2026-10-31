@@ -138,11 +138,7 @@ struct ProfileToolbarButton: View {
     @State private var profile = Profile.shared
     var body: some View {
         Button { Chrome.shared.push(.settings) } label: {
-            if let u = profile.pictureURL {
-                CachedImage(url: u).frame(width: 30, height: 30).clipShape(.circle)
-            } else {
-                Image(systemName: "person.crop.circle")
-            }
+            Avatar(url: profile.pictureURL).frame(width: 30, height: 30)
         }
         .task { await profile.load() }
     }

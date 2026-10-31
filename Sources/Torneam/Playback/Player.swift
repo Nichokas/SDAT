@@ -434,3 +434,15 @@ final class Player {
 extension Array {
     subscript(safe i: Int) -> Element? { indices.contains(i) ? self[i] : nil }
 }
+
+extension Player {
+    /// Stops playback and forgets the queue (used by "Erase all app data").
+    func stopAndClear() {
+        loadTask?.cancel(); preloadTask?.cancel()
+        avPlayer.pause(); avPlayer.removeAllItems()
+        preloaded = nil; infinite = nil
+        queue = []; original = []; userQueue = []; index = nil; current = nil
+        isPlaying = false; loading = false; position = 0; duration = 0; stream = nil; sourceTitle = nil
+        MPNowPlayingInfoCenter.default().nowPlayingInfo = nil
+    }
+}

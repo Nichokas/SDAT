@@ -12,6 +12,7 @@ struct SettingsView: View {
     @State private var safariURL: IdentURL?
     @State private var lastFmError: String?
     @State private var listenBrainzToken = ""
+    @State private var confirmErase = false
     @State private var hasListenBrainz = Keychain.get("listenbrainz.token") != nil
 
     var body: some View {
@@ -42,6 +43,12 @@ struct SettingsView: View {
                 if prefs.scrobbleListenBrainz { listenBrainzRow }
             }
 
+            Section {
+                Button("Erase all app data", role: .destructive) { confirmErase = true }
+            } header: { Text("Developer") } footer: {
+                Text("Signs out and deletes the TIDAL session, Last.fm and ListenBrainz tokens, settings, caches and stored files.")
+            }
+
             Section("About") {
                 LabeledContent("Version", value: Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "dev")
                 Link("Source code", destination: URL(string: "https://github.com/nichokas/Tonearm")!)
@@ -50,6 +57,9 @@ struct SettingsView: View {
         .navigationTitle("Settings")
         .navigationBarTitleDisplayMode(.inline)
         .sheet(item: $safariURL, onDismiss: finishLastFm) { u in SafariView(url: u.url).ignoresSafeArea() }
+        .confirmationDialog("Erase all app data?", isPresented: $confirmErase, titleVisibility: .visible) {
+            Button("Erase everything", role: .destructive) { session.eraseAll() }
+        } message: { Text("This cannot be undone.") }
         .confirmationDialog("Log out of TIDAL?", isPresented: $confirmLogout, titleVisibility: .visible) {
             Button("Log out", role: .destructive) { session.logOut() }
         }

@@ -19,6 +19,11 @@ enum Keychain {
         return String(data: data, encoding: .utf8)
     }
 
+    /// Deletes every item this app stored.
+    static func wipe() {
+        SecItemDelete([kSecClass as String: kSecClassGenericPassword, kSecAttrService as String: service] as CFDictionary)
+    }
+
     static func set(_ key: String, _ value: String?) {
         let base: [String: Any] = [
             kSecClass as String: kSecClassGenericPassword,
