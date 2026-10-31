@@ -83,7 +83,9 @@ fn token_request(form: &[(&str, &str)]) -> Result<Response> {
 }
 
 fn fetch_access_token(cache: &Mutex<CachedToken>, form: &[(&str, &str)]) -> Result<String> {
-    if let Some(t) = cache.lock().unwrap_or_else(std::sync::PoisonError::into_inner).valid() {
+    // Release the lock before the (slow) token request.
+    let cached = cache.lock().unwrap_or_else(std::sync::PoisonError::into_inner).valid();
+    if let Some(t) = cached {
         return Ok(t);
     }
     let resp = token_request(form)?;

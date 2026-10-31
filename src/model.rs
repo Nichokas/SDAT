@@ -60,7 +60,7 @@ pub enum SourceType {
     Unknown,
 }
 
-#[derive(Debug, Clone, Default, PartialEq)]
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct Cover {
     pub animated: String,
     pub static_: String,

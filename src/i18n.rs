@@ -262,11 +262,9 @@ pub fn sprintf(fmt: &str, args: &[&dyn std::fmt::Display]) -> String {
     let mut ai = 0;
     while let Some(c) = it.next() {
         if c == '%' {
-            // skip flags/width/precision
-            let mut spec = String::new();
+            // skip flags/width/precision (not supported, ignored)
             while let Some(&n) = it.peek() {
                 if n.is_ascii_digit() || n == '.' || n == '-' || n == '+' {
-                    spec.push(n);
                     it.next();
                 } else {
                     break;

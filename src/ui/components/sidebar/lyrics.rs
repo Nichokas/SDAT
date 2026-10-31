@@ -16,7 +16,7 @@ static TIMING_RE: LazyLock<regex::Regex> = LazyLock::new(|| regex::Regex::new(r"
 static TS_RE: LazyLock<regex::Regex> = LazyLock::new(|| regex::Regex::new(r"(\d{2}):(\d{2})\.(\d{2})").expect("TS_RE is a valid regex"));
 
 /// A parsed lyric line: `None` timing means plain (untimed) text, `text == None` is a blank spacer.
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Line {
     Blank,
     Text(String, Option<(Duration, Duration)>),
