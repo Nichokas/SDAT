@@ -355,14 +355,32 @@ pub fn page_v1(path: &str) -> Result<legacy::Page> {
     get_json(&format!("/v1/pages/{path}"), &[])
 }
 
-/// Logged-in user's profile picture id (legacy `GET /v1/users/{id}`), if one is set.
+/// Logged-in user's profile picture: an image id or a full URL. Tries the
+/// social profile (`/v2/profiles/{id}`) first, then legacy `GET /v1/users/{id}`.
 pub fn user_picture(user_id: &str) -> Result<Option<String>> {
+    if let Some(p) = get_json::<serde_json::Value>(&format!("/v2/profiles/{user_id}"), &[]).ok().as_ref().and_then(user_picture_from) {
+        return Ok(Some(p));
+    }
     let v: serde_json::Value = get_json(&format!("/v1/users/{user_id}"), &[])?;
     Ok(user_picture_from(&v))
 }
 
+/// Finds a picture id/URL under `picture`/`profilePicture`/`image` (string or object with `url`/`id`).
 pub fn user_picture_from(v: &serde_json::Value) -> Option<String> {
-    v.get("picture").and_then(|p| p.as_str()).filter(|p| !p.is_empty()).map(str::to_string)
+    for key in ["picture", "profilePicture", "image", "imageId"] {
+        match v.get(key) {
+            Some(serde_json::Value::String(s)) if !s.is_empty() => return Some(s.clone()),
+            Some(o @ serde_json::Value::Object(_)) => {
+                for k in ["url", "id", "uuid"] {
+                    if let Some(s) = o.get(k).and_then(|x| x.as_str()).filter(|s| !s.is_empty()) {
+                        return Some(s.to_string());
+                    }
+                }
+            }
+            _ => {}
+        }
+    }
+    v.get("data").and_then(user_picture_from)
 }
 
 /// Returns (list, etag) or None when not modified.
