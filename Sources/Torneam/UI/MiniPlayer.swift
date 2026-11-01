@@ -38,13 +38,13 @@ struct MiniPlayer: View {
     }
 
     private var circleContent: some View {
-                // Tap: play/pause. Long-press: open the full player.
+                // Tap: open the full player. Long-press (0.06 s hold): play/pause.
                 ringIcon(size: 62)
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
                     // Generous hit area: 12 pt beyond the visible circle.
                     .contentShape(Circle().inset(by: -12))
                     // One gesture so a press is either a tap or a hold, never both:
-                    // held ≥ 0.12 s opens the player; released sooner toggles play/pause.
+                    // held ≥ 0.06 s toggles play/pause; released sooner opens the player.
                     .highPriorityGesture(DragGesture(minimumDistance: 0)
                         .updating($touching) { _, st, _ in st = true }
                         .onChanged { g in
@@ -58,17 +58,17 @@ struct MiniPlayer: View {
                             guard holdTask == nil, !drifted else { return }
                             gestureLog.notice("mini press began")
                             holdTask = Task { @MainActor in
-                                try? await Task.sleep(for: .milliseconds(120))
+                                try? await Task.sleep(for: .milliseconds(60))
                                 guard !Task.isCancelled else { return }
                                 held = true
                                 UIImpactFeedbackGenerator(style: .medium).impactOccurred()
-                                chrome.showPlayer = true
+                                player.toggle()
                             }
                         }
                         .onEnded { _ in
                             holdTask?.cancel(); holdTask = nil
                             gestureLog.notice("mini press ended held=\(held) drifted=\(drifted)")
-                            if !held && !drifted { player.toggle() }
+                            if !held && !drifted { chrome.showPlayer = true }
                             held = false; drifted = false
                             chrome.miniPressed = false
                         })
@@ -104,14 +104,15 @@ struct MiniPlayer: View {
 
     private func ringIcon(size: CGFloat) -> some View {
             Group {
-                if player.loading { ProgressView().controlSize(.small) } else {
+                // Loading: no spinner; the dashed ring itself spins instead.
+                if !player.loading {
                     Image(systemName: player.isPlaying ? "pause.fill" : "play.fill")
                         .font(.system(size: size * 0.32))
                         .contentTransition(.symbolEffect(.replace))
                 }
             }
                 .frame(width: size, height: size)
-                .overlay { ProgressRing(progress: player.progress).padding(size * 0.14) }
+                .overlay { ProgressRing(progress: player.progress, spinning: player.loading).padding(size * 0.14) }
                 .contentShape(.circle)
     }
 }
@@ -119,23 +120,54 @@ struct MiniPlayer: View {
 /// Blue arc from 12 o'clock clockwise; the rest of the circle dashed white at 40%.
 struct ProgressRing: View {
     let progress: Double
+    var spinning = false
     var lineWidth: CGFloat = 2.5
 
     var body: some View {
-        let p = min(max(progress, 0), 1)
-        ZStack {
-            if p < 0.999 {
-                Circle()
-                    .trim(from: p, to: 1)
-                    .stroke(.white.opacity(0.4), style: StrokeStyle(lineWidth: lineWidth * 0.8, lineCap: .butt, dash: [2.5, 3]))
+        GeometryReader { g in
+            // Dash period fitted so the circle holds a whole number of dashes starting at
+            // 12 o'clock; progress is quantized to whole periods, so the dashed remainder
+            // always starts exactly on a dash boundary (no half-covered dash, hidden at 0%).
+            let d = min(g.size.width, g.size.height)
+            let circ = Double.pi * Double(max(d, 1))
+            let n = max(Int((circ / 5.5).rounded()), 8)
+            let period = circ / Double(n)
+            let q0 = (min(max(progress, 0), 1) * Double(n)).rounded(.down) / Double(n)
+            let q = spinning ? 0 : q0
+            ZStack {
+                if q < 1 {
+                    Circle()
+                        .trim(from: q, to: 1)
+                        .stroke(.white.opacity(0.4), style: StrokeStyle(lineWidth: lineWidth * 0.8, lineCap: .butt,
+                                                                        dash: [period * 2.5 / 5.5, period * 3 / 5.5]))
+                }
+                if q > 0 {
+                    Circle()
+                        .trim(from: 0, to: q)
+                        .stroke(.blue, style: StrokeStyle(lineWidth: lineWidth, lineCap: .butt))
+                }
             }
-            if p > 0.002 {
-                Circle()
-                    .trim(from: 0, to: p)
-                    .stroke(.blue, style: StrokeStyle(lineWidth: lineWidth, lineCap: .butt))
-            }
+            .frame(width: d, height: d)
+            .animation(.linear(duration: 0.25), value: q)
         }
         .rotationEffect(.degrees(-90))
-        .animation(.linear(duration: 0.25), value: p)
+        // Time-derived rotation (1 turn/s) while loading: no repeating animation that could
+        // get stuck; when loading ends the TimelineView is gone and the ring is at 12 o'clock.
+        .modifier(Spin(on: spinning))
+    }
+}
+
+private struct Spin: ViewModifier {
+    let on: Bool
+    func body(content: Content) -> some View {
+        if on {
+            TimelineView(.animation) { tl in
+                let t = tl.date.timeIntervalSinceReferenceDate
+                content.rotationEffect(.degrees(t.truncatingRemainder(dividingBy: 1) * 360))
+            }
+            .transition(.opacity)
+        } else {
+            content.transition(.opacity)
+        }
     }
 }

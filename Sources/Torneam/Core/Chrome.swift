@@ -23,15 +23,38 @@ final class Chrome {
     /// 0 = expanded, 1 = collapsed. Driven continuously by the finger, settled on idle.
     var progress: CGFloat = 0
     var collapsed: Bool { progress >= 0.5 }
+    /// Per-component drivers derived from `progress`: equal to it while the finger drives,
+    /// animated separately on settle (the shrinking one snaps, the growing one spreads).
+    var tabP: CGFloat = 0
+    var miniP: CGFloat = 0
+    /// Finger-driven update: all three move together, un-animated.
+    func setDirect(_ p: CGFloat) {
+        var t = Transaction(); t.disablesAnimations = true
+        withTransaction(t) { progress = p; tabP = p; miniP = p }
+    }
     /// Direction-specific: collapse is quick, expand is deliberately ~2x slower.
     func setCollapsed(_ on: Bool) {
-        if !on { expanding = true }
-        withAnimation(on ? Motion.collapse : Motion.expand) { progress = on ? 1 : 0 } completion: {
-            if !on { self.expanding = false }
+        // The expand lock is released by a timer, not the animation completion: the
+        // completion is skipped when the transaction is superseded or the value doesn't
+        // change, which left `expanding` stuck true (collapse dead until a push/pop).
+        expandToken &+= 1
+        let token = expandToken
+        expanding = !on
+        let v: CGFloat = on ? 1 : 0
+        progress = v
+        // Collapsing: tab bar shrinks (snappy), miniplayer grows (soft). Expanding: swapped.
+        withAnimation(on ? Motion.shrink : Motion.grow) { tabP = v }
+        withAnimation(on ? Motion.grow : Motion.shrink) { miniP = v }
+        if !on {
+            Task { @MainActor in
+                try? await Task.sleep(for: .milliseconds(620))
+                if self.expandToken == token { self.expanding = false }
+            }
         }
     }
     /// An animated expand is running; finger-driven updates must not cut it short.
     @ObservationIgnored var expanding = false
+    @ObservationIgnored private var expandToken = 0
     /// Round miniplayer is being pressed (drives its scale + glass highlight).
     var miniPressed = false
     var showPlayer = false

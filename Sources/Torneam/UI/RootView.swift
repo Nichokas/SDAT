@@ -67,13 +67,19 @@ private struct BottomChrome: View {
         // Spacing 0: bar and miniplayer stay separate shapes (no pinched neck);
         // glassEffectID still morphs each between its states.
         // Tab bar and miniplayer are sized from the SAME progress value, so they move in
-        // lockstep: the finger drives it directly, idle settles it (Motion.collapse / Motion.expand).
-        let p = hasMini && !chrome.inDetail ? chrome.progress : 0
-        let lerp = { (a: CGFloat, b: CGFloat) in a + (b - a) * p }
-        let tabW = W > 0 ? lerp(W - 62 - 12, 54) : nil
-        let h = lerp(62, 54)
+        // lockstep: the finger drives it directly, idle settles it (Motion.shrink / Motion.grow per component).
+        let on = hasMini && !chrome.inDetail
+        let p = on ? chrome.tabP : 0      // tab bar driver
+        let mp = on ? chrome.miniP : 0    // miniplayer driver
+        let lerp = { (a: CGFloat, b: CGFloat, t: CGFloat) in a + (b - a) * t }
+        // Each shape sized from its own driver; the shrinking one is always faster, so they
+        // can leave a brief gap but never overlap.
+        let tabW = W > 0 ? lerp(W - 62 - 12, 54, p) : nil
+        let miniW = W > 0 ? lerp(62, W - 54 - 12, mp) : nil
+        let h = lerp(62, 54, p)
+        let mh = lerp(62, 54, mp)
         GlassEffectContainer(spacing: 0) {
-            HStack(spacing: 12) {
+            HStack(spacing: 0) {
                 if !chrome.inDetail {
                     TabBar(p: p)
                         .frame(width: hasMini ? tabW : nil, height: h)
@@ -82,14 +88,15 @@ private struct BottomChrome: View {
                         .glassEffectID("tabs", in: ns)
                 }
                 if hasMini {
-                    MiniPlayer(style: chrome.inDetail ? .wide : (p >= 0.5 ? .capsule : .circle),
-                               p: chrome.inDetail ? 1 : p)
+                    if !chrome.inDetail { Spacer(minLength: 12) }
+                    MiniPlayer(style: chrome.inDetail ? .wide : (mp >= 0.5 ? .capsule : .circle),
+                               p: chrome.inDetail ? 1 : mp)
                         // Explicit width (never content-sized): the capsule content's minimum
                         // width used to push the HStack wider than W, which re-measured W and
                         // looped layout forever on the main thread (the freeze on first play).
-                        .frame(width: chrome.inDetail || tabW == nil ? nil : max(W - tabW! - 12, 54),
-                               height: chrome.inDetail ? 62 : h)
-                        .frame(maxWidth: chrome.inDetail || tabW == nil ? .infinity : nil)
+                        .frame(width: chrome.inDetail || miniW == nil ? nil : max(miniW!, 54),
+                               height: chrome.inDetail ? 62 : mh)
+                        .frame(maxWidth: chrome.inDetail || miniW == nil ? .infinity : nil)
                         .glassEffect(.regular.interactive(), in: .capsule)
                         .glassEffectID("mini", in: ns)
                         .scaleEffect(chrome.miniPressed ? 1.08 : 1)
@@ -306,8 +313,7 @@ extension View {
                 c.setCollapsed(false); return
             }
             if (p == 0 || p == 1) { chromeLog.notice("progress \(Double(p), format: .fixed(precision: 2)) y=\(Double(y), format: .fixed(precision: 0))") }
-            var t = Transaction(); t.disablesAnimations = true
-            withTransaction(t) { c.progress = p }
+            c.setDirect(p)
         }
         .onScrollPhaseChange { _, phase in
             guard phase == .idle else { return }
@@ -379,8 +385,10 @@ private struct ChromeState: Equatable { var detail, mini: Bool }
 enum Motion {
     static let pill = Animation.spring(response: 0.4, dampingFraction: 0.86)
     static let bar = Animation.smooth(duration: 0.4)
-    static let collapse = Animation.smooth(duration: 0.35)
-    static let expand = Animation.smooth(duration: 0.7)
+    /// Shrinking component: quick, slight spring, like a released rubber band.
+    static let shrink = Animation.snappy(duration: 0.3, extraBounce: 0.05)
+    /// Growing component: slower and soft, like water spreading.
+    static let grow = Animation.smooth(duration: 0.6)
     /// Shared content fades for BOTH tab bar and miniplayer: out early, in late, inside the 0.4 s morph.
     static let fadeOut = Animation.easeOut(duration: 0.15)
     static let fadeIn = Animation.easeIn(duration: 0.2).delay(0.2)
