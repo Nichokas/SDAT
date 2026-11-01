@@ -68,7 +68,7 @@ struct DownloadsView: View {
             }
         }
         .confirmationDialog("Delete all downloads?", isPresented: $confirmAll, titleVisibility: .visible) {
-            Button("Delete \(Fmt.bytes(dl.totalSize))", role: .destructive) { dl.removeAll() }
+            Button("Delete \(Fmt.bytes(dl.totalSize))", role: .destructive) { Task { await dl.removeAll() } }
         }
     }
 }

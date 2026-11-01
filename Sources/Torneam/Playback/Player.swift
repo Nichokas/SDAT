@@ -725,13 +725,18 @@ extension Array {
 extension Player {
     /// Stops playback and forgets the queue (used by "Erase all app data").
     func stopAndClear() {
-        loadTask?.cancel(); preloadTask?.cancel()
+        loadTask?.cancel(); preloadTask?.cancel(); refilling?.cancel(); refilling = nil
         avPlayer.pause(); avPlayer.removeAllItems()
+        resumeAfterInterruption = false
+        recentIDs = []; recentOrder = []
+        savedQueueVersion = -1; savedQueueOffset = 0
         preloaded = nil; infinite = nil
         queue = []; original = []; userQueue = []; index = nil; current = nil
         isPlaying = false; loading = false; position = 0; duration = 0; stream = nil; sourceTitle = nil
         MPNowPlayingInfoCenter.default().nowPlayingInfo = nil
         needsStart = false; restoredInfinite = false
+        // With `current` nil any later persist() (tick, scene change) only clears again;
+        // the store's serial queue keeps this delete after any save already queued.
         PlaybackStore.clear()
     }
 }

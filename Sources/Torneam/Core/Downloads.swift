@@ -119,12 +119,15 @@ final class Downloads {
     }
     func remove(_ list: [Track]) { for t in list { remove(t.id) } }
 
-    func removeAll() {
-        cancelAll()
-        failures = [:]
-        entries = [:]
-        try? FileManager.default.removeItem(at: Self.dir)
-        saveIndex()
+    /// Cancels queued / in-flight downloads, waits for the worker to stop, then deletes
+    /// every file (tracks, covers, index). Nothing can be recreated afterwards.
+    func removeAll() async {
+        pending = []
+        progress = [:]; activeOrder = []; activeTracks = [:]
+        while let w = worker { w.cancel(); await w.value; if worker == w { worker = nil } }
+        failures = [:]; entries = [:]; coverMap = [:]
+        let d = Self.dir
+        await Task.detached(priority: .userInitiated) { try? FileManager.default.removeItem(at: d) }.value
     }
 
     // MARK: worker
@@ -211,6 +214,7 @@ final class Downloads {
         guard (try? await AVURLAsset(url: tmp).load(.isPlayable)) == true else {
             try? FileManager.default.removeItem(at: tmp); throw Failure.unplayable
         }
+        if Task.isCancelled || progress[t.id] == nil { try? FileManager.default.removeItem(at: tmp); throw CancellationError() }
         try? FileManager.default.removeItem(at: dst)
         try FileManager.default.moveItem(at: tmp, to: dst)
         let size = (try? dst.resourceValues(forKeys: [.fileSizeKey]).fileSize).map(Int64.init) ?? 0
@@ -220,7 +224,7 @@ final class Downloads {
             let cname = "cover-\(a.id).jpg"
             let cf = Self.dir.appendingPathComponent(cname)
             if FileManager.default.fileExists(atPath: cf.path) { cover = cname }
-            else if let d = try? await Self.get(cu, net) { try? d.write(to: cf, options: .atomic); cover = cname }
+            else if let d = try? await Self.get(cu, net), !Task.isCancelled { try? d.write(to: cf, options: .atomic); cover = cname }
         }
         if let a = t.album, let cover {
             for r in [a.coverUrl, a.coverUrlLarge].compactMap({ $0 }) { coverMap[r] = Self.dir.appendingPathComponent(cover) }
@@ -285,7 +289,7 @@ final class Downloads {
         rebuildCoverMap()
         let snapshot = entries
         Task.detached(priority: .utility) {
-            try? JSONEncoder().encode(snapshot).write(to: Downloads.indexURL, options: .atomic)
+            try? JSONEncoder().encode(snapshot).write(to: Downloads.indexURL, options: .atomic)  // fails if the folder was wiped
         }
     }
     private func rebuildCoverMap() {

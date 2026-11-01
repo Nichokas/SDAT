@@ -41,16 +41,26 @@ final class Session {
         pending = nil
     }
 
+    /// Stops playback (nothing restores on next login), cancels and deletes all
+    /// downloads, then clears the credentials.
     func logOut() {
-        tokens.clear()
-        sessionChanged()
-        signedIn = false
+        Player.shared.stopAndClear()
+        Task {
+            await Downloads.shared.removeAll()
+            tokens.clear()
+            sessionChanged()
+            signedIn = false
+        }
     }
 
     /// Dev: wipes Keychain, defaults, caches and files, stops playback, back to login.
     func eraseAll() {
         Player.shared.stopAndClear()
-        Downloads.shared.removeAll()
+        Task { await eraseRest() }
+    }
+
+    private func eraseRest() async {
+        await Downloads.shared.removeAll()
         Keychain.wipe()
         if let id = Bundle.main.bundleIdentifier { UserDefaults.standard.removePersistentDomain(forName: id) }
         URLCache.shared.removeAllCachedResponses()
