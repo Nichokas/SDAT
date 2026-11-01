@@ -149,7 +149,6 @@ struct SafariView: UIViewControllerRepresentable {
     let url: URL
     func makeUIViewController(context: Context) -> SFSafariViewController {
         let vc = SFSafariViewController(url: url)
-        vc.preferredControlTintColor = .systemBlue
         vc.dismissButtonStyle = .done
         return vc
     }
