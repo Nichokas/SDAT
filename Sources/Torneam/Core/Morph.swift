@@ -4,9 +4,9 @@ import Foundation
 /// Everything derives from ONE clock `t` (0...1, linear in time over `Morph.duration`)
 /// and the direction, so widths come from a single budget and can never overlap.
 enum Morph {
-    static let duration = 0.6
-    /// Shrinking shape finishes in the first half (0.3 s of 0.6 s).
-    static let shrinkShare = 0.5
+    static let duration = 0.75
+    /// Shrinking shape finishes at 42% of the clock (~0.32 s of 0.75 s).
+    static let shrinkShare = 0.42
     static let round = 54.0      // collapsed tab button
     static let circle = 62.0     // miniplayer circle
     static let gap = 12.0
@@ -27,8 +27,8 @@ enum Morph {
     /// `w` = width inside the horizontal margins. `t` = collapse clock (0 expanded, 1 collapsed).
     /// `collapsing` = direction of the running/last transition.
     /// Per-role speeds on ONE budget: the shrinking shape snaps away (ease-out, done at
-    /// 0.3 s of 0.6 s, like a released rubber band), the growing one spreads slowly
-    /// (ease-in-out over 0.6 s, like water) and is capped at the space actually freed, so
+    /// ~0.32 s of 0.75 s, like a released rubber band), the growing one spreads slowly
+    /// (ease-in-out over 0.75 s, like water) and is capped at the space actually freed, so
     /// tabW + gap + miniW <= w always. Any leftover is a transparent, temporary extra gap:
     /// the tab bar is pinned to the leading margin and the miniplayer to the trailing one.
     static func frame(width w: Double, t: Double, collapsing: Bool) -> Frame {
@@ -44,7 +44,12 @@ enum Morph {
     }
 
     /// Rubber-band release: fast start, ease-out, finished at `shrinkShare` of the clock.
-    static func snap(_ x: Double) -> Double { 1 - pow(1 - clamp01(x / shrinkShare), 3) }
+    /// Smoothstep on a warped clock (u^0.7): a short, subtle ease-in, peak speed early,
+    /// then a soft brake. Done at `shrinkShare` of the clock (~0.32 s of 0.75 s).
+    static func snap(_ x: Double) -> Double {
+        let u = pow(clamp01(x / shrinkShare), 0.7)
+        return u * u * (3 - 2 * u)
+    }
 
     /// Short, crisp crossfade around the midpoint: content is fully shown outside 0.38...0.62,
     /// outgoing is gone exactly when incoming starts (never both visible).

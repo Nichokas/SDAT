@@ -50,7 +50,7 @@ final class Chrome {
         withAnimation(.linear(duration: Morph.duration)) { morphT = v }
         do {
             Task { @MainActor in
-                try? await Task.sleep(for: .milliseconds(620))
+                try? await Task.sleep(for: .milliseconds(Int(Morph.duration * 1000) + 20))
                 if self.expandToken == token { self.expanding = false }
             }
         }
