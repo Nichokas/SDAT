@@ -1,0 +1,38 @@
+{
+  "name": "SDAT",
+  "identifier": "com.nichokas.SDAT.source",
+  "subtitle": "Personal iPhone TIDAL player",
+  "description": "Unsigned builds of SDAT, a SwiftUI TIDAL player for iOS 26 with Liquid Glass, powered by the tonearm-rs Rust core. Built by GitHub Actions from https://github.com/Nichokas/SDAT.",
+  "iconURL": "https://raw.githubusercontent.com/Nichokas/SDAT/main/Resources/AppIcon.png",
+  "website": "https://github.com/Nichokas/SDAT",
+  "tintColor": "#1C1C1E",
+  "apps": [
+    {
+      "name": "SDAT",
+      "bundleIdentifier": "com.nichokas.SDAT",
+      "developerName": "Nichokas",
+      "subtitle": "TIDAL player with Liquid Glass",
+      "localizedDescription": "Personal iPhone TIDAL player in SwiftUI with Liquid Glass, powered by the tonearm-rs Rust core.",
+      "iconURL": "https://raw.githubusercontent.com/Nichokas/SDAT/main/Resources/AppIcon.png",
+      "tintColor": "#1C1C1E",
+      "category": "entertainment",
+      "versions": [
+        {
+          "version": "1.0.0",
+          "buildVersion": "1",
+          "date": "2026-11-01T13:56:46Z",
+          "localizedDescription": "First release.\n- TIDAL playback via the tonearm-rs Rust core\n- Liquid Glass UI with morphing tab bar and circular miniplayer\n- Discover with infinite queue\n- Queue editing, repeat and shuffle\n- Lock screen controls with favorite\n- Playback resume after relaunch\n- Call/interruption handling",
+          "downloadURL": "https://github.com/Nichokas/SDAT/releases/download/v1.0.0/Torneam-v1.0.0-unsigned.ipa",
+          "size": 13550809,
+          "minOSVersion": "26.0"
+        }
+      ],
+      "version": "1.0.0",
+      "versionDate": "2026-11-01T13:56:46Z",
+      "versionDescription": "First release.\n- TIDAL playback via the tonearm-rs Rust core\n- Liquid Glass UI with morphing tab bar and circular miniplayer\n- Discover with infinite queue\n- Queue editing, repeat and shuffle\n- Lock screen controls with favorite\n- Playback resume after relaunch\n- Call/interruption handling",
+      "downloadURL": "https://github.com/Nichokas/SDAT/releases/download/v1.0.0/Torneam-v1.0.0-unsigned.ipa",
+      "size": 13550809
+    }
+  ],
+  "news": []
+}
