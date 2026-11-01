@@ -18,6 +18,15 @@
       "category": "entertainment",
       "versions": [
         {
+          "version": "1.1.0",
+          "buildVersion": "2",
+          "date": "2026-11-01T16:34:00Z",
+          "localizedDescription": "Changes since 1.0.0:\n- Renamed to SDAT (new bundle id `com.nichokas.SDAT`, so it installs as a separate app from Torneam)\n- Redesigned login and a boot loader that shows real warm-up progress\n- Offline downloads: Downloads screen, download status ring, download option in \"…\" menus\n- Highest-quality downloads and an offline playback indicator\n- Offline album pages and local-first covers\n- Background downloads with system progress (BGContinuedProcessingTask); interrupted queues resume on next launch\n- Discover: long-press context menu on cover tiles\n- Faster collapse/expand animations; miniplayer hold threshold 0.12 s\n- New transparent reel app icon\n\nUnsigned build: sideload with your own signing tool.",
+          "downloadURL": "https://github.com/Nichokas/SDAT/releases/download/v1.1.0/SDAT-v1.1.0-unsigned.ipa",
+          "size": 14843905,
+          "minOSVersion": "26.0"
+        },
+        {
           "version": "1.0.0",
           "buildVersion": "1",
           "date": "2026-11-01T13:56:46Z",
@@ -27,11 +36,11 @@
           "minOSVersion": "26.0"
         }
       ],
-      "version": "1.0.0",
-      "versionDate": "2026-11-01T13:56:46Z",
-      "versionDescription": "First release.\n- TIDAL playback via the tonearm-rs Rust core\n- Liquid Glass UI with morphing tab bar and circular miniplayer\n- Discover with infinite queue\n- Queue editing, repeat and shuffle\n- Lock screen controls with favorite\n- Playback resume after relaunch\n- Call/interruption handling",
-      "downloadURL": "https://github.com/Nichokas/SDAT/releases/download/v1.0.0/Torneam-v1.0.0-unsigned.ipa",
-      "size": 13550809
+      "version": "1.1.0",
+      "versionDate": "2026-11-01T16:34:00Z",
+      "versionDescription": "Changes since 1.0.0:\n- Renamed to SDAT (new bundle id `com.nichokas.SDAT`, so it installs as a separate app from Torneam)\n- Redesigned login and a boot loader that shows real warm-up progress\n- Offline downloads: Downloads screen, download status ring, download option in \"…\" menus\n- Highest-quality downloads and an offline playback indicator\n- Offline album pages and local-first covers\n- Background downloads with system progress (BGContinuedProcessingTask); interrupted queues resume on next launch\n- Discover: long-press context menu on cover tiles\n- Faster collapse/expand animations; miniplayer hold threshold 0.12 s\n- New transparent reel app icon\n\nUnsigned build: sideload with your own signing tool.",
+      "downloadURL": "https://github.com/Nichokas/SDAT/releases/download/v1.1.0/SDAT-v1.1.0-unsigned.ipa",
+      "size": 14843905
     }
   ],
   "news": []
