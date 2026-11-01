@@ -11,10 +11,10 @@ final class Player {
     enum Repeat { case off, all, one }
 
     /// Base queue (album, playlist, mix...) and position in it.
-    private(set) var queue: [Track] = []
+    private(set) var queue: [Track] = [] { didSet { queueVersion &+= 1 } }
     private(set) var index: Int?
     /// "Play next" / "Add to queue" tracks; they play before the rest of the base queue.
-    private(set) var userQueue: [Track] = []
+    private(set) var userQueue: [Track] = [] { didSet { queueVersion &+= 1 } }
     /// Track currently playing (may come from the user queue).
     private(set) var current: Track?
     private(set) var isPlaying = false
@@ -36,7 +36,7 @@ final class Player {
     /// Base-queue tracks after the current one.
     var upNext: ArraySlice<Track> { index.map { queue.dropFirst($0 + 1) } ?? queue[...] }
     /// Base queue in its unshuffled order, restored when shuffle is turned off.
-    private var original: [Track] = []
+    private var original: [Track] = [] { didSet { queueVersion &+= 1 } }
 
     private let avPlayer = AVQueuePlayer()
     private var timeObserver: Any?
@@ -71,6 +71,7 @@ final class Player {
     // MARK: queue
 
     func play(_ tracks: [Track], startAt: Int = 0, from source: String? = nil) {
+        recentIDs = []; recentOrder = []
         restoredInfinite = false
         guard tracks.indices.contains(startAt) else { return }
         infinite = nil
@@ -97,6 +98,7 @@ final class Player {
 
     /// Discover's shuffle: endless queue mixing mixes, radios and discoveries.
     func playInfinite(mixes: [Mix]) {
+        recentIDs = []; recentOrder = []
         restoredInfinite = false
         let source = Shuffle(mixes: mixes)
         infinite = source
@@ -115,6 +117,7 @@ final class Player {
     /// Tapping one Discover cover: that song first, then the rest of the visible Discover
     /// pool (from the tapped one onwards, wrapping), then the endless Discover shuffle.
     func playDiscover(_ track: Track, pool: [Track], mixes: [Mix]) {
+        recentIDs = []; recentOrder = []
         restoredInfinite = false
         var seen: Set<String> = [String(describing: track.id)]
         let i = pool.firstIndex { $0.id == track.id } ?? 0
@@ -397,10 +400,15 @@ final class Player {
             defer { refilling = nil }
             for _ in 0..<3 {
                 guard let batch = try? await source.nextBatch(min: 10), infinite === source else { return false }
-                var ids = Set(queue.map { String(describing: $0.id) })
-                let fresh = batch.filter { ids.insert(String(describing: $0.id)).inserted }
+                remember(queue.map(\.id))
+                var ids = recentIDs
+                let fresh = batch.filter { ids.insert($0.id).inserted }
                 if !fresh.isEmpty {
-                    queue.append(contentsOf: fresh); original.append(contentsOf: fresh)
+                    let mirrored = original == queue
+                    queue.append(contentsOf: fresh)
+                    if mirrored { original = queue } else { original.append(contentsOf: fresh) }
+                    remember(fresh.map(\.id))
+                    trimPlayedHistory()
                     invalidatePreload(); schedulePreload()
                     return true
                 }
@@ -419,30 +427,53 @@ final class Player {
     @ObservationIgnored private var lastSave = Date.distantPast
     @ObservationIgnored private var restoring = true
 
+    @ObservationIgnored private var queueVersion = 0
+    @ObservationIgnored private var savedQueueVersion = -1
+    @ObservationIgnored private var savedQueueOffset = 0
+    @ObservationIgnored private var queueID = 0
+
+    /// Cheap: the small state file every call; the queue file only when the queues changed.
+    /// Both are bounded windows (see PlaybackStore caps), JSON-encoded off the main thread.
     func persist() {
         guard !restoring else { return }
         lastSave = Date()
-        guard let c = current else { PlaybackStore.clear(); return }
+        guard let c = current else { PlaybackStore.clear(); savedQueueVersion = -1; return }
         let e = DiscoverCache.encode
+        let endless = infinite != nil || restoredInfinite
+        if queueVersion != savedQueueVersion {
+            let w = PlaybackStore.window(count: queue.count, index: index, endless: endless)
+            // Original order: same window when it mirrors the queue (unshuffled / endless),
+            // else capped prefix (only used to un-shuffle).
+            let orig = original == queue ? Array(original[w]) : Array(original.prefix(PlaybackStore.maxSaved))
+            queueID &+= 1
+            PlaybackStore.saveQueue(.init(queue: e(Array(queue[w])), original: e(orig),
+                                          userQueue: e(Array(userQueue.prefix(PlaybackStore.maxSaved))),
+                                          infinite: endless, sourceTitle: sourceTitle, id: queueID))
+            savedQueueVersion = queueVersion
+            savedQueueOffset = w.lowerBound
+        }
         let rm: String = switch repeatMode { case .off: "off"; case .all: "all"; case .one: "one" }
-        PlaybackStore.save(.init(
-            queue: e(queue), original: e(original), userQueue: e(userQueue), current: e([c])[0],
-            index: index, position: position,
-            repeatMode: rm,
-            shuffle: shuffle, infinite: infinite != nil || restoredInfinite, sourceTitle: sourceTitle))
+        PlaybackStore.saveState(.init(current: e([c])[0], index: index.map { $0 - savedQueueOffset },
+                                      position: position, repeatMode: rm, shuffle: shuffle, queueID: queueID))
     }
 
     private func restore() async {
         defer { restoring = false }
-        guard let s = await PlaybackStore.load(), current == nil,
+        guard let (s, q) = await PlaybackStore.load(), current == nil,
               let cur = DiscoverCache.decode([s.current]).first else { return }
         let d = DiscoverCache.decode
-        queue = d(s.queue); original = d(s.original); userQueue = d(s.userQueue)
-        index = s.index.flatMap { queue.indices.contains($0) ? $0 : nil }
+        if let q {
+            queue = d(q.queue); original = d(q.original); userQueue = d(q.userQueue)
+            sourceTitle = q.sourceTitle
+            restoredInfinite = q.infinite
+        } else {
+            queue = [cur]; original = [cur]
+        }
+        index = q == nil ? 0 : s.index.flatMap { queue.indices.contains($0) ? $0 : nil }
+        recentIDs = Set(queue.map(\.id))
         repeatMode = switch s.repeatMode { case "all": .all; case "one": .one; default: .off }
         shuffle = s.shuffle
-        sourceTitle = s.sourceTitle
-        restoredInfinite = s.infinite
+        queueID = s.queueID
         adopt(cur, stream: nil)
         position = max(0, min(s.position, duration > 0 ? duration - 1 : s.position))
         isPlaying = false
@@ -450,6 +481,31 @@ final class Player {
         restoring = false
         updateNowPlaying()
         Task { await loadArtwork(cur) }
+    }
+
+    /// Endless queues: ids already queued or played (survives history trimming) for dedupe.
+    @ObservationIgnored private var recentIDs: Set<String> = []
+    @ObservationIgnored private var recentOrder: [String] = []
+    private static let maxPlayedHistory = 300, maxRecentIDs = 2000
+
+    private func remember(_ ids: [String]) {
+        for id in ids where recentIDs.insert(id).inserted { recentOrder.append(id) }
+        if recentOrder.count > Self.maxRecentIDs {
+            let drop = recentOrder.count - Self.maxRecentIDs
+            for id in recentOrder.prefix(drop) { recentIDs.remove(id) }
+            recentOrder.removeFirst(drop)
+        }
+    }
+
+    /// Endless queues only: keep at most `maxPlayedHistory` played tracks in memory.
+    private func trimPlayedHistory() {
+        guard infinite != nil, let i = index, i > Self.maxPlayedHistory else { return }
+        let drop = i - Self.maxPlayedHistory
+        let mirrored = original == queue
+        queue.removeFirst(drop)
+        if mirrored { original = queue }
+        index = i - drop
+        invalidatePreload(); schedulePreload()
     }
 
     /// Re-attaches the endless Discover source to a restored Discover queue once mixes load.
