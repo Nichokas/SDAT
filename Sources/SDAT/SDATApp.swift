@@ -4,20 +4,22 @@ import SwiftUI
 struct SDATApp: App {
     @State private var session = Session.shared
     @State private var prefs = Preferences.shared
+    @State private var boot = Boot.shared
     @Environment(\.scenePhase) private var phase
 
     var body: some Scene {
         WindowGroup {
             Group {
                 if session.signedIn {
-                    // RootView loads underneath, so the loader lasts only as long as the real load.
+                    // Fresh sign-in: warm caches first, then the app (fade).
                     ZStack {
-                        RootView()
-                        if session.booting {
-                            BootLoaderView().transition(.opacity).zIndex(1)
+                        if boot.active {
+                            BootLoaderView(progress: boot.progress).transition(.opacity)
+                        } else {
+                            RootView().transition(.opacity)
                         }
                     }
-                    .animation(.easeInOut(duration: 0.45), value: session.booting)
+                    .animation(.easeInOut(duration: 0.45), value: boot.active)
                 } else {
                     LoginView()
                 }

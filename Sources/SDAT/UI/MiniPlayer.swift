@@ -113,6 +113,7 @@ struct ProgressRing: View {
     let progress: Double
     var spinning = false
     var lineWidth: CGFloat = 2.5
+    var color: Color = .blue
 
     var body: some View {
         GeometryReader { g in
@@ -136,7 +137,7 @@ struct ProgressRing: View {
                     .mask { Circle().trim(from: q, to: 1).stroke(lineWidth: lineWidth * 3) }
                     .zIndex(0)
                 Circle().trim(from: 0, to: q)
-                    .stroke(.blue, style: StrokeStyle(lineWidth: lineWidth, lineCap: .butt))
+                    .stroke(color, style: StrokeStyle(lineWidth: lineWidth, lineCap: .butt))
                     .opacity(q > 0 ? 1 : 0)
                     .zIndex(1)
             }

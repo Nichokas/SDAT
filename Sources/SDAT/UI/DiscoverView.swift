@@ -41,10 +41,6 @@ struct DiscoverView: View {
         }
         .toolbar(.hidden, for: .navigationBar)
         .task { await load() }
-        // Essential first load done (covers on screen, or an error to show): end the boot loader.
-        .onChange(of: tracks.isEmpty) { _, empty in if !empty { Session.shared.finishBoot() } }
-        .onChange(of: error) { _, e in if e != nil { Session.shared.finishBoot() } }
-        .onAppear { if !tracks.isEmpty { Session.shared.finishBoot() } }
     }
 
     private var header: some View {
@@ -278,7 +274,6 @@ enum DiscoverCache {
               cover: t.album?.coverUrl, coverLarge: t.album?.coverUrlLarge)
         }
     }
-    static var exists: Bool { FileManager.default.fileExists(atPath: url.path) }
     static func load() -> [Track] {
         guard let d = try? Data(contentsOf: url), let list = try? JSONDecoder().decode([T].self, from: d) else { return [] }
         return decode(list)
