@@ -28,7 +28,7 @@ final class Downloads {
     private(set) var failures: [String: String] = [:]
     @ObservationIgnored private var pending: [Track] = []
     @ObservationIgnored private var worker: Task<Void, Never>?
-    @ObservationIgnored private var currentID: String?
+    private var currentID: String?
     /// Remote cover URL → local file, so covers show offline.
     @ObservationIgnored private var coverMap: [String: URL] = [:]
 
@@ -72,7 +72,16 @@ final class Downloads {
     /// Queued or downloading, in order.
     var inProgress: [Track] { activeOrder.compactMap { progress[$0] != nil ? activeTracks[$0] : nil } }
     @ObservationIgnored private var activeTracks: [String: Track] = [:]
-    private(set) var activeOrder: [String] = []
+    private(set) var activeOrder: [String] = [] { didSet { if activeOrder.isEmpty { batchTotal = 0 } } }
+    /// Tracks added since the queue was last empty (cancelled ones are taken out).
+    private(set) var batchTotal = 0
+    var isActive: Bool { !activeOrder.isEmpty }
+    /// Whole-batch progress: finished tracks plus the in-flight fraction, over the batch.
+    var batchProgress: Double {
+        guard batchTotal > 0 else { return 0 }
+        let cur = currentID.flatMap { progress[$0] } ?? 0
+        return min(1, (Double(batchTotal - activeOrder.count) + cur) / Double(batchTotal))
+    }
     func entry(_ id: String) -> Entry? { entries[id] }
 
     /// Stream record for a downloaded file, so Player can treat it like a remote stream.
@@ -93,7 +102,7 @@ final class Downloads {
             failures[t.id] = nil
             progress[t.id] = 0
             pending.append(t)
-            activeTracks[t.id] = t; activeOrder.append(t.id)
+            activeTracks[t.id] = t; activeOrder.append(t.id); batchTotal += 1
             added += 1
         }
         if added > 0 { pump() }
@@ -101,6 +110,7 @@ final class Downloads {
 
     func cancel(_ id: String) {
         pending.removeAll { $0.id == id }
+        if progress[id] != nil, batchTotal > 0 { batchTotal -= 1 }
         progress[id] = nil
         if currentID != id { activeOrder.removeAll { $0 == id }; activeTracks[id] = nil }
         if currentID == id { worker?.cancel() }
