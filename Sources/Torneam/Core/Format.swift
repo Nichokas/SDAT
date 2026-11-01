@@ -32,4 +32,7 @@ enum Fmt {
         if Calendar.current.isDateInYesterday(date) { return "Updated yesterday" }
         return "Updated " + date.formatted(date: .abbreviated, time: .omitted)
     }
+    static func bytes(_ n: Int64) -> String {
+        ByteCountFormatter.string(fromByteCount: n, countStyle: .file)
+    }
 }

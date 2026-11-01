@@ -153,6 +153,7 @@ struct DetailPage: View {
                 Button("Add to Queue", systemImage: "text.line.last.and.arrowtriangle.forward") {
                     for t in tracks { player.addToQueue(t) }
                 }
+                DownloadButton(tracks: tracks)
                 if let favourite {
                     Button(isFav ? "Remove from Collection" : "Add to Collection", systemImage: isFav ? "star.slash" : "star") { toggleFav(favourite) }
                 }

@@ -324,7 +324,7 @@ final class Player {
         loadTask?.cancel()
         loadTask = Task {
             do {
-                let s = try await Torneam.stream(trackId: track.id, quality: Preferences.shared.streamingQuality)
+                let s = try await Self.source(track.id)
                 guard !Task.isCancelled, current?.id == track.id, let url = URL(string: s.url) else { return }
                 stream = s
                 avPlayer.removeAllItems()
@@ -352,13 +352,19 @@ final class Player {
         schedulePreload()
     }
 
+    /// Downloaded file when available (works offline), else a fresh HLS stream.
+    private static func source(_ id: String) async throws -> Stream {
+        if let s = Downloads.shared.localStream(id) { return s }
+        return try await Torneam.stream(trackId: id, quality: Preferences.shared.streamingQuality)
+    }
+
     /// Prepares the next track's AVPlayerItem behind the current one (gapless-ish start).
     private func schedulePreload() {
         preloadTask?.cancel()
         guard Preferences.shared.preloadNext, repeatMode != .one,
               let (next, _, _) = following(), let cur = current else { return }
         preloadTask = Task {
-            guard let s = try? await Torneam.stream(trackId: next.id, quality: Preferences.shared.streamingQuality),
+            guard let s = try? await Self.source(next.id),
                   !Task.isCancelled, current?.id == cur.id, let url = URL(string: s.url),
                   let curItem = avPlayer.currentItem else { return }
             let item = AVPlayerItem(url: url)
@@ -668,8 +674,9 @@ final class Player {
     }
 
     private func loadArtwork(_ track: Track) async {
-        guard let url = track.coverURLLarge,
-              let (data, _) = try? await URLSession.shared.data(from: url),
+        var data = Downloads.shared.localCover(track.id).flatMap { try? Data(contentsOf: $0) }
+        if data == nil, let url = track.coverURLLarge { data = try? await URLSession.shared.data(from: url).0 }
+        guard let data,
               let image = UIImage(data: data), current?.id == track.id else { return }
         artwork = MPMediaItemArtwork(boundsSize: image.size) { _ in image }
         updateNowPlaying()
@@ -728,3 +735,4 @@ extension Player {
         PlaybackStore.clear()
     }
 }
+

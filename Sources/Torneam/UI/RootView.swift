@@ -302,6 +302,7 @@ extension View {
                 switch route {
                 case .album(let id): AlbumView(id: id)
                 case .playlist(let id): PlaylistView(id: id)
+                case .downloads: DownloadsView()
                 case .artist(let id): ArtistView(id: id)
                 case .settings: SettingsView()
                 case .collectionTracks: PagedTracks(title: "Tracks", pager: collectionTracks(), favourites: true)

@@ -18,6 +18,8 @@ struct CollectionView: View {
                     row("Tracks", "music.note", .collectionTracks)
                     Divider().padding(.leading, 52)
                     row("Artists", "music.microphone", .collectionArtists)
+                    Divider().padding(.leading, 52)
+                    row("Downloads", "arrow.down.circle", .downloads)
                 }
                 .padding(.horizontal, 16)
 

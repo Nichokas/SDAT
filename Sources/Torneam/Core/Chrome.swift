@@ -6,6 +6,7 @@ enum Route: Hashable {
     case playlist(String)
     case artist(String)
     case settings
+    case downloads
     case collectionTracks, collectionAlbums, collectionArtists, collectionPlaylists
     case explore(path: String, title: String)
 }

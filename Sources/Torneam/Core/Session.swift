@@ -50,6 +50,7 @@ final class Session {
     /// Dev: wipes Keychain, defaults, caches and files, stops playback, back to login.
     func eraseAll() {
         Player.shared.stopAndClear()
+        Downloads.shared.removeAll()
         Keychain.wipe()
         if let id = Bundle.main.bundleIdentifier { UserDefaults.standard.removePersistentDomain(forName: id) }
         URLCache.shared.removeAllCachedResponses()

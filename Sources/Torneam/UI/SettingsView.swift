@@ -34,6 +34,9 @@ struct SettingsView: View {
             Section("Downloads") {
                 qualityRow("Download quality", selection: $prefs.downloadQuality)
                 Toggle("Download over cellular", isOn: $prefs.downloadOverCellular)
+                NavigationLink(value: Route.downloads) {
+                    LabeledContent("Manage downloads", value: Fmt.bytes(Downloads.shared.totalSize))
+                }
             }
 
             Section("Scrobbling") {
