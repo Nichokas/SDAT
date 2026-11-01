@@ -28,7 +28,7 @@ enum Morph {
     /// `collapsing` = direction of the running/last transition.
     /// Per-role speeds on ONE budget: the shrinking shape snaps away (ease-out, done at
     /// ~0.32 s of 0.75 s, like a released rubber band), the growing one spreads slowly
-    /// (ease-in-out over 0.75 s, like water) and is capped at the space actually freed, so
+    /// (ease-in, constant speed, ease-out; done at ~0.6 s, like water) and is capped at the space actually freed, so
     /// tabW + gap + miniW <= w always. Any leftover is a transparent, temporary extra gap:
     /// the tab bar is pinned to the leading margin and the miniplayer to the trailing one.
     static func frame(width w: Double, t: Double, collapsing: Bool) -> Frame {
@@ -36,11 +36,22 @@ enum Morph {
         let tabMax = a - circle, span = tabMax - round
         let c = clamp01(t)
         let shrink = snap(collapsing ? c : 1 - c)
-        let grow = soft(collapsing ? c : 1 - c)
+        let grow = spread(collapsing ? c : 1 - c)
         var tabF: Double, miniF: Double
         if collapsing { tabF = shrink; miniF = min(grow, tabF) }
         else { miniF = 1 - shrink; tabF = max(1 - grow, miniF) }
         return Frame(tabW: tabMax - span * tabF, miniW: circle + span * miniF, tabF: tabF, miniF: miniF)
+    }
+
+    /// Growing shape: finishes at `growShare` of the clock (~0.6 s of 0.75 s) with a
+    /// trapezoidal velocity: short ease-in, long constant-speed middle, short ease-out.
+    static let growShare = 0.8
+    static let growEase = 0.22   // fraction of the grow spent accelerating (and braking)
+    static func spread(_ x: Double) -> Double {
+        let u = clamp01(x / growShare), a = growEase, v = 1 / (1 - a)
+        if u < a { return 0.5 * v * u * u / a }
+        if u > 1 - a { let r = 1 - u; return 1 - 0.5 * v * r * r / a }
+        return v * (u - a / 2)
     }
 
     /// Rubber-band release: fast start, ease-out, finished at `shrinkShare` of the clock.
