@@ -18,12 +18,12 @@ struct MiniPlayer: View {
                 ringIcon(size: 62)
                     .contentShape(.circle)
                     // One gesture so a press is either a tap or a hold, never both:
-                    // held ≥ 0.5 s opens the player; released sooner toggles play/pause.
+                    // held ≥ 0.25 s opens the player; released sooner toggles play/pause.
                     .gesture(DragGesture(minimumDistance: 0)
                         .onChanged { _ in
                             guard holdTask == nil else { return }
                             holdTask = Task { @MainActor in
-                                try? await Task.sleep(for: .milliseconds(500))
+                                try? await Task.sleep(for: .milliseconds(250))
                                 guard !Task.isCancelled else { return }
                                 held = true
                                 UIImpactFeedbackGenerator(style: .medium).impactOccurred()

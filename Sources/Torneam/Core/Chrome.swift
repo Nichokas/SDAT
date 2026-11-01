@@ -21,6 +21,8 @@ final class Chrome {
     var paths: [AppTab: [Route]] = [.discover: [], .search: [], .collection: []]
     /// Root list scrolled down: tab bar shrinks to a circle, miniplayer grows to a capsule.
     var collapsed = false
+    /// A scroll-driven collapse flip is queued (not observed: no re-render per frame).
+    @ObservationIgnored var collapsePending = false
     var showPlayer = false
     /// Track waiting for the "Add to playlist" picker.
     var playlistPickerTrack: Track?

@@ -85,10 +85,35 @@ private struct BottomChrome: View {
 private struct TabBar: View {
     let collapsed: Bool
     @Environment(Chrome.self) private var chrome
-    @Namespace private var pill
     @State private var bounce = 0
     /// Pill position, animated on its own so the tab content swap stays un-animated.
     @State private var selected: AppTab?
+    @State private var barWidth: CGFloat = 0
+    @State private var dragX: CGFloat?
+    @State private var hovered: Int?
+    @State private var pressed = false
+    @State private var pillL: CGFloat = 0
+    @State private var pillR: CGFloat = 0
+
+    /// Front edge (direction of travel) springs fast, back edge lags: the pill stretches
+    /// toward the target, then the back edge catches up with a small overshoot.
+    private func movePill(to x: CGFloat, width w: CGFloat, fast: Double, slow: Double) {
+        let right = x > pillL
+        let front = Animation.spring(response: fast, dampingFraction: 0.72)
+        let back = Animation.spring(response: slow, dampingFraction: 0.7)
+        withAnimation(right ? front : back) { pillR = x + w }
+        withAnimation(right ? back : front) { pillL = x }
+    }
+
+    private func select(_ tab: AppTab) {
+        if tab == (selected ?? chrome.tab) {
+            if chrome.tab == tab { chrome.paths[tab] = [] }
+            return
+        }
+        chrome.tab = tab
+        withAnimation(Motion.pill) { selected = tab }
+        bounce += 1
+    }
 
     private let items: [(AppTab, String, String)] = [
         (.discover, "Discover", "signpost.right.and.left.fill"),
@@ -106,45 +131,72 @@ private struct TabBar: View {
             }
             .buttonStyle(.plain)
         } else {
+            let idx = items.firstIndex { $0.0 == (selected ?? chrome.tab) } ?? 0
+            let shown = hovered ?? idx
+            let w3 = barWidth / CGFloat(items.count)
             HStack(spacing: 0) {
-                ForEach(items, id: \.0) { tab, title, icon in
-                    let on = (selected ?? chrome.tab) == tab
-                    Button {
-                        if on { chrome.paths[tab] = [] } else {
-                            // Swap the tab content instantly (no animated rebuild of the
-                            // whole page); only the pill and icon animate.
-                            // Plain set (no disablesAnimations: that transaction also reached
-                            // onChange/collapse and suppressed the bar's own animation).
-                            chrome.tab = tab
-                            withAnimation(Motion.pill) { selected = tab }
-                            bounce += 1
-                        }
-                    } label: {
-                        VStack(spacing: 1) {
-                            Image(systemName: icon)
-                                .symbolVariant(on ? .fill : .none)
-                                .font(.system(size: 19, weight: on ? .semibold : .medium))
-                                .symbolEffect(.bounce, value: on ? bounce : 0)
-                                .frame(height: 26)
-                            Text(title).font(.system(size: 10, weight: .semibold)).lineLimit(1)
-                        }
-                        .foregroundStyle(on ? Color.blue : .primary)
-                        .frame(maxWidth: .infinity, minHeight: 54)
-                        .background {
-                            if on {
-                                Capsule().fill(.white.opacity(0.12))
-                                    .matchedGeometryEffect(id: "pill", in: pill)
-                            }
-                        }
-                        .contentShape(.capsule)
+                ForEach(Array(items.enumerated()), id: \.offset) { i, item in
+                    let on = shown == i
+                    VStack(spacing: 1) {
+                        Image(systemName: item.2)
+                            .symbolVariant(on ? .fill : .none)
+                            .font(.system(size: 19, weight: on ? .semibold : .medium))
+                            .symbolEffect(.bounce, value: i == idx ? bounce : 0)
+                            .frame(height: 26)
+                        Text(item.1).font(.system(size: 10, weight: .semibold)).lineLimit(1)
                     }
-                    .buttonStyle(.plain)
+                    .foregroundStyle(on ? Color.blue : .primary)
+                    .frame(maxWidth: .infinity, minHeight: 54)
                 }
             }
+            .background(alignment: .leading) {
+                // Liquid pill: its two edges spring separately (the leading edge in the
+                // direction of travel is quicker), so it stretches while moving and
+                // settles with a slight overshoot. Real interactive glass, no flat fill.
+                Capsule().fill(.white.opacity(0.06))
+                    .glassEffect(.regular.interactive(), in: .capsule)
+                    .frame(width: max(pillR - pillL, 0))
+                    .scaleEffect(y: pressed ? 1.06 : 1)
+                    .scaleEffect(pressed ? 1.04 : 1)
+                    .offset(x: pillL)
+            }
+            .contentShape(.capsule)
+            .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { w in
+                barWidth = w
+                let w3 = w / CGFloat(items.count)
+                pillL = CGFloat(idx) * w3; pillR = pillL + w3
+            }
+            .gesture(DragGesture(minimumDistance: 0)
+                .onChanged { g in
+                    guard w3 > 0 else { return }
+                    if !pressed { withAnimation(.snappy(duration: 0.2)) { pressed = true } }
+                    // Tiny movement = tap: keep the pill put until release.
+                    guard abs(g.translation.width) > 6 || dragX != nil else { return }
+                    let x = min(max(g.location.x - w3 / 2, 0), barWidth - w3)
+                    dragX = x
+                    movePill(to: x, width: w3, fast: 0.18, slow: 0.32)
+                    let h = min(max(Int(g.location.x / w3), 0), items.count - 1)
+                    if hovered != h { hovered = h }
+                }
+                .onEnded { g in
+                    let i = w3 > 0 ? min(max(Int(g.location.x / w3), 0), items.count - 1) : idx
+                    hovered = nil
+                    dragX = nil
+                    withAnimation(Motion.pill) { pressed = false }
+                    select(items[i].0)
+                    movePill(to: CGFloat(i) * w3, width: w3, fast: 0.3, slow: 0.45)
+                })
             .padding(4)
             .sensoryFeedback(.selection, trigger: chrome.tab)
+            .sensoryFeedback(.selection, trigger: hovered) { _, n in n != nil }
             .onAppear { if selected == nil { selected = chrome.tab } }
-            .onChange(of: chrome.tab) { _, t in if selected != t { withAnimation(Motion.pill) { selected = t } } }
+            .onChange(of: chrome.tab) { _, t in
+                if selected != t { withAnimation(Motion.pill) { selected = t } }
+                if dragX == nil, let i = items.firstIndex(where: { $0.0 == t }), barWidth > 0 {
+                    let w3 = barWidth / CGFloat(items.count)
+                    movePill(to: CGFloat(i) * w3, width: w3, fast: 0.3, slow: 0.45)
+                }
+            }
         }
     }
 }
@@ -177,10 +229,20 @@ extension View {
 
     /// Collapses the bottom chrome when a root list scrolls down.
     func collapsesChrome() -> some View {
-        onScrollGeometryChange(for: Bool.self) { g in
-            g.contentOffset.y + g.contentInsets.top > 40
-        } action: { _, down in
-            if Chrome.shared.collapsed != down { withAnimation(Motion.bar) { Chrome.shared.collapsed = down } }
+        // Offset only (no state per frame); the flip happens once per crossing, with
+        // hysteresis, and is deferred out of the scroll update's transaction (which
+        // dropped the animation) into the same animated path as the album transition.
+        onScrollGeometryChange(for: CGFloat.self) { g in
+            g.contentOffset.y + g.contentInsets.top
+        } action: { _, y in
+            let c = Chrome.shared
+            let want: Bool? = y > 60 ? true : (y < 20 ? false : nil)
+            guard let want, want != c.collapsed, !c.collapsePending else { return }
+            c.collapsePending = true
+            DispatchQueue.main.async {
+                c.collapsePending = false
+                if c.collapsed != want { withAnimation(Motion.bar) { c.collapsed = want } }
+            }
         }
     }
 
@@ -242,6 +304,6 @@ private struct ChromeState: Equatable { var collapsed, detail, mini: Bool }
 
 /// Bottom-bar motion: native ease-in/ease-out springs, a little slower through the middle.
 enum Motion {
-    static let pill = Animation.spring(response: 0.5, dampingFraction: 0.86)
-    static let bar = Animation.smooth(duration: 0.48)
+    static let pill = Animation.spring(response: 0.4, dampingFraction: 0.86)
+    static let bar = Animation.smooth(duration: 0.4)
 }
