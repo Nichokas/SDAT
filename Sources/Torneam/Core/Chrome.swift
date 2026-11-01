@@ -23,7 +23,15 @@ final class Chrome {
     /// 0 = expanded, 1 = collapsed. Driven continuously by the finger, settled on idle.
     var progress: CGFloat = 0
     var collapsed: Bool { progress >= 0.5 }
-    func setCollapsed(_ on: Bool) { withAnimation(Motion.settle) { progress = on ? 1 : 0 } }
+    /// Direction-specific: collapse is quick, expand is deliberately ~2x slower.
+    func setCollapsed(_ on: Bool) {
+        if !on { expanding = true }
+        withAnimation(on ? Motion.collapse : Motion.expand) { progress = on ? 1 : 0 } completion: {
+            if !on { self.expanding = false }
+        }
+    }
+    /// An animated expand is running; finger-driven updates must not cut it short.
+    @ObservationIgnored var expanding = false
     /// Round miniplayer is being pressed (drives its scale + glass highlight).
     var miniPressed = false
     var showPlayer = false

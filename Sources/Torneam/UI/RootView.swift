@@ -67,7 +67,7 @@ private struct BottomChrome: View {
         // Spacing 0: bar and miniplayer stay separate shapes (no pinched neck);
         // glassEffectID still morphs each between its states.
         // Tab bar and miniplayer are sized from the SAME progress value, so they move in
-        // lockstep: the finger drives it directly, idle settles it with Motion.settle.
+        // lockstep: the finger drives it directly, idle settles it (Motion.collapse / Motion.expand).
         let p = hasMini && !chrome.inDetail ? chrome.progress : 0
         let lerp = { (a: CGFloat, b: CGFloat) in a + (b - a) * p }
         let tabW = W > 0 ? lerp(W - 62 - 12, 54) : nil
@@ -298,7 +298,13 @@ extension View {
         } action: { _, y in
             let c = Chrome.shared
             let p = min(max((y - 20) / 60, 0), 1)
-            guard abs(p - c.progress) > 0.005 else { return }
+            guard abs(p - c.progress) > 0.005, !c.expanding else { return }
+            // Expanding is never finger-driven: once the scroll comes back past the
+            // midpoint, play the slow animated expand instead of tracking the finger.
+            if p < c.progress {
+                if c.progress >= 0.5 && p >= 0.5 { return }
+                c.setCollapsed(false); return
+            }
             if (p == 0 || p == 1) { chromeLog.notice("progress \(Double(p), format: .fixed(precision: 2)) y=\(Double(y), format: .fixed(precision: 0))") }
             var t = Transaction(); t.disablesAnimations = true
             withTransaction(t) { c.progress = p }
@@ -373,7 +379,8 @@ private struct ChromeState: Equatable { var detail, mini: Bool }
 enum Motion {
     static let pill = Animation.spring(response: 0.4, dampingFraction: 0.86)
     static let bar = Animation.smooth(duration: 0.4)
-    static let settle = Animation.smooth(duration: 0.35)
+    static let collapse = Animation.smooth(duration: 0.35)
+    static let expand = Animation.smooth(duration: 0.7)
     /// Shared content fades for BOTH tab bar and miniplayer: out early, in late, inside the 0.4 s morph.
     static let fadeOut = Animation.easeOut(duration: 0.15)
     static let fadeIn = Animation.easeIn(duration: 0.2).delay(0.2)
