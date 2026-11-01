@@ -73,7 +73,7 @@ jobs:
         run: |
           if git diff --quiet -- feather/source.json; then echo "No changes"; exit 0; fi
           tag="$TAG"
-          branch="feather-source/$tag"
+          branch="feather-source-$tag"
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git checkout -B "$branch"
