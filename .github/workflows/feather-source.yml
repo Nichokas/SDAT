@@ -1,0 +1,71 @@
+name: Feather source
+
+# Keeps feather/source.json in sync with GitHub releases.
+# The .ipa is attached by the "iOS build" workflow after the tag is pushed, so this
+# also runs when that workflow finishes; runs without an .ipa asset are no-ops.
+on:
+  release:
+    types: [published, edited]
+  workflow_run:
+    workflows: ["iOS build"]
+    types: [completed]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Release tag to add/refresh (e.g. v1.1.0). Empty = latest release."
+        required: false
+
+permissions:
+  contents: write
+  pull-requests: write
+
+concurrency:
+  group: feather-source
+  cancel-in-progress: false
+
+jobs:
+  update:
+    runs-on: ubuntu-latest
+    if: github.event_name != 'workflow_run' || (github.event.workflow_run.conclusion == 'success' && startsWith(github.event.workflow_run.head_branch, 'v'))
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 0
+
+      - name: Resolve tag
+        id: tag
+        run: |
+          tag="${{ github.event.release.tag_name || inputs.tag }}"
+          if [ -z "$tag" ] && [ "${{ github.event_name }}" = "workflow_run" ]; then
+            tag="${{ github.event.workflow_run.head_branch }}"
+          fi
+          if [ -z "$tag" ]; then
+            tag="$(gh release view -R "$GITHUB_REPOSITORY" --json tagName -q .tagName)"
+          fi
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+
+      - name: Update source.json
+        run: python3 scripts/update-feather-source.py "${{ steps.tag.outputs.tag }}" --repo "$GITHUB_REPOSITORY"
+
+      - name: Validate JSON
+        run: jq -e '.apps[0].versions | length > 0' feather/source.json
+
+      # Opens a PR instead of committing to main. To commit directly instead, replace
+      # this step with: git commit -am "..." && git push origin HEAD:main
+      - name: Open PR if changed
+        run: |
+          if git diff --quiet -- feather/source.json; then echo "No changes"; exit 0; fi
+          tag="${{ steps.tag.outputs.tag }}"
+          branch="feather-source/$tag"
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git checkout -B "$branch"
+          git commit -am "Feather source: add $tag"
+          git push -f origin "$branch"
+          gh pr view "$branch" -R "$GITHUB_REPOSITORY" >/dev/null 2>&1 || \
+            gh pr create -R "$GITHUB_REPOSITORY" --base main --head "$branch" \
+              --title "Feather source: add $tag" \
+              --body "Automated update of feather/source.json for release $tag."
