@@ -68,8 +68,12 @@ final class BackgroundDownloads {
 
     private func expired() {
         guard let t = task else { return }
-        if t.progress.isCancelled || UIApplication.shared.applicationState == .active {
-            cancelledByUser(); return
+        // Only an explicit cancel from the system progress UI deletes the queue.
+        if t.progress.isCancelled { cancelledByUser(); return }
+        if UIApplication.shared.applicationState == .active {
+            // System ended the task while we're in the foreground: keep downloading in-process.
+            bgLog.notice("expired while active; continuing in foreground")
+            finish(false); return
         }
         bgLog.notice("expired; queue kept for next launch")
         Downloads.shared.suspend()
