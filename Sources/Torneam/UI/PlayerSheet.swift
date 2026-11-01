@@ -184,7 +184,7 @@ private struct QueuePage: View {
                 }
                 if !player.userQueue.isEmpty {
                     Section("Next in Queue") {
-                        ForEach(Array(player.userQueue.enumerated()), id: \.offset) { i, t in
+                        ForEach(queueRows(player.userQueue), id: \.key) { i, _, t in
                             Button { player.jump(toUser: i) } label: { TrackRow(track: t) }
                                 .buttonStyle(.plain)
                                 .trackMenu(t)
@@ -195,7 +195,7 @@ private struct QueuePage: View {
                     }
                 }
                 Section(player.sourceTitle.map { "Playing from \($0)" } ?? "Up Next") {
-                    ForEach(Array(player.upNext.enumerated()), id: \.offset) { i, t in
+                    ForEach(queueRows(player.upNext), id: \.key) { i, _, t in
                         Button { player.jump(toUpNext: i) } label: { TrackRow(track: t) }
                             .buttonStyle(.plain)
                             .trackMenu(t)
@@ -217,5 +217,17 @@ private struct QueuePage: View {
             }
             .background { ZStack { Color.black.opacity(0.55); Rectangle().fill(.ultraThinMaterial).opacity(0.9) }.ignoresSafeArea() }
         }
+    }
+}
+
+/// Stable row identity for the queue List: track id + occurrence number. Using the array
+/// offset as id made every row below a moved one "change identity" mid-drag, so SwiftUI
+/// re-diffed the rows under the drag (overlapping text, gaps, detached row backgrounds).
+func queueRows<C: Collection>(_ tracks: C) -> [(offset: Int, key: String, track: Track)] where C.Element == Track {
+    var seen: [String: Int] = [:]
+    return tracks.enumerated().map { i, t in
+        let key = "\(t.id)"
+        let n = seen[key, default: 0]; seen[key] = n + 1
+        return (i, "\(key)#\(n)", t)
     }
 }
