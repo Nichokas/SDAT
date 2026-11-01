@@ -14,7 +14,7 @@
 %global appid dev.dergs.Tonearm
 
 Name:           tonearm-rs
-Version:        1.0.0
+Version:        1.1.0
 Release:        1%{?dist}
 Summary:        Native GTK4/libadwaita TIDAL client (Rust port)
 
@@ -105,5 +105,8 @@ glib-compile-schemas --strict --dry-run %{buildroot}%{_datadir}/glib-2.0/schemas
 %{_datadir}/icons/hicolor/128x128/apps/%{appid}.png
 
 %changelog
+* Sat Oct 31 2026 tonearm-rs CI <noreply@github.com> - 1.1.0-1
+- Update to 1.1.0
+
 * Sat Oct 31 2026 Nicolas Rodriguez-Alvarez <me@nichokas.eu> - 1.0.0-1
 - Initial package of the Rust port, 1.0.0
