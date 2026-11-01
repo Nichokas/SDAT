@@ -70,6 +70,7 @@ struct DiscoverView: View {
         let hadCache = !tracks.isEmpty
         do {
             mixes = try await homeMixes()
+            player.resumeInfinite(mixes: mixes)
             let source = Shuffle(mixes: mixes)
             var pool: [Track] = []
             var ids = Set<String>(), albums = Set<String>(), covers = Set<String>()
@@ -264,16 +265,21 @@ enum DiscoverCache {
         FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask)[0].appendingPathComponent("discover.json")
     }
     static func save(_ tracks: [Track]) {
-        let list = tracks.map { t in
+        try? JSONEncoder().encode(encode(tracks)).write(to: url, options: .atomic)
+    }
+    static func encode(_ tracks: [Track]) -> [T] {
+        tracks.map { t in
             T(id: t.id, title: t.title, version: t.version, dur: t.durationSecs, explicit: t.explicit, streamable: t.streamable,
               artists: t.artists.map { [$0.id, $0.name] }, albumId: t.album?.id, albumTitle: t.album?.title,
               cover: t.album?.coverUrl, coverLarge: t.album?.coverUrlLarge)
         }
-        try? JSONEncoder().encode(list).write(to: url, options: .atomic)
     }
     static func load() -> [Track] {
         guard let d = try? Data(contentsOf: url), let list = try? JSONDecoder().decode([T].self, from: d) else { return [] }
-        return list.map { c in
+        return decode(list)
+    }
+    static func decode(_ list: [T]) -> [Track] {
+        list.map { c in
             Track(id: c.id, title: c.title, version: c.version, durationSecs: c.dur, explicit: c.explicit, streamable: c.streamable,
                   artists: c.artists.map { ArtistRef(id: $0[0], name: $0.count > 1 ? $0[1] : "", pictureUrl: nil) },
                   album: c.albumId.map { AlbumRef(id: $0, title: c.albumTitle ?? "", coverUrl: c.cover, coverUrlLarge: c.coverLarge) })

@@ -54,6 +54,7 @@ final class Player {
         avPlayer.actionAtItemEnd = .advance
         configureSession()
         configureRemote()
+        Task { await restore() }
         timeObserver = avPlayer.addPeriodicTimeObserver(
             forInterval: CMTime(seconds: 0.25, preferredTimescale: 600), queue: .main
         ) { [weak self] time in
@@ -70,6 +71,7 @@ final class Player {
     // MARK: queue
 
     func play(_ tracks: [Track], startAt: Int = 0, from source: String? = nil) {
+        restoredInfinite = false
         guard tracks.indices.contains(startAt) else { return }
         infinite = nil
         original = tracks
@@ -95,6 +97,7 @@ final class Player {
 
     /// Discover's shuffle: endless queue mixing mixes, radios and discoveries.
     func playInfinite(mixes: [Mix]) {
+        restoredInfinite = false
         let source = Shuffle(mixes: mixes)
         infinite = source
         sourceTitle = "Discover"
@@ -112,6 +115,7 @@ final class Player {
     /// Tapping one Discover cover: that song first, then the rest of the visible Discover
     /// pool (from the tapped one onwards, wrapping), then the endless Discover shuffle.
     func playDiscover(_ track: Track, pool: [Track], mixes: [Mix]) {
+        restoredInfinite = false
         var seen: Set<String> = [String(describing: track.id)]
         let i = pool.firstIndex { $0.id == track.id } ?? 0
         let rest = (Array(pool.dropFirst(i + 1)) + Array(pool.prefix(i)))
@@ -140,28 +144,33 @@ final class Player {
     }
 
     func playNext(_ track: Track) {
+        defer { persist() }
         if current == nil { play([track]); return }
         userQueue.insert(track, at: 0)
         invalidatePreload()
     }
 
     func addToQueue(_ track: Track) {
+        defer { persist() }
         if current == nil { play([track]); return }
         userQueue.append(track)
         invalidatePreload()
     }
 
     func removeUserQueue(at offsets: IndexSet) {
+        defer { persist() }
         userQueue.remove(atOffsets: offsets)
         invalidatePreload()
     }
 
     func moveUserQueue(from: IndexSet, to: Int) {
+        defer { persist() }
         userQueue.move(fromOffsets: from, toOffset: to)
         invalidatePreload()
     }
 
     func moveUpNext(from: IndexSet, to: Int) {
+        defer { persist() }
         guard let i = index else { return }
         let offset = i + 1
         queue.move(fromOffsets: IndexSet(from.map { $0 + offset }), toOffset: to + offset)
@@ -169,6 +178,7 @@ final class Player {
     }
 
     func removeUpNext(at offsets: IndexSet) {
+        defer { persist() }
         guard let i = index else { return }
         queue.remove(atOffsets: IndexSet(offsets.map { $0 + i + 1 }))
         invalidatePreload()
@@ -189,6 +199,12 @@ final class Player {
     // MARK: transport
 
     func toggle() {
+        // Restored after a relaunch: nothing loaded yet; fetch a fresh stream URL and resume there.
+        if needsStart, let t = current {
+            needsStart = false
+            start(t, resumeAt: position)
+            return
+        }
         if isPlaying { avPlayer.pause() } else { avPlayer.play() }
         isPlaying.toggle()
         updateNowPlaying()
@@ -289,6 +305,7 @@ final class Player {
     }
 
     private func start(_ track: Track, resumeAt: Double = 0) {
+        needsStart = false
         adopt(track, stream: nil)
         loading = true
         position = resumeAt
@@ -348,7 +365,8 @@ final class Player {
     }
 
     private func tick(_ t: Double) {
-        guard t.isFinite else { return }
+        guard t.isFinite, !needsStart else { return }
+        if isPlaying, Date().timeIntervalSince(lastSave) > 5 { persist() }
         if isPlaying, t > position, t - position < 2 { listened += t - position }
         position = t
         if let d = avPlayer.currentItem?.duration.seconds, d.isFinite, d > 0 { duration = d }
@@ -391,6 +409,55 @@ final class Player {
         }
         refilling = task
         return await task.value
+    }
+
+    // MARK: persistence
+
+    /// Restored state not loaded into AVPlayer yet (first play fetches the stream).
+    @ObservationIgnored private var needsStart = false
+    @ObservationIgnored private var restoredInfinite = false
+    @ObservationIgnored private var lastSave = Date.distantPast
+    @ObservationIgnored private var restoring = true
+
+    func persist() {
+        guard !restoring else { return }
+        lastSave = Date()
+        guard let c = current else { PlaybackStore.clear(); return }
+        let e = DiscoverCache.encode
+        let rm: String = switch repeatMode { case .off: "off"; case .all: "all"; case .one: "one" }
+        PlaybackStore.save(.init(
+            queue: e(queue), original: e(original), userQueue: e(userQueue), current: e([c])[0],
+            index: index, position: position,
+            repeatMode: rm,
+            shuffle: shuffle, infinite: infinite != nil || restoredInfinite, sourceTitle: sourceTitle))
+    }
+
+    private func restore() async {
+        defer { restoring = false }
+        guard let s = await PlaybackStore.load(), current == nil,
+              let cur = DiscoverCache.decode([s.current]).first else { return }
+        let d = DiscoverCache.decode
+        queue = d(s.queue); original = d(s.original); userQueue = d(s.userQueue)
+        index = s.index.flatMap { queue.indices.contains($0) ? $0 : nil }
+        repeatMode = switch s.repeatMode { case "all": .all; case "one": .one; default: .off }
+        shuffle = s.shuffle
+        sourceTitle = s.sourceTitle
+        restoredInfinite = s.infinite
+        adopt(cur, stream: nil)
+        position = max(0, min(s.position, duration > 0 ? duration - 1 : s.position))
+        isPlaying = false
+        needsStart = true
+        restoring = false
+        updateNowPlaying()
+        Task { await loadArtwork(cur) }
+    }
+
+    /// Re-attaches the endless Discover source to a restored Discover queue once mixes load.
+    func resumeInfinite(mixes: [Mix]) {
+        guard restoredInfinite, infinite == nil, !mixes.isEmpty else { return }
+        restoredInfinite = false
+        infinite = Shuffle(mixes: mixes)
+        refillIfNeeded()
     }
 
     // MARK: system integration
@@ -464,6 +531,7 @@ final class Player {
 
     private func updateNowPlaying() {
         syncRemote()
+        persist()
         if let id = current?.id, Favs.shared.known(id) == nil {
             Task { await Favs.shared.check(id); syncRemote() }
         }
@@ -540,5 +608,7 @@ extension Player {
         queue = []; original = []; userQueue = []; index = nil; current = nil
         isPlaying = false; loading = false; position = 0; duration = 0; stream = nil; sourceTitle = nil
         MPNowPlayingInfoCenter.default().nowPlayingInfo = nil
+        needsStart = false; restoredInfinite = false
+        PlaybackStore.clear()
     }
 }

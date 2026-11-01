@@ -4,6 +4,7 @@ import SwiftUI
 struct TorneamApp: App {
     @State private var session = Session.shared
     @State private var prefs = Preferences.shared
+    @Environment(\.scenePhase) private var phase
 
     var body: some Scene {
         WindowGroup {
@@ -22,5 +23,6 @@ struct TorneamApp: App {
             .preferredColorScheme(.dark)
             .tint(.blue)
         }
+        .onChange(of: phase) { _, p in if p != .active { Player.shared.persist() } }
     }
 }
