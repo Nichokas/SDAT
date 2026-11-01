@@ -209,6 +209,7 @@ final class Player {
 
     func cycleRepeat() {
         repeatMode = switch repeatMode { case .off: .all; case .all: .one; case .one: .off }
+        syncRemote()
         invalidatePreload()
     }
 
@@ -221,8 +222,9 @@ final class Player {
     // MARK: internals
 
     /// What plays after the current track: (track, comes from user queue, base index).
-    private func following() -> (Track, Bool, Int?)? {
-        if repeatMode == .one, let c = current { return (c, false, index) }
+    /// `manual`: an explicit Next skips past a repeat-one track (it only loops on natural end).
+    private func following(manual: Bool = false) -> (Track, Bool, Int?)? {
+        if repeatMode == .one, !manual, let c = current { return (c, false, index) }
         if let u = userQueue.first { return (u, true, index) }
         guard let i = index else { return nil }
         if i + 1 < queue.count { return (queue[i + 1], false, i + 1) }
@@ -231,7 +233,7 @@ final class Player {
     }
 
     private func advance(auto: Bool) {
-        guard let (t, fromUser, newIndex) = following() else {
+        guard let (t, fromUser, newIndex) = following(manual: !auto) else {
             // Endless (Discover) queue ran dry before the refill landed: fetch, then go on.
             if let source = infinite {
                 loading = true
@@ -421,6 +423,27 @@ final class Player {
             MainActor.assumeIsolated { self?.previous() }
             return .success
         }
+        // Lock screen / Control Center: favourite (like) and repeat mode.
+        c.likeCommand.localizedTitle = "Favourite"
+        c.likeCommand.localizedShortTitle = "Favourite"
+        c.likeCommand.addTarget { [weak self] _ in
+            MainActor.assumeIsolated {
+                guard let id = self?.current?.id else { return }
+                Favs.shared.toggle(id)
+            }
+            return .success
+        }
+        c.changeRepeatModeCommand.addTarget { [weak self] event in
+            guard let e = event as? MPChangeRepeatModeCommandEvent else { return .commandFailed }
+            MainActor.assumeIsolated {
+                guard let self else { return }
+                self.repeatMode = switch e.repeatType { case .one: .one; case .all: .all; default: .off }
+                self.invalidatePreload(); self.schedulePreload()
+                self.syncRemote()
+            }
+            return .success
+        }
+        Favs.shared.onChange = { [weak self] in MainActor.assumeIsolated { self?.syncRemote() } }
         c.changePlaybackPositionCommand.addTarget { [weak self] event in
             guard let e = event as? MPChangePlaybackPositionCommandEvent else { return .commandFailed }
             MainActor.assumeIsolated { self?.seek(to: e.positionTime) }
@@ -428,7 +451,22 @@ final class Player {
         }
     }
 
+    /// Like + repeat state shown by the system controls.
+    private func syncRemote() {
+        let c = MPRemoteCommandCenter.shared()
+        let fav = current.flatMap { Favs.shared.known($0.id) } ?? false
+        c.likeCommand.isEnabled = current != nil
+        c.likeCommand.isActive = fav
+        c.likeCommand.localizedTitle = fav ? "Remove from Favourites" : "Add to Favourites"
+        c.changeRepeatModeCommand.isEnabled = true
+        c.changeRepeatModeCommand.currentRepeatType = switch repeatMode { case .one: .one; case .all: .all; case .off: .off }
+    }
+
     private func updateNowPlaying() {
+        syncRemote()
+        if let id = current?.id, Favs.shared.known(id) == nil {
+            Task { await Favs.shared.check(id); syncRemote() }
+        }
         guard let t = current else {
             MPNowPlayingInfoCenter.default().nowPlayingInfo = nil
             return

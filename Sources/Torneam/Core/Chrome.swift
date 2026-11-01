@@ -133,7 +133,9 @@ struct ProfileButton: View {
 @MainActor @Observable
 final class Favs {
     static let shared = Favs()
-    private(set) var tracks: [String: Bool] = [:]
+    private(set) var tracks: [String: Bool] = [:] { didSet { onChange?() } }
+    /// Lets the player keep the lock-screen like button in sync with any change.
+    @ObservationIgnored var onChange: (() -> Void)?
     func known(_ id: String) -> Bool? { tracks[id] }
     func mark(_ ids: [String], _ v: Bool) { for i in ids { tracks[i] = v } }
     func check(_ id: String) async {
