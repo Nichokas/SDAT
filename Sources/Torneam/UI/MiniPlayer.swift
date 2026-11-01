@@ -13,6 +13,15 @@ struct MiniPlayer: View {
 
     @State private var holdTask: Task<Void, Never>?
     @State private var held = false
+    /// Auto-resets when the gesture ends OR is cancelled, so no press/hold can get stuck.
+    @GestureState private var touching = false
+
+    private func resetPress() {
+        gestureLog.notice("mini press reset")
+        holdTask?.cancel(); holdTask = nil
+        held = false; drifted = false
+        if chrome.miniPressed { chrome.miniPressed = false }
+    }
 
     var body: some View {
         let isCircle = style == .circle
@@ -37,14 +46,17 @@ struct MiniPlayer: View {
                     // One gesture so a press is either a tap or a hold, never both:
                     // held ≥ 0.12 s opens the player; released sooner toggles play/pause.
                     .highPriorityGesture(DragGesture(minimumDistance: 0)
+                        .updating($touching) { _, st, _ in st = true }
                         .onChanged { g in
                             // Finger drift up to 40 pt keeps the press alive.
                             if hypot(g.translation.width, g.translation.height) > 40 {
-                                holdTask?.cancel(); drifted = true; chrome.miniPressed = false
+                                holdTask?.cancel(); holdTask = nil; drifted = true
+                                if chrome.miniPressed { chrome.miniPressed = false }
                                 return
                             }
                             if !chrome.miniPressed && !drifted { chrome.miniPressed = true }
                             guard holdTask == nil, !drifted else { return }
+                            gestureLog.notice("mini press began")
                             holdTask = Task { @MainActor in
                                 try? await Task.sleep(for: .milliseconds(120))
                                 guard !Task.isCancelled else { return }
@@ -55,11 +67,14 @@ struct MiniPlayer: View {
                         }
                         .onEnded { _ in
                             holdTask?.cancel(); holdTask = nil
+                            gestureLog.notice("mini press ended held=\(held) drifted=\(drifted)")
                             if !held && !drifted { player.toggle() }
                             held = false; drifted = false
                             chrome.miniPressed = false
                         })
                     .sensoryFeedback(.selection, trigger: player.isPlaying)
+                    .onChange(of: touching) { _, t in if !t { DispatchQueue.main.async { if !touching { resetPress() } } } }
+                    .onDisappear { resetPress() }
     }
 
     private var capsuleContent: some View {

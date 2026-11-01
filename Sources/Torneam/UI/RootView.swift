@@ -1,6 +1,8 @@
 import SwiftUI
 import os
 
+let gestureLog = Logger(subsystem: "com.nichokas.Torneam", category: "gesture")
+let launchStart = Date()
 let chromeLog = Logger(subsystem: "com.nichokas.Torneam", category: "chrome")
 
 /// Tabs with a custom Liquid Glass bottom chrome:
@@ -47,6 +49,7 @@ struct RootView: View {
         } message: {
             Text(player.error ?? "")
         }
+        .onAppear { chromeLog.notice("root appeared \(Date().timeIntervalSince(launchStart), format: .fixed(precision: 3)) s after first use") }
         .task { await OwnPlaylists.shared.load() }
     }
 }
@@ -81,15 +84,25 @@ private struct BottomChrome: View {
                 if hasMini {
                     MiniPlayer(style: chrome.inDetail ? .wide : (p >= 0.5 ? .capsule : .circle),
                                p: chrome.inDetail ? 1 : p)
-                        .frame(height: chrome.inDetail ? 62 : h)
-                        .frame(maxWidth: .infinity)
+                        // Explicit width (never content-sized): the capsule content's minimum
+                        // width used to push the HStack wider than W, which re-measured W and
+                        // looped layout forever on the main thread (the freeze on first play).
+                        .frame(width: chrome.inDetail || tabW == nil ? nil : max(W - tabW! - 12, 54),
+                               height: chrome.inDetail ? 62 : h)
+                        .frame(maxWidth: chrome.inDetail || tabW == nil ? .infinity : nil)
                         .glassEffect(.regular.interactive(), in: .capsule)
                         .glassEffectID("mini", in: ns)
                         .scaleEffect(chrome.miniPressed ? 1.08 : 1)
                         .animation(.spring(response: 0.25, dampingFraction: 0.7), value: chrome.miniPressed)
                 }
             }
-            .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { W = $0 }
+        }
+        // Measure the available width OUTSIDE the content so it can't feed back into itself.
+        .frame(maxWidth: .infinity)
+        .background {
+            Color.clear.onGeometryChange(for: CGFloat.self) { $0.size.width } action: { w in
+                if abs(w - W) > 0.5 { chromeLog.notice("bar width \(Double(w), format: .fixed(precision: 1))"); W = w }
+            }
         }
         .padding(.horizontal, 24)
         .padding(.bottom, 12)
@@ -211,7 +224,7 @@ private struct TabBar: View {
             }
             .contentShape(.capsule)
             .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { w in
-                guard p == 0 else { return }
+                guard p == 0, abs(w - barWidth) > 0.5 else { return }
                 barWidth = w
                 let w3 = w / CGFloat(items.count)
                 pillL = CGFloat(idx) * w3; pillR = pillL + w3
@@ -286,6 +299,7 @@ extension View {
             let c = Chrome.shared
             let p = min(max((y - 20) / 60, 0), 1)
             guard abs(p - c.progress) > 0.005 else { return }
+            if (p == 0 || p == 1) { chromeLog.notice("progress \(Double(p), format: .fixed(precision: 2)) y=\(Double(y), format: .fixed(precision: 0))") }
             var t = Transaction(); t.disablesAnimations = true
             withTransaction(t) { c.progress = p }
         }
