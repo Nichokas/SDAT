@@ -26,7 +26,7 @@ concurrency:
 jobs:
   update:
     runs-on: ubuntu-latest
-    if: github.event_name != 'workflow_run' || (github.event.workflow_run.conclusion == 'success' && startsWith(github.event.workflow_run.head_branch, 'v'))
+    if: github.event_name != 'workflow_run' || (github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.event == 'push' && github.event.workflow_run.head_repository.full_name == github.repository && startsWith(github.event.workflow_run.head_branch, 'v'))
     env:
       GH_TOKEN: ${{ github.token }}
     steps:
@@ -37,18 +37,30 @@ jobs:
 
       - name: Resolve tag
         id: tag
+        # Untrusted values go through env vars, never interpolated into the script.
+        env:
+          RELEASE_TAG: ${{ github.event.release.tag_name }}
+          INPUT_TAG: ${{ inputs.tag }}
+          RUN_BRANCH: ${{ github.event.workflow_run.head_branch }}
         run: |
-          tag="${{ github.event.release.tag_name || inputs.tag }}"
-          if [ -z "$tag" ] && [ "${{ github.event_name }}" = "workflow_run" ]; then
-            tag="${{ github.event.workflow_run.head_branch }}"
+          tag="${RELEASE_TAG:-$INPUT_TAG}"
+          if [ -z "$tag" ] && [ "$GITHUB_EVENT_NAME" = "workflow_run" ]; then
+            tag="$RUN_BRANCH"
           fi
           if [ -z "$tag" ]; then
             tag="$(gh release view -R "$GITHUB_REPOSITORY" --json tagName -q .tagName)"
           fi
+          if ! printf '%s' "$tag" | grep -Eq '^v[0-9A-Za-z._-]+$'; then
+            echo "Refusing unexpected tag: $tag"; exit 1
+          fi
+          # Only act on real tags of this repo (not branches named like tags).
+          git rev-parse -q --verify "refs/tags/$tag" >/dev/null || { echo "Not a tag: $tag"; exit 1; }
           echo "tag=$tag" >> "$GITHUB_OUTPUT"
 
       - name: Update source.json
-        run: python3 scripts/update-feather-source.py "${{ steps.tag.outputs.tag }}" --repo "$GITHUB_REPOSITORY"
+        env:
+          TAG: ${{ steps.tag.outputs.tag }}
+        run: python3 scripts/update-feather-source.py "$TAG" --repo "$GITHUB_REPOSITORY"
 
       - name: Validate JSON
         run: jq -e '.apps[0].versions | length > 0' feather/source.json
@@ -56,16 +68,19 @@ jobs:
       # Opens a PR instead of committing to main. To commit directly instead, replace
       # this step with: git commit -am "..." && git push origin HEAD:main
       - name: Open PR if changed
+        env:
+          TAG: ${{ steps.tag.outputs.tag }}
         run: |
           if git diff --quiet -- feather/source.json; then echo "No changes"; exit 0; fi
-          tag="${{ steps.tag.outputs.tag }}"
+          tag="$TAG"
           branch="feather-source/$tag"
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git checkout -B "$branch"
           git commit -am "Feather source: add $tag"
           git push -f origin "$branch"
-          gh pr view "$branch" -R "$GITHUB_REPOSITORY" >/dev/null 2>&1 || \
+          state="$(gh pr view "$branch" -R "$GITHUB_REPOSITORY" --json state -q .state 2>/dev/null || true)"
+          [ "$state" = "OPEN" ] || \
             gh pr create -R "$GITHUB_REPOSITORY" --base main --head "$branch" \
               --title "Feather source: add $tag" \
               --body "Automated update of feather/source.json for release $tag."
