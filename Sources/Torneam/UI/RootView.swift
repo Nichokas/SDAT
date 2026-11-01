@@ -1,4 +1,7 @@
 import SwiftUI
+import os
+
+let chromeLog = Logger(subsystem: "com.nichokas.Torneam", category: "chrome")
 
 /// Tabs with a custom Liquid Glass bottom chrome:
 /// - root, not scrolled: expanded tab bar + circular miniplayer
@@ -62,15 +65,16 @@ private struct BottomChrome: View {
         GlassEffectContainer(spacing: 0) {
             HStack(spacing: 12) {
                 if !chrome.inDetail {
+                    // ONE view whose sizes/opacities come from `collapsed` (no branch swap),
+                    // so the scroll flip interpolates exactly like the detail-page capsule.
                     TabBar(collapsed: chrome.collapsed && hasMini)
-                        // Glass on the outside so the same shape morphs bar <-> circle.
                         .glassEffect(.regular.interactive(), in: .capsule)
                         .glassEffectID("tabs", in: ns)
-                        .glassEffectTransition(.matchedGeometry)
                 }
                 if hasMini {
-                    MiniPlayer(style: chrome.inDetail ? .wide : (chrome.collapsed ? .capsule : .circle))
-                        .glassEffect(.regular.interactive(), in: .capsule)
+                    let style: MiniPlayer.Style = chrome.inDetail ? .wide : (chrome.collapsed ? .capsule : .circle)
+                    MiniPlayer(style: style)
+                        .glassEffect(.regular, in: .capsule)
                         .glassEffectID("mini", in: ns)
                         .glassEffectTransition(.matchedGeometry)
                 }
@@ -79,6 +83,7 @@ private struct BottomChrome: View {
         .padding(.horizontal, 24)
         .padding(.bottom, 12)
         .animation(Motion.bar, value: ChromeState(collapsed: chrome.collapsed, detail: chrome.inDetail, mini: hasMini))
+        .animation(.smooth(duration: 0.4), value: chrome.collapsed)
     }
 }
 
@@ -124,15 +129,31 @@ private struct TabBar: View {
     ]
 
     var body: some View {
-        if collapsed {
+        ZStack {
+            expanded
+                .frame(width: collapsed && barWidth > 0 ? barWidth + 8 : nil)
+                .opacity(collapsed ? 0 : 1)
+                .allowsHitTesting(!collapsed)
+            circle
+                .opacity(collapsed ? 1 : 0)
+                .allowsHitTesting(collapsed)
+        }
+        .frame(maxWidth: collapsed ? 54 : .infinity)
+        .frame(height: collapsed ? 54 : 62)
+        .clipShape(.capsule)
+    }
+
+    @ViewBuilder private var circle: some View {
             let cur = items.first { $0.0 == chrome.tab } ?? items[0]
             Button { withAnimation(Motion.bar) { chrome.collapsed = false } } label: {
                 Image(systemName: cur.2).font(.system(size: 21, weight: .medium)).foregroundStyle(.blue)
-                    .frame(width: 62, height: 62)
+                    .frame(width: 54, height: 54)
                     .contentShape(.circle)
             }
             .buttonStyle(.plain)
-        } else {
+    }
+
+    @ViewBuilder private var expanded: some View {
             let idx = items.firstIndex { $0.0 == (selected ?? chrome.tab) } ?? 0
             let shown = hovered ?? idx
             let w3 = barWidth / CGFloat(items.count)
@@ -147,7 +168,7 @@ private struct TabBar: View {
                             .frame(height: 26)
                         Text(item.1).font(.system(size: 10, weight: .semibold)).lineLimit(1)
                     }
-                    .foregroundStyle(on ? Color.white : .primary)
+                    .foregroundStyle(on ? Color.blue : .primary)
                     .frame(maxWidth: .infinity, minHeight: 54)
                 }
             }
@@ -157,10 +178,21 @@ private struct TabBar: View {
                 // settles with a slight overshoot. Real interactive glass, no flat fill.
                 // Clear lens in its own container so it never metaball-merges with the
                 // miniplayer; slightly taller than the bar, more so while pressed.
-                GlassEffectContainer(spacing: 0) {
-                    Color.clear
-                        .frame(width: max(pillR - pillL - 4, 0), height: pressed ? 70 : 64)
-                        .glassEffect(.clear.interactive(), in: .capsule)
+                // At rest: a faint, nearly clear capsule inside the bar (like native).
+                // Pressed/dragged: a clear glass lens that grows past the bar edges.
+                ZStack {
+                    if pressed {
+                        GlassEffectContainer(spacing: 0) {
+                            Color.clear
+                                .frame(width: max(pillR - pillL + 6, 0), height: 70)
+                                .glassEffect(.clear.interactive(), in: .capsule)
+                        }
+                        .transition(.scale(scale: 0.85).combined(with: .opacity))
+                    } else {
+                        Capsule().fill(.white.opacity(0.1))
+                            .frame(width: max(pillR - pillL, 0), height: 54)
+                            .transition(.opacity)
+                    }
                 }
                 .frame(width: max(pillR - pillL, 0))
                     .offset(x: pillL)
@@ -203,7 +235,6 @@ private struct TabBar: View {
                 }
             }
         }
-    }
 }
 
 extension View {
@@ -244,9 +275,12 @@ extension View {
             let want: Bool? = y > 60 ? true : (y < 20 ? false : nil)
             guard let want, want != c.collapsed, !c.collapsePending else { return }
             c.collapsePending = true
-            DispatchQueue.main.async {
+            Task { @MainActor in
                 c.collapsePending = false
-                if c.collapsed != want { withAnimation(Motion.bar) { c.collapsed = want } }
+                if c.collapsed != want {
+                    chromeLog.debug("collapse -> \(want) at y=\(y, format: .fixed(precision: 0))")
+                    withTransaction(Transaction(animation: .smooth(duration: 0.4))) { c.collapsed = want }
+                }
             }
         }
     }

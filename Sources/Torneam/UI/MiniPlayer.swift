@@ -18,12 +18,12 @@ struct MiniPlayer: View {
                 ringIcon(size: 62)
                     .contentShape(.circle)
                     // One gesture so a press is either a tap or a hold, never both:
-                    // held ≥ 0.1 s opens the player; released sooner toggles play/pause.
-                    .gesture(DragGesture(minimumDistance: 0)
+                    // held ≥ 0.12 s opens the player; released sooner toggles play/pause.
+                    .highPriorityGesture(DragGesture(minimumDistance: 0)
                         .onChanged { _ in
                             guard holdTask == nil else { return }
                             holdTask = Task { @MainActor in
-                                try? await Task.sleep(for: .milliseconds(100))
+                                try? await Task.sleep(for: .milliseconds(120))
                                 guard !Task.isCancelled else { return }
                                 held = true
                                 UIImpactFeedbackGenerator(style: .medium).impactOccurred()
@@ -51,7 +51,7 @@ struct MiniPlayer: View {
                     }
                 }
                 .padding(.leading, 9).padding(.trailing, 10)
-                .frame(height: 62)
+                .frame(height: style == .capsule ? 54 : 62)
                 .frame(maxWidth: .infinity)
                 .contentShape(.capsule)
                 .onTapGesture { chrome.showPlayer = true }
