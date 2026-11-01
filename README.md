@@ -9,4 +9,4 @@ Uses tonearm-core from `../Tonearm` through `crates/tonearm-ffi` (UniFFI).
     xtool dev build         # needs Swift 6.4.2 (.swift-version) to match the iPhoneOS 27.1 SDK
     xtool dev               # build + install on a connected iPhone
 
-Code written with an AI assistant through Grok Bot. Design by Nichokas in Figma.
+Code written with an AI agent through Grok Bot. Design by Nichokas in Figma.
