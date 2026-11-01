@@ -9,7 +9,7 @@ struct LoginView: View {
         VStack(spacing: 24) {
             Spacer()
             Image(systemName: "waveform.circle.fill").font(.system(size: 72)).foregroundStyle(.tint)
-            Text("Torneam").font(.largeTitle.bold())
+            Text("SDAT").font(.largeTitle.bold())
             if let login = session.pending {
                 Text("Enter this code on TIDAL").foregroundStyle(.secondary)
                 Text(login.userCode()).font(.system(.largeTitle, design: .monospaced).bold())
