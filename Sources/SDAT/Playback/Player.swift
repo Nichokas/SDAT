@@ -355,7 +355,7 @@ final class Player {
     /// Downloaded file when available (works offline), else a fresh HLS stream.
     private static func source(_ id: String) async throws -> Stream {
         if let s = Downloads.shared.localStream(id) { return s }
-        return try await Torneam.stream(trackId: id, quality: Preferences.shared.streamingQuality)
+        return try await SDAT.stream(trackId: id, quality: Preferences.shared.streamingQuality)
     }
 
     /// Prepares the next track's AVPlayerItem behind the current one (gapless-ish start).

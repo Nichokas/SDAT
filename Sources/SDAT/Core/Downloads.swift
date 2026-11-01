@@ -192,7 +192,7 @@ final class Downloads {
     private func fetch(_ t: Track) async throws -> Entry {
         let net = session()
         defer { net.finishTasksAndInvalidate() }
-        let s = try await Torneam.stream(trackId: t.id, quality: Preferences.shared.downloadQuality)
+        let s = try await SDAT.stream(trackId: t.id, quality: Preferences.shared.downloadQuality)
         var (text, base) = try await Self.playlist(s.url, net)
         if text.contains("#EXT-X-STREAM-INF") {
             let lines = text.split(whereSeparator: \.isNewline).map(String.init)

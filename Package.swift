@@ -3,7 +3,7 @@
 import PackageDescription
 
 let package = Package(
-    name: "Torneam",
+    name: "SDAT",
     platforms: [
         .iOS("26.0"),
         .macOS(.v14),
@@ -12,8 +12,8 @@ let package = Package(
         // An xtool project should contain exactly one library product,
         // representing the main app.
         .library(
-            name: "Torneam",
-            targets: ["Torneam"]
+            name: "SDAT",
+            targets: ["SDAT"]
         ),
     ],
     targets: [
@@ -29,7 +29,7 @@ let package = Package(
             ]
         ),
         .target(
-            name: "Torneam",
+            name: "SDAT",
             dependencies: ["tonearm_ffiFFI"],
             resources: [.process("Resources")],
             swiftSettings: [.swiftLanguageMode(.v5)]

@@ -1,7 +1,7 @@
 import SwiftUI
 
 @main
-struct TorneamApp: App {
+struct SDATApp: App {
     @State private var session = Session.shared
     @State private var prefs = Preferences.shared
     @Environment(\.scenePhase) private var phase

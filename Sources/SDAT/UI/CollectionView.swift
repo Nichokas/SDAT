@@ -73,7 +73,7 @@ struct CollectionView: View {
     }
 
     private func load() async {
-        do { recents = try await Torneam.recents(); recentsError = nil } catch { recentsError = friendlyMessage(error) }
+        do { recents = try await SDAT.recents(); recentsError = nil } catch { recentsError = friendlyMessage(error) }
     }
 
     private func row(_ title: String, _ icon: String, _ r: Route) -> some View {

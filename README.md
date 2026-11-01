@@ -1,6 +1,6 @@
 # SDAT
 
-SDAT (formerly Torneam; the repo, Swift package, module and bundle id `com.nichokas.Torneam` keep the old name on purpose so existing installs and saved data survive).
+SDAT (formerly Torneam). Bundle id `com.nichokas.SDAT`; the repo folder keeps the old name.
 
 
 TIDAL player for iOS 26 (SwiftUI, Liquid Glass), built with xtool for personal sideloading.

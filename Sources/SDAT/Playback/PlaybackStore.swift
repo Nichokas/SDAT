@@ -26,7 +26,7 @@ enum PlaybackStore {
     static let endlessBehind = 50, endlessAhead = 200
     static let maxSaved = 2000
 
-    private static let io = DispatchQueue(label: "torneam.playback.store", qos: .utility)
+    private static let io = DispatchQueue(label: "sdat.playback.store", qos: .utility)
     private static var dir: URL {
         let d = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
         try? FileManager.default.createDirectory(at: d, withIntermediateDirectories: true)

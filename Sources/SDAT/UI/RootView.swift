@@ -1,9 +1,9 @@
 import SwiftUI
 import os
 
-let gestureLog = Logger(subsystem: "com.nichokas.Torneam", category: "gesture")
+let gestureLog = Logger(subsystem: "com.nichokas.SDAT", category: "gesture")
 let launchStart = Date()
-let chromeLog = Logger(subsystem: "com.nichokas.Torneam", category: "chrome")
+let chromeLog = Logger(subsystem: "com.nichokas.SDAT", category: "chrome")
 
 /// Tabs with a custom Liquid Glass bottom chrome:
 /// - root, not scrolled: expanded tab bar + circular miniplayer

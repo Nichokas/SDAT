@@ -3,7 +3,7 @@ import Security
 
 /// Minimal generic-password Keychain wrapper.
 enum Keychain {
-    private static let service = "com.nichokas.Torneam"
+    private static let service = "com.nichokas.SDAT"
 
     static func get(_ key: String) -> String? {
         let query: [String: Any] = [
