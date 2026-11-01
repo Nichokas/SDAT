@@ -27,12 +27,15 @@ struct MiniPlayer: View {
         let isCircle = style == .circle
         // ONE hierarchy; the parent sizes it from the shared progress, content opacities
         // are computed from that same value (capsule in late, circle out early).
-        ZStack {
+        // Trailing-anchored: the circle's ring sits where the capsule's own ring ends up,
+        // never centred in the growing capsule. Circle content is gone within the first 15%
+        // of the morph; capsule content only appears once the shape is 60% grown.
+        ZStack(alignment: .trailing) {
             capsuleContent
-                .opacity(max(0, p * 2 - 1))
+                .opacity(min(max((p - 0.6) / 0.4, 0), 1))
                 .allowsHitTesting(!isCircle)
             circleContent
-                .opacity(max(0, 1 - p * 2))
+                .opacity(min(max(1 - p / 0.15, 0), 1))
                 .allowsHitTesting(isCircle)
         }
     }
@@ -40,7 +43,8 @@ struct MiniPlayer: View {
     private var circleContent: some View {
                 // Tap: open the full player. Long-press (0.06 s hold): play/pause.
                 ringIcon(size: 62)
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    .frame(width: 62)
+                    .frame(maxHeight: .infinity)
                     // Generous hit area: 12 pt beyond the visible circle.
                     .contentShape(Circle().inset(by: -12))
                     // One gesture so a press is either a tap or a hold, never both:
