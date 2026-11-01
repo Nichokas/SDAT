@@ -30,22 +30,23 @@ struct MiniPlayer: View {
         // Trailing-anchored: the circle's ring sits where the capsule's own ring ends up,
         // never centred in the growing capsule. Circle content is gone within the first 6%
         // of the morph (6%); capsule content only appears once the shape is 60% grown.
-        ZStack(alignment: .trailing) {
-            // Outgoing content shrinks to 0.6 and is gone by 30% of the shape change;
-            // incoming starts at 45% (Morph schedule), so two rings never coexist.
-            capsuleContent
-                .scaleEffect(style == .wide ? 1 : Morph.inScale(p), anchor: .trailing)
-                .opacity(style == .wide ? 1 : Morph.inAlpha(p))
-                .allowsHitTesting(!isCircle)
-            circleContent
-                .scaleEffect(Morph.outScale(p), anchor: .trailing)
-                .opacity(Morph.outAlpha(p))
-                .allowsHitTesting(isCircle)
-        }
-        // The capsule content has a ~130 pt minimum; when the shape is narrower the ZStack
-        // overflows. Pin the overflow to the trailing edge and clip, so the ring stays
-        // centred in the circle / in the capsule's right slot and nothing leaks off-screen.
-        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .trailing)
+        // Fixed-size base + overlays: contents can never resize the shape. Before, the
+        // ~130 pt capsule content made the flexible frame report 130 pt for a 62 pt circle,
+        // pushing it off the right edge with the ring off-centre. The circle content is
+        // exactly 62 pt wide and trailing-pinned, so in circle state it is centred.
+        Color.clear
+            .overlay(alignment: .trailing) {
+                capsuleContent
+                    .scaleEffect(style == .wide ? 1 : Morph.inScale(p), anchor: .trailing)
+                    .opacity(style == .wide ? 1 : Morph.inAlpha(p))
+                    .allowsHitTesting(!isCircle)
+            }
+            .overlay(alignment: .trailing) {
+                circleContent
+                    .scaleEffect(Morph.outScale(p))
+                    .opacity(style == .wide ? 0 : Morph.outAlpha(p))
+                    .allowsHitTesting(isCircle)
+            }
         .clipShape(.capsule)
     }
 

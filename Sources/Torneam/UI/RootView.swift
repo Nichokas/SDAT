@@ -175,23 +175,24 @@ private struct TabBar: View {
     ]
 
     var body: some View {
-        ZStack(alignment: .leading) {
-            // Staggered: tabs gone in the first half, circle icon in during the second.
-            // Tabs fade + shrink out in the first 30% of the shape change; the round
-            // button's icon only fades/scales in after they are gone (Morph schedule).
-            expanded
-                .frame(width: p > 0 && barWidth > 0 ? barWidth + 8 : nil)
-                .scaleEffect(Morph.outScale(p), anchor: .leading)
-                .opacity(Morph.outAlpha(p))
-                .allowsHitTesting(!collapsed)
-            circle
-                .scaleEffect(Morph.inScale(p))
-                .opacity(Morph.inAlpha(p))
-                .allowsHitTesting(collapsed)
-        }
-        // Expanded content keeps its full width while shrinking; pin it leading and clip so
-        // the bar never grows past its frame (it used to overflow over the miniplayer).
-        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
+        // Fixed-size base (Color.clear takes exactly the frame the parent gives); contents are
+        // overlays, which can NEVER change the shape's size. Before, the wider expanded tabs
+        // made the flexible frame report their width, the outer fixed frame then centred that
+        // oversized view, shifting the round icon outside the disc (detached house icon).
+        Color.clear
+            .overlay(alignment: .leading) {
+                expanded
+                    .frame(width: p > 0 && barWidth > 0 ? barWidth + 8 : nil)
+                    .scaleEffect(Morph.outScale(p), anchor: .leading)
+                    .opacity(Morph.outAlpha(p))
+                    .allowsHitTesting(!collapsed)
+            }
+            .overlay(alignment: .leading) {
+                circle
+                    .scaleEffect(Morph.inScale(p))
+                    .opacity(Morph.inAlpha(p))
+                    .allowsHitTesting(collapsed)
+            }
         .clipShape(.capsule)
     }
 

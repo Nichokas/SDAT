@@ -31,34 +31,29 @@ enum Morph {
 
     /// `w` = width inside the horizontal margins. `t` = collapse clock (0 expanded, 1 collapsed).
     /// `collapsing` = direction of the running/last transition.
+    /// The two widths are complementary on ONE budget: tabW + gap + miniW == w at every t,
+    /// so the HStack never has slack to re-centre (shapes drifting / big gaps) nor overflow.
+    /// Feel: the shared fraction leaves fast (the shrinking shape snaps away) and lands
+    /// softly (the growing shape spreads into the freed space).
     static func frame(width w: Double, t: Double, collapsing: Bool) -> Frame {
-        let a = max(w - gap, round + circle)          // shared budget
-        let tabMax = a - circle, miniMax = a - round
+        let a = max(w - gap, round + circle)
+        let tabMax = a - circle
         let c = clamp01(t)
-        var tabW: Double, miniW: Double
-        if collapsing {
-            // Tab shrinks fast; miniplayer grows soft, never past what the tab has freed.
-            tabW = tabMax - (tabMax - round) * fast(c / shrinkShare)
-            tabW = min(max(tabW, round), tabMax)
-            miniW = circle + (miniMax - circle) * soft(c)
-            miniW = min(max(miniW, circle), a - tabW)
-        } else {
-            let e = 1 - c                              // elapsed of the expand
-            miniW = miniMax - (miniMax - circle) * fast(e / shrinkShare)
-            miniW = min(max(miniW, circle), miniMax)
-            tabW = round + (tabMax - round) * soft(e)
-            tabW = min(max(tabW, round), a - miniW)
-        }
-        let span = max(tabMax - round, 1)
-        return Frame(tabW: tabW, miniW: miniW,
-                     tabF: clamp01((tabMax - tabW) / span),
-                     miniF: clamp01((miniW - circle) / span))
+        let g = collapsing ? ease(c) : 1 - ease(1 - c)
+        let tabW = tabMax - (tabMax - round) * g
+        return Frame(tabW: tabW, miniW: a - tabW, tabF: g, miniF: g)
     }
 
-    /// Outgoing content: gone (and shrunk to 0.6) in the first 30% of its shape's change.
-    static func outAlpha(_ f: Double) -> Double { clamp01(1 - f / 0.3) }
-    /// Incoming content: only after the outgoing one is gone (from 45% to 100%).
-    static func inAlpha(_ f: Double) -> Double { clamp01((f - 0.45) / 0.55) }
-    static func outScale(_ f: Double) -> Double { 1 - 0.4 * clamp01(f / 0.3) }
-    static func inScale(_ f: Double) -> Double { 0.6 + 0.4 * clamp01((f - 0.45) / 0.55) }
+    /// Fast start, soft landing (blend of the snappy and soft curves, monotonic, no overshoot).
+    static func ease(_ x: Double) -> Double {
+        let u = clamp01(x)
+        return 0.5 * (1 - pow(1 - u, 3)) + 0.5 * soft(u)
+    }
+
+    /// Short, crisp crossfade around the midpoint: content is fully shown outside 0.38...0.62,
+    /// outgoing is gone exactly when incoming starts (never both visible).
+    static func outAlpha(_ f: Double) -> Double { clamp01((0.5 - f) / 0.12) }
+    static func inAlpha(_ f: Double) -> Double { clamp01((f - 0.5) / 0.12) }
+    static func outScale(_ f: Double) -> Double { 1 - 0.4 * clamp01((f - 0.38) / 0.12) }
+    static func inScale(_ f: Double) -> Double { 0.6 + 0.4 * clamp01((f - 0.5) / 0.12) }
 }
