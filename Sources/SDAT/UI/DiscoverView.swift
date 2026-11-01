@@ -171,7 +171,9 @@ final class PlaneScrollView: UIScrollView, UIScrollViewDelegate, UIContextMenuIn
     /// Same actions as the app's track "…" menu (TrackMenu), in UIKit form.
     @MainActor static func menu(for t: Track) -> UIMenu {
         let player = Player.shared, chrome = Chrome.shared, dl = Downloads.shared
-        let fav = Favs.shared.known(t.id) ?? false
+        let known = Favs.shared.known(t.id)
+        if known == nil { Task { await Favs.shared.check(t.id) } }
+        let fav = known ?? false
         var main: [UIMenuElement] = [
             UIAction(title: "Play Next", image: UIImage(systemName: "text.line.first.and.arrowtriangle.forward")) { _ in
                 player.playNext(t); chrome.flash("Playing next")
@@ -193,8 +195,15 @@ final class PlaneScrollView: UIScrollView, UIScrollViewDelegate, UIContextMenuIn
                 dl.download([t]); chrome.flash("Downloading")
             })
         }
-        let favItem = UIAction(title: fav ? "Remove from Favourites" : "Add to Favourites",
-                               image: UIImage(systemName: fav ? "star.slash" : "star")) { _ in Favs.shared.toggle(t.id) }
+        // Unknown state: resolve it at tap time so we never send the wrong direction.
+        let favItem = UIAction(title: known == nil ? "Favourite" : (fav ? "Remove from Favourites" : "Add to Favourites"),
+                               image: UIImage(systemName: fav ? "star.slash" : "star")) { _ in
+            Task { @MainActor in
+                if Favs.shared.known(t.id) == nil { await Favs.shared.check(t.id) }
+                guard Favs.shared.known(t.id) != nil else { Chrome.shared.flash("Couldn't check favourite"); return }
+                Favs.shared.toggle(t.id)
+            }
+        }
         var nav: [UIMenuElement] = []
         if let a = t.album {
             nav.append(UIAction(title: "Go to Album", image: UIImage(systemName: "square.stack")) { _ in chrome.push(.album(a.id)) })
