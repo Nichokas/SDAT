@@ -7,19 +7,10 @@ struct MiniPlayer: View {
     let style: Style
     /// Collapse progress shared with the tab bar (0 = circle, 1 = capsule).
     var p: CGFloat = 0
-    @State private var drifted = false
     @Environment(Player.self) private var player
     @Environment(Chrome.self) private var chrome
 
-    @State private var holdTask: Task<Void, Never>?
-    @State private var held = false
-    /// Auto-resets when the gesture ends OR is cancelled, so no press/hold can get stuck.
-    @GestureState private var touching = false
-
     private func resetPress() {
-        gestureLog.notice("mini press reset")
-        holdTask?.cancel(); holdTask = nil
-        held = false; drifted = false
         if chrome.miniPressed { chrome.miniPressed = false }
     }
 
@@ -57,37 +48,23 @@ struct MiniPlayer: View {
                     .frame(maxHeight: .infinity)
                     // Generous hit area: 12 pt beyond the visible circle.
                     .contentShape(Circle().inset(by: -12))
-                    // One gesture so a press is either a tap or a hold, never both:
-                    // held ≥ 0.03 s toggles play/pause; released sooner opens the player.
-                    .highPriorityGesture(DragGesture(minimumDistance: 0)
-                        .updating($touching) { _, st, _ in st = true }
-                        .onChanged { g in
-                            // Finger drift up to 40 pt keeps the press alive.
-                            if hypot(g.translation.width, g.translation.height) > 40 {
-                                holdTask?.cancel(); holdTask = nil; drifted = true
-                                if chrome.miniPressed { chrome.miniPressed = false }
-                                return
-                            }
-                            if !chrome.miniPressed && !drifted { chrome.miniPressed = true }
-                            guard holdTask == nil, !drifted else { return }
-                            gestureLog.notice("mini press began")
-                            holdTask = Task { @MainActor in
-                                try? await Task.sleep(for: .milliseconds(30))
-                                guard !Task.isCancelled else { return }
-                                held = true
-                                UIImpactFeedbackGenerator(style: .medium).impactOccurred()
-                                player.toggle()
-                            }
-                        }
-                        .onEnded { _ in
-                            holdTask?.cancel(); holdTask = nil
-                            gestureLog.notice("mini press ended held=\(held) drifted=\(drifted)")
-                            if !held && !drifted { chrome.showPlayer = true }
-                            held = false; drifted = false
+                    // UIKit press recognizer instead of a SwiftUI DragGesture: it receives the
+                    // touch directly (no SwiftUI gesture arbitration with the interactive glass /
+                    // parent gestures) and times the hold with a run-loop timer, not a Task.
+                    // One press is either a tap (released < 0.03 s) or a hold, never both.
+                    .gesture(PressRecognizer(
+                        hold: 0.03, slop: 40,
+                        onDown: { chrome.miniPressed = true; gestureLog.notice("mini press began") },
+                        onHold: {
+                            UIImpactFeedbackGenerator(style: .medium).impactOccurred()
+                            player.toggle()
+                        },
+                        onEnd: { kind in
+                            gestureLog.notice("mini press ended \(String(describing: kind))")
                             chrome.miniPressed = false
-                        })
+                            if kind == .tap { chrome.showPlayer = true }
+                        }))
                     .sensoryFeedback(.selection, trigger: player.isPlaying)
-                    .onChange(of: touching) { _, t in if !t { DispatchQueue.main.async { if !touching { resetPress() } } } }
                     .onDisappear { resetPress() }
     }
 
@@ -184,6 +161,57 @@ private struct Spin: ViewModifier {
             .transition(.opacity)
         } else {
             content.transition(.opacity)
+        }
+    }
+}
+
+
+/// Touch-down press recognizer: `onDown` immediately, `onHold` once after `hold` seconds
+/// unless the finger moved more than `slop` or lifted; `onEnd` always (tap / hold / cancel).
+struct PressRecognizer: UIGestureRecognizerRepresentable {
+    enum End: Equatable { case tap, hold, cancel }
+    let hold: TimeInterval
+    let slop: CGFloat
+    let onDown: () -> Void
+    let onHold: () -> Void
+    let onEnd: (End) -> Void
+
+    final class Coordinator { var timer: Timer?; var fired = false; var cancelled = false; var start: CGPoint = .zero }
+    func makeCoordinator(converter: CoordinateSpaceConverter) -> Coordinator { Coordinator() }
+
+    func makeUIGestureRecognizer(context: Context) -> UILongPressGestureRecognizer {
+        let g = UILongPressGestureRecognizer()
+        g.minimumPressDuration = 0          // .began on touch-down; we time the hold ourselves
+        g.allowableMovement = .greatestFiniteMagnitude
+        g.cancelsTouchesInView = false
+        g.delaysTouchesBegan = false
+        return g
+    }
+
+    func handleUIGestureRecognizerAction(_ g: UILongPressGestureRecognizer, context: Context) {
+        let c = context.coordinator
+        switch g.state {
+        case .began:
+            c.timer?.invalidate(); c.fired = false; c.cancelled = false
+            c.start = g.location(in: g.view)
+            onDown()
+            let t = Timer(timeInterval: hold, repeats: false) { _ in
+                guard !c.cancelled, !c.fired else { return }
+                c.fired = true
+                MainActor.assumeIsolated { onHold() }
+            }
+            RunLoop.main.add(t, forMode: .common)
+            c.timer = t
+        case .changed:
+            let p = g.location(in: g.view)
+            if !c.cancelled, hypot(p.x - c.start.x, p.y - c.start.y) > slop {
+                c.cancelled = true; c.timer?.invalidate()
+            }
+        case .ended, .cancelled, .failed:
+            c.timer?.invalidate(); c.timer = nil
+            let kind: End = c.fired ? .hold : (c.cancelled || g.state != .ended ? .cancel : .tap)
+            onEnd(kind)
+        default: break
         }
     }
 }
