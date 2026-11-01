@@ -18,6 +18,8 @@ struct CollectionView: View {
                     row("Tracks", "music.note", .collectionTracks)
                     Divider().padding(.leading, 52)
                     row("Artists", "music.microphone", .collectionArtists)
+                    Divider().padding(.leading, 52)
+                    row("Downloads", "arrow.down.circle", .downloads)
                 }
                 .padding(.horizontal, 16)
 
@@ -71,7 +73,7 @@ struct CollectionView: View {
     }
 
     private func load() async {
-        do { recents = try await Torneam.recents(); recentsError = nil } catch { recentsError = friendlyMessage(error) }
+        do { recents = try await SDAT.recents(); recentsError = nil } catch { recentsError = friendlyMessage(error) }
     }
 
     private func row(_ title: String, _ icon: String, _ r: Route) -> some View {

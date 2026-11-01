@@ -65,11 +65,20 @@ struct CachedImage: View {
             }
             .task(id: target) {
                 guard let t = target, width > 0 else { if url == nil { image = nil }; return }
+                // Downloaded artwork first: instant and works offline.
+                if let u = url, let f = Downloads.shared.coverFile(forRemote: u),
+                   let img = UIImage(contentsOfFile: f.path) {
+                    image = img
+                    return
+                }
                 if let c = ImageStore.shared.cached(t) { image = c; return }
                 if image == nil, let u = url { image = ImageStore.shared.cached(u) }
                 if let img = await ImageStore.shared.image(t) { image = img }
                 // Size missing on the server: fall back to the original URL.
                 else if image == nil, let u = url, u != t, let img = await ImageStore.shared.image(u) { image = img }
+                // Offline: artwork saved with a download.
+                if image == nil, let u = url, let f = Downloads.shared.coverFile(forRemote: u),
+                   let img = UIImage(contentsOfFile: f.path) { image = img }
             }
     }
 }
@@ -125,6 +134,7 @@ struct TrackRow: View {
                 .font(.subheadline).foregroundStyle(isCurrent ? Color.blue.opacity(0.8) : .secondary)
             }
             Spacer(minLength: 0)
+            DownloadBadge(id: track.id)
             Text(Fmt.time(Double(track.durationSecs)))
                 .font(.subheadline.monospacedDigit()).foregroundStyle(.secondary)
         }
@@ -153,6 +163,7 @@ struct TrackMenu: View {
             player.addToQueue(track); Chrome.shared.flash("Added to queue")
         }
         Button("Add to Playlist…", systemImage: "text.badge.plus") { Chrome.shared.playlistPickerTrack = track }
+        DownloadButton(tracks: [track])
         if let pid = ownPlaylistId {
             Button("Remove from Playlist", systemImage: "minus.circle", role: .destructive) {
                 Task {
@@ -405,5 +416,70 @@ struct ErrorBanner: View {
         Label(text, systemImage: "exclamationmark.triangle.fill")
             .font(.footnote).foregroundStyle(.orange)
             .frame(maxWidth: .infinity, alignment: .leading)
+    }
+}
+
+/// Download / cancel / remove for one or more tracks (track menu, album & playlist menus).
+struct DownloadButton: View {
+    let tracks: [Track]
+    var body: some View {
+        let dl = Downloads.shared
+        let ids = tracks.map(\.id)
+        let states = ids.map(dl.state)
+        let done = !ids.isEmpty && ids.allSatisfy(dl.isDownloaded)
+        let busy = states.contains { if case .downloading = $0 { true } else { $0 == .queued } }
+        let failed: String? = states.lazy.compactMap { if case .failed(let m) = $0 { m } else { nil } }.first
+        if busy {
+            if tracks.count == 1, case .downloading(let p) = states[0] {
+                Label("Downloading… \(Int(p * 100))%", systemImage: "arrow.down.circle.dotted")
+            } else {
+                Label("Downloading…", systemImage: "arrow.down.circle.dotted")
+            }
+            Button("Cancel Download", systemImage: "xmark.circle") { ids.forEach(dl.cancel) }
+        } else if done {
+            Label(tracks.count > 1 ? "All Downloaded" : "Downloaded", systemImage: "arrow.down.circle.fill")
+        } else {
+            Button(failed != nil ? "Retry Download" : (tracks.count > 1 ? "Download All" : "Download"),
+                   systemImage: failed != nil ? "arrow.clockwise.circle" : "arrow.down.circle") {
+                dl.download(tracks); Chrome.shared.flash("Downloading")
+            }
+            if let failed { Text("Download failed: \(failed)") }
+        }
+        if ids.contains(where: dl.isDownloaded) {
+            Button(tracks.count > 1 ? "Remove Downloads" : "Remove Download", systemImage: "trash", role: .destructive) {
+                dl.remove(tracks)
+            }
+        }
+    }
+}
+
+/// Small state mark on track rows: progress ring while downloading, filled arrow when saved.
+struct DownloadBadge: View {
+    let id: String
+    var body: some View {
+        switch Downloads.shared.state(id) {
+        case .done:
+            Image(systemName: "arrow.down.circle.fill").font(.caption).foregroundStyle(.secondary)
+        case .downloading(let p):
+            DownloadRing(value: p).frame(width: 13, height: 13)
+        case .queued:
+            DownloadRing(value: 0).frame(width: 13, height: 13)
+        case .failed:
+            Image(systemName: "exclamationmark.circle").font(.caption).foregroundStyle(.orange)
+        case .none:
+            EmptyView()
+        }
+    }
+}
+
+struct DownloadRing: View {
+    let value: Double
+    var body: some View {
+        ZStack {
+            Circle().stroke(Color.white.opacity(0.2), lineWidth: 2)
+            Circle().trim(from: 0, to: max(0.02, value)).stroke(Color.white, style: .init(lineWidth: 2, lineCap: .round))
+                .rotationEffect(.degrees(-90))
+        }
+        .animation(.linear(duration: 0.2), value: value)
     }
 }

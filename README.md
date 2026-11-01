@@ -1,6 +1,8 @@
 <p align="center"><img src="docs/icon.png" width="128" alt="SDAT icon"></p>
 
-# Torneam
+# SDAT
+
+SDAT (formerly Torneam). Bundle id `com.nichokas.SDAT`; the repo folder keeps the old name.
 
 TIDAL player for iOS 26 (SwiftUI, Liquid Glass), built with xtool for personal sideloading.
 Uses tonearm-core from `../Tonearm` through `crates/tonearm-ffi` (UniFFI).

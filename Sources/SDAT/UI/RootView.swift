@@ -1,9 +1,9 @@
 import SwiftUI
 import os
 
-let gestureLog = Logger(subsystem: "com.nichokas.Torneam", category: "gesture")
+let gestureLog = Logger(subsystem: "com.nichokas.SDAT", category: "gesture")
 let launchStart = Date()
-let chromeLog = Logger(subsystem: "com.nichokas.Torneam", category: "chrome")
+let chromeLog = Logger(subsystem: "com.nichokas.SDAT", category: "chrome")
 
 /// Tabs with a custom Liquid Glass bottom chrome:
 /// - root, not scrolled: expanded tab bar + circular miniplayer
@@ -302,6 +302,7 @@ extension View {
                 switch route {
                 case .album(let id): AlbumView(id: id)
                 case .playlist(let id): PlaylistView(id: id)
+                case .downloads: DownloadsView()
                 case .artist(let id): ArtistView(id: id)
                 case .settings: SettingsView()
                 case .collectionTracks: PagedTracks(title: "Tracks", pager: collectionTracks(), favourites: true)
@@ -351,7 +352,7 @@ extension View {
         // Large title on the same row as the profile button (like the Discover header).
         toolbarTitleDisplayMode(.inlineLarge)
         .toolbar {
-            ToolbarItem(placement: .topBarTrailing) { ProfileButton(size: 44) }
+            ToolbarItem(placement: .topBarTrailing) { ProfileAndDownloads() }
                 .sharedBackgroundVisibility(.hidden)
         }
     }
@@ -413,4 +414,45 @@ enum Motion {
     /// Shared content fades for BOTH tab bar and miniplayer: out early, in late, inside the 0.4 s morph.
     static let fadeOut = Animation.easeOut(duration: 0.15)
     static let fadeIn = Animation.easeIn(duration: 0.2).delay(0.2)
+}
+
+/// Profile button, preceded by a download-status button only while downloads are queued
+/// or running (live state only, so it never survives a relaunch).
+struct ProfileAndDownloads: View {
+    var body: some View {
+        let active = Downloads.shared.isActive
+        GlassEffectContainer(spacing: 8) {
+            HStack(spacing: 8) {
+                if active {
+                    DownloadStatusButton()
+                        .transition(.scale(scale: 0.4).combined(with: .opacity))
+                }
+                ProfileButton(size: 44)
+            }
+        }
+        .animation(.spring(duration: 0.4, bounce: 0.2), value: active)
+    }
+}
+
+struct DownloadStatusButton: View {
+    var body: some View {
+        let p = Downloads.shared.batchProgress
+        Button { Chrome.shared.push(.downloads) } label: {
+            Image(systemName: "arrow.down")
+                .font(.system(size: 17, weight: .semibold))
+                .foregroundStyle(.white)
+                .frame(width: 44, height: 44)
+                .overlay {
+                    Circle().trim(from: 0, to: max(0.001, p))
+                        .stroke(Color.blue, style: StrokeStyle(lineWidth: 3, lineCap: .round))
+                        .rotationEffect(.degrees(-90))
+                        .padding(1.5)
+                        .animation(.easeInOut(duration: 0.35), value: p)
+                }
+        }
+        .buttonStyle(.plain)
+        .glassEffect(.regular.interactive(), in: .circle)
+        .accessibilityLabel("Downloads")
+        .accessibilityValue("\(Int(p * 100)) percent")
+    }
 }

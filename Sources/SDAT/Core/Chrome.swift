@@ -6,6 +6,7 @@ enum Route: Hashable {
     case playlist(String)
     case artist(String)
     case settings
+    case downloads
     case collectionTracks, collectionAlbums, collectionArtists, collectionPlaylists
     case explore(path: String, title: String)
 }
@@ -47,10 +48,10 @@ final class Chrome {
         // Collapsing: tab bar shrinks (snappy), miniplayer grows (soft). Expanding: swapped.
         // One linear clock; the per-role snappy/soft curves live in Morph.frame.
         morphCollapsing = on
-        withAnimation(.linear(duration: Morph.duration)) { morphT = v }
+        withAnimation(.linear(duration: Morph.duration(collapsing: on))) { morphT = v }
         do {
             Task { @MainActor in
-                try? await Task.sleep(for: .milliseconds(Int(Morph.duration * 1000) + 20))
+                try? await Task.sleep(for: .milliseconds(Int(Morph.duration(collapsing: on) * 1000) + 20))
                 if self.expandToken == token { self.expanding = false }
             }
         }

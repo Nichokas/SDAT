@@ -1,4 +1,5 @@
 import AVFoundation
+import Combine
 import MediaPlayer
 import Observation
 import UIKit
@@ -25,6 +26,8 @@ final class Player {
     private(set) var stream: Stream? {
         didSet { if let q = stream?.actualQuality, q != shownQuality { shownQuality = q } }
     }
+    /// True when the current item plays the downloaded file, not the online stream.
+    var isOffline: Bool { stream.flatMap { URL(string: $0.url) }?.isFileURL ?? false }
     /// Badge quality: keeps the previous value until the new stream's real quality is known.
     private(set) var shownQuality: Quality?
     private(set) var sourceTitle: String?
@@ -324,11 +327,13 @@ final class Player {
         loadTask?.cancel()
         loadTask = Task {
             do {
-                let s = try await Torneam.stream(trackId: track.id, quality: Preferences.shared.streamingQuality)
+                let s = try await Self.source(track.id)
                 guard !Task.isCancelled, current?.id == track.id, let url = URL(string: s.url) else { return }
                 stream = s
                 avPlayer.removeAllItems()
-                avPlayer.insert(AVPlayerItem(url: url), after: nil)
+                let item = AVPlayerItem(url: url)
+                avPlayer.insert(item, after: nil)
+                if url.isFileURL { watchLocal(item, track: track) }
                 if resumeAt > 0 { await avPlayer.seek(to: CMTime(seconds: resumeAt, preferredTimescale: 600)) }
                 try? AVAudioSession.sharedInstance().setActive(true)
                 avPlayer.play()
@@ -342,6 +347,25 @@ final class Player {
         }
     }
 
+    /// A downloaded file that AVPlayer can't open falls back to the online stream.
+    private func watchLocal(_ item: AVPlayerItem, track: Track) {
+        Task { [weak self] in
+            for await st in item.publisher(for: \.status).values {
+                if st == .readyToPlay { return }
+                if st == .failed { break }
+            }
+            guard let self, self.avPlayer.currentItem === item, self.current?.id == track.id,
+                  let s = try? await SDAT.stream(trackId: track.id, quality: Preferences.shared.streamingQuality),
+                  self.current?.id == track.id, let u = URL(string: s.url) else { return }
+            let at = self.position
+            self.stream = s
+            self.avPlayer.removeAllItems()
+            self.avPlayer.insert(AVPlayerItem(url: u), after: nil)
+            if at > 0 { await self.avPlayer.seek(to: CMTime(seconds: at, preferredTimescale: 600)) }
+            if self.isPlaying { self.avPlayer.play() }
+        }
+    }
+
     private func afterStart(_ track: Track) {
         updateNowPlaying()
         Task {
@@ -352,13 +376,19 @@ final class Player {
         schedulePreload()
     }
 
+    /// Downloaded file when available (works offline), else a fresh HLS stream.
+    private static func source(_ id: String) async throws -> Stream {
+        if let s = Downloads.shared.localStream(id) { return s }
+        return try await SDAT.stream(trackId: id, quality: Preferences.shared.streamingQuality)
+    }
+
     /// Prepares the next track's AVPlayerItem behind the current one (gapless-ish start).
     private func schedulePreload() {
         preloadTask?.cancel()
         guard Preferences.shared.preloadNext, repeatMode != .one,
               let (next, _, _) = following(), let cur = current else { return }
         preloadTask = Task {
-            guard let s = try? await Torneam.stream(trackId: next.id, quality: Preferences.shared.streamingQuality),
+            guard let s = try? await Self.source(next.id),
                   !Task.isCancelled, current?.id == cur.id, let url = URL(string: s.url),
                   let curItem = avPlayer.currentItem else { return }
             let item = AVPlayerItem(url: url)
@@ -668,8 +698,9 @@ final class Player {
     }
 
     private func loadArtwork(_ track: Track) async {
-        guard let url = track.coverURLLarge,
-              let (data, _) = try? await URLSession.shared.data(from: url),
+        var data = Downloads.shared.localCover(track.id).flatMap { try? Data(contentsOf: $0) }
+        if data == nil, let url = track.coverURLLarge { data = try? await URLSession.shared.data(from: url).0 }
+        guard let data,
               let image = UIImage(data: data), current?.id == track.id else { return }
         artwork = MPMediaItemArtwork(boundsSize: image.size) { _ in image }
         updateNowPlaying()
@@ -718,13 +749,19 @@ extension Array {
 extension Player {
     /// Stops playback and forgets the queue (used by "Erase all app data").
     func stopAndClear() {
-        loadTask?.cancel(); preloadTask?.cancel()
+        loadTask?.cancel(); preloadTask?.cancel(); refilling?.cancel(); refilling = nil
         avPlayer.pause(); avPlayer.removeAllItems()
+        resumeAfterInterruption = false
+        recentIDs = []; recentOrder = []
+        savedQueueVersion = -1; savedQueueOffset = 0
         preloaded = nil; infinite = nil
         queue = []; original = []; userQueue = []; index = nil; current = nil
         isPlaying = false; loading = false; position = 0; duration = 0; stream = nil; sourceTitle = nil
         MPNowPlayingInfoCenter.default().nowPlayingInfo = nil
         needsStart = false; restoredInfinite = false
+        // With `current` nil any later persist() (tick, scene change) only clears again;
+        // the store's serial queue keeps this delete after any save already queued.
         PlaybackStore.clear()
     }
 }
+

@@ -36,7 +36,7 @@ jobs:
       - name: Checkout app
         uses: actions/checkout@v4
         with:
-          path: Torneam
+          path: SDAT
           ref: ${{ inputs.tag || github.ref }}
 
       - name: Checkout Rust core
@@ -71,7 +71,7 @@ jobs:
         working-directory: Tonearm
         run: |
           set -euo pipefail
-          app="$GITHUB_WORKSPACE/Torneam"
+          app="$GITHUB_WORKSPACE/SDAT"
           export IPHONEOS_DEPLOYMENT_TARGET=17.0
           export SDKROOT="$(xcrun -sdk iphoneos --show-sdk-path)"
           cargo rustc -p tonearm-ffi --lib --release --target aarch64-apple-ios --crate-type staticlib
@@ -83,28 +83,28 @@ jobs:
           cargo run -q -p tonearm-ffi --features bindgen --bin uniffi-bindgen-swift -- \
             --swift-sources --headers "$lib" "$tmp"
           cp "$tmp/tonearm_ffiFFI.h" "$app/Sources/tonearm_ffiFFI/include/"
-          cp "$tmp/tonearm_ffi.swift" "$app/Sources/Torneam/Core/TonearmFFI.generated.swift"
+          cp "$tmp/tonearm_ffi.swift" "$app/Sources/SDAT/Core/TonearmFFI.generated.swift"
           du -h "$app/RustLib/libtonearm_ffi.a"
 
       - name: Install xtool
         run: brew install xtool-org/tap/xtool && xtool --version
 
       - name: Build unsigned .ipa
-        working-directory: Torneam
+        working-directory: SDAT
         run: |
           set -euo pipefail
           xtool dev build -c release --ipa
           ipa="$(find xtool -name '*.ipa' | head -1)"
           test -n "$ipa"
           mkdir -p "$GITHUB_WORKSPACE/out"
-          cp "$ipa" "$GITHUB_WORKSPACE/out/Torneam-unsigned.ipa"
-          unzip -l "$GITHUB_WORKSPACE/out/Torneam-unsigned.ipa" | grep -E 'Payload/[^/]+\.app/' | head -5
+          cp "$ipa" "$GITHUB_WORKSPACE/out/SDAT-unsigned.ipa"
+          unzip -l "$GITHUB_WORKSPACE/out/SDAT-unsigned.ipa" | grep -E 'Payload/[^/]+\.app/' | head -5
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
-          name: Torneam-unsigned-ipa
-          path: out/Torneam-unsigned.ipa
+          name: SDAT-unsigned-ipa
+          path: out/SDAT-unsigned.ipa
           if-no-files-found: error
 
       - name: Attach to release
@@ -116,5 +116,5 @@ jobs:
           if ! gh release view "$RELEASE_TAG" -R "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
             gh release create "$RELEASE_TAG" -R "$GITHUB_REPOSITORY" --verify-tag --title "$RELEASE_TAG" --notes "Unsigned build."
           fi
-          cp out/Torneam-unsigned.ipa "out/Torneam-$RELEASE_TAG-unsigned.ipa"
-          gh release upload "$RELEASE_TAG" "out/Torneam-$RELEASE_TAG-unsigned.ipa" -R "$GITHUB_REPOSITORY" --clobber
+          cp out/SDAT-unsigned.ipa "out/SDAT-$RELEASE_TAG-unsigned.ipa"
+          gh release upload "$RELEASE_TAG" "out/SDAT-$RELEASE_TAG-unsigned.ipa" -R "$GITHUB_REPOSITORY" --clobber

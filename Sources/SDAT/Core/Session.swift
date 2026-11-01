@@ -10,7 +10,6 @@ final class Session {
     private(set) var signedIn = false
     private(set) var pending: DeviceLogin?
     var error: String?
-
     private init() {
         try? FileManager.default.createDirectory(
             at: FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0],
@@ -29,6 +28,7 @@ final class Session {
             let result = try await login.wait()
             tokens.save(result)
             sessionChanged()
+            Boot.shared.start()   // first-time warm-up, only after a fresh sign-in
             signedIn = true
         } catch {
             self.error = friendlyMessage(error)
@@ -41,15 +41,26 @@ final class Session {
         pending = nil
     }
 
+    /// Stops playback (nothing restores on next login), cancels and deletes all
+    /// downloads, then clears the credentials.
     func logOut() {
-        tokens.clear()
-        sessionChanged()
-        signedIn = false
+        Player.shared.stopAndClear()
+        Task {
+            await Downloads.shared.removeAll()
+            tokens.clear()
+            sessionChanged()
+            signedIn = false
+        }
     }
 
     /// Dev: wipes Keychain, defaults, caches and files, stops playback, back to login.
     func eraseAll() {
         Player.shared.stopAndClear()
+        Task { await eraseRest() }
+    }
+
+    private func eraseRest() async {
+        await Downloads.shared.removeAll()
         Keychain.wipe()
         if let id = Bundle.main.bundleIdentifier { UserDefaults.standard.removePersistentDomain(forName: id) }
         URLCache.shared.removeAllCachedResponses()

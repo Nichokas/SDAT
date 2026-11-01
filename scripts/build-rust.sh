@@ -14,6 +14,6 @@ tmp="$(mktemp -d)"
 cargo run -q -p tonearm-ffi --features bindgen --bin uniffi-bindgen-swift -- \
   --swift-sources --headers "$lib" "$tmp"
 cp "$tmp/tonearm_ffiFFI.h" "$here/Sources/tonearm_ffiFFI/include/"
-cp "$tmp/tonearm_ffi.swift" "$here/Sources/Torneam/Core/TonearmFFI.generated.swift"
+cp "$tmp/tonearm_ffi.swift" "$here/Sources/SDAT/Core/TonearmFFI.generated.swift"
 rm -rf "$tmp"
 echo "ok: $(du -h "$here/RustLib/libtonearm_ffi.a" | cut -f1)"
