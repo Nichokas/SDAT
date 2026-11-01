@@ -76,14 +76,12 @@ private struct BottomChrome: View {
                     MiniPlayer(style: style)
                         .glassEffect(.regular, in: .capsule)
                         .glassEffectID("mini", in: ns)
-                        .glassEffectTransition(.matchedGeometry)
                 }
             }
         }
         .padding(.horizontal, 24)
         .padding(.bottom, 12)
         .animation(Motion.bar, value: ChromeState(collapsed: chrome.collapsed, detail: chrome.inDetail, mini: hasMini))
-        .animation(.smooth(duration: 0.4), value: chrome.collapsed)
     }
 }
 
@@ -134,11 +132,11 @@ private struct TabBar: View {
                 .frame(width: collapsed && barWidth > 0 ? barWidth + 8 : nil)
                 .opacity(collapsed ? 0 : 1)
                 // Sequenced cross-fade: out fast while shrinking, in late while growing.
-                .animation(collapsed ? .easeOut(duration: 0.15) : .easeIn(duration: 0.2).delay(0.18), value: collapsed)
+                .animation(collapsed ? Motion.fadeOut : Motion.fadeIn, value: collapsed)
                 .allowsHitTesting(!collapsed)
             circle
                 .opacity(collapsed ? 1 : 0)
-                .animation(collapsed ? .easeIn(duration: 0.2).delay(0.18) : .easeOut(duration: 0.15), value: collapsed)
+                .animation(collapsed ? Motion.fadeIn : Motion.fadeOut, value: collapsed)
                 .allowsHitTesting(collapsed)
         }
         .frame(maxWidth: collapsed ? 54 : .infinity)
@@ -282,7 +280,7 @@ extension View {
                 c.collapsePending = false
                 if c.collapsed != want {
                     chromeLog.debug("collapse -> \(want) at y=\(y, format: .fixed(precision: 0))")
-                    withTransaction(Transaction(animation: .smooth(duration: 0.4))) { c.collapsed = want }
+                    withTransaction(Transaction(animation: Motion.bar)) { c.collapsed = want }
                 }
             }
         }
@@ -348,4 +346,7 @@ private struct ChromeState: Equatable { var collapsed, detail, mini: Bool }
 enum Motion {
     static let pill = Animation.spring(response: 0.4, dampingFraction: 0.86)
     static let bar = Animation.smooth(duration: 0.4)
+    /// Shared content fades for BOTH tab bar and miniplayer: out early, in late, inside the 0.4 s morph.
+    static let fadeOut = Animation.easeOut(duration: 0.15)
+    static let fadeIn = Animation.easeIn(duration: 0.2).delay(0.2)
 }

@@ -12,8 +12,25 @@ struct MiniPlayer: View {
     @State private var held = false
 
     var body: some View {
-        Group {
-            if style == .circle {
+        let isCircle = style == .circle
+        // ONE hierarchy: the frame morphs circle <-> capsule under the bar's transaction,
+        // content cross-fades with the same Motion.fade* timings as the tab bar.
+        ZStack {
+            capsuleContent
+                .opacity(isCircle ? 0 : 1)
+                .animation(isCircle ? Motion.fadeOut : Motion.fadeIn, value: isCircle)
+                .allowsHitTesting(!isCircle)
+            circleContent
+                .opacity(isCircle ? 1 : 0)
+                .animation(isCircle ? Motion.fadeIn : Motion.fadeOut, value: isCircle)
+                .allowsHitTesting(isCircle)
+        }
+        .frame(maxWidth: isCircle ? 62 : .infinity)
+        .frame(height: style == .capsule ? 54 : 62)
+        .clipShape(.capsule)
+    }
+
+    private var circleContent: some View {
                 // Tap: play/pause. Long-press: open the full player.
                 ringIcon(size: 62)
                     .contentShape(.circle)
@@ -36,8 +53,9 @@ struct MiniPlayer: View {
                             held = false
                         })
                     .sensoryFeedback(.selection, trigger: player.isPlaying)
-                    .transition(Self.seqFade)
-            } else {
+    }
+
+    private var capsuleContent: some View {
                 HStack(spacing: 10) {
                     Cover(url: player.current?.album?.coverUrl, size: 38, radius: 8)
                     VStack(alignment: .leading, spacing: 0) {
@@ -56,15 +74,7 @@ struct MiniPlayer: View {
                 .frame(maxWidth: .infinity)
                 .contentShape(.capsule)
                 .onTapGesture { chrome.showPlayer = true }
-                .transition(Self.seqFade)
-            }
-        }
     }
-
-    /// Old content leaves fast, new content arrives late, so they never overlap mid-morph.
-    private static let seqFade: AnyTransition = .asymmetric(
-        insertion: .opacity.animation(.easeIn(duration: 0.2).delay(0.18)),
-        removal: .opacity.animation(.easeOut(duration: 0.12)))
 
     private func playButton(size: CGFloat) -> some View {
         Button { player.toggle() } label: { ringIcon(size: size) }
