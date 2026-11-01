@@ -490,23 +490,13 @@ final class Player {
             MainActor.assumeIsolated { self?.previous() }
             return .success
         }
-        // Lock screen / Control Center: favourite (like) and repeat mode.
+        // Lock screen / Control Center: favourite (like).
         c.likeCommand.localizedTitle = "Favourite"
         c.likeCommand.localizedShortTitle = "Favourite"
         c.likeCommand.addTarget { [weak self] _ in
             MainActor.assumeIsolated {
                 guard let id = self?.current?.id else { return }
                 Favs.shared.toggle(id)
-            }
-            return .success
-        }
-        c.changeRepeatModeCommand.addTarget { [weak self] event in
-            guard let e = event as? MPChangeRepeatModeCommandEvent else { return .commandFailed }
-            MainActor.assumeIsolated {
-                guard let self else { return }
-                self.repeatMode = switch e.repeatType { case .one: .one; case .all: .all; default: .off }
-                self.invalidatePreload(); self.schedulePreload()
-                self.syncRemote()
             }
             return .success
         }
@@ -518,15 +508,13 @@ final class Player {
         }
     }
 
-    /// Like + repeat state shown by the system controls.
+    /// Like state shown by the system controls.
     private func syncRemote() {
         let c = MPRemoteCommandCenter.shared()
         let fav = current.flatMap { Favs.shared.known($0.id) } ?? false
         c.likeCommand.isEnabled = current != nil
         c.likeCommand.isActive = fav
         c.likeCommand.localizedTitle = fav ? "Remove from Favourites" : "Add to Favourites"
-        c.changeRepeatModeCommand.isEnabled = true
-        c.changeRepeatModeCommand.currentRepeatType = switch repeatMode { case .one: .one; case .all: .all; case .off: .off }
     }
 
     private func updateNowPlaying() {
