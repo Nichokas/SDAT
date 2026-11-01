@@ -32,6 +32,9 @@ struct SDATApp: App {
             .preferredColorScheme(.dark)
             .tint(.blue)
         }
-        .onChange(of: phase) { _, p in if p != .active { Player.shared.persist() } }
+        .onChange(of: phase) { _, p in
+            if p != .active { Player.shared.persist() }
+            else if session.signedIn { Downloads.shared.resumePending() }
+        }
     }
 }

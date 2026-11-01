@@ -148,6 +148,37 @@ final class Downloads {
     /// Tracks added since the queue was last empty (cancelled ones are taken out).
     private(set) var batchTotal = 0
     var isActive: Bool { !activeOrder.isEmpty }
+    /// Finished items of the current batch, and the track being fetched (system progress UI).
+    var batchDone: Int { max(0, batchTotal - activeOrder.count) }
+    var batchCount: Int { batchTotal }
+    var currentTitle: String? { currentID.flatMap { activeTracks[$0] }.map { "\($0.displayTitle) · \($0.artistLine)" } }
+
+    // MARK: pending queue on disk (resumed when the app opens again)
+
+    nonisolated private static var pendingURL: URL { dir.appendingPathComponent("pending.json") }
+    /// Set while the background task expired: the on-disk queue must survive the teardown.
+    @ObservationIgnored private var frozen = false
+    private func savePending() {
+        guard !frozen else { return }
+        let list = DiscoverCache.encode(activeOrder.compactMap { activeTracks[$0] })
+        if list.isEmpty { try? FileManager.default.removeItem(at: Self.pendingURL) }
+        else { try? JSONEncoder().encode(list).write(to: Self.pendingURL, options: .atomic) }
+    }
+    /// Background time ran out: stop the worker but keep the queue (not failed) for next launch.
+    func suspend() {
+        savePending()
+        frozen = true
+        pending = []; progress = [:]; activeOrder = []; activeTracks = [:]
+        worker?.cancel()
+    }
+    /// Re-queues downloads interrupted by expiry, a kill or a crash.
+    func resumePending() {
+        frozen = false
+        guard let d = try? Data(contentsOf: Self.pendingURL),
+              let list = try? JSONDecoder().decode([DiscoverCache.T].self, from: d) else { return }
+        let tracks = DiscoverCache.decode(list)
+        if !tracks.isEmpty { download(tracks) }
+    }
     /// Whole-batch progress: finished tracks plus the in-flight fraction, over the batch.
     var batchProgress: Double {
         guard batchTotal > 0 else { return 0 }
@@ -178,7 +209,7 @@ final class Downloads {
             activeTracks[t.id] = t; activeOrder.append(t.id); batchTotal += 1
             added += 1
         }
-        if added > 0 { pump() }
+        if added > 0 { savePending(); pump(); BackgroundDownloads.shared.begin() }
     }
 
     func cancel(_ id: String) {
@@ -187,6 +218,7 @@ final class Downloads {
         progress[id] = nil
         if currentID != id { activeOrder.removeAll { $0 == id }; activeTracks[id] = nil }
         if currentID == id { worker?.cancel() }
+        savePending()
     }
     func cancelAll() { for id in Array(progress.keys) { cancel(id) } }
 
@@ -237,6 +269,7 @@ final class Downloads {
                 self.progress[t.id] = nil
                 self.activeOrder.removeAll { $0 == t.id }; self.activeTracks[t.id] = nil
                 self.currentID = nil
+                self.savePending()
                 if Task.isCancelled { self.worker = nil; self.pump(); return }
             }
             self?.worker = nil
