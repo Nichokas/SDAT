@@ -40,6 +40,15 @@ struct LoginView: View {
                 .scaleEffect(appeared ? 1 : 0.85)
                 .offset(y: appeared ? 0 : 16)
                 .opacity(appeared ? 1 : 0)
+            Text("SDAT")
+                .font(.system(size: 48, weight: .heavy, design: .rounded))
+                .tracking(4)
+                .foregroundStyle(.white)
+                .lineLimit(1).minimumScaleFactor(0.5)
+                .frame(maxWidth: Self.logoSize + 40)
+                .offset(y: appeared ? 0 : 12)
+                .opacity(appeared ? 1 : 0)
+                .animation(.spring(duration: 0.8, bounce: 0.2).delay(0.15), value: appeared)
             if let login = session.pending {
                 VStack(spacing: 10) {
                     Text("Enter this code on TIDAL").font(.subheadline).foregroundStyle(.secondary)
