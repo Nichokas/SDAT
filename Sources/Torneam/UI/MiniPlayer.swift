@@ -131,17 +131,18 @@ struct ProgressRing: View {
             let circ = Double.pi * Double(max(d, 1))
             let n = max(Int((circ / 5.5).rounded()), 8)
             let period = circ / Double(n)
-            // Continuous progress (player ticks at 4 Hz, animated linearly between ticks).
-            // Both layers use the SAME full-circle dash pattern (phase fixed at 12 o'clock);
-            // only their masks are trimmed, so the blue grows smoothly inside each dash.
+            // Gray dashed ring is static (pattern starts at 12 o'clock, the path start) and
+            // independent of progress. Over it, a SOLID blue arc grows continuously from that
+            // same start point (butt cap = flush with the first dash); 4 Hz ticks are
+            // interpolated linearly. Hidden at 0% and while loading (ring spins instead).
             let q = spinning ? 0 : min(max(progress, 0), 1)
-            let dashes = StrokeStyle(lineWidth: lineWidth, lineCap: .butt,
-                                     dash: [period * 2.5 / 5.5, period * 3 / 5.5])
             ZStack {
-                Circle().stroke(.white.opacity(0.4), style: dashes)
-                    .mask { Circle().trim(from: q, to: 1).stroke(lineWidth: lineWidth * 3) }
-                Circle().stroke(.blue, style: dashes)
-                    .mask { Circle().trim(from: 0, to: q).stroke(lineWidth: lineWidth * 3) }
+                Circle().stroke(.white.opacity(0.4),
+                                style: StrokeStyle(lineWidth: lineWidth * 0.8, lineCap: .butt,
+                                                   dash: [period * 2.5 / 5.5, period * 3 / 5.5]))
+                Circle().trim(from: 0, to: q)
+                    .stroke(.blue, style: StrokeStyle(lineWidth: lineWidth, lineCap: .butt))
+                    .opacity(q > 0 ? 1 : 0)
             }
             .frame(width: d, height: d)
             .animation(.linear(duration: 0.25), value: q)
