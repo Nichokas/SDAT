@@ -1,3 +1,5 @@
+<p align="center"><img src="docs/icon.png" width="128" alt="SDAT icon"></p>
+
 # Torneam
 
 TIDAL player for iOS 26 (SwiftUI, Liquid Glass), built with xtool for personal sideloading.
