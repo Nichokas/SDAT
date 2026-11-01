@@ -126,26 +126,22 @@ struct ProgressRing: View {
     var body: some View {
         GeometryReader { g in
             // Dash period fitted so the circle holds a whole number of dashes starting at
-            // 12 o'clock; progress is quantized to whole periods, so the dashed remainder
-            // always starts exactly on a dash boundary (no half-covered dash, hidden at 0%).
+            // 12 o'clock (the path start), so the pattern never shifts as progress moves
             let d = min(g.size.width, g.size.height)
             let circ = Double.pi * Double(max(d, 1))
             let n = max(Int((circ / 5.5).rounded()), 8)
             let period = circ / Double(n)
-            let q0 = (min(max(progress, 0), 1) * Double(n)).rounded(.down) / Double(n)
-            let q = spinning ? 0 : q0
+            // Continuous progress (player ticks at 4 Hz, animated linearly between ticks).
+            // Both layers use the SAME full-circle dash pattern (phase fixed at 12 o'clock);
+            // only their masks are trimmed, so the blue grows smoothly inside each dash.
+            let q = spinning ? 0 : min(max(progress, 0), 1)
+            let dashes = StrokeStyle(lineWidth: lineWidth, lineCap: .butt,
+                                     dash: [period * 2.5 / 5.5, period * 3 / 5.5])
             ZStack {
-                if q < 1 {
-                    Circle()
-                        .trim(from: q, to: 1)
-                        .stroke(.white.opacity(0.4), style: StrokeStyle(lineWidth: lineWidth * 0.8, lineCap: .butt,
-                                                                        dash: [period * 2.5 / 5.5, period * 3 / 5.5]))
-                }
-                if q > 0 {
-                    Circle()
-                        .trim(from: 0, to: q)
-                        .stroke(.blue, style: StrokeStyle(lineWidth: lineWidth, lineCap: .butt))
-                }
+                Circle().stroke(.white.opacity(0.4), style: dashes)
+                    .mask { Circle().trim(from: q, to: 1).stroke(lineWidth: lineWidth * 3) }
+                Circle().stroke(.blue, style: dashes)
+                    .mask { Circle().trim(from: 0, to: q).stroke(lineWidth: lineWidth * 3) }
             }
             .frame(width: d, height: d)
             .animation(.linear(duration: 0.25), value: q)

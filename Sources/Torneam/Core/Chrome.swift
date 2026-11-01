@@ -39,13 +39,13 @@ final class Chrome {
         // change, which left `expanding` stuck true (collapse dead until a push/pop).
         expandToken &+= 1
         let token = expandToken
-        expanding = !on
+        expanding = true
         let v: CGFloat = on ? 1 : 0
         progress = v
         // Collapsing: tab bar shrinks (snappy), miniplayer grows (soft). Expanding: swapped.
         withAnimation(on ? Motion.shrink : Motion.grow) { tabP = v }
         withAnimation(on ? Motion.grow : Motion.shrink) { miniP = v }
-        if !on {
+        do {
             Task { @MainActor in
                 try? await Task.sleep(for: .milliseconds(620))
                 if self.expandToken == token { self.expanding = false }

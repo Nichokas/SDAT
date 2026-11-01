@@ -305,15 +305,11 @@ extension View {
         } action: { _, y in
             let c = Chrome.shared
             let p = min(max((y - 20) / 60, 0), 1)
-            guard abs(p - c.progress) > 0.005, !c.expanding else { return }
-            // Expanding is never finger-driven: once the scroll comes back past the
-            // midpoint, play the slow animated expand instead of tracking the finger.
-            if p < c.progress {
-                if c.progress >= 0.5 && p >= 0.5 { return }
-                c.setCollapsed(false); return
-            }
-            if (p == 0 || p == 1) { chromeLog.notice("progress \(Double(p), format: .fixed(precision: 2)) y=\(Double(y), format: .fixed(precision: 0))") }
-            c.setDirect(p)
+            guard !c.expanding else { return }
+            // Both directions use the SAME triggered, per-role animation (no finger
+            // tracking): past the midpoint we flip once and let shrink/grow curves play.
+            if !c.collapsed && p >= 0.5 { c.setCollapsed(true) }
+            else if c.collapsed && p < 0.5 { c.setCollapsed(false) }
         }
         .onScrollPhaseChange { _, phase in
             guard phase == .idle else { return }
