@@ -42,7 +42,7 @@ struct MiniPlayer: View {
     }
 
     private var circleContent: some View {
-                // Tap: open the full player. Long-press (0.03 s hold): play/pause.
+                // Tap: open the full player. Long-press (0.045 s hold): play/pause.
                 ringIcon(size: 62)
                     .frame(width: 62)
                     .frame(maxHeight: .infinity)
@@ -51,9 +51,9 @@ struct MiniPlayer: View {
                     // UIKit press recognizer instead of a SwiftUI DragGesture: it receives the
                     // touch directly (no SwiftUI gesture arbitration with the interactive glass /
                     // parent gestures) and times the hold with a run-loop timer, not a Task.
-                    // One press is either a tap (released < 0.03 s) or a hold, never both.
+                    // One press is either a tap (released < 0.045 s) or a hold, never both.
                     .gesture(PressRecognizer(
-                        hold: 0.03, slop: 40,
+                        hold: 0.045, slop: 40,
                         onDown: { chrome.miniPressed = true; gestureLog.notice("mini press began") },
                         onHold: {
                             UIImpactFeedbackGenerator(style: .medium).impactOccurred()
