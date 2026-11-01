@@ -5,6 +5,9 @@ import SwiftUI
 struct MiniPlayer: View {
     enum Style { case circle, capsule, wide }
     let style: Style
+    /// Collapse progress shared with the tab bar (0 = circle, 1 = capsule).
+    var p: CGFloat = 0
+    @State private var drifted = false
     @Environment(Player.self) private var player
     @Environment(Chrome.self) private var chrome
 
@@ -13,32 +16,35 @@ struct MiniPlayer: View {
 
     var body: some View {
         let isCircle = style == .circle
-        // ONE hierarchy: the frame morphs circle <-> capsule under the bar's transaction,
-        // content cross-fades with the same Motion.fade* timings as the tab bar.
+        // ONE hierarchy; the parent sizes it from the shared progress, content opacities
+        // are computed from that same value (capsule in late, circle out early).
         ZStack {
             capsuleContent
-                .opacity(isCircle ? 0 : 1)
-                .animation(isCircle ? Motion.fadeOut : Motion.fadeIn, value: isCircle)
+                .opacity(max(0, p * 2 - 1))
                 .allowsHitTesting(!isCircle)
             circleContent
-                .opacity(isCircle ? 1 : 0)
-                .animation(isCircle ? Motion.fadeIn : Motion.fadeOut, value: isCircle)
+                .opacity(max(0, 1 - p * 2))
                 .allowsHitTesting(isCircle)
         }
-        .frame(maxWidth: isCircle ? 62 : .infinity)
-        .frame(height: style == .capsule ? 54 : 62)
-        .clipShape(.capsule)
     }
 
     private var circleContent: some View {
                 // Tap: play/pause. Long-press: open the full player.
                 ringIcon(size: 62)
-                    .contentShape(.circle)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    // Generous hit area: 12 pt beyond the visible circle.
+                    .contentShape(Circle().inset(by: -12))
                     // One gesture so a press is either a tap or a hold, never both:
                     // held ≥ 0.12 s opens the player; released sooner toggles play/pause.
                     .highPriorityGesture(DragGesture(minimumDistance: 0)
-                        .onChanged { _ in
-                            guard holdTask == nil else { return }
+                        .onChanged { g in
+                            // Finger drift up to 40 pt keeps the press alive.
+                            if hypot(g.translation.width, g.translation.height) > 40 {
+                                holdTask?.cancel(); drifted = true; chrome.miniPressed = false
+                                return
+                            }
+                            if !chrome.miniPressed && !drifted { chrome.miniPressed = true }
+                            guard holdTask == nil, !drifted else { return }
                             holdTask = Task { @MainActor in
                                 try? await Task.sleep(for: .milliseconds(120))
                                 guard !Task.isCancelled else { return }
@@ -49,8 +55,9 @@ struct MiniPlayer: View {
                         }
                         .onEnded { _ in
                             holdTask?.cancel(); holdTask = nil
-                            if !held { player.toggle() }
-                            held = false
+                            if !held && !drifted { player.toggle() }
+                            held = false; drifted = false
+                            chrome.miniPressed = false
                         })
                     .sensoryFeedback(.selection, trigger: player.isPlaying)
     }
@@ -70,8 +77,7 @@ struct MiniPlayer: View {
                     }
                 }
                 .padding(.leading, 9).padding(.trailing, 10)
-                .frame(height: style == .capsule ? 54 : 62)
-                .frame(maxWidth: .infinity)
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
                 .contentShape(.capsule)
                 .onTapGesture { chrome.showPlayer = true }
     }

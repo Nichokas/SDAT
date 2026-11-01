@@ -36,7 +36,7 @@ struct RootView: View {
             }
         }
         .animation(.spring(duration: 0.35), value: chrome.toast)
-        .onChange(of: chrome.tab) { if chrome.collapsed { withAnimation(Motion.bar) { chrome.collapsed = false } } }
+        .onChange(of: chrome.tab) { if chrome.progress > 0 { chrome.setCollapsed(false) } }
         .sheet(isPresented: $chrome.showPlayer) { PlayerSheet() }
         .sheet(item: $chrome.playlistPickerTrack) { t in PlaylistPicker(track: t) }
         .alert("Playback error", isPresented: Binding(
@@ -57,38 +57,52 @@ private struct BottomChrome: View {
     @Environment(Player.self) private var player
     @Environment(Chrome.self) private var chrome
     @Namespace private var ns
+    @State private var W: CGFloat = 0
 
     var body: some View {
         let hasMini = player.current != nil && !chrome.inSettings
         // Spacing 0: bar and miniplayer stay separate shapes (no pinched neck);
         // glassEffectID still morphs each between its states.
+        // Tab bar and miniplayer are sized from the SAME progress value, so they move in
+        // lockstep: the finger drives it directly, idle settles it with Motion.settle.
+        let p = hasMini && !chrome.inDetail ? chrome.progress : 0
+        let lerp = { (a: CGFloat, b: CGFloat) in a + (b - a) * p }
+        let tabW = W > 0 ? lerp(W - 62 - 12, 54) : nil
+        let h = lerp(62, 54)
         GlassEffectContainer(spacing: 0) {
             HStack(spacing: 12) {
                 if !chrome.inDetail {
-                    // ONE view whose sizes/opacities come from `collapsed` (no branch swap),
-                    // so the scroll flip interpolates exactly like the detail-page capsule.
-                    TabBar(collapsed: chrome.collapsed && hasMini)
+                    TabBar(p: p)
+                        .frame(width: hasMini ? tabW : nil, height: h)
+                        .frame(maxWidth: hasMini ? nil : .infinity)
                         .glassEffect(.regular.interactive(), in: .capsule)
                         .glassEffectID("tabs", in: ns)
                 }
                 if hasMini {
-                    let style: MiniPlayer.Style = chrome.inDetail ? .wide : (chrome.collapsed ? .capsule : .circle)
-                    MiniPlayer(style: style)
-                        .glassEffect(.regular, in: .capsule)
+                    MiniPlayer(style: chrome.inDetail ? .wide : (p >= 0.5 ? .capsule : .circle),
+                               p: chrome.inDetail ? 1 : p)
+                        .frame(height: chrome.inDetail ? 62 : h)
+                        .frame(maxWidth: .infinity)
+                        .glassEffect(.regular.interactive(), in: .capsule)
                         .glassEffectID("mini", in: ns)
+                        .scaleEffect(chrome.miniPressed ? 1.08 : 1)
+                        .animation(.spring(response: 0.25, dampingFraction: 0.7), value: chrome.miniPressed)
                 }
             }
+            .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { W = $0 }
         }
         .padding(.horizontal, 24)
         .padding(.bottom, 12)
-        .animation(Motion.bar, value: ChromeState(collapsed: chrome.collapsed, detail: chrome.inDetail, mini: hasMini))
+        .animation(Motion.bar, value: ChromeState(detail: chrome.inDetail, mini: hasMini))
     }
 }
 
 /// Custom tab bar styled like the native iOS 26 one: glass capsule, sliding selection pill,
 /// SF Symbols + 10 pt labels, bounce + haptic on selection.
 private struct TabBar: View {
-    let collapsed: Bool
+    /// Collapse progress, 0 = full bar, 1 = circle.
+    let p: CGFloat
+    private var collapsed: Bool { p >= 0.5 }
     @Environment(Chrome.self) private var chrome
     @State private var bounce = 0
     /// Pill position, animated on its own so the tab content swap stays un-animated.
@@ -128,25 +142,22 @@ private struct TabBar: View {
 
     var body: some View {
         ZStack {
+            // Staggered: tabs gone in the first half, circle icon in during the second.
             expanded
-                .frame(width: collapsed && barWidth > 0 ? barWidth + 8 : nil)
-                .opacity(collapsed ? 0 : 1)
-                // Sequenced cross-fade: out fast while shrinking, in late while growing.
-                .animation(collapsed ? Motion.fadeOut : Motion.fadeIn, value: collapsed)
+                .frame(width: p > 0 && barWidth > 0 ? barWidth + 8 : nil)
+                .opacity(max(0, 1 - p * 2))
                 .allowsHitTesting(!collapsed)
             circle
-                .opacity(collapsed ? 1 : 0)
-                .animation(collapsed ? Motion.fadeIn : Motion.fadeOut, value: collapsed)
+                .opacity(max(0, p * 2 - 1))
                 .allowsHitTesting(collapsed)
         }
-        .frame(maxWidth: collapsed ? 54 : .infinity)
-        .frame(height: collapsed ? 54 : 62)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
         .clipShape(.capsule)
     }
 
     @ViewBuilder private var circle: some View {
             let cur = items.first { $0.0 == chrome.tab } ?? items[0]
-            Button { withAnimation(Motion.bar) { chrome.collapsed = false } } label: {
+            Button { chrome.setCollapsed(false) } label: {
                 Image(systemName: cur.2).font(.system(size: 21, weight: .medium)).foregroundStyle(.blue)
                     .frame(width: 54, height: 54)
                     .contentShape(.circle)
@@ -200,6 +211,7 @@ private struct TabBar: View {
             }
             .contentShape(.capsule)
             .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { w in
+                guard p == 0 else { return }
                 barWidth = w
                 let w3 = w / CGFloat(items.count)
                 pillL = CGFloat(idx) * w3; pillR = pillL + w3
@@ -266,22 +278,23 @@ extension View {
 
     /// Collapses the bottom chrome when a root list scrolls down.
     func collapsesChrome() -> some View {
-        // Offset only (no state per frame); the flip happens once per crossing, with
-        // hysteresis, and is deferred out of the scroll update's transaction (which
-        // dropped the animation) into the same animated path as the album transition.
+        // Continuous: 20...80 pt of scroll maps to progress 0...1, applied without
+        // animation while scrolling; when the scroll goes idle it settles to 0 or 1.
         onScrollGeometryChange(for: CGFloat.self) { g in
             g.contentOffset.y + g.contentInsets.top
         } action: { _, y in
             let c = Chrome.shared
-            let want: Bool? = y > 60 ? true : (y < 20 ? false : nil)
-            guard let want, want != c.collapsed, !c.collapsePending else { return }
-            c.collapsePending = true
-            Task { @MainActor in
-                c.collapsePending = false
-                if c.collapsed != want {
-                    chromeLog.debug("collapse -> \(want) at y=\(y, format: .fixed(precision: 0))")
-                    withTransaction(Transaction(animation: Motion.bar)) { c.collapsed = want }
-                }
+            let p = min(max((y - 20) / 60, 0), 1)
+            guard abs(p - c.progress) > 0.005 else { return }
+            var t = Transaction(); t.disablesAnimations = true
+            withTransaction(t) { c.progress = p }
+        }
+        .onScrollPhaseChange { _, phase in
+            guard phase == .idle else { return }
+            let c = Chrome.shared
+            if c.progress > 0, c.progress < 1 {
+                chromeLog.debug("settle from \(Double(c.progress), format: .fixed(precision: 2))")
+                c.setCollapsed(c.progress >= 0.5)
             }
         }
     }
@@ -340,12 +353,13 @@ struct PlaylistPicker: View {
     }
 }
 
-private struct ChromeState: Equatable { var collapsed, detail, mini: Bool }
+private struct ChromeState: Equatable { var detail, mini: Bool }
 
 /// Bottom-bar motion: native ease-in/ease-out springs, a little slower through the middle.
 enum Motion {
     static let pill = Animation.spring(response: 0.4, dampingFraction: 0.86)
     static let bar = Animation.smooth(duration: 0.4)
+    static let settle = Animation.smooth(duration: 0.35)
     /// Shared content fades for BOTH tab bar and miniplayer: out early, in late, inside the 0.4 s morph.
     static let fadeOut = Animation.easeOut(duration: 0.15)
     static let fadeIn = Animation.easeIn(duration: 0.2).delay(0.2)

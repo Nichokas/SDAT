@@ -20,9 +20,12 @@ final class Chrome {
     var tab: AppTab = .discover
     var paths: [AppTab: [Route]] = [.discover: [], .search: [], .collection: []]
     /// Root list scrolled down: tab bar shrinks to a circle, miniplayer grows to a capsule.
-    var collapsed = false
-    /// A scroll-driven collapse flip is queued (not observed: no re-render per frame).
-    @ObservationIgnored var collapsePending = false
+    /// 0 = expanded, 1 = collapsed. Driven continuously by the finger, settled on idle.
+    var progress: CGFloat = 0
+    var collapsed: Bool { progress >= 0.5 }
+    func setCollapsed(_ on: Bool) { withAnimation(Motion.settle) { progress = on ? 1 : 0 } }
+    /// Round miniplayer is being pressed (drives its scale + glass highlight).
+    var miniPressed = false
     var showPlayer = false
     /// Track waiting for the "Add to playlist" picker.
     var playlistPickerTrack: Track?
