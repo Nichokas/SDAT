@@ -1,0 +1,120 @@
+name: iOS build
+
+on:
+  push:
+    branches: ["**"]
+    tags: ["v*"]
+  pull_request:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Existing tag to build and attach the .ipa to (e.g. v1.0.0). Empty = just build."
+        required: false
+        default: ""
+      core_ref:
+        description: "tonearm-rs ref for the Rust core"
+        required: false
+        default: "main"
+
+permissions:
+  contents: write
+
+concurrency:
+  group: ios-${{ github.ref }}-${{ inputs.tag }}
+  cancel-in-progress: true
+
+env:
+  CORE_REPO: Nichokas/tonearm-rs
+  CORE_REF: ${{ inputs.core_ref || 'main' }}
+  RELEASE_TAG: ${{ inputs.tag || (startsWith(github.ref, 'refs/tags/v') && github.ref_name) || '' }}
+
+jobs:
+  build:
+    runs-on: macos-26
+    timeout-minutes: 60
+    steps:
+      - name: Checkout app
+        uses: actions/checkout@v4
+        with:
+          path: Torneam
+          ref: ${{ inputs.tag || github.ref }}
+
+      - name: Checkout Rust core
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ env.CORE_REPO }}
+          ref: ${{ env.CORE_REF }}
+          path: Tonearm
+
+      - name: Toolchain info
+        run: |
+          xcodebuild -version
+          xcrun -sdk iphoneos --show-sdk-path
+          swift --version
+
+      - name: Install Rust iOS target
+        run: |
+          rustup toolchain install stable --profile minimal
+          rustup target add aarch64-apple-ios
+
+      - name: Cache cargo
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            Tonearm/target
+          key: cargo-ios-${{ runner.os }}-${{ hashFiles('Tonearm/Cargo.lock') }}
+          restore-keys: cargo-ios-${{ runner.os }}-
+
+      - name: Build Rust core and Swift bindings
+        working-directory: Tonearm
+        run: |
+          set -euo pipefail
+          app="$GITHUB_WORKSPACE/Torneam"
+          export IPHONEOS_DEPLOYMENT_TARGET=17.0
+          export SDKROOT="$(xcrun -sdk iphoneos --show-sdk-path)"
+          cargo rustc -p tonearm-ffi --lib --release --target aarch64-apple-ios --crate-type staticlib
+          unset SDKROOT
+          lib="$PWD/target/aarch64-apple-ios/release/libtonearm_ffi.a"
+          mkdir -p "$app/RustLib"
+          cp "$lib" "$app/RustLib/libtonearm_ffi.a"
+          tmp="$(mktemp -d)"
+          cargo run -q -p tonearm-ffi --features bindgen --bin uniffi-bindgen-swift -- \
+            --swift-sources --headers "$lib" "$tmp"
+          cp "$tmp/tonearm_ffiFFI.h" "$app/Sources/tonearm_ffiFFI/include/"
+          cp "$tmp/tonearm_ffi.swift" "$app/Sources/Torneam/Core/TonearmFFI.generated.swift"
+          du -h "$app/RustLib/libtonearm_ffi.a"
+
+      - name: Install xtool
+        run: brew install xtool-org/tap/xtool && xtool --version
+
+      - name: Build unsigned .ipa
+        working-directory: Torneam
+        run: |
+          set -euo pipefail
+          xtool dev build -c release --ipa
+          ipa="$(find xtool -name '*.ipa' | head -1)"
+          test -n "$ipa"
+          mkdir -p "$GITHUB_WORKSPACE/out"
+          cp "$ipa" "$GITHUB_WORKSPACE/out/Torneam-unsigned.ipa"
+          unzip -l "$GITHUB_WORKSPACE/out/Torneam-unsigned.ipa" | grep -E 'Payload/[^/]+\.app/' | head -5
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: Torneam-unsigned-ipa
+          path: out/Torneam-unsigned.ipa
+          if-no-files-found: error
+
+      - name: Attach to release
+        if: env.RELEASE_TAG != '' && github.event_name != 'pull_request'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          if ! gh release view "$RELEASE_TAG" -R "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            gh release create "$RELEASE_TAG" -R "$GITHUB_REPOSITORY" --verify-tag --title "$RELEASE_TAG" --notes "Unsigned build."
+          fi
+          cp out/Torneam-unsigned.ipa "out/Torneam-$RELEASE_TAG-unsigned.ipa"
+          gh release upload "$RELEASE_TAG" "out/Torneam-$RELEASE_TAG-unsigned.ipa" -R "$GITHUB_REPOSITORY" --clobber
