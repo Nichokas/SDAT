@@ -57,8 +57,10 @@ private struct BottomChrome: View {
 
     var body: some View {
         let hasMini = player.current != nil && !chrome.inSettings
-        GlassEffectContainer(spacing: 10) {
-            HStack(spacing: 10) {
+        // Spacing 0: bar and miniplayer stay separate shapes (no pinched neck);
+        // glassEffectID still morphs each between its states.
+        GlassEffectContainer(spacing: 0) {
+            HStack(spacing: 12) {
                 if !chrome.inDetail {
                     TabBar(collapsed: chrome.collapsed && hasMini)
                         // Glass on the outside so the same shape morphs bar <-> circle.
@@ -145,7 +147,7 @@ private struct TabBar: View {
                             .frame(height: 26)
                         Text(item.1).font(.system(size: 10, weight: .semibold)).lineLimit(1)
                     }
-                    .foregroundStyle(on ? Color.blue : .primary)
+                    .foregroundStyle(on ? Color.white : .primary)
                     .frame(maxWidth: .infinity, minHeight: 54)
                 }
             }
@@ -153,11 +155,14 @@ private struct TabBar: View {
                 // Liquid pill: its two edges spring separately (the leading edge in the
                 // direction of travel is quicker), so it stretches while moving and
                 // settles with a slight overshoot. Real interactive glass, no flat fill.
-                Capsule().fill(.white.opacity(0.06))
-                    .glassEffect(.regular.interactive(), in: .capsule)
-                    .frame(width: max(pillR - pillL, 0))
-                    .scaleEffect(y: pressed ? 1.06 : 1)
-                    .scaleEffect(pressed ? 1.04 : 1)
+                // Clear lens in its own container so it never metaball-merges with the
+                // miniplayer; slightly taller than the bar, more so while pressed.
+                GlassEffectContainer(spacing: 0) {
+                    Color.clear
+                        .frame(width: max(pillR - pillL - 4, 0), height: pressed ? 70 : 64)
+                        .glassEffect(.clear.interactive(), in: .capsule)
+                }
+                .frame(width: max(pillR - pillL, 0))
                     .offset(x: pillL)
             }
             .contentShape(.capsule)
