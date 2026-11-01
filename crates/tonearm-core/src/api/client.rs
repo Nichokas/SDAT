@@ -324,7 +324,21 @@ pub fn search(query: &str, include: &[&str]) -> Result<openapi::SearchResultSing
     Ok(openapi::first_search_result(r))
 }
 pub fn search_relationship(query: &str, kind: &str, cursor: &str, include: &[&str]) -> Result<openapi::Relationships> {
-    relationship(&format!("/v2/searchResults/{}/relationships/{kind}", query_escape(query)), cursor, include)
+    let r = relationship(&format!("/v2/searchResults/{}/relationships/{kind}", query_escape(query)), cursor, include);
+    if !matches!(r, Err(CoreError::Http { status: 400, .. })) {
+        return r;
+    }
+    // 400 fallbacks (only taken when the request already failed): a path-style
+    // escaped query (`%20`, not `+`), then the bare relationship include.
+    let path = format!("/v2/searchResults/{}/relationships/{kind}", urlencoding::encode(query));
+    log::warn!("search {kind}: 400, retrying with path-escaped query");
+    match relationship(&path, cursor, include) {
+        Err(CoreError::Http { status: 400, .. }) => {
+            log::warn!("search {kind}: 400 again, retrying with include={kind}");
+            relationship(&path, cursor, &[kind])
+        }
+        r => r,
+    }
 }
 
 /// Query for `GET /v2/trackManifests/{id}`.
