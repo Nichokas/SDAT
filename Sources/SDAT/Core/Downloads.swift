@@ -20,6 +20,32 @@ final class Downloads {
         var size: Int64
         var date: Date
         var gainDb, peak, albumGainDb, albumPeak: Double?
+        // Added later; optional so older index.json files still decode.
+        var formats: [String]?
+        var codec: String?        // HLS CODECS, e.g. "flac", "mp4a.40.2"
+        var bandwidth: Int?       // bits/s from EXT-X-STREAM-INF
+        var sampleRate: Int?      // Hz, from the init segment
+        var bitDepth: Int?        // FLAC only, from the init segment
+
+        /// "HI-RES 24-bit/96 kHz", "FLAC 16-bit/44.1 kHz", "AAC 320 kbps"; nil when unknown (old entries).
+        var qualityText: String? {
+            let khz = sampleRate.map { r -> String in
+                let k = Double(r) / 1000
+                return k == k.rounded() ? "\(Int(k)) kHz" : String(format: "%.1f kHz", k)
+            }
+            let isFlac = codec?.lowercased().contains("flac") == true || formats?.contains(where: { $0.hasPrefix("FLAC") }) == true
+            if isFlac {
+                let hires = (bitDepth ?? 16) > 16 || (sampleRate ?? 44100) > 48000
+                let spec = [bitDepth.map { "\($0)-bit" }, khz].compactMap { $0 }.joined(separator: "/")
+                let head = hires ? "HI-RES FLAC" : "FLAC"
+                return spec.isEmpty ? head : "\(head) \(spec)"
+            }
+            if codec != nil || formats?.isEmpty == false {
+                let kb = bandwidth.map { " \($0 / 1000) kbps" } ?? ""
+                return "AAC" + kb + (khz.map { " · \($0)" } ?? "")
+            }
+            return nil
+        }
     }
     enum State: Equatable { case none, queued, downloading(Double), done, failed(String) }
 
@@ -86,9 +112,10 @@ final class Downloads {
 
     /// Stream record for a downloaded file, so Player can treat it like a remote stream.
     func localStream(_ id: String) -> Stream? {
-        guard let e = entries[id], let u = localURL(id) else { return nil }
+        guard let e = entries[id], let u = localURL(id),
+              let size = try? u.resourceValues(forKeys: [.fileSizeKey]).fileSize, size > 0 else { return nil }
         let q = Quality(key: e.quality) ?? .hiFi
-        return Stream(url: u.absoluteString, quality: q, formats: [],
+        return Stream(url: u.absoluteString, quality: q, formats: e.formats ?? [],
                       trackGain: e.gainDb.map { Gain(gainDb: $0, peak: e.peak ?? 1) },
                       albumGain: e.albumGainDb.map { Gain(gainDb: $0, peak: e.albumPeak ?? 1) })
     }
@@ -192,16 +219,18 @@ final class Downloads {
     private func fetch(_ t: Track) async throws -> Entry {
         let net = session()
         defer { net.finishTasksAndInvalidate() }
-        let s = try await SDAT.stream(trackId: t.id, quality: Preferences.shared.downloadQuality)
+        // Always the top tier (core asks TIDAL for FLAC_HIRES,FLAC,AACLC,HEAACV1 and it
+        // returns the best the account/track allows), independent of the streaming setting.
+        let s = try await SDAT.stream(trackId: t.id, quality: .hiFi)
         var (text, base) = try await Self.playlist(s.url, net)
+        var variant: Variant?
         if text.contains("#EXT-X-STREAM-INF") {
-            let lines = text.split(whereSeparator: \.isNewline).map(String.init)
-            guard let i = lines.firstIndex(where: { $0.hasPrefix("#EXT-X-STREAM-INF") }),
-                  let uri = lines.dropFirst(i + 1).first(where: { !$0.hasPrefix("#") && !$0.isEmpty }),
-                  let u = URL(string: uri, relativeTo: base) else { throw Failure.unsupported("master playlist") }
-            (text, base) = try await Self.playlist(u.absoluteString, net)
+            guard let v = Self.bestVariant(text, base: base) else { throw Failure.unsupported("master playlist") }
+            variant = v
+            (text, base) = try await Self.playlist(v.url.absoluteString, net)
         }
         let media = try Self.parse(text, base: base)
+        var sampleRate: Int?, bitDepth: Int?
 
         let name = "\(t.id).mp4"
         // Keep the .mp4 extension: AVURLAsset infers the container from it, so a ".part"
@@ -216,7 +245,9 @@ final class Downloads {
             for (i, u) in parts.enumerated() {
                 try Task.checkCancellation()
                 guard progress[t.id] != nil else { throw CancellationError() }
-                try h.write(contentsOf: try await Self.get(u, net))
+                let d = try await Self.get(u, net)
+                if i == 0 { (sampleRate, bitDepth) = Self.audioSpec(init: d) }
+                try h.write(contentsOf: d)
                 progress[t.id] = Double(i + 1) / Double(parts.count)
             }
             try h.close()
@@ -243,7 +274,57 @@ final class Downloads {
         }
         return Entry(track: DiscoverCache.encode([t])[0], file: name, cover: cover, quality: s.quality.key,
                      size: size, date: Date(), gainDb: s.trackGain?.gainDb, peak: s.trackGain?.peak,
-                     albumGainDb: s.albumGain?.gainDb, albumPeak: s.albumGain?.peak)
+                     albumGainDb: s.albumGain?.gainDb, albumPeak: s.albumGain?.peak,
+                     formats: s.formats, codec: variant?.codecs, bandwidth: variant?.bandwidth,
+                     sampleRate: sampleRate, bitDepth: bitDepth)
+    }
+
+    struct Variant { var url: URL; var bandwidth: Int?; var codecs: String? }
+
+    /// Best variant of a master playlist: lossless codec first, then highest BANDWIDTH.
+    nonisolated static func bestVariant(_ text: String, base: URL?) -> Variant? {
+        let lines = text.split(whereSeparator: \.isNewline).map { $0.trimmingCharacters(in: .whitespaces) }
+        var out: [Variant] = []
+        for (i, l) in lines.enumerated() where l.hasPrefix("#EXT-X-STREAM-INF:") {
+            guard let uri = lines.dropFirst(i + 1).first(where: { !$0.isEmpty && !$0.hasPrefix("#") }),
+                  let u = URL(string: uri, relativeTo: base)?.absoluteURL else { continue }
+            func attr(_ k: String) -> String? {
+                guard let r = l.range(of: "[:,]\(k)=(\"[^\"]*\"|[^,]*)", options: .regularExpression) else { return nil }
+                return String(l[r].drop(while: { $0 != "=" }).dropFirst()).trimmingCharacters(in: CharacterSet(charactersIn: "\""))
+            }
+            out.append(Variant(url: u, bandwidth: attr("BANDWIDTH").flatMap { Int($0) }, codecs: attr("CODECS")))
+        }
+        func lossless(_ v: Variant) -> Bool { v.codecs?.lowercased().contains("flac") == true || v.codecs?.lowercased().contains("alac") == true }
+        return out.max { a, b in
+            if lossless(a) != lossless(b) { return !lossless(a) }
+            return (a.bandwidth ?? 0) < (b.bandwidth ?? 0)
+        }
+    }
+
+    /// Sample rate and (FLAC) bit depth from an fMP4 init segment: the `dfLa` STREAMINFO
+    /// block, else the `mp4a` sample entry's rate.
+    nonisolated static func audioSpec(init d: Data) -> (Int?, Int?) {
+        let b = [UInt8](d)
+        func find(_ tag: String) -> Int? {
+            let t = Array(tag.utf8)
+            guard b.count >= 4 else { return nil }
+            for i in 4..<(b.count - 3) where b[i] == t[0] && b[i+1] == t[1] && b[i+2] == t[2] && b[i+3] == t[3] { return i }
+            return nil
+        }
+        // dfLa: tag(4) version/flags(4) blockHeader(4) STREAMINFO: block sizes(4) frame sizes(6) then 20b rate, 3b ch, 5b bps
+        if let i = find("dfLa"), i + 4 + 4 + 4 + 10 + 4 <= b.count {
+            let p = i + 4 + 4 + 4 + 10
+            let rate = Int(b[p]) << 12 | Int(b[p+1]) << 4 | Int(b[p+2]) >> 4
+            let bps = ((Int(b[p+2]) & 1) << 4 | Int(b[p+3]) >> 4) + 1
+            return (rate > 0 ? rate : nil, bps)
+        }
+        // AudioSampleEntry: tag(4) reserved(6) dataRef(2) reserved(8) ch(2) size(2) pre(2) res(2) rate 16.16
+        if let i = find("mp4a"), i + 4 + 28 + 2 <= b.count {
+            let p = i + 4 + 24
+            let rate = Int(b[p]) << 8 | Int(b[p+1])
+            return (rate > 0 ? rate : nil, nil)
+        }
+        return (nil, nil)
     }
 
     /// Downloads with 3 attempts (backoff 1 s, 2 s).

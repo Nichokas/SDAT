@@ -1,4 +1,5 @@
 import AVFoundation
+import Combine
 import MediaPlayer
 import Observation
 import UIKit
@@ -25,6 +26,8 @@ final class Player {
     private(set) var stream: Stream? {
         didSet { if let q = stream?.actualQuality, q != shownQuality { shownQuality = q } }
     }
+    /// True when the current item plays the downloaded file, not the online stream.
+    var isOffline: Bool { stream.flatMap { URL(string: $0.url) }?.isFileURL ?? false }
     /// Badge quality: keeps the previous value until the new stream's real quality is known.
     private(set) var shownQuality: Quality?
     private(set) var sourceTitle: String?
@@ -328,7 +331,9 @@ final class Player {
                 guard !Task.isCancelled, current?.id == track.id, let url = URL(string: s.url) else { return }
                 stream = s
                 avPlayer.removeAllItems()
-                avPlayer.insert(AVPlayerItem(url: url), after: nil)
+                let item = AVPlayerItem(url: url)
+                avPlayer.insert(item, after: nil)
+                if url.isFileURL { watchLocal(item, track: track) }
                 if resumeAt > 0 { await avPlayer.seek(to: CMTime(seconds: resumeAt, preferredTimescale: 600)) }
                 try? AVAudioSession.sharedInstance().setActive(true)
                 avPlayer.play()
@@ -339,6 +344,25 @@ final class Player {
                 if !Task.isCancelled { loading = false }
                 if !Task.isCancelled { self.error = friendlyMessage(error) }
             }
+        }
+    }
+
+    /// A downloaded file that AVPlayer can't open falls back to the online stream.
+    private func watchLocal(_ item: AVPlayerItem, track: Track) {
+        Task { [weak self] in
+            for await st in item.publisher(for: \.status).values {
+                if st == .readyToPlay { return }
+                if st == .failed { break }
+            }
+            guard let self, self.avPlayer.currentItem === item, self.current?.id == track.id,
+                  let s = try? await SDAT.stream(trackId: track.id, quality: Preferences.shared.streamingQuality),
+                  self.current?.id == track.id, let u = URL(string: s.url) else { return }
+            let at = self.position
+            self.stream = s
+            self.avPlayer.removeAllItems()
+            self.avPlayer.insert(AVPlayerItem(url: u), after: nil)
+            if at > 0 { await self.avPlayer.seek(to: CMTime(seconds: at, preferredTimescale: 600)) }
+            if self.isPlaying { self.avPlayer.play() }
         }
     }
 

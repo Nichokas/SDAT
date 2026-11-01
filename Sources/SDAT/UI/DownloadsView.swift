@@ -41,7 +41,12 @@ struct DownloadsView: View {
                     Button { player.play(saved, startAt: i, from: "Downloads") } label: {
                         HStack {
                             TrackRow(track: t)
-                            Text(Fmt.bytes(dl.entry(t.id)?.size ?? 0)).font(.caption.monospacedDigit()).foregroundStyle(.secondary)
+                            VStack(alignment: .trailing, spacing: 2) {
+                                Text(Fmt.bytes(dl.entry(t.id)?.size ?? 0)).font(.caption.monospacedDigit()).foregroundStyle(.secondary)
+                                if let q = dl.entry(t.id)?.qualityText {
+                                    Text(q).font(.caption2.weight(.semibold)).foregroundStyle(.secondary).lineLimit(1)
+                                }
+                            }
                         }
                     }
                     .buttonStyle(.plain)

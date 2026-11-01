@@ -76,7 +76,14 @@ private struct NowPlayingPage: View {
 
             VStack(alignment: .leading, spacing: 4) {
                 Text(player.current?.displayTitle ?? "").font(.title3.bold()).lineLimit(1)
-                Text(player.current?.artistLine ?? "").foregroundStyle(.white.opacity(0.65)).lineLimit(1)
+                HStack(spacing: 6) {
+                    if player.isOffline {
+                        Image(systemName: "arrow.down.circle.fill").font(.footnote)
+                            .foregroundStyle(.white.opacity(0.65))
+                            .accessibilityLabel("Playing downloaded copy")
+                    }
+                    Text(player.current?.artistLine ?? "").foregroundStyle(.white.opacity(0.65)).lineLimit(1)
+                }
             }
             .id(player.current?.id)
             .transition(slide)
