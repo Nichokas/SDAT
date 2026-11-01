@@ -41,6 +41,9 @@ final class Player {
     private let avPlayer = AVQueuePlayer()
     private var timeObserver: Any?
     private var endObserver: NSObjectProtocol?
+    private var systemObservers: [NSObjectProtocol] = []
+    /// Set when an audio-session interruption paused active playback.
+    private var resumeAfterInterruption = false
     private var infinite: Shuffle?
     private var loadTask: Task<Void, Never>?
     private var preloadTask: Task<Void, Never>?
@@ -66,6 +69,7 @@ final class Player {
             let item = note.object as? AVPlayerItem
             MainActor.assumeIsolated { self?.trackEnded(item) }
         }
+        observeSystemAudio()
     }
 
     // MARK: queue
@@ -208,7 +212,11 @@ final class Player {
             start(t, resumeAt: position)
             return
         }
-        if isPlaying { avPlayer.pause() } else { avPlayer.play() }
+        resumeAfterInterruption = false
+        if isPlaying { avPlayer.pause() } else {
+            try? AVAudioSession.sharedInstance().setActive(true)
+            avPlayer.play()
+        }
         isPlaying.toggle()
         updateNowPlaying()
     }
@@ -322,6 +330,7 @@ final class Player {
                 avPlayer.removeAllItems()
                 avPlayer.insert(AVPlayerItem(url: url), after: nil)
                 if resumeAt > 0 { await avPlayer.seek(to: CMTime(seconds: resumeAt, preferredTimescale: 600)) }
+                try? AVAudioSession.sharedInstance().setActive(true)
                 avPlayer.play()
                 isPlaying = true
                 loading = false
@@ -522,6 +531,69 @@ final class Player {
         let s = AVAudioSession.sharedInstance()
         try? s.setCategory(.playback, mode: .default, policy: .longFormAudio)
         try? s.setActive(true)
+    }
+
+    /// Keeps `isPlaying` in step with the real audio: calls / Siri / other apps
+    /// (interruptions), unplugged headphones (route change), and any rate change
+    /// we didn't initiate.
+    private func observeSystemAudio() {
+        let nc = NotificationCenter.default
+        let session = AVAudioSession.sharedInstance()
+        systemObservers.append(nc.addObserver(forName: AVAudioSession.interruptionNotification,
+                                              object: session, queue: .main) { [weak self] n in
+            let raw = n.userInfo?[AVAudioSessionInterruptionTypeKey] as? UInt
+            let opts = n.userInfo?[AVAudioSessionInterruptionOptionKey] as? UInt ?? 0
+            MainActor.assumeIsolated {
+                guard let self, let raw, let type = AVAudioSession.InterruptionType(rawValue: raw) else { return }
+                switch type {
+                case .began:
+                    // Remember only real playback; a cold-restored paused state never auto-resumes.
+                    if self.isPlaying { self.resumeAfterInterruption = true }
+                    self.markPaused()
+                case .ended:
+                    let should = AVAudioSession.InterruptionOptions(rawValue: opts).contains(.shouldResume)
+                    let resume = should && self.resumeAfterInterruption && !self.needsStart && self.current != nil
+                    self.resumeAfterInterruption = false
+                    if resume {
+                        try? AVAudioSession.sharedInstance().setActive(true)
+                        self.avPlayer.play()
+                        self.isPlaying = true
+                        self.updateNowPlaying()
+                    }
+                @unknown default: break
+                }
+            }
+        })
+        systemObservers.append(nc.addObserver(forName: AVAudioSession.routeChangeNotification,
+                                              object: session, queue: .main) { [weak self] n in
+            let raw = n.userInfo?[AVAudioSessionRouteChangeReasonKey] as? UInt
+            MainActor.assumeIsolated {
+                guard let raw, AVAudioSession.RouteChangeReason(rawValue: raw) == .oldDeviceUnavailable,
+                      let self, self.isPlaying else { return }
+                self.resumeAfterInterruption = false
+                self.markPaused()
+            }
+        })
+        systemObservers.append(nc.addObserver(forName: AVPlayer.rateDidChangeNotification,
+                                              object: avPlayer, queue: .main) { [weak self] n in
+            let reason = n.userInfo?[AVPlayer.rateDidChangeReasonKey] as? AVPlayer.RateDidChangeReason
+            MainActor.assumeIsolated {
+                guard let self, reason != .setRateCalled, !self.loading, !self.needsStart else { return }
+                let audible = self.avPlayer.rate > 0
+                if audible != self.isPlaying, self.avPlayer.currentItem != nil {
+                    self.isPlaying = audible
+                    self.updateNowPlaying()
+                }
+            }
+        })
+    }
+
+    /// Paused by the system: reflect it in the UI / Now Playing without dropping the item.
+    private func markPaused() {
+        avPlayer.pause()
+        guard isPlaying else { return }
+        isPlaying = false
+        updateNowPlaying()
     }
 
     private func configureRemote() {
