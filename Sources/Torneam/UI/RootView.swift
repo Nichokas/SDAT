@@ -61,11 +61,16 @@ private struct BottomChrome: View {
             HStack(spacing: 10) {
                 if !chrome.inDetail {
                     TabBar(collapsed: chrome.collapsed && hasMini)
+                        // Glass on the outside so the same shape morphs bar <-> circle.
+                        .glassEffect(.regular.interactive(), in: .capsule)
                         .glassEffectID("tabs", in: ns)
+                        .glassEffectTransition(.matchedGeometry)
                 }
                 if hasMini {
                     MiniPlayer(style: chrome.inDetail ? .wide : (chrome.collapsed ? .capsule : .circle))
+                        .glassEffect(.regular.interactive(), in: .capsule)
                         .glassEffectID("mini", in: ns)
+                        .glassEffectTransition(.matchedGeometry)
                 }
             }
         }
@@ -100,7 +105,6 @@ private struct TabBar: View {
                     .contentShape(.circle)
             }
             .buttonStyle(.plain)
-            .glassEffect(.regular.interactive(), in: .circle)
         } else {
             HStack(spacing: 0) {
                 ForEach(items, id: \.0) { tab, title, icon in
@@ -138,7 +142,6 @@ private struct TabBar: View {
                 }
             }
             .padding(4)
-            .glassEffect(.regular.interactive(), in: .capsule)
             .sensoryFeedback(.selection, trigger: chrome.tab)
             .onAppear { if selected == nil { selected = chrome.tab } }
             .onChange(of: chrome.tab) { _, t in if selected != t { withAnimation(Motion.pill) { selected = t } } }
