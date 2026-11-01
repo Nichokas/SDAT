@@ -217,8 +217,12 @@ final class Player {
 
     private func advance(auto: Bool) {
         guard let (t, fromUser, newIndex) = following() else {
+            // End of queue (repeat off): really stop the engine and rewind to the start,
+            // paused, like Apple Music. Previously only the flag flipped, so the UI showed
+            // "paused" while the audio kept playing after a manual next.
+            avPlayer.pause()
             isPlaying = false
-            updateNowPlaying()
+            seek(to: 0)
             return
         }
         if fromUser { userQueue.removeFirst() }
