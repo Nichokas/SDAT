@@ -1,11 +1,14 @@
 import Foundation
 
 /// Pure geometry + fade schedule of the bottom-chrome morph (tab bar <-> miniplayer).
-/// Everything derives from ONE clock `t` (0...1, linear in time over `Morph.duration`)
+/// Everything derives from ONE clock `t` (0...1, linear in time over `Morph.duration(collapsing:)`)
 /// and the direction, so widths come from a single budget and can never overlap.
 enum Morph {
-    static let duration = 0.75
-    /// Shrinking shape finishes at 42% of the clock (~0.32 s of 0.75 s).
+    /// Scroll-driven tab bar ⇄ miniplayer morph length, per direction (was 0.75 s for both).
+    static let collapseDuration = 0.4
+    static let expandDuration = 0.4
+    static func duration(collapsing: Bool) -> Double { collapsing ? collapseDuration : expandDuration }
+    /// Shrinking shape finishes at 42% of the clock (~0.17 s of 0.4 s).
     static let shrinkShare = 0.42
     static let round = 54.0      // collapsed tab button
     static let circle = 62.0     // miniplayer circle
