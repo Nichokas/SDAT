@@ -169,19 +169,19 @@ final class ImageStore: @unchecked Sendable {
 
     func image(_ url: String) async -> UIImage? {
         if let i = cached(url) { return i }
-        lock.lock()
-        let task: Task<UIImage?, Never>
-        if let t = tasks[url] { task = t } else {
-            task = Task.detached(priority: .userInitiated) { [session] in
+        // Scoped locking (async-safe): dedupe in-flight downloads per URL.
+        let task: Task<UIImage?, Never> = lock.withLock {
+            if let t = tasks[url] { return t }
+            let t = Task.detached(priority: .userInitiated) { [session] in
                 guard let u = URL(string: url), let (data, _) = try? await session.data(from: u),
-                      let img = UIImage(data: data) else { return nil }
+                      let img = UIImage(data: data) else { return nil as UIImage? }
                 return img.preparingForDisplay() ?? img
             }
-            tasks[url] = task
+            tasks[url] = t
+            return t
         }
-        lock.unlock()
         let img = await task.value
-        lock.lock(); tasks[url] = nil; lock.unlock()
+        lock.withLock { tasks[url] = nil }
         if let img { cache.setObject(img, forKey: url as NSString) }
         return img
     }
