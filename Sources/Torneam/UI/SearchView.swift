@@ -67,7 +67,7 @@ struct SearchView: View {
             } catch {
                 guard !Task.isCancelled, current(q, gen) else { return }
                 debounced = q
-                self.error = error.localizedDescription
+                self.error = friendlyMessage(error)
                 searching = false
             }
         }
@@ -173,7 +173,7 @@ struct ExploreContent: View {
     }
 
     private func load() async {
-        do { page = try await explorePage(path: path) } catch { self.error = error.localizedDescription }
+        do { page = try await explorePage(path: path) } catch { self.error = friendlyMessage(error) }
     }
 
     @ViewBuilder

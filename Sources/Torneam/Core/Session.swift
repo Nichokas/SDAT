@@ -31,7 +31,7 @@ final class Session {
             sessionChanged()
             signedIn = true
         } catch {
-            self.error = error.localizedDescription
+            self.error = friendlyMessage(error)
         }
         pending = nil
     }

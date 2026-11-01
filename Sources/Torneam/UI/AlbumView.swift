@@ -83,7 +83,7 @@ struct PlaylistView: View {
             pl = p
             recents.add(.init(kind: p.isMix ? .mix : .playlist, id: p.id, title: p.title, subtitle: p.creator ?? "", coverUrl: p.coverUrl))
             tracks = (try? await first) ?? []
-        } catch { self.error = error.localizedDescription; return }
+        } catch { self.error = friendlyMessage(error); return }
         while !Task.isCancelled, tracks.count < 5000 {
             guard let page = try? await pager.nextPage(), !page.isEmpty else { break }
             tracks += page
@@ -180,7 +180,7 @@ struct DetailPage: View {
         let target = !isFav
         isFav = target
         Task {
-            do { try await setFavourite(kind: f.0, id: f.1, favourite: target) } catch { isFav = !target; Chrome.shared.flash(error.localizedDescription) }
+            do { try await setFavourite(kind: f.0, id: f.1, favourite: target) } catch { isFav = !target; Chrome.shared.flash(friendlyMessage(error)) }
         }
     }
 }
@@ -285,7 +285,8 @@ struct ArtistView: View {
                         header("Top Tracks")
                         PlayShuffleButtons(
                             play: { player.play(o.topTracks, from: o.artist.name) },
-                            shuffle: { player.playShuffled(o.topTracks, from: o.artist.name) }
+                            shuffle: { player.playShuffled(o.topTracks, from: o.artist.name) },
+                            compact: true
                         )
                         .padding(.horizontal, 16).padding(.bottom, 8)
                         VStack(spacing: 0) {
@@ -329,7 +330,7 @@ struct ArtistView: View {
             ArtistCache.overviews[id] = o
             overview = o
         } catch {
-            if overview == nil { self.error = error.localizedDescription }
+            if overview == nil { self.error = friendlyMessage(error) }
         }
     }
 }
@@ -366,7 +367,7 @@ struct FollowButton: View {
                 Chrome.shared.flash(target ? "Following" : "Unfollowed")
             } catch {
                 following = !target
-                Chrome.shared.flash("Couldn't update: \(error.localizedDescription)")
+                Chrome.shared.flash("Couldn't update: \(friendlyMessage(error))")
             }
             busy = false
         }

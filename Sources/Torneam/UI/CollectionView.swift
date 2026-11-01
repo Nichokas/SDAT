@@ -71,7 +71,7 @@ struct CollectionView: View {
     }
 
     private func load() async {
-        do { recents = try await Torneam.recents(); recentsError = nil } catch { recentsError = error.localizedDescription }
+        do { recents = try await Torneam.recents(); recentsError = nil } catch { recentsError = friendlyMessage(error) }
     }
 
     private func row(_ title: String, _ icon: String, _ r: Route) -> some View {
@@ -132,6 +132,7 @@ struct Paged<Item, Row: View>: View {
             }
         }
         .listStyle(.plain)
+        .collapsesChrome()
         .navigationTitle(title)
         .scrollEdgeEffectStyle(.soft, for: .all)
     }
@@ -142,7 +143,7 @@ struct Paged<Item, Row: View>: View {
         defer { loading = false }
         do {
             if let page = try await next(), !page.isEmpty { items += page; onLoaded?(items) } else { done = true }
-        } catch { self.error = error.localizedDescription }
+        } catch { self.error = friendlyMessage(error) }
     }
 }
 
@@ -157,10 +158,10 @@ struct PagedTracks: View {
         Paged(title: title, next: pager.nextPage, onLoaded: { all in
             loaded = all
             if favourites { Favs.shared.mark(all.map(\.id), true) }
-        }, header: AnyView(PlayShuffleButtons(
+        }, header: loaded.isEmpty ? nil : AnyView(PlayShuffleButtons(
             play: { player.shuffle ? player.setShuffle(false) : (); player.play(loaded, from: title) },
             shuffle: { player.playShuffled(loaded, from: title) }
-        ).disabled(loaded.isEmpty))) { items, i in
+        ))) { items, i in
             Button { player.play(items, startAt: i, from: title) } label: { TrackRow(track: items[i]) }
                 .buttonStyle(.plain)
                 .trackMenu(items[i])
@@ -209,20 +210,22 @@ struct PagedPlaylists: View {
 struct PlayShuffleButtons: View {
     let play: () -> Void
     let shuffle: () -> Void
+    /// Small buttons (artist Top Tracks); album and playlist pages keep the large ones.
+    var compact = false
     var body: some View {
         GlassEffectContainer(spacing: 12) {
             HStack(spacing: 12) {
                 Button(action: play) {
-                    HStack(spacing: 6) { Image(systemName: "play.fill"); Text("Play") }.font(.subheadline.weight(.semibold)).foregroundStyle(.white).frame(maxWidth: .infinity, minHeight: 28)
+                    HStack(spacing: 6) { Image(systemName: "play.fill"); Text("Play") }.font(compact ? .subheadline.weight(.semibold) : .headline).foregroundStyle(.white).frame(maxWidth: .infinity, minHeight: compact ? 28 : 34)
                 }
                 .buttonStyle(.glassProminent)
                 .tint(.blue)
                 Button(action: shuffle) {
-                    HStack(spacing: 6) { Image(systemName: "shuffle"); Text("Shuffle") }.font(.subheadline.weight(.semibold)).foregroundStyle(.white).frame(maxWidth: .infinity, minHeight: 28)
+                    HStack(spacing: 6) { Image(systemName: "shuffle"); Text("Shuffle") }.font(compact ? .subheadline.weight(.semibold) : .headline).foregroundStyle(.white).frame(maxWidth: .infinity, minHeight: compact ? 28 : 34)
                 }
                 .buttonStyle(.glass)
             }
-            .controlSize(.small)
+            .controlSize(compact ? .small : .large)
         }
     }
 }

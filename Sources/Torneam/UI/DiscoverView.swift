@@ -89,7 +89,7 @@ struct DiscoverView: View {
             // unless there was nothing to show.
             if !hadCache { tracks = pool }
         } catch {
-            if !hadCache { self.error = error.localizedDescription }
+            if !hadCache { self.error = friendlyMessage(error) }
         }
     }
 }

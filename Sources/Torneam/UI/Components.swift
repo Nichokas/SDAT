@@ -160,7 +160,7 @@ struct TrackMenu: View {
                         try await removeFromPlaylist(playlistId: pid, trackId: track.id)
                         onRemoved?()
                         Chrome.shared.flash("Removed from playlist")
-                    } catch { Chrome.shared.flash(error.localizedDescription) }
+                    } catch { Chrome.shared.flash(friendlyMessage(error)) }
                 }
             }
         }
@@ -240,7 +240,7 @@ struct Loader<T, Content: View>: View {
 
     private func run() async {
         guard value == nil else { return }
-        do { value = try await load() } catch { self.error = error.localizedDescription }
+        do { value = try await load() } catch { self.error = friendlyMessage(error) }
     }
 }
 

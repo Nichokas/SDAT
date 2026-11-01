@@ -105,7 +105,7 @@ final class Player {
                 queue = batch
                 original = batch
                 load(0)
-            } catch { self.error = error.localizedDescription }
+            } catch { self.error = friendlyMessage(error) }
         }
     }
 
@@ -271,7 +271,7 @@ final class Player {
                 afterStart(track)
             } catch {
                 if !Task.isCancelled { loading = false }
-                if !Task.isCancelled { self.error = error.localizedDescription }
+                if !Task.isCancelled { self.error = friendlyMessage(error) }
             }
         }
     }

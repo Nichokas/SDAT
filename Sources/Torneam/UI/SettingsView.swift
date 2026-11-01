@@ -96,7 +96,7 @@ struct SettingsView: View {
                         guard let url = URL(string: auth.url) else { return }
                         lastFmPending = auth
                         safariURL = IdentURL(url: url)
-                    } catch { lastFmError = error.localizedDescription }
+                    } catch { lastFmError = friendlyMessage(error) }
                 }
             }
             .disabled(lastFmPending != nil)
@@ -119,7 +119,7 @@ struct SettingsView: View {
                 Keychain.set("lastfm.user", name)
                 lastFmUser = name
                 lastFmError = nil
-            } catch { lastFmError = error.localizedDescription }
+            } catch { lastFmError = friendlyMessage(error) }
         }
     }
 

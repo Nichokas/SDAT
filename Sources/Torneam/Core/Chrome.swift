@@ -108,7 +108,7 @@ final class Favs {
             do {
                 try await setFavourite(kind: .track, id: id, favourite: target)
                 Chrome.shared.flash(target ? "Added to favourites" : "Removed from favourites")
-            } catch { tracks[id] = !target; Chrome.shared.flash(error.localizedDescription) }
+            } catch { tracks[id] = !target; Chrome.shared.flash(friendlyMessage(error)) }
         }
     }
 }

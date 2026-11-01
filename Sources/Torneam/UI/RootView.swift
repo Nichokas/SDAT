@@ -33,7 +33,7 @@ struct RootView: View {
             }
         }
         .animation(.spring(duration: 0.35), value: chrome.toast)
-        .onChange(of: chrome.tab) { chrome.collapsed = false }
+        .onChange(of: chrome.tab) { if chrome.collapsed { chrome.collapsed = false } }
         .sheet(isPresented: $chrome.showPlayer) { PlayerSheet() }
         .sheet(item: $chrome.playlistPickerTrack) { t in PlaylistPicker(track: t) }
         .alert("Playback error", isPresented: Binding(
@@ -69,8 +69,8 @@ private struct BottomChrome: View {
                 }
             }
         }
-        .padding(.horizontal, 16)
-        .padding(.bottom, 4)
+        .padding(.horizontal, 24)
+        .padding(.bottom, 12)
         .animation(.smooth(duration: 0.38), value: ChromeState(collapsed: chrome.collapsed, detail: chrome.inDetail, mini: hasMini))
     }
 }
@@ -82,6 +82,8 @@ private struct TabBar: View {
     @Environment(Chrome.self) private var chrome
     @Namespace private var pill
     @State private var bounce = 0
+    /// Pill position, animated on its own so the tab content swap stays un-animated.
+    @State private var selected: AppTab?
 
     private let items: [(AppTab, String, String)] = [
         (.discover, "Discover", "signpost.right.and.left.fill"),
@@ -102,10 +104,14 @@ private struct TabBar: View {
         } else {
             HStack(spacing: 0) {
                 ForEach(items, id: \.0) { tab, title, icon in
-                    let on = chrome.tab == tab
+                    let on = (selected ?? chrome.tab) == tab
                     Button {
                         if on { chrome.paths[tab] = [] } else {
-                            withAnimation(.snappy(duration: 0.32)) { chrome.tab = tab }
+                            // Swap the tab content instantly (no animated rebuild of the
+                            // whole page); only the pill and icon animate.
+                            var t = Transaction(); t.disablesAnimations = true
+                            withTransaction(t) { chrome.tab = tab }
+                            withAnimation(.snappy(duration: 0.32)) { selected = tab }
                             bounce += 1
                         }
                     } label: {
@@ -133,6 +139,7 @@ private struct TabBar: View {
             .padding(4)
             .glassEffect(.regular.interactive(), in: .capsule)
             .sensoryFeedback(.selection, trigger: chrome.tab)
+            .onChange(of: chrome.tab) { _, t in if selected != t { selected = t } }
         }
     }
 }
@@ -160,7 +167,7 @@ extension View {
 
     /// Room for the floating bottom chrome.
     func bottomSpace() -> some View {
-        safeAreaInset(edge: .bottom, spacing: 0) { Color.clear.frame(height: 70) }
+        safeAreaInset(edge: .bottom, spacing: 0) { Color.clear.frame(height: 78) }
     }
 
     /// Collapses the bottom chrome when a root list scrolls down.
@@ -174,7 +181,9 @@ extension View {
 
     /// Profile button that opens Settings.
     func profileToolbar() -> some View {
-        toolbar {
+        // Large title on the same row as the profile button (like the Discover header).
+        toolbarTitleDisplayMode(.inlineLarge)
+        .toolbar {
             ToolbarItem(placement: .topBarTrailing) { ProfileButton(size: 44) }
                 .sharedBackgroundVisibility(.hidden)
         }
@@ -207,7 +216,7 @@ struct PlaylistPicker: View {
                         do {
                             try await addToPlaylist(playlistId: p.id, trackId: track.id)
                             Chrome.shared.flash("Added to \(p.name)")
-                        } catch { Chrome.shared.flash(error.localizedDescription) }
+                        } catch { Chrome.shared.flash(friendlyMessage(error)) }
                     }
                 } label: {
                     LabeledContent(p.name, value: "\(p.trackCount)")

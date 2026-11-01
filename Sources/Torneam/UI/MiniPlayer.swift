@@ -8,6 +8,9 @@ struct MiniPlayer: View {
     @Environment(Player.self) private var player
     @Environment(Chrome.self) private var chrome
 
+    @State private var holdTask: Task<Void, Never>?
+    @State private var held = false
+
     var body: some View {
         Group {
             if style == .circle {
@@ -15,11 +18,24 @@ struct MiniPlayer: View {
                 ringIcon(size: 62)
                     .contentShape(.circle)
                     .glassEffect(.regular.interactive(), in: .circle)
-                    .onTapGesture { player.toggle() }
-                    .onLongPressGesture(minimumDuration: 0.25) {
-                        UIImpactFeedbackGenerator(style: .medium).impactOccurred()
-                        chrome.showPlayer = true
-                    }
+                    // One gesture so a press is either a tap or a hold, never both:
+                    // held ≥ 0.1 s opens the player; released sooner toggles play/pause.
+                    .gesture(DragGesture(minimumDistance: 0)
+                        .onChanged { _ in
+                            guard holdTask == nil else { return }
+                            holdTask = Task { @MainActor in
+                                try? await Task.sleep(for: .milliseconds(100))
+                                guard !Task.isCancelled else { return }
+                                held = true
+                                UIImpactFeedbackGenerator(style: .medium).impactOccurred()
+                                chrome.showPlayer = true
+                            }
+                        }
+                        .onEnded { _ in
+                            holdTask?.cancel(); holdTask = nil
+                            if !held { player.toggle() }
+                            held = false
+                        })
                     .sensoryFeedback(.selection, trigger: player.isPlaying)
             } else {
                 HStack(spacing: 10) {
