@@ -161,7 +161,7 @@ private struct TabBar: View {
     ]
 
     var body: some View {
-        ZStack {
+        ZStack(alignment: .leading) {
             // Staggered: tabs gone in the first half, circle icon in during the second.
             expanded
                 .frame(width: p > 0 && barWidth > 0 ? barWidth + 8 : nil)
@@ -171,7 +171,9 @@ private struct TabBar: View {
                 .opacity(max(0, p * 2 - 1))
                 .allowsHitTesting(collapsed)
         }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        // Expanded content keeps its full width while shrinking; pin it leading and clip so
+        // the bar never grows past its frame (it used to overflow over the miniplayer).
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
         .clipShape(.capsule)
     }
 

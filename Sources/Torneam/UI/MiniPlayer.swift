@@ -28,16 +28,21 @@ struct MiniPlayer: View {
         // ONE hierarchy; the parent sizes it from the shared progress, content opacities
         // are computed from that same value (capsule in late, circle out early).
         // Trailing-anchored: the circle's ring sits where the capsule's own ring ends up,
-        // never centred in the growing capsule. Circle content is gone within the first 15%
-        // of the morph; capsule content only appears once the shape is 60% grown.
+        // never centred in the growing capsule. Circle content is gone within the first 6%
+        // of the morph (6%); capsule content only appears once the shape is 60% grown.
         ZStack(alignment: .trailing) {
             capsuleContent
                 .opacity(min(max((p - 0.6) / 0.4, 0), 1))
                 .allowsHitTesting(!isCircle)
             circleContent
-                .opacity(min(max(1 - p / 0.15, 0), 1))
+                .opacity(min(max(1 - p / 0.06, 0), 1))
                 .allowsHitTesting(isCircle)
         }
+        // The capsule content has a ~130 pt minimum; when the shape is narrower the ZStack
+        // overflows. Pin the overflow to the trailing edge and clip, so the ring stays
+        // centred in the circle / in the capsule's right slot and nothing leaks off-screen.
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .trailing)
+        .clipShape(.capsule)
     }
 
     private var circleContent: some View {
@@ -144,9 +149,14 @@ struct ProgressRing: View {
                 Circle().stroke(.white.opacity(0.4),
                                 style: StrokeStyle(lineWidth: lineWidth * 0.8, lineCap: .butt,
                                                    dash: [period * 2.5 / 5.5, period * 3 / 5.5]))
+                    // Dashes are removed under the played part (pattern itself never moves),
+                    // so nothing can show through or over the blue arc.
+                    .mask { Circle().trim(from: q, to: 1).stroke(lineWidth: lineWidth * 3) }
+                    .zIndex(0)
                 Circle().trim(from: 0, to: q)
                     .stroke(.blue, style: StrokeStyle(lineWidth: lineWidth, lineCap: .butt))
                     .opacity(q > 0 ? 1 : 0)
+                    .zIndex(1)
             }
             .frame(width: d, height: d)
             .animation(.linear(duration: 0.25), value: q)
