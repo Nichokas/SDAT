@@ -36,6 +36,7 @@ struct MiniPlayer: View {
                             held = false
                         })
                     .sensoryFeedback(.selection, trigger: player.isPlaying)
+                    .transition(Self.seqFade)
             } else {
                 HStack(spacing: 10) {
                     Cover(url: player.current?.album?.coverUrl, size: 38, radius: 8)
@@ -55,9 +56,15 @@ struct MiniPlayer: View {
                 .frame(maxWidth: .infinity)
                 .contentShape(.capsule)
                 .onTapGesture { chrome.showPlayer = true }
+                .transition(Self.seqFade)
             }
         }
     }
+
+    /// Old content leaves fast, new content arrives late, so they never overlap mid-morph.
+    private static let seqFade: AnyTransition = .asymmetric(
+        insertion: .opacity.animation(.easeIn(duration: 0.2).delay(0.18)),
+        removal: .opacity.animation(.easeOut(duration: 0.12)))
 
     private func playButton(size: CGFloat) -> some View {
         Button { player.toggle() } label: { ringIcon(size: size) }

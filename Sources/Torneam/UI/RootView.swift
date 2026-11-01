@@ -133,9 +133,12 @@ private struct TabBar: View {
             expanded
                 .frame(width: collapsed && barWidth > 0 ? barWidth + 8 : nil)
                 .opacity(collapsed ? 0 : 1)
+                // Sequenced cross-fade: out fast while shrinking, in late while growing.
+                .animation(collapsed ? .easeOut(duration: 0.15) : .easeIn(duration: 0.2).delay(0.18), value: collapsed)
                 .allowsHitTesting(!collapsed)
             circle
                 .opacity(collapsed ? 1 : 0)
+                .animation(collapsed ? .easeIn(duration: 0.2).delay(0.18) : .easeOut(duration: 0.15), value: collapsed)
                 .allowsHitTesting(collapsed)
         }
         .frame(maxWidth: collapsed ? 54 : .infinity)
