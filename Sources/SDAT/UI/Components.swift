@@ -419,14 +419,25 @@ struct DownloadButton: View {
     var body: some View {
         let dl = Downloads.shared
         let ids = tracks.map(\.id)
+        let states = ids.map(dl.state)
         let done = !ids.isEmpty && ids.allSatisfy(dl.isDownloaded)
-        let busy = ids.contains { if case .downloading = dl.state($0) { true } else { dl.state($0) == .queued } }
+        let busy = states.contains { if case .downloading = $0 { true } else { $0 == .queued } }
+        let failed: String? = states.lazy.compactMap { if case .failed(let m) = $0 { m } else { nil } }.first
         if busy {
+            if tracks.count == 1, case .downloading(let p) = states[0] {
+                Label("Downloading… \(Int(p * 100))%", systemImage: "arrow.down.circle.dotted")
+            } else {
+                Label("Downloading…", systemImage: "arrow.down.circle.dotted")
+            }
             Button("Cancel Download", systemImage: "xmark.circle") { ids.forEach(dl.cancel) }
-        } else if !done {
-            Button(tracks.count > 1 ? "Download All" : "Download", systemImage: "arrow.down.circle") {
+        } else if done {
+            Label(tracks.count > 1 ? "All Downloaded" : "Downloaded", systemImage: "arrow.down.circle.fill")
+        } else {
+            Button(failed != nil ? "Retry Download" : (tracks.count > 1 ? "Download All" : "Download"),
+                   systemImage: failed != nil ? "arrow.clockwise.circle" : "arrow.down.circle") {
                 dl.download(tracks); Chrome.shared.flash("Downloading")
             }
+            if let failed { Text("Download failed: \(failed)") }
         }
         if ids.contains(where: dl.isDownloaded) {
             Button(tracks.count > 1 ? "Remove Downloads" : "Remove Download", systemImage: "trash", role: .destructive) {

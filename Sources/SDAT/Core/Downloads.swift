@@ -204,7 +204,9 @@ final class Downloads {
         let media = try Self.parse(text, base: base)
 
         let name = "\(t.id).mp4"
-        let tmp = Self.dir.appendingPathComponent(name + ".part")
+        // Keep the .mp4 extension: AVURLAsset infers the container from it, so a ".part"
+        // suffix made every finished download fail the playability check.
+        let tmp = Self.dir.appendingPathComponent("\(t.id).part.mp4")
         let dst = Self.dir.appendingPathComponent(name)
         try? FileManager.default.removeItem(at: tmp)
         FileManager.default.createFile(atPath: tmp.path, contents: nil)
