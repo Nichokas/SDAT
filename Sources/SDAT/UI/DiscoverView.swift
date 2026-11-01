@@ -111,7 +111,7 @@ struct CoverPlane: UIViewRepresentable {
     }
 }
 
-final class PlaneScrollView: UIScrollView, UIScrollViewDelegate {
+final class PlaneScrollView: UIScrollView, UIScrollViewDelegate, UIContextMenuInteractionDelegate {
     var onTap: ((Track) -> Void)?
     var tracks: [Track] = [] { didSet { visible.values.forEach { $0.removeFromSuperview() }; visible = [:]; setNeedsLayout() } }
 
@@ -134,6 +134,79 @@ final class PlaneScrollView: UIScrollView, UIScrollViewDelegate {
         contentOffset = CGPoint(x: span / 2, y: span / 2)
         delaysContentTouches = false
         addGestureRecognizer(UITapGestureRecognizer(target: self, action: #selector(tapped(_:))))
+        addInteraction(UIContextMenuInteraction(delegate: self))
+    }
+
+    // MARK: long-press menu (system Liquid Glass context menu, tile lifted as preview)
+
+    private var menuCell: Cell?
+
+    private func cell(at p: CGPoint) -> Cell? {
+        visible.first(where: { $0.value.frame.contains(p) })?.key
+    }
+
+    func contextMenuInteraction(_ i: UIContextMenuInteraction, configurationForMenuAtLocation p: CGPoint) -> UIContextMenuConfiguration? {
+        let onScreen = convert(p, to: window)
+        let h = window?.bounds.height ?? bounds.height
+        guard onScreen.y > (window?.safeAreaInsets.top ?? 0) + 64,
+              onScreen.y < h - (window?.safeAreaInsets.bottom ?? 0) - 90,
+              let c = cell(at: p), let t = track(c) else { return nil }
+        menuCell = c
+        return UIContextMenuConfiguration(identifier: nil, previewProvider: nil) { _ in Self.menu(for: t) }
+    }
+
+    func contextMenuInteraction(_ i: UIContextMenuInteraction, configuration: UIContextMenuConfiguration,
+                                highlightPreviewForItemWithIdentifier id: NSCopying) -> UITargetedPreview? {
+        guard let c = menuCell, let v = visible[c] else { return nil }
+        let params = UIPreviewParameters()
+        params.visiblePath = UIBezierPath(roundedRect: v.bounds, cornerRadius: 10)
+        return UITargetedPreview(view: v, parameters: params)
+    }
+
+    func contextMenuInteraction(_ i: UIContextMenuInteraction, willEndFor configuration: UIContextMenuConfiguration,
+                                animator: UIContextMenuInteractionAnimating?) {
+        menuCell = nil
+    }
+
+    /// Same actions as the app's track "…" menu (TrackMenu), in UIKit form.
+    @MainActor static func menu(for t: Track) -> UIMenu {
+        let player = Player.shared, chrome = Chrome.shared, dl = Downloads.shared
+        let fav = Favs.shared.known(t.id) ?? false
+        var main: [UIMenuElement] = [
+            UIAction(title: "Play Next", image: UIImage(systemName: "text.line.first.and.arrowtriangle.forward")) { _ in
+                player.playNext(t); chrome.flash("Playing next")
+            },
+            UIAction(title: "Add to Queue", image: UIImage(systemName: "text.line.last.and.arrowtriangle.forward")) { _ in
+                player.addToQueue(t); chrome.flash("Added to queue")
+            },
+            UIAction(title: "Add to Playlist…", image: UIImage(systemName: "text.badge.plus")) { _ in
+                chrome.playlistPickerTrack = t
+            },
+        ]
+        switch dl.state(t.id) {
+        case .done:
+            main.append(UIAction(title: "Remove Download", image: UIImage(systemName: "trash"), attributes: .destructive) { _ in dl.remove([t]) })
+        case .queued, .downloading:
+            main.append(UIAction(title: "Cancel Download", image: UIImage(systemName: "xmark.circle")) { _ in dl.cancel(t.id) })
+        default:
+            main.append(UIAction(title: "Download", image: UIImage(systemName: "arrow.down.circle")) { _ in
+                dl.download([t]); chrome.flash("Downloading")
+            })
+        }
+        let favItem = UIAction(title: fav ? "Remove from Favourites" : "Add to Favourites",
+                               image: UIImage(systemName: fav ? "star.slash" : "star")) { _ in Favs.shared.toggle(t.id) }
+        var nav: [UIMenuElement] = []
+        if let a = t.album {
+            nav.append(UIAction(title: "Go to Album", image: UIImage(systemName: "square.stack")) { _ in chrome.push(.album(a.id)) })
+        }
+        if let ar = t.artists.first {
+            nav.append(UIAction(title: "Go to Artist", image: UIImage(systemName: "music.microphone")) { _ in chrome.push(.artist(ar.id)) })
+        }
+        return UIMenu(title: "\(t.displayTitle) · \(t.artistLine)", children: [
+            UIMenu(options: .displayInline, children: [favItem]),
+            UIMenu(options: .displayInline, children: main),
+            UIMenu(options: .displayInline, children: nav),
+        ])
     }
 
     required init?(coder: NSCoder) { fatalError() }
