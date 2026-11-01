@@ -50,14 +50,14 @@ struct MiniPlayer: View {
     }
 
     private var circleContent: some View {
-                // Tap: open the full player. Long-press (0.06 s hold): play/pause.
+                // Tap: open the full player. Long-press (0.03 s hold): play/pause.
                 ringIcon(size: 62)
                     .frame(width: 62)
                     .frame(maxHeight: .infinity)
                     // Generous hit area: 12 pt beyond the visible circle.
                     .contentShape(Circle().inset(by: -12))
                     // One gesture so a press is either a tap or a hold, never both:
-                    // held ≥ 0.06 s toggles play/pause; released sooner opens the player.
+                    // held ≥ 0.03 s toggles play/pause; released sooner opens the player.
                     .highPriorityGesture(DragGesture(minimumDistance: 0)
                         .updating($touching) { _, st, _ in st = true }
                         .onChanged { g in
@@ -71,7 +71,7 @@ struct MiniPlayer: View {
                             guard holdTask == nil, !drifted else { return }
                             gestureLog.notice("mini press began")
                             holdTask = Task { @MainActor in
-                                try? await Task.sleep(for: .milliseconds(60))
+                                try? await Task.sleep(for: .milliseconds(30))
                                 guard !Task.isCancelled else { return }
                                 held = true
                                 UIImpactFeedbackGenerator(style: .medium).impactOccurred()
