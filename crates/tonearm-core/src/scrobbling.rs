@@ -115,13 +115,58 @@ pub fn listenbrainz_request(t: &TrackMeta, listened_at: Option<i64>) -> String {
 }
 
 
-pub fn listenbrainz_send(url: &str, token: &str, body: String) {
-    let r = http()
-        .post(format!("{url}/1/submit-listens"))
-        .header("Authorization", format!("Token {token}"))
-        .header("Content-Type", "application/json")
-        .body(body)
-        .send();
+/// Identifying User-Agent required by `ListenBrainz` (app name, version, contact).
+pub const LISTENBRAINZ_USER_AGENT: &str =
+    concat!("Tonearm/", env!("CARGO_PKG_VERSION"), " ( https://codeberg.org/dergs/Tonearm )");
+
+fn lb_http() -> &'static reqwest::blocking::Client {
+    static C: OnceLock<reqwest::blocking::Client> = OnceLock::new();
+    C.get_or_init(|| {
+        reqwest::blocking::Client::builder().user_agent(LISTENBRAINZ_USER_AGENT).timeout(Duration::from_secs(30)).build().expect("http client")
+    })
+}
+
+/// Earliest instant the next `ListenBrainz` request may go out, from the
+/// `X-RateLimit-*` headers. The mutex also serialises requests (no parallel bursts).
+static LB_NEXT: std::sync::Mutex<Option<std::time::Instant>> = std::sync::Mutex::new(None);
+
+/// Seconds to wait before the next request, per the rate-limit headers.
+fn lb_wait_secs(status: u16, remaining: Option<u64>, reset_in: Option<u64>) -> Option<u64> {
+    (status == 429 || remaining == Some(0)).then(|| reset_in.unwrap_or(10).max(1))
+}
+
+fn header_u64(r: &reqwest::blocking::Response, name: &str) -> Option<u64> {
+    r.headers().get(name)?.to_str().ok()?.trim().parse().ok()
+}
+
+pub fn listenbrainz_send(url: &str, token: &str, body: &str) {
+    let mut next = LB_NEXT.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+    let mut r = Err(None);
+    for _ in 0..2 {
+        if let Some(t) = *next {
+            std::thread::sleep(t.saturating_duration_since(std::time::Instant::now()));
+        }
+        let resp = lb_http()
+            .post(format!("{url}/1/submit-listens"))
+            .header("Authorization", format!("Token {token}"))
+            .header("Content-Type", "application/json")
+            .body(body.to_owned())
+            .send();
+        let Ok(resp) = resp else {
+            r = Err(resp.err());
+            break;
+        };
+        let reset = header_u64(&resp, "X-RateLimit-Reset-In").or_else(|| header_u64(&resp, "Retry-After"));
+        let wait = lb_wait_secs(resp.status().as_u16(), header_u64(&resp, "X-RateLimit-Remaining"), reset);
+        *next = wait.map(|w| std::time::Instant::now() + Duration::from_secs(w));
+        let limited = resp.status().as_u16() == 429;
+        r = Ok(resp);
+        if !limited {
+            break;
+        }
+        log::warn!("listenbrainz rate limited, retrying in {}s", wait.unwrap_or(0));
+    }
+    let r = r.map_err(|e| e.map_or_else(|| "no response".to_string(), |e| e.to_string()));
     match r {
         Err(e) => log::error!("failed to send request to listenbrainz: {e}"),
         Ok(r) if !r.status().is_success() => {
@@ -268,6 +313,14 @@ mod tests {
         assert!(!should_scrobble(1000, Duration::ZERO));
         assert!(should_scrobble(16, Duration::from_secs(31)));
         assert!(!should_scrobble(15, Duration::from_secs(31)));
+    }
+
+    #[test]
+    fn listenbrainz_rate_limit() {
+        assert_eq!(lb_wait_secs(200, Some(5), Some(3)), None);
+        assert_eq!(lb_wait_secs(200, Some(0), Some(3)), Some(3));
+        assert_eq!(lb_wait_secs(429, None, None), Some(10));
+        assert!(LISTENBRAINZ_USER_AGENT.starts_with("Tonearm/") && LISTENBRAINZ_USER_AGENT.contains("codeberg.org"));
     }
 
     #[test]

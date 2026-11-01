@@ -74,12 +74,12 @@ pub async fn lastfm_scrobble(session_key: String, track: ScrobbleTrack, started_
 #[uniffi::export]
 pub async fn listenbrainz_now_playing(user_token: String, track: ScrobbleTrack) {
     let body = s::listenbrainz_request(&track.into(), None);
-    blocking::unblock(move || s::listenbrainz_send(LISTENBRAINZ_URL, &user_token, body)).await;
+    blocking::unblock(move || s::listenbrainz_send(LISTENBRAINZ_URL, &user_token, &body)).await;
 }
 
 /// Fire-and-forget (errors are logged by the core).
 #[uniffi::export]
 pub async fn listenbrainz_scrobble(user_token: String, track: ScrobbleTrack, listened_at: i64) {
     let body = s::listenbrainz_request(&track.into(), Some(listened_at));
-    blocking::unblock(move || s::listenbrainz_send(LISTENBRAINZ_URL, &user_token, body)).await;
+    blocking::unblock(move || s::listenbrainz_send(LISTENBRAINZ_URL, &user_token, &body)).await;
 }

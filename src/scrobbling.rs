@@ -43,7 +43,7 @@ fn now_playing(meta: TrackMeta) {
     let c = config();
     std::thread::spawn(move || {
         if c.lb {
-            listenbrainz_send(&c.lb_url, &c.lb_token, listenbrainz_request(&meta, None));
+            listenbrainz_send(&c.lb_url, &c.lb_token, &listenbrainz_request(&meta, None));
         }
         if lastfm_configured(c.lfm_enabled, &c.lfm_sk)
             && let Err(e) = lastfm_call("track.updateNowPlaying", &lastfm_track_params(&meta, &c.lfm_sk), true, true)
@@ -57,7 +57,7 @@ fn scrobble(meta: TrackMeta, listened_at: i64) {
     let c = config();
     std::thread::spawn(move || {
         if c.lb {
-            listenbrainz_send(&c.lb_url, &c.lb_token, listenbrainz_request(&meta, Some(listened_at)));
+            listenbrainz_send(&c.lb_url, &c.lb_token, &listenbrainz_request(&meta, Some(listened_at)));
         }
         if lastfm_configured(c.lfm_enabled, &c.lfm_sk) {
             let mut p = lastfm_track_params(&meta, &c.lfm_sk);
