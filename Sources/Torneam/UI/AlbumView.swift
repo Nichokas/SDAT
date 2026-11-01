@@ -156,7 +156,8 @@ struct DetailPage: View {
                 if let favourite {
                     Button(isFav ? "Remove from Collection" : "Add to Collection", systemImage: isFav ? "star.slash" : "star") { toggleFav(favourite) }
                 }
-            } label: { Image(systemName: "ellipsis") }
+            } label: { Image(systemName: "ellipsis").foregroundStyle(.white) }
+            .tint(.white)
         }
         .task {
             guard let favourite else { return }
