@@ -10,6 +10,20 @@ final class Session {
     private(set) var signedIn = false
     private(set) var pending: DeviceLogin?
     var error: String?
+    /// True from sign-in (or a cold launch with no Discover cache, which shows an empty
+    /// spinner today) until Discover has its first covers; capped at 10 s.
+    private(set) var booting = false
+    @ObservationIgnored private var bootTimeout: Task<Void, Never>?
+
+    func startBoot() {
+        booting = true
+        bootTimeout?.cancel()
+        bootTimeout = Task { try? await Task.sleep(for: .seconds(10)); if !Task.isCancelled { finishBoot() } }
+    }
+    func finishBoot() {
+        bootTimeout?.cancel(); bootTimeout = nil
+        if booting { booting = false }
+    }
 
     private init() {
         try? FileManager.default.createDirectory(
@@ -18,6 +32,7 @@ final class Session {
         )
         initialize(tokens: tokens, config: DefaultsAppConfig())
         signedIn = tokens.refreshToken() != nil
+        if signedIn, !DiscoverCache.exists { startBoot() }
     }
 
     /// Starts TIDAL device linking; the user approves the code on link.tidal.com.
@@ -29,6 +44,7 @@ final class Session {
             let result = try await login.wait()
             tokens.save(result)
             sessionChanged()
+            startBoot()
             signedIn = true
         } catch {
             self.error = friendlyMessage(error)

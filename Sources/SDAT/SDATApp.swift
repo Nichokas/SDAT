@@ -10,7 +10,14 @@ struct SDATApp: App {
         WindowGroup {
             Group {
                 if session.signedIn {
-                    RootView()
+                    // RootView loads underneath, so the loader lasts only as long as the real load.
+                    ZStack {
+                        RootView()
+                        if session.booting {
+                            BootLoaderView().transition(.opacity).zIndex(1)
+                        }
+                    }
+                    .animation(.easeInOut(duration: 0.45), value: session.booting)
                 } else {
                     LoginView()
                 }
