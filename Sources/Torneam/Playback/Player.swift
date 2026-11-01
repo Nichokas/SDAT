@@ -109,6 +109,21 @@ final class Player {
         }
     }
 
+    /// Tapping one Discover cover: that song first, then the rest of the visible Discover
+    /// pool (from the tapped one onwards, wrapping), then the endless Discover shuffle.
+    func playDiscover(_ track: Track, pool: [Track], mixes: [Mix]) {
+        var seen: Set<String> = [String(describing: track.id)]
+        let i = pool.firstIndex { $0.id == track.id } ?? 0
+        let rest = (Array(pool.dropFirst(i + 1)) + Array(pool.prefix(i)))
+            .filter { seen.insert(String(describing: $0.id)).inserted }
+        let list = [track] + rest
+        infinite = mixes.isEmpty ? nil : Shuffle(mixes: mixes)
+        original = list
+        queue = list
+        sourceTitle = "Discover"
+        load(0)
+    }
+
     func setShuffle(_ on: Bool) {
         guard on != shuffle else { return }
         shuffle = on
@@ -217,12 +232,18 @@ final class Player {
 
     private func advance(auto: Bool) {
         guard let (t, fromUser, newIndex) = following() else {
-            // End of queue (repeat off): really stop the engine and rewind to the start,
-            // paused, like Apple Music. Previously only the flag flipped, so the UI showed
-            // "paused" while the audio kept playing after a manual next.
-            avPlayer.pause()
-            isPlaying = false
-            seek(to: 0)
+            // Endless (Discover) queue ran dry before the refill landed: fetch, then go on.
+            if let source = infinite {
+                loading = true
+                Task {
+                    let more = await fetchMore(from: source)
+                    guard infinite === source else { return }
+                    loading = false
+                    if more { advance(auto: auto) } else { stopAtEnd() }
+                }
+                return
+            }
+            stopAtEnd()
             return
         }
         if fromUser { userQueue.removeFirst() }
@@ -236,6 +257,16 @@ final class Player {
         } else {
             start(t)
         }
+    }
+
+    /// End of a finite queue (repeat off): really stop, rewound and paused.
+    private func stopAtEnd() {
+        // End of queue (repeat off): really stop the engine and rewind to the start,
+        // paused, like Apple Music. Previously only the flag flipped, so the UI showed
+        // "paused" while the audio kept playing after a manual next.
+        avPlayer.pause()
+        isPlaying = false
+        seek(to: 0)
     }
 
     private func load(_ i: Int, resumeAt: Double = 0) {
@@ -333,12 +364,31 @@ final class Player {
     }
 
     private func refillIfNeeded() {
-        guard let source = infinite, let i = index, queue.count - i <= 3 else { return }
-        Task {
-            guard let more = try? await source.nextBatch(min: 10), infinite === source else { return }
-            queue.append(contentsOf: more)
-            original.append(contentsOf: more)
+        guard let source = infinite, let i = index, queue.count - i <= 5 else { return }
+        Task { _ = await fetchMore(from: source) }
+    }
+
+    @ObservationIgnored private var refilling: Task<Bool, Never>?
+    /// Appends a new endless batch, skipping tracks already in the queue. One fetch at a time;
+    /// returns whether anything was added.
+    private func fetchMore(from source: Shuffle) async -> Bool {
+        if let r = refilling { return await r.value }
+        let task = Task { @MainActor () -> Bool in
+            defer { refilling = nil }
+            for _ in 0..<3 {
+                guard let batch = try? await source.nextBatch(min: 10), infinite === source else { return false }
+                var ids = Set(queue.map { String(describing: $0.id) })
+                let fresh = batch.filter { ids.insert(String(describing: $0.id)).inserted }
+                if !fresh.isEmpty {
+                    queue.append(contentsOf: fresh); original.append(contentsOf: fresh)
+                    invalidatePreload(); schedulePreload()
+                    return true
+                }
+            }
+            return false
         }
+        refilling = task
+        return await task.value
     }
 
     // MARK: system integration

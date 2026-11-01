@@ -11,7 +11,7 @@ struct DiscoverView: View {
 
     var body: some View {
         ZStack(alignment: .top) {
-            CoverPlane(tracks: tracks) { t in player.play([t], from: "Discover") }
+            CoverPlane(tracks: tracks) { t in player.playDiscover(t, pool: tracks, mixes: mixes) }
                 .ignoresSafeArea()
             // Smooth scrims so the title, buttons and bottom bar stay legible over bright covers.
             LinearGradient(stops: [
