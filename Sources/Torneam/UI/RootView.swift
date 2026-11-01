@@ -107,7 +107,9 @@ private struct MorphProbe: View, Animatable {
         let sized = hasMini && !inDetail && W > 0
         let tabF = CGFloat(hasMini && !inDetail ? f.tabF : 0)
         let miniF = CGFloat(f.miniF)
-        HStack(spacing: hasMini && !inDetail ? CGFloat(Morph.gap) : 0) {
+        // Tab bar pinned leading, miniplayer trailing: while the growing shape lags the
+        // shrinking one, the extra room is a transparent gap (never drift / overlap).
+        HStack(spacing: 0) {
             if !inDetail {
                 TabBar(p: tabF)
                     .frame(width: sized ? CGFloat(f.tabW) : nil, height: 62 - 8 * tabF)
@@ -116,6 +118,7 @@ private struct MorphProbe: View, Animatable {
                     .glassEffectID("tabs", in: ns!)
             }
             if hasMini {
+                if !inDetail { Spacer(minLength: CGFloat(Morph.gap)) }
                 MiniPlayer(style: inDetail ? .wide : (miniF >= 0.5 ? .capsule : .circle),
                            p: inDetail ? 1 : miniF)
                     // Explicit width (never content-sized), see layout-loop note in history.

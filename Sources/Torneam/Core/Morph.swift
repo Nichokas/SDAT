@@ -11,11 +11,6 @@ enum Morph {
     static let circle = 62.0     // miniplayer circle
     static let gap = 12.0
 
-    /// Snappy ease-out with a slight overshoot (bounce); callers clamp it to the budget.
-    static func fast(_ x: Double) -> Double {
-        let u = min(max(x, 0), 1) - 1, s = 0.6
-        return 1 + (s + 1) * u * u * u + s * u * u
-    }
     /// Soft ease-in-out (smootherstep).
     static func soft(_ x: Double) -> Double {
         let u = min(max(x, 0), 1)
@@ -31,24 +26,25 @@ enum Morph {
 
     /// `w` = width inside the horizontal margins. `t` = collapse clock (0 expanded, 1 collapsed).
     /// `collapsing` = direction of the running/last transition.
-    /// The two widths are complementary on ONE budget: tabW + gap + miniW == w at every t,
-    /// so the HStack never has slack to re-centre (shapes drifting / big gaps) nor overflow.
-    /// Feel: the shared fraction leaves fast (the shrinking shape snaps away) and lands
-    /// softly (the growing shape spreads into the freed space).
+    /// Per-role speeds on ONE budget: the shrinking shape snaps away (ease-out, done at
+    /// 0.3 s of 0.6 s, like a released rubber band), the growing one spreads slowly
+    /// (ease-in-out over 0.6 s, like water) and is capped at the space actually freed, so
+    /// tabW + gap + miniW <= w always. Any leftover is a transparent, temporary extra gap:
+    /// the tab bar is pinned to the leading margin and the miniplayer to the trailing one.
     static func frame(width w: Double, t: Double, collapsing: Bool) -> Frame {
         let a = max(w - gap, round + circle)
-        let tabMax = a - circle
+        let tabMax = a - circle, span = tabMax - round
         let c = clamp01(t)
-        let g = collapsing ? ease(c) : 1 - ease(1 - c)
-        let tabW = tabMax - (tabMax - round) * g
-        return Frame(tabW: tabW, miniW: a - tabW, tabF: g, miniF: g)
+        let shrink = snap(collapsing ? c : 1 - c)
+        let grow = soft(collapsing ? c : 1 - c)
+        var tabF: Double, miniF: Double
+        if collapsing { tabF = shrink; miniF = min(grow, tabF) }
+        else { miniF = 1 - shrink; tabF = max(1 - grow, miniF) }
+        return Frame(tabW: tabMax - span * tabF, miniW: circle + span * miniF, tabF: tabF, miniF: miniF)
     }
 
-    /// Fast start, soft landing (blend of the snappy and soft curves, monotonic, no overshoot).
-    static func ease(_ x: Double) -> Double {
-        let u = clamp01(x)
-        return 0.5 * (1 - pow(1 - u, 3)) + 0.5 * soft(u)
-    }
+    /// Rubber-band release: fast start, ease-out, finished at `shrinkShare` of the clock.
+    static func snap(_ x: Double) -> Double { 1 - pow(1 - clamp01(x / shrinkShare), 3) }
 
     /// Short, crisp crossfade around the midpoint: content is fully shown outside 0.38...0.62,
     /// outgoing is gone exactly when incoming starts (never both visible).
