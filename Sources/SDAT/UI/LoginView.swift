@@ -1,10 +1,9 @@
 import SwiftUI
 
-/// Onboarding / TIDAL device linking: name pill on top, hero mark in the middle,
-/// Liquid Glass sign-in button at the bottom. The flow itself lives in Session.
+/// Onboarding / TIDAL device linking: hero logo in the upper part of the screen,
+/// blue Liquid Glass sign-in button at the bottom. The flow itself lives in Session.
 struct LoginView: View {
-    /// Shown in the top pill.
-    static let appName = "SDAT"
+    static let logoSize: CGFloat = 220
 
     @Environment(Session.self) private var session
     @Environment(\.openURL) private var openURL
@@ -14,20 +13,18 @@ struct LoginView: View {
     var body: some View {
         ZStack {
             Color.black.ignoresSafeArea()
-            ScrollView {
-                VStack(spacing: 0) {
-                    NamePill(title: Self.appName)
-                        .padding(.top, 12)
-                        .opacity(appeared ? 1 : 0)
-                        .offset(y: appeared ? 0 : -8)
-                    Spacer(minLength: 24)
-                    hero
-                    Spacer(minLength: 24)
+            GeometryReader { g in
+                ScrollView {
+                    VStack(spacing: 0) {
+                        // Logo centre at ~37% of the screen height.
+                        Color.clear.frame(height: max(24, g.size.height * 0.37 - Self.logoSize / 2))
+                        hero
+                        Spacer(minLength: 24)
+                    }
+                    .frame(maxWidth: .infinity, minHeight: g.size.height, alignment: .top)
                 }
-                .frame(maxWidth: .infinity)
-                .containerRelativeFrame(.vertical, alignment: .top) { h, _ in h }
+                .scrollBounceBehavior(.basedOnSize)
             }
-            .scrollBounceBehavior(.basedOnSize)
         }
         .safeAreaInset(edge: .bottom) { bottom }
         .preferredColorScheme(.dark)
@@ -39,8 +36,9 @@ struct LoginView: View {
     @ViewBuilder private var hero: some View {
         VStack(spacing: 24) {
             LogoTile()
-                .frame(width: 220, height: 220)
+                .frame(width: Self.logoSize, height: Self.logoSize)
                 .scaleEffect(appeared ? 1 : 0.85)
+                .offset(y: appeared ? 0 : 16)
                 .opacity(appeared ? 1 : 0)
             if let login = session.pending {
                 VStack(spacing: 10) {
@@ -55,11 +53,6 @@ struct LoginView: View {
                     }
                 }
                 .transition(.opacity.combined(with: .scale(scale: 0.95)))
-            } else {
-                Text("Your TIDAL library, in Liquid Glass.")
-                    .font(.subheadline).foregroundStyle(.secondary)
-                    .multilineTextAlignment(.center)
-                    .opacity(appeared ? 1 : 0)
             }
             if let error = session.error {
                 Label(error, systemImage: "exclamationmark.triangle.fill")
@@ -93,19 +86,6 @@ struct LoginView: View {
         .padding(.bottom, 12)
         .offset(y: appeared ? 0 : 40)
         .opacity(appeared ? 1 : 0)
-    }
-}
-
-/// Top capsule: small dot + app name.
-private struct NamePill: View {
-    let title: String
-    var body: some View {
-        HStack(spacing: 8) {
-            Circle().fill(.white).frame(width: 6, height: 6)
-            Text(title).font(.headline).foregroundStyle(.white)
-        }
-        .padding(.horizontal, 18).padding(.vertical, 10)
-        .glassEffect(.regular, in: .capsule)
     }
 }
 
