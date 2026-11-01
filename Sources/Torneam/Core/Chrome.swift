@@ -25,12 +25,14 @@ final class Chrome {
     var collapsed: Bool { progress >= 0.5 }
     /// Per-component drivers derived from `progress`: equal to it while the finger drives,
     /// animated separately on settle (the shrinking one snaps, the growing one spreads).
-    var tabP: CGFloat = 0
-    var miniP: CGFloat = 0
+    /// Single morph clock (0 expanded ... 1 collapsed), animated linearly; widths and
+    /// fades are all derived from it in `Morph`, so the shapes can never overlap.
+    var morphT: CGFloat = 0
+    var morphCollapsing = true
     /// Finger-driven update: all three move together, un-animated.
     func setDirect(_ p: CGFloat) {
         var t = Transaction(); t.disablesAnimations = true
-        withTransaction(t) { progress = p; tabP = p; miniP = p }
+        withTransaction(t) { progress = p; morphT = p }
     }
     /// Direction-specific: collapse is quick, expand is deliberately ~2x slower.
     func setCollapsed(_ on: Bool) {
@@ -43,8 +45,9 @@ final class Chrome {
         let v: CGFloat = on ? 1 : 0
         progress = v
         // Collapsing: tab bar shrinks (snappy), miniplayer grows (soft). Expanding: swapped.
-        withAnimation(on ? Motion.shrink : Motion.grow) { tabP = v }
-        withAnimation(on ? Motion.grow : Motion.shrink) { miniP = v }
+        // One linear clock; the per-role snappy/soft curves live in Morph.frame.
+        morphCollapsing = on
+        withAnimation(.linear(duration: Morph.duration)) { morphT = v }
         do {
             Task { @MainActor in
                 try? await Task.sleep(for: .milliseconds(620))

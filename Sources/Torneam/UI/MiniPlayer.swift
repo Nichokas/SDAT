@@ -31,11 +31,15 @@ struct MiniPlayer: View {
         // never centred in the growing capsule. Circle content is gone within the first 6%
         // of the morph (6%); capsule content only appears once the shape is 60% grown.
         ZStack(alignment: .trailing) {
+            // Outgoing content shrinks to 0.6 and is gone by 30% of the shape change;
+            // incoming starts at 45% (Morph schedule), so two rings never coexist.
             capsuleContent
-                .opacity(min(max((p - 0.6) / 0.4, 0), 1))
+                .scaleEffect(style == .wide ? 1 : Morph.inScale(p), anchor: .trailing)
+                .opacity(style == .wide ? 1 : Morph.inAlpha(p))
                 .allowsHitTesting(!isCircle)
             circleContent
-                .opacity(min(max(1 - p / 0.06, 0), 1))
+                .scaleEffect(Morph.outScale(p), anchor: .trailing)
+                .opacity(Morph.outAlpha(p))
                 .allowsHitTesting(isCircle)
         }
         // The capsule content has a ~130 pt minimum; when the shape is narrower the ZStack

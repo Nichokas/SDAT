@@ -66,43 +66,12 @@ private struct BottomChrome: View {
         let hasMini = player.current != nil && !chrome.inSettings
         // Spacing 0: bar and miniplayer stay separate shapes (no pinched neck);
         // glassEffectID still morphs each between its states.
-        // Tab bar and miniplayer are sized from the SAME progress value, so they move in
-        // lockstep: the finger drives it directly, idle settles it (Motion.shrink / Motion.grow per component).
+        // Both widths come from ONE budget and ONE clock (Morph.frame): no overlap, no overflow.
+        // Snappy-shrink / soft-grow roles are easing curves inside Morph, not separate animations.
         let on = hasMini && !chrome.inDetail
-        let p = on ? chrome.tabP : 0      // tab bar driver
-        let mp = on ? chrome.miniP : 0    // miniplayer driver
-        let lerp = { (a: CGFloat, b: CGFloat, t: CGFloat) in a + (b - a) * t }
-        // Each shape sized from its own driver; the shrinking one is always faster, so they
-        // can leave a brief gap but never overlap.
-        let tabW = W > 0 ? lerp(W - 62 - 12, 54, p) : nil
-        let miniW = W > 0 ? lerp(62, W - 54 - 12, mp) : nil
-        let h = lerp(62, 54, p)
-        let mh = lerp(62, 54, mp)
+        let m = MorphProbe(t: on ? chrome.morphT : 0, collapsing: chrome.morphCollapsing, W: W)
         GlassEffectContainer(spacing: 0) {
-            HStack(spacing: 0) {
-                if !chrome.inDetail {
-                    TabBar(p: p)
-                        .frame(width: hasMini ? tabW : nil, height: h)
-                        .frame(maxWidth: hasMini ? nil : .infinity)
-                        .glassEffect(.regular.interactive(), in: .capsule)
-                        .glassEffectID("tabs", in: ns)
-                }
-                if hasMini {
-                    if !chrome.inDetail { Spacer(minLength: 12) }
-                    MiniPlayer(style: chrome.inDetail ? .wide : (mp >= 0.5 ? .capsule : .circle),
-                               p: chrome.inDetail ? 1 : mp)
-                        // Explicit width (never content-sized): the capsule content's minimum
-                        // width used to push the HStack wider than W, which re-measured W and
-                        // looped layout forever on the main thread (the freeze on first play).
-                        .frame(width: chrome.inDetail || miniW == nil ? nil : max(miniW!, 54),
-                               height: chrome.inDetail ? 62 : mh)
-                        .frame(maxWidth: chrome.inDetail || miniW == nil ? .infinity : nil)
-                        .glassEffect(.regular.interactive(), in: .capsule)
-                        .glassEffectID("mini", in: ns)
-                        .scaleEffect(chrome.miniPressed ? 1.08 : 1)
-                        .animation(.spring(response: 0.25, dampingFraction: 0.7), value: chrome.miniPressed)
-                }
-            }
+            m.content(hasMini: hasMini, inDetail: chrome.inDetail, ns: ns, pressed: chrome.miniPressed)
         }
         // Measure the available width OUTSIDE the content so it can't feed back into itself.
         .frame(maxWidth: .infinity)
@@ -114,6 +83,51 @@ private struct BottomChrome: View {
         .padding(.horizontal, 24)
         .padding(.bottom, 12)
         .animation(Motion.bar, value: ChromeState(detail: chrome.inDetail, mini: hasMini))
+    }
+}
+
+/// Animatable wrapper: SwiftUI interpolates `t`, and each frame recomputes the whole
+/// layout from `Morph.frame`, so both widths always come from one budget.
+private struct MorphProbe: View, Animatable {
+    var t: CGFloat
+    let collapsing: Bool
+    let W: CGFloat
+    var animatableData: CGFloat { get { t } set { t = newValue } }
+    private var hasMini = false, inDetail = false, pressed = false
+    private var ns: Namespace.ID?
+
+    init(t: CGFloat, collapsing: Bool, W: CGFloat) { self.t = t; self.collapsing = collapsing; self.W = W }
+
+    func content(hasMini: Bool, inDetail: Bool, ns: Namespace.ID, pressed: Bool) -> MorphProbe {
+        var c = self; c.hasMini = hasMini; c.inDetail = inDetail; c.ns = ns; c.pressed = pressed; return c
+    }
+
+    var body: some View {
+        let f = Morph.frame(width: Double(W), t: Double(t), collapsing: collapsing)
+        let sized = hasMini && !inDetail && W > 0
+        let tabF = CGFloat(hasMini && !inDetail ? f.tabF : 0)
+        let miniF = CGFloat(f.miniF)
+        HStack(spacing: hasMini && !inDetail ? CGFloat(Morph.gap) : 0) {
+            if !inDetail {
+                TabBar(p: tabF)
+                    .frame(width: sized ? CGFloat(f.tabW) : nil, height: 62 - 8 * tabF)
+                    .frame(maxWidth: sized ? nil : .infinity)
+                    .glassEffect(.regular.interactive(), in: .capsule)
+                    .glassEffectID("tabs", in: ns!)
+            }
+            if hasMini {
+                MiniPlayer(style: inDetail ? .wide : (miniF >= 0.5 ? .capsule : .circle),
+                           p: inDetail ? 1 : miniF)
+                    // Explicit width (never content-sized), see layout-loop note in history.
+                    .frame(width: sized ? CGFloat(f.miniW) : nil, height: inDetail ? 62 : 62 - 8 * miniF)
+                    .frame(maxWidth: sized ? nil : .infinity)
+                    .glassEffect(.regular.interactive(), in: .capsule)
+                    .glassEffectID("mini", in: ns!)
+                    .scaleEffect(pressed ? 1.08 : 1)
+                    .animation(.spring(response: 0.25, dampingFraction: 0.7), value: pressed)
+            }
+        }
+        .frame(maxWidth: .infinity)
     }
 }
 
@@ -163,12 +177,16 @@ private struct TabBar: View {
     var body: some View {
         ZStack(alignment: .leading) {
             // Staggered: tabs gone in the first half, circle icon in during the second.
+            // Tabs fade + shrink out in the first 30% of the shape change; the round
+            // button's icon only fades/scales in after they are gone (Morph schedule).
             expanded
                 .frame(width: p > 0 && barWidth > 0 ? barWidth + 8 : nil)
-                .opacity(max(0, 1 - p * 2))
+                .scaleEffect(Morph.outScale(p), anchor: .leading)
+                .opacity(Morph.outAlpha(p))
                 .allowsHitTesting(!collapsed)
             circle
-                .opacity(max(0, p * 2 - 1))
+                .scaleEffect(Morph.inScale(p))
+                .opacity(Morph.inAlpha(p))
                 .allowsHitTesting(collapsed)
         }
         // Expanded content keeps its full width while shrinking; pin it leading and clip so
@@ -181,7 +199,8 @@ private struct TabBar: View {
             let cur = items.first { $0.0 == chrome.tab } ?? items[0]
             Button { chrome.setCollapsed(false) } label: {
                 Image(systemName: cur.2).font(.system(size: 21, weight: .medium)).foregroundStyle(.blue)
-                    .frame(width: 54, height: 54)
+                    .frame(width: 54)
+                    .frame(maxHeight: .infinity)
                     .contentShape(.circle)
             }
             .buttonStyle(.plain)
