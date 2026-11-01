@@ -241,6 +241,7 @@ final class Downloads {
         progress = [:]; activeOrder = []; activeTracks = [:]
         while let w = worker { w.cancel(); await w.value; if worker == w { worker = nil } }
         failures = [:]; entries = [:]; coverMap = [:]
+        await indexWrite?.value; indexWrite = nil
         let d = Self.dir
         await Task.detached(priority: .userInitiated) { try? FileManager.default.removeItem(at: d) }.value
     }
@@ -395,7 +396,7 @@ final class Downloads {
         let b = [UInt8](d)
         func find(_ tag: String) -> Int? {
             let t = Array(tag.utf8)
-            guard b.count >= 4 else { return nil }
+            guard b.count >= 7 else { return nil }
             for i in 4..<(b.count - 3) where b[i] == t[0] && b[i+1] == t[1] && b[i+2] == t[2] && b[i+3] == t[3] { return i }
             return nil
         }
@@ -469,10 +470,14 @@ final class Downloads {
     private func saveIndex() {
         rebuildCoverMap()
         let snapshot = entries
-        Task.detached(priority: .utility) {
+        let prev = indexWrite
+        // Chained so writes land in call order; the last snapshot always wins.
+        indexWrite = Task.detached(priority: .utility) {
+            await prev?.value
             try? JSONEncoder().encode(snapshot).write(to: Downloads.indexURL, options: .atomic)  // fails if the folder was wiped
         }
     }
+    @ObservationIgnored private var indexWrite: Task<Void, Never>?
     private func rebuildCoverMap() {
         coverMap = [:]
         for e in entries.values {
