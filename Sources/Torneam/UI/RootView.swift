@@ -33,7 +33,7 @@ struct RootView: View {
             }
         }
         .animation(.spring(duration: 0.35), value: chrome.toast)
-        .onChange(of: chrome.tab) { if chrome.collapsed { chrome.collapsed = false } }
+        .onChange(of: chrome.tab) { if chrome.collapsed { withAnimation(Motion.bar) { chrome.collapsed = false } } }
         .sheet(isPresented: $chrome.showPlayer) { PlayerSheet() }
         .sheet(item: $chrome.playlistPickerTrack) { t in PlaylistPicker(track: t) }
         .alert("Playback error", isPresented: Binding(
@@ -71,7 +71,7 @@ private struct BottomChrome: View {
         }
         .padding(.horizontal, 24)
         .padding(.bottom, 12)
-        .animation(.smooth(duration: 0.38), value: ChromeState(collapsed: chrome.collapsed, detail: chrome.inDetail, mini: hasMini))
+        .animation(Motion.bar, value: ChromeState(collapsed: chrome.collapsed, detail: chrome.inDetail, mini: hasMini))
     }
 }
 
@@ -94,7 +94,7 @@ private struct TabBar: View {
     var body: some View {
         if collapsed {
             let cur = items.first { $0.0 == chrome.tab } ?? items[0]
-            Button { chrome.collapsed = false } label: {
+            Button { withAnimation(Motion.bar) { chrome.collapsed = false } } label: {
                 Image(systemName: cur.2).font(.system(size: 21, weight: .medium)).foregroundStyle(.blue)
                     .frame(width: 62, height: 62)
                     .contentShape(.circle)
@@ -109,9 +109,10 @@ private struct TabBar: View {
                         if on { chrome.paths[tab] = [] } else {
                             // Swap the tab content instantly (no animated rebuild of the
                             // whole page); only the pill and icon animate.
-                            var t = Transaction(); t.disablesAnimations = true
-                            withTransaction(t) { chrome.tab = tab }
-                            withAnimation(.snappy(duration: 0.32)) { selected = tab }
+                            // Plain set (no disablesAnimations: that transaction also reached
+                            // onChange/collapse and suppressed the bar's own animation).
+                            chrome.tab = tab
+                            withAnimation(Motion.pill) { selected = tab }
                             bounce += 1
                         }
                     } label: {
@@ -139,7 +140,8 @@ private struct TabBar: View {
             .padding(4)
             .glassEffect(.regular.interactive(), in: .capsule)
             .sensoryFeedback(.selection, trigger: chrome.tab)
-            .onChange(of: chrome.tab) { _, t in if selected != t { selected = t } }
+            .onAppear { if selected == nil { selected = chrome.tab } }
+            .onChange(of: chrome.tab) { _, t in if selected != t { withAnimation(Motion.pill) { selected = t } } }
         }
     }
 }
@@ -175,7 +177,7 @@ extension View {
         onScrollGeometryChange(for: Bool.self) { g in
             g.contentOffset.y + g.contentInsets.top > 40
         } action: { _, down in
-            if Chrome.shared.collapsed != down { withAnimation(.smooth(duration: 0.38)) { Chrome.shared.collapsed = down } }
+            if Chrome.shared.collapsed != down { withAnimation(Motion.bar) { Chrome.shared.collapsed = down } }
         }
     }
 
@@ -234,3 +236,9 @@ struct PlaylistPicker: View {
 }
 
 private struct ChromeState: Equatable { var collapsed, detail, mini: Bool }
+
+/// Bottom-bar motion: native ease-in/ease-out springs, a little slower through the middle.
+enum Motion {
+    static let pill = Animation.spring(response: 0.5, dampingFraction: 0.86)
+    static let bar = Animation.smooth(duration: 0.48)
+}
