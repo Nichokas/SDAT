@@ -96,11 +96,11 @@ struct MiniPlayer: View {
     private func ringIcon(size: CGFloat) -> some View {
             Group {
                 // Loading: no spinner; the dashed ring itself spins instead.
-                if !player.loading {
-                    Image(systemName: player.isPlaying ? "pause.fill" : "play.fill")
-                        .font(.system(size: size * 0.32))
-                        .contentTransition(.symbolEffect(.replace))
-                }
+                // Always mounted; hidden (not removed) while loading so nothing is re-inserted.
+                Image(systemName: player.isPlaying ? "pause.fill" : "play.fill")
+                    .font(.system(size: size * 0.32))
+                    .contentTransition(.symbolEffect(.replace))
+                    .opacity(player.loading ? 0 : 1)
             }
                 .frame(width: size, height: size)
                 .overlay { ProgressRing(progress: player.progress, spinning: player.loading).padding(size * 0.14) }
@@ -152,19 +152,16 @@ struct ProgressRing: View {
 
 private struct Spin: ViewModifier {
     let on: Bool
+    /// ONE stable view in both states (no if/else branch): switching branches swapped the
+    /// ring's identity with an opacity transition on every track change, so the ring (and,
+    /// with the icon removed while loading, the whole circle) blinked out and back.
     func body(content: Content) -> some View {
-        if on {
-            TimelineView(.animation) { tl in
-                let t = tl.date.timeIntervalSinceReferenceDate
-                content.rotationEffect(.degrees(t.truncatingRemainder(dividingBy: 1) * 360))
-            }
-            .transition(.opacity)
-        } else {
-            content.transition(.opacity)
+        TimelineView(.animation(paused: !on)) { tl in
+            let t = tl.date.timeIntervalSinceReferenceDate
+            content.rotationEffect(.degrees(on ? t.truncatingRemainder(dividingBy: 1) * 360 : 0))
         }
     }
 }
-
 
 /// Touch-down press recognizer: `onDown` immediately, `onHold` once after `hold` seconds
 /// unless the finger moved more than `slop` or lifted; `onEnd` always (tap / hold / cancel).
