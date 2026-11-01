@@ -6,27 +6,87 @@ struct AlbumView: View {
     let id: String
     @Environment(Recents.self) private var recents
     @Environment(Player.self) private var player
+    @State private var detail: AlbumDetail?
+    @State private var offline: [Track]?
+    @State private var error: String?
 
     var body: some View {
-        Loader(load: { try await album(id: id) }) { d in
-            DetailPage(
-                title: d.album.title,
-                subtitle: [d.album.artistLine, d.album.releaseDate.map { String($0.prefix(4)) }].compactMap { $0 }.joined(separator: " · "),
-                subtitleRoute: d.album.artists.first.map { Route.artist($0.id) },
-                cover: d.album.coverUrlLarge ?? d.album.coverUrl,
-                mosaic: [],
-                tracks: d.tracks,
-                loadingMore: false,
-                footer: Fmt.summary(count: d.album.trackCount, secs: d.album.durationSecs),
-                favourite: (.album, d.album.id),
-                numbered: true,
-                ownPlaylistId: nil,
-                onRemoved: { _ in }
-            )
-            .onAppear {
-                recents.add(.init(kind: .album, id: d.album.id, title: d.album.title,
-                                  subtitle: d.album.artistLine, coverUrl: d.album.coverUrl))
+        Group {
+            if let d = detail {
+                DetailPage(
+                    title: d.album.title,
+                    subtitle: [d.album.artistLine, d.album.releaseDate.map { String($0.prefix(4)) }].compactMap { $0 }.joined(separator: " · "),
+                    subtitleRoute: d.album.artists.first.map { Route.artist($0.id) },
+                    cover: d.album.coverUrlLarge ?? d.album.coverUrl,
+                    mosaic: [],
+                    tracks: d.tracks,
+                    loadingMore: false,
+                    footer: Fmt.summary(count: d.album.trackCount, secs: d.album.durationSecs),
+                    favourite: (.album, d.album.id),
+                    numbered: true,
+                    ownPlaylistId: nil,
+                    onRemoved: { _ in }
+                )
+                .onAppear {
+                    recents.add(.init(kind: .album, id: d.album.id, title: d.album.title,
+                                      subtitle: d.album.artistLine, coverUrl: d.album.coverUrl))
+                }
+            } else if let t = offline, let a = t.first?.album {
+                let info = Downloads.shared.albumInfo(id)
+                DetailPage(
+                    title: a.title,
+                    subtitle: [info.artist ?? t.first?.artistLine, info.year].compactMap { $0 }.joined(separator: " · "),
+                    subtitleRoute: nil,
+                    cover: a.coverUrlLarge ?? a.coverUrl,
+                    mosaic: [],
+                    tracks: t,
+                    loadingMore: false,
+                    footer: "Offline – showing downloaded songs only\n" + Fmt.summary(count: UInt32(t.count), secs: t.reduce(0) { $0 + $1.durationSecs }),
+                    favourite: nil,
+                    numbered: false,
+                    ownPlaylistId: nil,
+                    onRemoved: { _ in }
+                )
+            } else if let error {
+                ContentUnavailableView {
+                    Label("Couldn't load", systemImage: "wifi.exclamationmark")
+                } description: { Text(error) } actions: {
+                    Button("Retry") { self.error = nil; Task { await load() } }.buttonStyle(.glass)
+                }
+            } else {
+                DetailSkeleton()
             }
+        }
+        .task { await load() }
+    }
+
+    private func load() async {
+        guard detail == nil else { return }
+        do {
+            let d = try await withDeadline(10) { try await album(id: id) }
+            detail = d; offline = nil
+            Downloads.shared.note(d)
+        } catch {
+            let local = Downloads.shared.tracks(inAlbum: id)
+            if !local.isEmpty { offline = local } else { self.error = friendlyMessage(error) }
+        }
+    }
+}
+
+struct DeadlineError: LocalizedError { var errorDescription: String? { "The request timed out." } }
+
+/// Returns `op`'s result, or throws after `seconds` without waiting for `op` to finish
+/// (a hung network call can't keep a page on its skeleton).
+@MainActor
+func withDeadline<T: Sendable>(_ seconds: Double, _ op: @escaping @Sendable () async throws -> T) async throws -> T {
+    try await withCheckedThrowingContinuation { (c: CheckedContinuation<T, Error>) in
+        var done = false
+        func finish(_ r: Result<T, Error>) { guard !done else { return }; done = true; c.resume(with: r) }
+        Task { @MainActor in
+            do { let v = try await op(); finish(.success(v)) } catch { finish(.failure(error)) }
+        }
+        Task { @MainActor in
+            try? await Task.sleep(for: .seconds(seconds)); finish(.failure(DeadlineError()))
         }
     }
 }
@@ -76,7 +136,7 @@ struct PlaylistView: View {
     private func load() async {
         guard pl == nil else { return }
         let pager = playlistTracks(id: id)
-        async let header = playlist(id: id)
+        async let header = withDeadline(12) { try await playlist(id: id) }
         async let first = pager.nextPage()
         do {
             let p = try await header

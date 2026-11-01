@@ -65,6 +65,12 @@ struct CachedImage: View {
             }
             .task(id: target) {
                 guard let t = target, width > 0 else { if url == nil { image = nil }; return }
+                // Downloaded artwork first: instant and works offline.
+                if let u = url, let f = Downloads.shared.coverFile(forRemote: u),
+                   let img = UIImage(contentsOfFile: f.path) {
+                    image = img
+                    return
+                }
                 if let c = ImageStore.shared.cached(t) { image = c; return }
                 if image == nil, let u = url { image = ImageStore.shared.cached(u) }
                 if let img = await ImageStore.shared.image(t) { image = img }

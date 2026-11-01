@@ -26,6 +26,10 @@ final class Downloads {
         var bandwidth: Int?       // bits/s from EXT-X-STREAM-INF
         var sampleRate: Int?      // Hz, from the init segment
         var bitDepth: Int?        // FLAC only, from the init segment
+        // Album metadata for the offline album page (optional: absent in old entries).
+        var albumArtist: String?
+        var albumYear: String?
+        var trackNumber: Int?
 
         /// "HI-RES 24-bit/96 kHz", "FLAC 16-bit/44.1 kHz", "AAC 320 kbps"; nil when unknown (old entries).
         var qualityText: String? {
@@ -57,6 +61,7 @@ final class Downloads {
     private var currentID: String?
     /// Remote cover URL → local file, so covers show offline.
     @ObservationIgnored private var coverMap: [String: URL] = [:]
+    @ObservationIgnored private var albumMeta: [String: AlbumDetail] = [:]
 
     nonisolated static var dir: URL {
         let d = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
@@ -77,6 +82,47 @@ final class Downloads {
             entries = e.filter { FileManager.default.fileExists(atPath: Self.dir.appendingPathComponent($0.value.file).path) }
         }
         rebuildCoverMap()
+        Task { try? await Task.sleep(for: .seconds(8)); await backfillCovers() }
+    }
+
+    /// Downloaded tracks of an album, in album order when known.
+    func tracks(inAlbum albumId: String) -> [Track] {
+        entries.values.filter { $0.track.albumId == albumId }
+            .sorted { ($0.trackNumber ?? Int.max, $0.date) < ($1.trackNumber ?? Int.max, $1.date) }
+            .compactMap { DiscoverCache.decode([$0.track]).first }
+    }
+    func albumInfo(_ albumId: String) -> (artist: String?, year: String?) {
+        let e = entries.values.first { $0.track.albumId == albumId }
+        return (e?.albumArtist, e?.albumYear)
+    }
+    /// Online album page loaded: fill album metadata into entries of that album.
+    func note(_ d: AlbumDetail) {
+        var changed = false
+        for (i, t) in d.tracks.enumerated() where entries[t.id] != nil {
+            entries[t.id]!.albumArtist = d.album.artistLine
+            entries[t.id]!.albumYear = d.album.releaseDate.map { String($0.prefix(4)) }
+            entries[t.id]!.trackNumber = i + 1
+            changed = true
+        }
+        if changed { saveIndex() }
+    }
+
+    /// Saves artwork for entries without it: memory cache first, then the network (low priority).
+    func backfillCovers() async {
+        for (id, e) in entries where e.cover == nil {
+            guard let t = DiscoverCache.decode([e.track]).first, let a = t.album,
+                  let remote = a.coverUrlLarge ?? a.coverUrl else { continue }
+            let cname = "cover-\(a.id).jpg"
+            let cf = Self.dir.appendingPathComponent(cname)
+            if !FileManager.default.fileExists(atPath: cf.path) {
+                var data = [remote, a.coverUrl].compactMap { $0 }.lazy.compactMap { ImageStore.shared.cached($0)?.jpegData(compressionQuality: 0.9) }.first
+                if data == nil, let u = URL(string: remote) { data = try? await URLSession.shared.data(from: u).0 }
+                guard let data, UIImage(data: data) != nil else { continue }
+                try? data.write(to: cf, options: .atomic)
+            }
+            entries[id]?.cover = cname
+        }
+        saveIndex()
     }
 
     // MARK: queries
@@ -272,11 +318,20 @@ final class Downloads {
         if let a = t.album, let cover {
             for r in [a.coverUrl, a.coverUrlLarge].compactMap({ $0 }) { coverMap[r] = Self.dir.appendingPathComponent(cover) }
         }
+        var meta: (String?, String?, Int?) = (nil, nil, nil)
+        if let a = t.album {
+            if albumMeta[a.id] == nil, let d = try? await SDAT.album(id: a.id) { albumMeta[a.id] = d }
+            if let d = albumMeta[a.id] {
+                meta = (d.album.artistLine, d.album.releaseDate.map { String($0.prefix(4)) },
+                        d.tracks.firstIndex { $0.id == t.id }.map { $0 + 1 })
+            }
+        }
         return Entry(track: DiscoverCache.encode([t])[0], file: name, cover: cover, quality: s.quality.key,
                      size: size, date: Date(), gainDb: s.trackGain?.gainDb, peak: s.trackGain?.peak,
                      albumGainDb: s.albumGain?.gainDb, albumPeak: s.albumGain?.peak,
                      formats: s.formats, codec: variant?.codecs, bandwidth: variant?.bandwidth,
-                     sampleRate: sampleRate, bitDepth: bitDepth)
+                     sampleRate: sampleRate, bitDepth: bitDepth,
+                     albumArtist: meta.0, albumYear: meta.1, trackNumber: meta.2)
     }
 
     struct Variant { var url: URL; var bandwidth: Int?; var codecs: String? }
