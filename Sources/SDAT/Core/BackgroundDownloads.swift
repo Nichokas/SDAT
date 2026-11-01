@@ -34,15 +34,8 @@ final class BackgroundDownloads {
         let r = BGContinuedProcessingTaskRequest(identifier: id, title: "Downloading \(dl.batchCount) song\(dl.batchCount == 1 ? "" : "s")",
                                                  subtitle: dl.currentTitle ?? "SDAT")
         r.strategy = .queue
-        if #available(iOS 27, *) {
-            Task {
-                do { try await BGTaskScheduler.shared.submitTaskRequest(r) }
-                catch { bgLog.error("submit failed: \(error.localizedDescription, privacy: .public)"); self.submitting = false }
-            }
-        } else {
-            do { try BGTaskScheduler.shared.submit(r) }
-            catch { bgLog.error("submit failed: \(error.localizedDescription, privacy: .public)"); submitting = false }
-        }
+        do { try BGTaskScheduler.shared.submit(r) }
+        catch { bgLog.error("submit failed: \(error.localizedDescription, privacy: .public)"); submitting = false }
     }
 
     private func run(_ t: BGContinuedProcessingTask) {
