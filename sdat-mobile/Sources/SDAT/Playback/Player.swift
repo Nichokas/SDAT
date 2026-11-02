@@ -18,7 +18,13 @@ final class Player {
     private(set) var userQueue: [Track] = [] { didSet { queueVersion &+= 1 } }
     /// Track currently playing (may come from the user queue).
     private(set) var current: Track?
-    private(set) var isPlaying = false
+    private(set) var isPlaying = false {
+        didSet { if isPlaying != oldValue { scheduleSessionRelease() } }
+    }
+    /// Releases the audio session after a pause so iOS can suspend the app.
+    @ObservationIgnored private var releaseTask: Task<Void, Never>?
+    /// How long a paused player keeps the audio session (and the background audio grant).
+    private static let idleRelease: Duration = .seconds(60)
     /// Fetching the current track's stream.
     private(set) var loading = false
     private(set) var position: Double = 0
@@ -610,7 +616,19 @@ final class Player {
     private func configureSession() {
         let s = AVAudioSession.sharedInstance()
         try? s.setCategory(.playback, mode: .default, policy: .longFormAudio)
-        try? s.setActive(true)
+        // Activated only when playback starts: an active session at launch keeps an idle app awake.
+    }
+
+    /// While paused (and not in Listen Together), deactivate the audio session after a grace
+    /// period so iOS suspends the app. Play/resume reactivates it; Now Playing stays registered.
+    private func scheduleSessionRelease() {
+        releaseTask?.cancel(); releaseTask = nil
+        guard !isPlaying else { return }
+        releaseTask = Task { [weak self] in
+            try? await Task.sleep(for: Self.idleRelease)
+            guard !Task.isCancelled, let self, !self.isPlaying, !self.loading, !Live.shared.active else { return }
+            try? AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation)
+        }
     }
 
     /// Keeps `isPlaying` in step with the real audio: calls / Siri / other apps
