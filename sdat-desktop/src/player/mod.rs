@@ -308,7 +308,10 @@ async fn on_eos_stopped() {
     // Tracks queued while the mix was loading win over autoplay.
     if !user_queue().is_empty() {
         start_if_idle();
-        return;
+        // Fall back to the mix if nothing playable was queued (no start pending).
+        if !with(|p| p.machine.stopped_without_pending_start()).unwrap_or(true) {
+            return;
+        }
     }
     let result = mix.and_then(|(info, tracks)| {
         // An automatic transition: keep "play next" requests still fetching so
