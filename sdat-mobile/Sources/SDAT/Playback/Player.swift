@@ -272,6 +272,7 @@ final class Player {
         guard tracks.indices.contains(i) else { return }
         liveSeekTask?.cancel(); liveSeekTask = nil; liveSeeking = false
         liveSeekEndedAt = nil
+        liveAligning = false
         recentIDs = []; recentOrder = []
         infinite = nil
         original = tracks
@@ -307,18 +308,42 @@ final class Player {
     /// seek to where the host is, while playing: AVPlayer waits for its own
     /// buffer there. Parking ahead like `liveAlign` would mean seconds of
     /// silence; this costs only the refill. Playback speed is never changed.
+    /// The destination is re-read from the host when the seek starts, and a
+    /// slow seek that still lands more than `liveLateTolerance` behind is
+    /// followed by one more seek that aims ahead by the time the first took
+    /// (capped), so it does not leave an error that triggers another seek.
     func liveSeek(to secs: Double) {
         guard !liveSeeking, let item = avPlayer.currentItem else { return }
         liveSeeking = true
         liveSeekTask = Task {
-            _ = await avPlayer.seek(to: CMTime(seconds: max(secs, 0), preferredTimescale: 600),
-                                    toleranceBefore: .zero, toleranceAfter: .zero)
+            var lead = 0.0
+            for _ in 0..<2 {
+                let dest = max((liveTarget?()?.secs ?? secs) + lead, 0)
+                let started = Date()
+                position = dest
+                _ = await avPlayer.seek(to: CMTime(seconds: dest, preferredTimescale: 600),
+                                        toleranceBefore: .zero, toleranceAfter: .zero)
+                guard !Task.isCancelled, avPlayer.currentItem === item else { break }
+                let took = Date().timeIntervalSince(started)
+                guard let host = liveTarget?(), host.playing,
+                      host.secs - livePosition > Self.liveLateTolerance else { break }
+                lead = min(took, Self.liveMaxSeekLead)
+            }
             guard !Task.isCancelled else { return }
             liveSeeking = false
             liveSeekEndedAt = Date()
-            if avPlayer.currentItem === item { updateNowPlaying() }
+            if avPlayer.currentItem === item {
+                position = livePosition
+                updateNowPlaying()
+            }
         }
     }
+
+    /// Upper bound for aiming ahead of a slow drift seek.
+    private static let liveMaxSeekLead: Double = 3
+    /// `start` is aligning a live item: a downloaded-file fallback must align
+    /// its replacement item too.
+    @ObservationIgnored private var liveAligning = false
 
     /// How far ahead of the host the item is parked while it buffers.
     private static let liveJoinLead: Double = 8
@@ -358,7 +383,10 @@ final class Player {
             // Wait for the host to reach the parked point. If the host jumped
             // back (seek, restart), the wait would be longer than the lead:
             // park again near its new position instead of staying silent.
+            let hostDeadline = Date().addingTimeInterval(Self.liveJoinLead + Self.liveBufferTimeout)
             while stillOurs(), let now = liveTarget?(), now.playing, now.secs < startAt - 0.01 {
+                // The host stopped advancing (e.g. it is buffering): re-park.
+                if Date() > hostDeadline { continue attempt }
                 if startAt - now.secs > Self.liveJoinLead + Self.liveLateTolerance { continue attempt }
                 try? await Task.sleep(for: .milliseconds(Int(min(max((startAt - now.secs) * 500, 5), 250))))
             }
@@ -376,7 +404,8 @@ final class Player {
         // Very slow network: start where the host is and let AVPlayer buffer.
         guard stillOurs(), let t = liveTarget?() else { return false }
         _ = await avPlayer.seek(to: at(t.secs), toleranceBefore: .zero, toleranceAfter: .zero)
-        guard stillOurs(), t.playing, !systemPaused else { return false }
+        // Re-read: the host may have paused or changed track during the seek.
+        guard stillOurs(), let now = liveTarget?(), now.playing, !systemPaused else { return false }
         try? AVAudioSession.sharedInstance().setActive(true)
         avPlayer.play()
         return true
@@ -505,8 +534,13 @@ final class Player {
                 if liveFollowing && autoplay && liveTarget != nil {
                     // Following a playing host: start only with a healthy buffer
                     // and on time, so nothing needs correcting after the start.
+                    liveAligning = true
                     let playing = await liveAlign(item)
                     guard !Task.isCancelled, current?.id == track.id else { return }
+                    liveAligning = false
+                    // A failed download was replaced meanwhile: `watchLocal`
+                    // aligns the replacement and finishes the start.
+                    guard avPlayer.currentItem === item else { return }
                     isPlaying = playing
                     loading = false
                     liveSeekEndedAt = Date()
@@ -548,7 +582,19 @@ final class Player {
             let at = self.position
             self.stream = s
             self.avPlayer.removeAllItems()
-            self.avPlayer.insert(Self.makeItem(u), after: nil)
+            let replacement = Self.makeItem(u)
+            self.avPlayer.insert(replacement, after: nil)
+            if self.liveFollowing, self.liveAligning, self.liveTarget != nil {
+                // Following a host: align the online item like a fresh start.
+                let playing = await self.liveAlign(replacement)
+                guard self.avPlayer.currentItem === replacement, self.current?.id == track.id else { return }
+                self.liveAligning = false
+                self.isPlaying = playing
+                self.loading = false
+                self.liveSeekEndedAt = Date()
+                self.afterStart(track)
+                return
+            }
             if at > 0 { await self.avPlayer.seek(to: CMTime(seconds: at, preferredTimescale: 600)) }
             if self.isPlaying { self.avPlayer.play() }
         }
