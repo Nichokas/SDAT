@@ -104,6 +104,9 @@ pub struct HostSession {
     /// Play-next track ids handed out while track `.0` plays, in order.
     /// Keyed by track, not entry: `replace_queue` renews every entry id.
     play_next_cursor: (Option<String>, Vec<String>),
+    /// Index of the playing entry when last found, to pick the right copy
+    /// of a repeated track after a queue refresh renewed entry ids.
+    play_next_index: usize,
 }
 
 impl HostSession {
@@ -129,6 +132,7 @@ impl HostSession {
             pending_cmds: std::collections::VecDeque::new(),
             play_next: false,
             play_next_cursor: (None, Vec::new()),
+            play_next_index: 0,
         }
         .with_epoch()
     }
@@ -196,13 +200,16 @@ impl HostSession {
             self.play_next_cursor = (self.anchor.track_id.clone(), Vec::new());
         }
         let items = &self.queue.queue().items;
-        // The playing entry; by track when a queue refresh renewed its id.
-        let playing = self
-            .anchor
-            .item_id
-            .as_ref()
-            .and_then(|id| items.iter().position(|i| &i.item_id == id))
-            .or_else(|| self.anchor.track_id.as_ref().and_then(|t| items.iter().position(|i| &i.track_id == t)));
+        // The playing entry. When a queue refresh renewed its id, the copy
+        // of the playing track nearest to where it was last found.
+        let last = self.play_next_index;
+        let playing = self.anchor.item_id.as_ref().and_then(|id| items.iter().position(|i| &i.item_id == id)).or_else(|| {
+            let t = self.anchor.track_id.as_ref()?;
+            items.iter().enumerate().filter(|(_, i)| &i.track_id == t).map(|(p, _)| p).min_by_key(|p| p.abs_diff(last))
+        });
+        if let Some(p) = playing {
+            self.play_next_index = p;
+        }
         let after = playing.map_or(&[][..], |p| &items[p + 1..]);
         // Earlier play-next tracks still in place, in order; drop the rest.
         let mut offset = 0;
@@ -1137,6 +1144,27 @@ mod tests {
         h.set_playback(Some("g5i1".into()), Some("x2".into()), 0, true, S);
         h.set_playback(Some("g5i0".into()), Some("1".into()), 0, true, 2 * S);
         assert_eq!(h.play_next_offset(&ids(&["v"])), 0);
+    }
+
+    #[test]
+    fn play_next_keeps_the_playing_copy_of_a_repeated_track() {
+        // [A, B, A, C] playing the second A; refreshes renew every entry id.
+        let mut h = HostSession::new("H".into(), 0);
+        let mut round = 0;
+        let mut sync = |h: &mut HostSession, q: &[String]| {
+            round += 1;
+            let items: Vec<QueueItem> = q.iter().enumerate().map(|(i, t)| QueueItem { item_id: format!("g{round}i{i}"), track_id: t.clone() }).collect();
+            h.queue_op(OpKind::Replace { items }).expect("replace");
+        };
+        let mut q = ids(&["a", "b", "a", "c"]);
+        sync(&mut h, &q);
+        h.set_playback(Some("g1i2".into()), Some("a".into()), 0, true, 0);
+        for req in [ids(&["x"]), ids(&["y"])] {
+            let at = (2 + 1 + h.play_next_offset(&req)).min(q.len());
+            q.splice(at..at, req);
+            sync(&mut h, &q);
+        }
+        assert_eq!(q, ids(&["a", "b", "a", "x", "y", "c"]));
     }
 
     #[test]
