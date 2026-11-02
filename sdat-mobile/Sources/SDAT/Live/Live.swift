@@ -104,7 +104,7 @@ final class Live {
         loop?.cancel(); loop = nil
         host = nil; guest = nil
         switching = nil
-        lastSeekAt = nil; seekBackoff = Self.seekBackoffMin
+        lastSeekAt = nil; seekBackoff = Self.seekBackoffMin; lastTarget = nil
         player.liveFollowing = false
         invite = nil; guests = []; upNext = []; reconnecting = false
         if player.isPlaying { player.liveSetRate(1) }
@@ -228,10 +228,16 @@ final class Live {
             return
         }
         guard player.liveAdvancing else { return }
+        let now = Date()
+        // The host itself jumped (seek, restart): follow it at once, the
+        // seek backoff only exists to stop our own correction loop.
+        if let last = lastTarget, abs(Double(t.positionMs - last.ms) - now.timeIntervalSince(last.at) * 1000) > 1000 {
+            lastSeekAt = nil; seekBackoff = Self.seekBackoffMin
+        }
+        lastTarget = (t.positionMs, now)
         // Right after a seek the position isn't trustworthy yet (the item is
         // still refilling), so measuring then reports a large error and
         // seeks again: a silent gap every ~0.7 s. Let it settle first.
-        let now = Date()
         if let s = player.liveSeekEndedAt, now.timeIntervalSince(s) < Self.seekSettle { return }
         let actual = Int64(player.livePosition * 1000)
         switch guest.correction(latencyMs: latencyMs, actualMs: actual) {
@@ -244,6 +250,7 @@ final class Live {
             // drift (or seeking can't fix it): back off instead of looping.
             if let last = lastSeekAt, now.timeIntervalSince(last) < seekBackoff {
                 Self.log.debug("drift seek skipped (backoff \(self.seekBackoff)s) errMs=\(ms - actual)")
+                player.liveSetRate(1) // core ended its nudge with this seek decision
                 return
             }
             seekBackoff = lastSeekAt.map { now.timeIntervalSince($0) < self.seekBackoff * 2 } == true
@@ -260,6 +267,7 @@ final class Live {
     private static let seekBackoffMin: TimeInterval = 2
     private static let seekBackoffMax: TimeInterval = 16
     private var lastSeekAt: Date?
+    private var lastTarget: (ms: Int64, at: Date)?
     private var seekBackoff: TimeInterval = Live.seekBackoffMin
 
     private func resolve(_ id: String) async -> Track? {
