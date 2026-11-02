@@ -218,6 +218,8 @@ pub fn join(url: &str) {
     phase().set(Phase::Joining);
     match LiveGuest::join(url, display_name(), &NetConfig::default(), listener(generation)) {
         Ok(g) => {
+            // Local "play next" requests made before joining must not reach the host.
+            player::invalidate_play_next();
             SESSION.with(|s| *s.borrow_mut() = Some(Session::Guest(Arc::new(g))));
             install_hooks();
             start_guest_tick(generation);
@@ -256,6 +258,7 @@ pub fn dismiss() {
 /// also stops its timers and drops its late events.
 fn teardown() {
     next_generation();
+    player::invalidate_play_next();
     let was_guest = matches!(SESSION.with(|s| s.borrow_mut().take()), Some(Session::Guest(_))) || phase().get().is_guest();
     CURRENT_ITEM.with(|c| c.borrow_mut().take());
     if guest_control().get() {
@@ -462,7 +465,7 @@ fn run(r: Route) -> bool {
     }
 }
 
-fn is_guest() -> bool {
+pub(crate) fn is_guest() -> bool {
     guest().is_some()
 }
 

@@ -3,6 +3,7 @@
 
 
 pub mod mpris;
+pub mod play_next;
 pub use tonearm_core::playqueue;
 pub mod quality;
 pub mod replaygain;
@@ -10,7 +11,7 @@ pub mod statemachine;
 
 use anyhow::{anyhow, Result};
 use gst::prelude::*;
-use std::cell::OnceCell;
+use std::cell::{Cell, OnceCell};
 use std::rc::Rc;
 use std::sync::mpsc;
 use std::time::Duration;
@@ -46,6 +47,103 @@ global_signal!(pub fn toasts() -> Signal<String> = Signal::default());
 global_signal!(pub fn base_queue() -> DurableQueue = DurableQueue::default());
 global_signal!(pub fn user_queue() -> Queue = Queue::default());
 global_signal!(pub fn history() -> HistoryQueue = HistoryQueue::default());
+
+thread_local! {
+    /// Entries at the front of the user queue that were added with "play next".
+    static PLAY_NEXT_PINNED: Cell<usize> = const { Cell::new(0) };
+    static PLAY_NEXT_ORDER: std::cell::RefCell<play_next::Sequencer<Track>> = std::cell::RefCell::default();
+    /// Bumped when the queues are replaced, so pending "play next" fetches are discarded.
+    static PLAY_NEXT_GENERATION: Cell<u64> = const { Cell::new(0) };
+    /// Id of the gapless-prepared track moved from the base queue to the head
+    /// of the user queue by "play next", until that entry is consumed.
+    static GAPLESS_MOVED: std::cell::RefCell<Option<String>> = const { std::cell::RefCell::new(None) };
+    /// Set while end-of-queue autoplay is fetching a radio mix.
+    static AUTOPLAY_PENDING: Cell<bool> = const { Cell::new(false) };
+}
+
+/// Drops pending "play next" requests (e.g. when leaving a Listen Together
+/// session, so a guest's request isn't applied to the local queue).
+pub fn invalidate_play_next() {
+    PLAY_NEXT_GENERATION.with(|g| g.set(g.get() + 1));
+    PLAY_NEXT_ORDER.with(|s| *s.borrow_mut() = play_next::Sequencer::default());
+}
+
+/// A reserved place in the "play next" order, tied to the queue it was taken for.
+#[derive(Debug, Clone, Copy)]
+pub struct PlayNextTicket {
+    generation: u64,
+    seq: u64,
+}
+
+/// Reserves the order of a "play next" request when the user makes it.
+pub fn play_next_ticket() -> PlayNextTicket {
+    PlayNextTicket { generation: PLAY_NEXT_GENERATION.with(Cell::get), seq: PLAY_NEXT_ORDER.with(|s| s.borrow_mut().ticket()) }
+}
+
+/// Delivers the tracks for a "play next" request (empty if fetching failed);
+/// requests are applied in the order their tickets were taken. Requests taken
+/// before the queues were replaced are dropped. A Listen Together guest sends
+/// each batch to the host as a normal enqueue, in the same order.
+pub fn complete_play_next(ticket: PlayNextTicket, tracks: Vec<Track>) {
+    if ticket.generation != PLAY_NEXT_GENERATION.with(Cell::get) {
+        return;
+    }
+    let batches = PLAY_NEXT_ORDER.with(|s| s.borrow_mut().complete(ticket.seq, tracks));
+    let mut queued = false;
+    for b in batches {
+        if b.is_empty() || crate::live::user_enqueue(b.iter().map(|t| t.id().to_string()).collect()) {
+            continue;
+        }
+        insert_tracklist_next(b);
+        queued = true;
+    }
+    // Start playback once, and only if no start is already queued or in
+    // flight: `next()` only queues the start, so a second call before the
+    // first track plays would pop (and lose) another track.
+    if queued {
+        start_if_idle();
+    }
+}
+
+/// Starts the next queued track if the player is stopped and nothing is about
+/// to start it (a queued/in-flight start or a loading autoplay mix). `next()`
+/// only queues the start, so a second call would pop (and lose) a track.
+fn start_if_idle() {
+    if !AUTOPLAY_PENDING.with(Cell::get) && with(|p| p.machine.stopped_without_pending_start()).unwrap_or(false) {
+        next();
+    }
+}
+
+/// Fetches the radio mix for a track: its playlist info and all its tracks.
+async fn fetch_radio(track_id: String) -> Result<(tonearm_core::model::PlaylistInfo, Vec<Track>)> {
+    let radio = api::run(move || service::get_track_radio(&track_id))
+        .await
+        .inspect_err(|e| log::error!("failed to retrieve mix: {e}"))?;
+    let Some(mix) = radio else {
+        toasts().notify(&tr("No mix found for the current track"));
+        anyhow::bail!("no mix found for the current track");
+    };
+    let id = mix.id.clone();
+    let info = api::run(move || service::get_playlist_info(&id)).await?;
+    let tracks = crate::cache::all_tracks(crate::cache::Job::Playlist(mix.id)).await?;
+    Ok((info, tracks))
+}
+
+/// Keeps the "play next" region in step with a drag in the user queue.
+pub fn user_queue_moved(src: usize, dst: usize) {
+    update_pinned(|p| play_next::after_move(p, src, dst));
+}
+
+fn update_pinned(f: impl FnOnce(usize) -> usize) {
+    PLAY_NEXT_PINNED.with(|c| c.set(f(c.get())));
+}
+
+/// Removes the user-queue entry at `index`, keeping "play next" order intact.
+pub fn remove_from_user_queue(index: usize) -> tonearm_core::error::CoreResult<()> {
+    user_queue().remove_at(index)?;
+    update_pinned(|p| play_next::after_remove(p, index));
+    Ok(())
+}
 
 // ---------------------------------------------------------------- player
 
@@ -202,7 +300,48 @@ async fn on_eos_stopped() {
         stop();
         return;
     };
-    if let Err(e) = play_track_radio(&id, true).await {
+    // Fetch the whole mix before touching the queues; "play next" requests
+    // that land meanwhile are queued but not started (see `complete_play_next`).
+    let list_generation = LIST_GENERATION.with(Cell::get);
+    AUTOPLAY_PENDING.with(|a| a.set(true));
+    let mix = fetch_radio(id).await;
+    AUTOPLAY_PENDING.with(|a| a.set(false));
+    // The user acted while the mix was loading: a new list or a queued track
+    // start wins over autoplay as is.
+    if LIST_GENERATION.with(Cell::get) != list_generation
+        || !with(|p| p.machine.stopped_without_pending_start()).unwrap_or(true)
+    {
+        return;
+    }
+    // A Stop queued behind this handler is ignored once already stopped, so do
+    // the stopped-track cleanup here instead of starting the mix.
+    if with(|p| p.machine.has_queued_stop()).unwrap_or(false) {
+        stop();
+        return;
+    }
+    // Tracks queued while the mix was loading win over autoplay.
+    if !user_queue().is_empty() {
+        start_if_idle();
+        // Fall back to the mix if nothing playable was queued (no start pending).
+        if !with(|p| p.machine.stopped_without_pending_start()).unwrap_or(true) {
+            return;
+        }
+    }
+    let result = mix.and_then(|(info, tracks)| {
+        // An automatic transition: keep "play next" requests still fetching so
+        // they land in the radio queue instead of being discarded.
+        let generation = PLAY_NEXT_GENERATION.with(Cell::get);
+        let order = PLAY_NEXT_ORDER.with(|s| std::mem::take(&mut *s.borrow_mut()));
+        clear_queues();
+        stop();
+        let started = play_tracks(tracks, false, 1);
+        PLAY_NEXT_GENERATION.with(|g| g.set(generation));
+        PLAY_NEXT_ORDER.with(|s| *s.borrow_mut() = order);
+        started?;
+        source_changed().set(Some(PlaybackSource::Playlist(info)));
+        Ok(())
+    });
+    if let Err(e) = result {
         log::info!("failed to play track radio: {e:#}");
         stop();
     }
@@ -216,12 +355,31 @@ pub fn current_track_id() -> Option<String> {
 
 fn clear_queues() {
     user_queue().clear();
+    update_pinned(|_| 0);
+    // A guest's pending "play next" requests belong to the session and go to
+    // the host, so keep them (and their order) when the guest follows a host
+    // track change; otherwise they target the replaced queue and are dropped.
+    if !crate::live::is_guest() {
+        PLAY_NEXT_GENERATION.with(|g| g.set(g.get() + 1));
+        PLAY_NEXT_ORDER.with(|s| *s.borrow_mut() = play_next::Sequencer::default());
+    }
+    GAPLESS_MOVED.with(|m| m.borrow_mut().take());
     base_queue().clear();
 }
 
 fn get_next_track_from_queue(peek: bool) -> Option<Track> {
     let t = if peek { user_queue().peek() } else { user_queue().pop() };
     if t.is_some() {
+        if !peek {
+            update_pinned(|p| play_next::after_remove(p, 0));
+            // Forget the moved gapless entry only once that entry is consumed.
+            GAPLESS_MOVED.with(|m| {
+                let mut m = m.borrow_mut();
+                if t.as_ref().is_some_and(|t| m.as_deref() == Some(t.id())) {
+                    m.take();
+                }
+            });
+        }
         return t;
     }
     let t = if peek { base_queue().peek() } else { base_queue().pop() };
@@ -279,6 +437,31 @@ pub async fn add_track_to_user_queue(track_id: &str) -> Result<()> {
     Ok(())
 }
 
+/// Queues `tracks`, in order, right after the current one (and after any
+/// earlier "play next" tracks). The caller starts playback if needed.
+fn insert_tracklist_next(tracks: Vec<Track>) {
+    if tracks.is_empty() {
+        return;
+    }
+    // A gapless handoff already picked the head of the queues and pops it at
+    // StreamStart; keep that entry first so the popped entry is the one playing.
+    let gapless = with(|p| p.machine.gapless_pending()).unwrap_or(false)
+        && repeat_mode_changed().get() != RepeatMode::Track;
+    if gapless
+        && user_queue().is_empty()
+        && let Some(head) = base_queue().pop()
+    {
+        GAPLESS_MOVED.with(|m| *m.borrow_mut() = Some(head.id().to_string()));
+        user_queue().prepend(head);
+    }
+    let floor = usize::from(gapless && !user_queue().is_empty());
+    let mut entries = user_queue().entries().with(Clone::clone);
+    let pinned = PLAY_NEXT_PINNED.with(Cell::get);
+    let pinned = play_next::insert(&mut entries, pinned, floor, tracks);
+    user_queue().set(entries);
+    update_pinned(|_| pinned);
+}
+
 pub fn add_tracklist_to_user_queue(tracks: Vec<Track>) {
     let any = !tracks.is_empty();
     for t in tracks {
@@ -298,7 +481,7 @@ pub enum QueueKind {
 /// Skips `to` entries of a queue (adding them to the history) and plays the next.
 pub fn skip_through_queue(kind: QueueKind, to: usize) {
     let res = match kind {
-        QueueKind::User => user_queue().skip(to),
+        QueueKind::User => user_queue().skip(to).inspect(|_| update_pinned(|p| play_next::after_skip(p, to))),
         QueueKind::Base => base_queue().skip(to),
     };
     match res {
@@ -307,7 +490,10 @@ pub fn skip_through_queue(kind: QueueKind, to: usize) {
                 history().prepend(t);
             }
             let next = match kind {
-                QueueKind::User => user_queue().pop(),
+                QueueKind::User => {
+                    update_pinned(|p| play_next::after_remove(p, 0));
+                    user_queue().pop()
+                }
                 QueueKind::Base => base_queue().pop(),
             };
             match next {
@@ -363,6 +549,8 @@ pub fn previous() {
     };
     if let Some(cur) = track_changed().with(|t| t.as_ref().map(|e| e.track.clone())) {
         user_queue().prepend(cur);
+        // The track we came back from plays next, ahead of "play next" tracks.
+        update_pinned(|p| p + 1);
     }
     fire(Trigger::PlayTrack(prev, false));
 }
@@ -411,6 +599,23 @@ pub fn set_shuffle(shuffle: bool, current_track_id: &str) {
         base_queue().shuffle(current_track_id);
     } else {
         base_queue().restore(current_track_id);
+    }
+    // Rebuilding from the source brings back a gapless-prepared track that
+    // "play next" moved to the user queue; drop the base copy so it plays once.
+    // The marker is only valid while its entry is still in the user queue
+    // (a skip may have drained it); otherwise forget it.
+    let moved = GAPLESS_MOVED.with(|m| m.borrow_mut().take())
+        .filter(|id| user_queue().entries().with(|e| e.iter().any(|t| t.id() == id.as_str())));
+    GAPLESS_MOVED.with(|m| m.borrow_mut().clone_from(&moved));
+    if let Some(id) = moved
+        && let Some(i) = base_queue().entries().with(|e| e.iter().position(|t| t.id() == id))
+    {
+        // Only the upcoming copy: `remove_at` would also drop it from the
+        // durable source, losing it for later shuffles and queue repeat.
+        base_queue().entries().notify(|mut v| {
+            v.remove(i);
+            v
+        });
     }
     shuffle_state_changed().set(shuffle);
 }
@@ -492,16 +697,6 @@ pub async fn play_playlist(playlist_id: &str, shuffle: bool, position: usize) ->
     play_tracks(tracks, shuffle, position)?;
     source_changed().set(Some(PlaybackSource::Playlist(info)));
     Ok(())
-}
-
-pub async fn play_track_radio(track_id: &str, skip_self: bool) -> Result<()> {
-    let id = track_id.to_string();
-    let radio = api::run(move || service::get_track_radio(&id)).await.inspect_err(|e| log::error!("failed to retrieve mix: {e}"))?;
-    let Some(mix) = radio else {
-        toasts().notify(&tr("No mix found for the current track"));
-        anyhow::bail!("no mix found for the current track");
-    };
-    play_playlist(&mix.id, false, usize::from(skip_self)).await
 }
 
 thread_local! {

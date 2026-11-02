@@ -145,6 +145,9 @@ fn template(cover: crate::model::Cover, title: &str, subtitle: &str, description
 
 fn queue_menu(label: &str, target: &str) -> gtk::PopoverMenu {
     let menu = gio::Menu::new();
+    let next = gio::MenuItem::new(Some(&tr("Play Next")), Some("win.player.play-next"));
+    next.set_action_and_target_value(Some("win.player.play-next"), Some(&target.to_variant()));
+    menu.append_item(&next);
     let item = gio::MenuItem::new(Some(label), Some("win.player.queue"));
     item.set_action_and_target_value(Some("win.player.queue"), Some(&target.to_variant()));
     menu.append_item(&item);
