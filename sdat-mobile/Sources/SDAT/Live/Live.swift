@@ -466,13 +466,18 @@ final class Live {
         // never changed (a `rate` answer is ignored).
         guard case .seek(let ms) = guest.correction(latencyMs: latencyMs, actualMs: actual) else { return }
         Self.log.notice("drift seek errMs=\(ms - actual)")
+        alignedLatencyMs = lat
         player.liveSeek(to: Double(ms) / 1000)
     }
 
     /// The host's position for the track loaded here (latency included).
     private func hostPosition() -> (secs: Double, playing: Bool)? {
-        guard let guest, let t = guest.target(latencyMs: latencyMs),
+        let lat = latencyMs
+        guard let guest, let t = guest.target(latencyMs: lat),
               let id = t.trackId, id == player.current?.id else { return nil }
+        // The player aligns to this answer (start, rebuffer): it is the
+        // latency the position now matches.
+        alignedLatencyMs = lat
         return (Double(t.positionMs) / 1000, t.playing)
     }
 
