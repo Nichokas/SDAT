@@ -27,13 +27,11 @@ jobs:
       - uses: actions/checkout@v4
         with:
           persist-credentials: false
-      - uses: actions/cache@v4
+      - uses: Swatinem/rust-cache@v2
         with:
-          path: |
-            ~/.cargo/registry
-            ~/.cargo/git
-            target
-          key: cargo-linux-${{ hashFiles('Cargo.lock') }}
+          shared-key: core
+          # PRs restore main's cache but do not save their own (keeps the 10 GB quota for main).
+          save-if: ${{ github.ref == 'refs/heads/main' }}
       - name: Test core and FFI
         run: cargo test -p tonearm-core -p tonearm-ffi --locked
   desktop:
@@ -41,11 +39,14 @@ jobs:
     container: fedora:latest
     steps:
       - name: Install GTK/GStreamer deps
-        run: dnf -y install cargo rust gcc git-core gtk4-devel libadwaita-devel gstreamer1-devel gstreamer1-plugins-base-devel libsecret-devel openssl-devel glib2-devel
+        run: dnf -y install --setopt=install_weak_deps=False tar zstd cargo rust gcc git-core gtk4-devel libadwaita-devel gstreamer1-devel gstreamer1-plugins-base-devel libsecret-devel openssl-devel glib2-devel
       - uses: actions/checkout@v4
         with:
           persist-credentials: false
-      - name: Check desktop app
-        run: cargo check -p sdat-desktop --locked
+      - uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: desktop-fedora
+          save-if: ${{ github.ref == 'refs/heads/main' }}
+      # `cargo test` builds the whole crate, so a separate `cargo check` only compiled it twice.
       - name: Test desktop app (migration and other unit tests)
         run: cargo test -p sdat-desktop --locked
