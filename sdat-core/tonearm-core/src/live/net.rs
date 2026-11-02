@@ -475,7 +475,30 @@ impl Drop for LiveHost {
 
 // ---------------------------------------------------------------- guest
 
+/// Network path the guest uses to reach the host right now.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct PathSnapshot {
+    /// Through a relay server (otherwise a direct UDP path).
+    pub relay: bool,
+    pub rtt_ms: i64,
+}
+
+/// Path between the guest and the host, refreshed every 2 s while connected.
+type PathSlot = Arc<Mutex<Option<PathSnapshot>>>;
+
+async fn watch_path(conn: &Connection, slot: &PathSlot) {
+    loop {
+        let snap = conn.paths().iter().find(|p| p.is_selected()).map(|p| PathSnapshot {
+            relay: p.is_relay(),
+            rtt_ms: i64::try_from(p.rtt().as_millis()).unwrap_or(i64::MAX),
+        });
+        *slot.lock().unwrap_or_else(PoisonError::into_inner) = snap;
+        tokio::time::sleep(Duration::from_secs(2)).await;
+    }
+}
+
 pub struct LiveGuest {
+    path: PathSlot,
     state: Arc<Mutex<GuestSession>>,
     tx: Arc<Mutex<Option<mpsc::UnboundedSender<Msg>>>>,
     stop: Arc<Stop>,
@@ -501,9 +524,10 @@ impl LiveGuest {
         let state = Arc::new(Mutex::new(GuestSession::new(ticket.secret, name, mono_now_ns())));
         let tx: Arc<Mutex<Option<mpsc::UnboundedSender<Msg>>>> = Arc::default();
         let stop = Arc::new(Stop::default());
+        let path = PathSlot::default();
         let cfg = cfg.clone();
         {
-            let (state, tx, stop, listener) = (state.clone(), tx.clone(), stop.clone(), listener.clone());
+            let (state, tx, stop, listener, path) = (state.clone(), tx.clone(), stop.clone(), listener.clone(), path.clone());
             runtime().spawn(async move {
                 let Ok(ep) = bind(&cfg, Vec::new()).await else {
                     listener.on_event(LiveEvent::Guest(GuestEvent::Ended(EndReason::HostLost)));
@@ -536,7 +560,11 @@ impl LiveGuest {
                             if first { vec![s.hello()] } else { s.on_reconnect(mono_now_ns()) }
                         };
                         first = false;
-                        run_guest_conn(send, recv, hello, &state, &tx, &listener, &stop).await;
+                        tokio::select! {
+                            () = run_guest_conn(send, recv, hello, &state, &tx, &listener, &stop) => {}
+                            () = watch_path(&conn, &path) => {}
+                        }
+                        *path.lock().unwrap_or_else(PoisonError::into_inner) = None;
                         conn.close(0u32.into(), b"bye");
                     }
                     // The session's own timeout (no host for 10 s) ends it.
@@ -549,7 +577,7 @@ impl LiveGuest {
                 ep.close().await;
             });
         }
-        Ok(Self { state, tx, stop, left: AtomicBool::new(false) })
+        Ok(Self { path, state, tx, stop, left: AtomicBool::new(false) })
     }
 
     /// Where the local player should be (`latency_ms`: output latency +
@@ -560,6 +588,18 @@ impl LiveGuest {
 
     pub fn correction(&self, latency_ms: i64, actual_ms: i64) -> Correction {
         self.state.lock().unwrap_or_else(PoisonError::into_inner).correction(mono_now_ns(), latency_ms, actual_ms)
+    }
+
+    /// Selected network path to the host; `None` while not connected.
+    pub fn path(&self) -> Option<PathSnapshot> {
+        *self.path.lock().unwrap_or_else(PoisonError::into_inner)
+    }
+
+    /// Clock sync state: (host - local offset in ms, best RTT in ms).
+    pub fn clock_stats(&self) -> (Option<i64>, Option<i64>) {
+        let s = self.state.lock().unwrap_or_else(PoisonError::into_inner);
+        let c = s.clock();
+        (c.offset().map(|o| o / 1_000_000), c.min_rtt().map(|r| r / 1_000_000))
     }
 
     pub fn queue(&self) -> Vec<QueueItem> {
