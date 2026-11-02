@@ -1264,7 +1264,8 @@ mod tests {
         let (mut h, _) = host_with(&["p", "b"], 0);
         let mut q = ids(&["p", "b"]);
         assert_eq!(h.play_next_offset(&ids(&["x"])), 0);
-        assert!(h.replace_queue(ids(&["p", "x", ""])).is_err());
+        let failed = h.replace_queue(ids(&["p", "x", ""])).err();
+        assert!(failed.is_some());
         q.insert(1, "x".into());
         h.replace_queue(q.clone()).expect("replace");
         assert_eq!(h.play_next_offset(&ids(&["y"])), 1);
