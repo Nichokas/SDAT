@@ -379,10 +379,13 @@ fn quality_entry(q: TrackQuality, css: &str, title: &str, details: &str, popover
 /// Guest scrub: quiet time before the last dragged position is sent.
 const SCRUB_DEBOUNCE: std::time::Duration = std::time::Duration::from_millis(250);
 
+/// Position, (session, host track) it is for, and the pending timer.
+type PendingScrub = (std::time::Duration, Option<(u64, String)>, glib::SourceId);
+
 thread_local! {
     /// Guest scrub waiting to be sent: position, the session and host track it is for,
     /// and its pending timer.
-    static SCRUB: std::cell::RefCell<Option<(std::time::Duration, Option<(u64, String)>, glib::SourceId)>> = const { std::cell::RefCell::new(None) };
+    static SCRUB: std::cell::RefCell<Option<PendingScrub>> = const { std::cell::RefCell::new(None) };
 }
 
 fn track_timeline() -> gtk::Overlay {
