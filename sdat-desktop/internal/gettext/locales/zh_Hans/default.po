@@ -1,0 +1,764 @@
+# SOME DESCRIPTIVE TITLE.
+# Copyright (C) YEAR THE PACKAGE'S COPYRIGHT HOLDER
+# This file is distributed under the same license as the PACKAGE package.
+# FIRST AUTHOR <EMAIL@ADDRESS>, YEAR.
+#
+msgid ""
+msgstr ""
+"Project-Id-Version: v1.1.0-99-ga37b2fb\n"
+"Report-Msgid-Bugs-To: \n"
+"POT-Creation-Date: 2026-08-08 22:44+0200\n"
+"PO-Revision-Date: 2026-02-12 16:42+0000\n"
+"Last-Translator: Poesty Li <poesty7450@gmail.com>\n"
+"Language-Team: Chinese (Simplified Han script) <https://"
+"translate.codeberg.org/projects/tonearm/tonearm/zh_Hans/>\n"
+"Language: zh_Hans\n"
+"MIME-Version: 1.0\n"
+"Content-Type: text/plain; charset=UTF-8\n"
+"Content-Transfer-Encoding: 8bit\n"
+"Plural-Forms: nplurals=1; plural=0;\n"
+"X-Generator: Weblate 5.15.2\n"
+
+msgid "%d Fan"
+msgid_plural "%d Fans"
+msgstr[0] "%d 位粉丝"
+
+msgid "%d Track"
+msgid_plural "%d Tracks"
+msgstr[0] "%d 首曲目"
+
+msgid "%d Track (%s)"
+msgid_plural "%d Tracks (%s)"
+msgstr[0] "%d 首曲目 (%s)"
+
+msgid "%s and %s"
+msgstr "%s 和 %s"
+
+msgid "API Base URL"
+msgstr ""
+
+msgid "About Tonearm"
+msgstr "关于 Tonearm"
+
+msgid "Add Album to Queue"
+msgstr ""
+
+msgid "Add My Tracks to Queue"
+msgstr ""
+
+msgid "Add Playlist to Queue"
+msgstr ""
+
+msgid "Add Top Tracks to Queue"
+msgstr ""
+
+msgid "Add to Collection"
+msgstr "添加到收藏"
+
+msgid "Add to Queue"
+msgstr "添加到队列"
+
+msgid "Album"
+msgstr "专辑"
+
+msgid "Album by %s"
+msgstr "专辑作者：%s"
+
+msgid "Albums"
+msgstr "专辑"
+
+msgid "Allow Background Activity"
+msgstr "允许后台活动"
+
+msgid "Allow Media Card Images"
+msgstr "允许媒体卡片图像"
+
+msgid "Allow Shortcut Images"
+msgstr "允许快捷方式图像"
+
+msgid "Allow Tonearm to load images for media card buttons"
+msgstr "允许 Tonearm 为媒体卡片按钮加载图像"
+
+msgid "Allow Tonearm to load images for shortcut buttons"
+msgstr "允许 Tonearm 为快捷方式按钮加载图像"
+
+msgid "Allow Tonearm to load images for tracklists with the cover column"
+msgstr "允许 Tonearm 为带有封面列的曲目列表加载图像"
+
+msgid ""
+"Allow Tonearm to retain recently loaded images in memory to improve "
+"performance and reduce network traffic (estimated 50 MiB limit)"
+msgstr ""
+
+msgid ""
+"Allow Tonearm to run in the background by hiding the player window instead "
+"of quitting the application"
+msgstr "允许 Tonearm 在后台运行，通过隐藏播放器窗口而不是退出应用程序"
+
+msgid "Allow Tonearm to send scrobbling data to Last.fm"
+msgstr ""
+
+msgid "Allow Tonearm to send scrobbling data to ListenBrainz"
+msgstr "允许 Tonearm 向 ListenBrainz 发送数据记录"
+
+msgid ""
+"Allow Tonearm to start a mix with the current playing song when you're at "
+"the end of an album/queue"
+msgstr "允许 Tonearm 在您播放完专辑/队列末尾时，以当前播放的歌曲开始混音"
+
+msgid "Allow Tracklist Images"
+msgstr "允许曲目列表图像"
+
+msgid "An error occurred while fetching the track mix"
+msgstr ""
+
+msgid "An error occurred while logging in to Last.fm"
+msgstr ""
+
+msgid "An error occurred while logging out of Last.fm"
+msgstr ""
+
+msgid "An error occurred while playing the album"
+msgstr ""
+
+msgid "An error occurred while playing the playlist"
+msgstr ""
+
+msgid "An error occurred while playing the top tracks"
+msgstr ""
+
+msgid "An error occurred while playing the track"
+msgstr ""
+
+msgid "An error occurred while playing the tracks"
+msgstr ""
+
+msgid "An error occurred while shuffling the tracks"
+msgstr ""
+
+msgid ""
+"An unknown error occurred when checking for a secret service provider.\n"
+"\n"
+"Signing in may or may not work. Please see the raw error message for more "
+"details:\n"
+"\n"
+"%s"
+msgstr ""
+"检查密钥服务提供程序时发生未知错误。\n"
+"\n"
+"登录可能成功也可能失败。请查看原始错误消息以获取更多详细信息：\n"
+"\n"
+"%s"
+
+msgid "Artist"
+msgstr "艺术家"
+
+msgid "Artists"
+msgstr "艺术家"
+
+msgid "Auth Base URL"
+msgstr ""
+
+msgid "Authentication Required"
+msgstr ""
+
+msgid "Auto"
+msgstr ""
+
+msgid "Back"
+msgstr "返回"
+
+msgid "Background Activity"
+msgstr "后台活动"
+
+msgid "Base URLs"
+msgstr ""
+
+msgid "Basic Shortcuts"
+msgstr "基本快捷键"
+
+msgid "Cache Images"
+msgstr "缓存图像"
+
+msgid "Cancel"
+msgstr ""
+
+msgid "Cancel Login"
+msgstr "取消登录"
+
+msgid ""
+"Choose whether Tonearm should prefer album replay gain, track replay gain or "
+"decide automatically"
+msgstr ""
+
+msgid "Close"
+msgstr "关闭"
+
+msgid "Collection"
+msgstr "收藏"
+
+msgid "Configure Tonearm to send scrobbling data to Last.fm"
+msgstr ""
+
+msgid "Configure Tonearm to send scrobbling data to ListenBrainz"
+msgstr "配置 Tonearm 以向 ListenBrainz 发送数据记录"
+
+msgid "Configure the base URLs for TIDAL"
+msgstr ""
+
+msgid "Configure the behaviour of Tonearm regarding images"
+msgstr "配置 Tonearm 关于图像的行为"
+
+msgid "Configure the behaviour of Tonearm regarding playback"
+msgstr "配置 Tonearm 关于播放的行为"
+
+msgid "Configure the behaviour of Tonearm when navigating between pages"
+msgstr "配置 Tonearm 在页面间导航时的行为"
+
+msgid "Configure the behaviour of Tonearm when running in the background"
+msgstr "配置 Tonearm 在后台运行时的行为"
+
+msgid "Continue"
+msgstr "继续"
+
+msgid "Continue the authentication process in your browser."
+msgstr ""
+
+msgid "Copied URL to clipboard"
+msgstr ""
+
+msgid "Copied track URL to clipboard"
+msgstr "已将曲目 URL 复制到剪贴板"
+
+msgid "Copy Track URL"
+msgstr "复制曲目 URL"
+
+msgid "Copy URL"
+msgstr ""
+
+msgid "Default Page"
+msgstr "默认页面"
+
+msgid "Disable Repeat"
+msgstr ""
+
+msgid "Disable Shuffle"
+msgstr ""
+
+msgid "Don't show again"
+msgstr "不再显示"
+
+msgid "EP by %s"
+msgstr "EP 作者：%s"
+
+msgid "Enable Autoplay"
+msgstr ""
+
+msgid "Enable Last.fm"
+msgstr ""
+
+msgid "Enable ListenBrainz"
+msgstr "启用 ListenBrainz"
+
+msgid "Enable Shuffle"
+msgstr ""
+
+msgid "Error Fetching Lyrics"
+msgstr ""
+
+msgid "Error loading collection"
+msgstr "加载收藏时出错"
+
+msgid "Explore"
+msgstr "探索"
+
+msgid "External Link"
+msgstr "外部链接"
+
+msgid "Feed"
+msgstr "动态"
+
+msgid "For example, Fox Stevenson"
+msgstr "例如：Fox Stevenson"
+
+msgid "General"
+msgstr "通用"
+
+msgid "High"
+msgstr "高"
+
+msgid "History Length"
+msgstr "历史记录长度"
+
+msgid "Home"
+msgstr "主页"
+
+msgid "Images"
+msgstr "图像"
+
+msgid "Internal Error"
+msgstr "内部错误"
+
+msgid "Keyboard Shortcuts"
+msgstr "键盘快捷键"
+
+msgid "Keychain Unavailable"
+msgstr ""
+
+msgid "Last Month"
+msgstr "上个月"
+
+msgid "Last Week"
+msgstr "上周"
+
+msgid "ListenBrainz API Token"
+msgstr "ListenBrainz API 令牌"
+
+msgid "ListenBrainz API URL"
+msgstr "ListenBrainz API URL"
+
+msgid "Loading Lyrics"
+msgstr ""
+
+msgid "Log In to Last.fm…"
+msgstr ""
+
+msgid "Log Out of Last.fm"
+msgstr ""
+
+msgid "Logged in to Last.fm as %s"
+msgstr ""
+
+msgid "Logged out of Last.fm"
+msgstr ""
+
+msgid "Logging in to Last.fm"
+msgstr ""
+
+msgid "Low (320 kbps)"
+msgstr "低 (320 kbps)"
+
+msgid "Low (96 kbps)"
+msgstr "低 (96 kbps)"
+
+msgid "Lyrics"
+msgstr "歌词"
+
+msgid "Main Menu"
+msgstr "主菜单"
+
+msgid "Max"
+msgstr "最大"
+
+msgid "Maximum history length before dropping old entries"
+msgstr "在丢弃旧条目前的最大历史记录长度"
+
+msgid "More"
+msgstr "更多"
+
+msgid "More…"
+msgstr ""
+
+msgid "My Albums"
+msgstr "我的专辑"
+
+msgid "My Artists"
+msgstr "我的艺术家"
+
+msgid "My Collection"
+msgstr "我的收藏"
+
+msgid "My Playlists"
+msgstr "我的播放列表"
+
+msgid "My Tracks"
+msgstr "我的曲目"
+
+msgid "Navigate Back"
+msgstr "向后导航"
+
+msgid "Navigate to %s"
+msgstr ""
+
+msgid "Navigate to Album"
+msgstr "导航到专辑"
+
+msgid "Navigate to Artist"
+msgstr "导航到艺术家"
+
+msgid "Navigate to Collection"
+msgstr "导航到收藏"
+
+msgid "Navigate to Explore"
+msgstr "导航到探索"
+
+msgid "Navigate to Home"
+msgstr "导航到主页"
+
+msgid "Navigate to Track Mix"
+msgstr "导航到曲目混音"
+
+msgid "Navigation"
+msgstr "导航"
+
+msgid "Navigation Behaviour"
+msgstr "导航行为"
+
+msgid "Next"
+msgstr "下一首"
+
+msgid "No Artist"
+msgstr "无艺术家"
+
+msgid "No Lyrics Available"
+msgstr ""
+
+msgid "No Song Currently Playing"
+msgstr ""
+
+msgid "No Track"
+msgstr "无曲目"
+
+msgid "No Tracks in Queue"
+msgstr ""
+
+msgid "No mix found for the current track"
+msgstr "未找到当前曲目的混音"
+
+msgid ""
+"No secret service provider is available.\n"
+"\n"
+"Tonearm will not be able to store any authentication-related data and you "
+"will not be able to sign in.\n"
+"\n"
+"Please install a secret service provider such as GNOME Keyring or KDE Wallet."
+msgstr ""
+"无可用的密钥服务提供程序。\n"
+"\n"
+"Tonearm 将无法存储任何与身份验证相关的数据，您将无法登录。\n"
+"\n"
+"请安装密钥服务提供程序，例如 GNOME 密钥环或 KDE 钱包。"
+
+msgid "Normalize Volume"
+msgstr ""
+
+msgid "Not Found"
+msgstr "未找到"
+
+msgid "Not found"
+msgstr "未找到"
+
+msgid "Older"
+msgstr "更早"
+
+msgid "Open TIDAL Page"
+msgstr "打开 TIDAL 页面"
+
+msgid "OpenAPI Base URL"
+msgstr ""
+
+msgid "Pause"
+msgstr ""
+
+msgid "Performance"
+msgstr "性能"
+
+msgid "Personal Mix"
+msgstr "个人混音"
+
+msgid "Play"
+msgstr ""
+
+msgid "Play / Pause"
+msgstr "播放 / 暂停"
+
+msgid "Play Album"
+msgstr "播放专辑"
+
+msgid "Playback"
+msgstr "播放"
+
+msgid "Playback quality saved. Changes will be applied on next track change"
+msgstr "播放质量已保存。更改将在下一曲目切换时生效"
+
+msgid "Player"
+msgstr "播放器"
+
+msgid "Playing From"
+msgstr "播放来源"
+
+msgid "Playlist"
+msgstr "播放列表"
+
+msgid "Playlists"
+msgstr "播放列表"
+
+msgid "Please sign in to view your collection"
+msgstr ""
+
+msgid "Please sign in to view your feed"
+msgstr ""
+
+msgid "Preferences"
+msgstr "首选项"
+
+msgid "Preferred Replay Gain"
+msgstr ""
+
+msgid "Previous"
+msgstr "上一首"
+
+msgid "Queue"
+msgstr "队列"
+
+msgid "Quit"
+msgstr "退出"
+
+msgid "Remove Track from Queue"
+msgstr "从队列中移除曲目"
+
+msgid "Remove from Collection"
+msgstr ""
+
+msgid "Reopen Browser"
+msgstr ""
+
+msgid "Repeat Queue"
+msgstr ""
+
+msgid "Repeat Track"
+msgstr ""
+
+msgid "Resources Base URL"
+msgstr ""
+
+msgid "Scan this QR code to sign into your TIDAL account"
+msgstr "扫描此二维码以登录您的 TIDAL 账号"
+
+msgid "Scrobbling"
+msgstr "Scrobbling"
+
+msgid "Scroll to the Left"
+msgstr "向左滚动"
+
+msgid "Scroll to the Right"
+msgstr "向右滚动"
+
+msgid "Search"
+msgstr "搜索"
+
+msgid "Secret Service Error"
+msgstr "密钥服务错误"
+
+msgid "Secret Service Issue"
+msgstr "密钥服务问题"
+
+msgid "Secret Service Unavailable"
+msgstr "密钥服务不可用"
+
+msgid "Set as Default Page"
+msgstr ""
+
+msgid "Set current page as default"
+msgstr "将当前页面设为默认"
+
+msgid "Set the same volume for all tracks"
+msgstr ""
+
+msgid "Shuffle Album"
+msgstr "随机播放专辑"
+
+msgid "Side Pane"
+msgstr "侧边栏"
+
+msgid "Sign In"
+msgstr "登录"
+
+msgid "Sign In…"
+msgstr ""
+
+msgid "Sign Out"
+msgstr "登出"
+
+msgid "Sign in failed or aborted"
+msgstr "登录失败或已取消"
+
+msgid "Signed in as %s"
+msgstr "已登录为 %s"
+
+msgid "Signed out"
+msgstr "已登出"
+
+msgid "Single by %s"
+msgstr "单曲 - %s"
+
+msgid ""
+"Start typing in the search bar to search for songs, artists, albums or "
+"playlists"
+msgstr ""
+
+msgid "Sync with Track"
+msgstr ""
+
+msgid "TIDAL Settings"
+msgstr ""
+
+msgid "TIDAL-specific settings for advanced users"
+msgstr ""
+
+msgid ""
+"The macOS Keychain is not available or accessible.\n"
+"\n"
+"Tonearm will not be able to store any authentication-related data and you "
+"will not be able to sign in.\n"
+"\n"
+"Please ensure your keychain is unlocked and accessible."
+msgstr ""
+
+msgid "The requested deeplink did not have any available handlers."
+msgstr "请求的深度链接没有任何可用的处理程序。"
+
+msgid "This Month"
+msgstr "本月"
+
+msgid "This Week"
+msgstr "本周"
+
+msgid "This track is not available for streaming"
+msgstr ""
+
+msgid "Today"
+msgstr "今日"
+
+msgid "Toggle Sidebar"
+msgstr "切换侧边栏"
+
+msgid "Track"
+msgstr ""
+
+msgid "Track not available for streaming, skipping to next track"
+msgstr "曲目无法流式播放，正在跳至下一曲目"
+
+msgid "Tracks"
+msgstr "曲目"
+
+msgid ""
+"Unfortunately an error occurred while loading this view. Please try again "
+"later. If the error persists, please open an issue!\n"
+"\n"
+"Error Message: "
+msgstr ""
+"很遗憾，加载此视图时发生错误。请稍后重试。如果错误持续存在，请提交问题！\n"
+"\n"
+"错误信息： "
+
+msgid "Unknown album type"
+msgstr "未知专辑类型"
+
+msgid "Unsupported activity"
+msgstr "不支持的活动"
+
+msgid "View All"
+msgstr "查看全部"
+
+msgid "Volume"
+msgstr "音量"
+
+msgid "You are currently not logged in to Last.fm"
+msgstr ""
+
+msgid "You are logged in to Last.fm"
+msgstr ""
+
+msgid "You are logged in to Last.fm as %s"
+msgstr ""
+
+msgid "You can also open the linking page using the button below"
+msgstr "您也可以使用下方的按钮打开链接页面"
+
+msgid ""
+"Your secret service provider was found, but refused to interact with "
+"Tonearm.\n"
+"\n"
+"This could because you cancelled a prompt or, if you are using a Flatpak, "
+"the provider not implementing the XDG Secret Portal service.\n"
+"\n"
+"Tonearm will not be able to store any authentication-related data and you "
+"will not be able to sign in."
+msgstr ""
+"已找到您的密钥服务提供程序，但它拒绝与 Tonearm 交互。\n"
+"\n"
+"这可能是因为您取消了提示，或者，如果您使用的是 Flatpak，提供程序未实现 XDG 密"
+"钥门户服务。\n"
+"\n"
+"Tonearm 将无法存储任何与身份验证相关的数据，您将无法登录。"
+
+msgid "translator-credits"
+msgstr "Poesty Li"
+
+#~ msgid "Copied artist URL to clipboard"
+#~ msgstr "已将艺术家 URL 复制到剪贴板"
+
+#~ msgid "Copied playlist URL to clipboard"
+#~ msgstr "已将播放列表 URL 复制到剪贴板"
+
+#~ msgid "Copy Artist URL"
+#~ msgstr "复制艺术家 URL"
+
+#~ msgid "Copy Playlist URL"
+#~ msgstr "复制播放列表 URL"
+
+#~ msgid "ListenBrainz"
+#~ msgstr "ListenBrainz"
+
+#~ msgid "Play Playlist"
+#~ msgstr "播放播放列表"
+
+#~ msgid "Play Top Tracks"
+#~ msgstr "播放热门曲目"
+
+#~ msgid "Shuffle Playlist"
+#~ msgstr "随机播放播放列表"
+
+#~ msgid "Shuffle Top Tracks"
+#~ msgstr "随机播放热门曲目"
+
+#~ msgid ""
+#~ "Allow Tonearm to temporarily store images on the file system to improve "
+#~ "performance and reduce network traffic."
+#~ msgstr "允许 Tonearm 在文件系统上临时存储图像，以提高性能并减少网络流量。"
+
+#~ msgid "Enable autoplay"
+#~ msgstr "启用自动播放"
+
+#~ msgid "Set as default page"
+#~ msgstr "设为默认页面"
+
+#~ msgid ""
+#~ "Start typing in the search bar to search for songs, artists, albums or "
+#~ "playlists."
+#~ msgstr "在搜索栏中输入以搜索歌曲、艺术家、专辑或播放列表。"
+
+#~ msgid "Sync With Track"
+#~ msgstr "与曲目同步"
+
+#~ msgid "No lyrics available"
+#~ msgstr "暂无歌词"
+
+#~ msgid "Sync with track"
+#~ msgstr "与曲目同步"
+
+#~ msgid "Error fetching lyrics"
+#~ msgstr "获取歌词时出错"
+
+#~ msgid "No song currently playing"
+#~ msgstr "当前无歌曲播放"
+
+#~ msgid "Authentication required"
+#~ msgstr "需要身份验证"
+
+#~ msgid "Please log in to view your collection"
+#~ msgstr "请登录以查看您的收藏"
+
+#~ msgid "You need to sign in to your account to access this page"
+#~ msgstr "您需要登录您的账号才能访问此页面"

@@ -1,0 +1,795 @@
+# Spanish translation for Tonearm.
+# Copyright (C) 2026 THE PACKAGE'S COPYRIGHT HOLDER
+# This file is distributed under the same license as the PACKAGE package.
+#
+msgid ""
+msgstr ""
+"Project-Id-Version: v1.3.1-38-gf3ed956\n"
+"Report-Msgid-Bugs-To: \n"
+"POT-Creation-Date: 2026-08-08 22:44+0200\n"
+"PO-Revision-Date: 2026-08-09 21:25+0000\n"
+"Last-Translator: gallegonovato <gallegonovato@noreply.codeberg.org>\n"
+"Language-Team: Spanish <https://translate.codeberg.org/projects/tonearm/"
+"tonearm/es/>\n"
+"Language: es\n"
+"MIME-Version: 1.0\n"
+"Content-Type: text/plain; charset=UTF-8\n"
+"Content-Transfer-Encoding: 8bit\n"
+"Plural-Forms: nplurals=2; plural=n != 1;\n"
+"X-Generator: Weblate 2026.7.1\n"
+
+msgid "%d Fan"
+msgid_plural "%d Fans"
+msgstr[0] "%d seguidor"
+msgstr[1] "%d seguidores"
+
+msgid "%d Track"
+msgid_plural "%d Tracks"
+msgstr[0] "%d Pista"
+msgstr[1] "%d Pistas"
+
+msgid "%d Track (%s)"
+msgid_plural "%d Tracks (%s)"
+msgstr[0] "%d Pista (%s)"
+msgstr[1] "%d Pistas (%s)"
+
+msgid "%s and %s"
+msgstr "%s y %s"
+
+msgid "API Base URL"
+msgstr "URL base de la API"
+
+msgid "About Tonearm"
+msgstr "Acerca de Tonearm"
+
+msgid "Add Album to Queue"
+msgstr "Añadir álbum a la cola"
+
+msgid "Add My Tracks to Queue"
+msgstr "Añadir mis pistas a la cola"
+
+msgid "Add Playlist to Queue"
+msgstr "Añadir lista de reproducción a la cola"
+
+msgid "Add Top Tracks to Queue"
+msgstr "Agregar los mejores títulos a la cola"
+
+msgid "Add to Collection"
+msgstr "Añadir a la colección"
+
+msgid "Add to Queue"
+msgstr "Añadir a la cola"
+
+msgid "Album"
+msgstr "Álbum"
+
+msgid "Album by %s"
+msgstr "Álbum de %s"
+
+msgid "Albums"
+msgstr "Álbumes"
+
+msgid "Allow Background Activity"
+msgstr "Permitir actividad en segundo plano"
+
+msgid "Allow Media Card Images"
+msgstr "Permite las imágenes de tarjetas multimedia"
+
+msgid "Allow Shortcut Images"
+msgstr "Permitir imágenes de accesos directos"
+
+msgid "Allow Tonearm to load images for media card buttons"
+msgstr ""
+"Permitir que Tonearm cargue imágenes para los botones de la tarjeta de "
+"memoria"
+
+msgid "Allow Tonearm to load images for shortcut buttons"
+msgstr ""
+"Permitir a Tonearm cargar imágenes para los botones de accesos directos"
+
+msgid "Allow Tonearm to load images for tracklists with the cover column"
+msgstr ""
+"Permitir a Tonearm cargar imágenes para las listas de pistas con la columna "
+"de portada"
+
+msgid ""
+"Allow Tonearm to retain recently loaded images in memory to improve "
+"performance and reduce network traffic (estimated 50 MiB limit)"
+msgstr ""
+"Permitir que Tonearm guarde las imágenes recientes en memoria para acelerar "
+"el sistema y consumir menos datos (límite de 50 MiB)"
+
+msgid ""
+"Allow Tonearm to run in the background by hiding the player window instead "
+"of quitting the application"
+msgstr "Permitir la ejecución en segundo plano de Tonearm al cerrar la ventana"
+
+msgid "Allow Tonearm to send scrobbling data to Last.fm"
+msgstr "Permitir que Tonearm registre tus reproducciones en Last.fm"
+
+msgid "Allow Tonearm to send scrobbling data to ListenBrainz"
+msgstr "Permitir que Tonearm registre tus reproducciones en ListenBrainz"
+
+msgid ""
+"Allow Tonearm to start a mix with the current playing song when you're at "
+"the end of an album/queue"
+msgstr ""
+"Permitir que Tonearm inicie una mezcla basada en la canción actual cuando "
+"llegues al final de un álbum o de la cola"
+
+msgid "Allow Tracklist Images"
+msgstr "Mostrar imágenes en las canciones"
+
+msgid "An error occurred while fetching the track mix"
+msgstr "Error al cargar la mezcla de canciones"
+
+msgid "An error occurred while logging in to Last.fm"
+msgstr "Error al iniciar sesión en Last.fm"
+
+msgid "An error occurred while logging out of Last.fm"
+msgstr "Error al cerrar la sesión en Last.fm"
+
+msgid "An error occurred while playing the album"
+msgstr "Error en la reproducción"
+
+msgid "An error occurred while playing the playlist"
+msgstr "Error al reproducir la lista"
+
+msgid "An error occurred while playing the top tracks"
+msgstr "Error al reproducir las pistas populares"
+
+msgid "An error occurred while playing the track"
+msgstr "Error al reproducir la canción"
+
+msgid "An error occurred while playing the tracks"
+msgstr "Error al reproducir las canciones"
+
+msgid "An error occurred while shuffling the tracks"
+msgstr "Error al activar el modo aleatorio"
+
+msgid ""
+"An unknown error occurred when checking for a secret service provider.\n"
+"\n"
+"Signing in may or may not work. Please see the raw error message for more "
+"details:\n"
+"\n"
+"%s"
+msgstr ""
+"Error desconocido en el servicio de contraseñas.\n"
+"\n"
+"El inicio de sesión podría fallar.\n"
+"\n"
+"Detalles: %s"
+
+msgid "Artist"
+msgstr "Artista"
+
+msgid "Artists"
+msgstr "Artistas"
+
+msgid "Auth Base URL"
+msgstr "URL base de autenticación"
+
+msgid "Authentication Required"
+msgstr "Autenticación requerida"
+
+msgid "Auto"
+msgstr "Automático"
+
+msgid "Back"
+msgstr "Atrás"
+
+msgid "Background Activity"
+msgstr "Actividad en segundo plano"
+
+msgid "Base URLs"
+msgstr "URL base"
+
+msgid "Basic Shortcuts"
+msgstr "Atajos básicos"
+
+msgid "Cache Images"
+msgstr "Caché de imágenes"
+
+msgid "Cancel"
+msgstr "Cancelar"
+
+msgid "Cancel Login"
+msgstr "Cancelar inicio de sesión"
+
+msgid ""
+"Choose whether Tonearm should prefer album replay gain, track replay gain or "
+"decide automatically"
+msgstr ""
+"Prioridad en Tonearm la ganancia de reproducción (álbum, pista o automático)"
+
+msgid "Close"
+msgstr "Cerrar"
+
+msgid "Collection"
+msgstr "Colección"
+
+msgid "Configure Tonearm to send scrobbling data to Last.fm"
+msgstr "Configuración para enviar tu historial de reproducción a Last.fm"
+
+msgid "Configure Tonearm to send scrobbling data to ListenBrainz"
+msgstr "Configuración para enviar tu historial de reproducción a ListenBrainz"
+
+msgid "Configure the base URLs for TIDAL"
+msgstr "Configurar las URL base para TIDAL"
+
+msgid "Configure the behaviour of Tonearm regarding images"
+msgstr "Configurar el comportamiento de Tonearm respecto a las imágenes"
+
+msgid "Configure the behaviour of Tonearm regarding playback"
+msgstr "Configurar el comportamiento de Tonearm respecto a la reproducción"
+
+msgid "Configure the behaviour of Tonearm when navigating between pages"
+msgstr "Configurar el comportamiento de Tonearm al navegar entre páginas"
+
+msgid "Configure the behaviour of Tonearm when running in the background"
+msgstr "Configurar el comportamiento de Tonearm al ejecutarse en segundo plano"
+
+msgid "Continue"
+msgstr "Continuar"
+
+msgid "Continue the authentication process in your browser."
+msgstr "Continúe el proceso de autenticación en su navegador."
+
+msgid "Copied URL to clipboard"
+msgstr "Se copió la URL al portapapeles"
+
+msgid "Copied track URL to clipboard"
+msgstr "URL de la pista copiada al portapapeles"
+
+msgid "Copy Track URL"
+msgstr "Copiar URL de la pista"
+
+msgid "Copy URL"
+msgstr "Copiar URL"
+
+msgid "Default Page"
+msgstr "Página predeterminada"
+
+msgid "Disable Repeat"
+msgstr "Desactivar repetición"
+
+msgid "Disable Shuffle"
+msgstr "Desactivar modo aleatorio"
+
+msgid "Don't show again"
+msgstr "No mostrar de nuevo"
+
+msgid "EP by %s"
+msgstr "EP de %s"
+
+msgid "Enable Autoplay"
+msgstr "Activar reproducción automática"
+
+msgid "Enable Last.fm"
+msgstr "Activar Last.fm"
+
+msgid "Enable ListenBrainz"
+msgstr "Activar ListenBrainz"
+
+msgid "Enable Shuffle"
+msgstr "Activar modo aleatorio"
+
+msgid "Error Fetching Lyrics"
+msgstr "Error al obtener la letra"
+
+msgid "Error loading collection"
+msgstr "Error al cargar la colección"
+
+msgid "Explore"
+msgstr "Explorar"
+
+msgid "External Link"
+msgstr "Enlace externo"
+
+msgid "Feed"
+msgstr "Novedades"
+
+msgid "For example, Fox Stevenson"
+msgstr "Por ejemplo, Fox Stevenson"
+
+msgid "General"
+msgstr "General"
+
+msgid "High"
+msgstr "Alta"
+
+msgid "History Length"
+msgstr "Longitud del historial"
+
+msgid "Home"
+msgstr "Inicio"
+
+msgid "Images"
+msgstr "Imágenes"
+
+msgid "Internal Error"
+msgstr "Error interno"
+
+msgid "Keyboard Shortcuts"
+msgstr "Atajos de teclado"
+
+msgid "Keychain Unavailable"
+msgstr "Llavero no disponible"
+
+msgid "Last Month"
+msgstr "El mes pasado"
+
+msgid "Last Week"
+msgstr "La semana pasada"
+
+msgid "ListenBrainz API Token"
+msgstr "Token de API de ListenBrainz"
+
+msgid "ListenBrainz API URL"
+msgstr "URL de API de ListenBrainz"
+
+msgid "Loading Lyrics"
+msgstr "Cargando letra"
+
+msgid "Log In to Last.fm…"
+msgstr "Iniciar sesión en Last.fm…"
+
+msgid "Log Out of Last.fm"
+msgstr "Cerrar sesión en Last.fm"
+
+msgid "Logged in to Last.fm as %s"
+msgstr "Sesión iniciada en Last.fm como %s"
+
+msgid "Logged out of Last.fm"
+msgstr "Sesión cerrada en Last.fm"
+
+msgid "Logging in to Last.fm"
+msgstr "Iniciando sesión en Last.fm"
+
+msgid "Low (320 kbps)"
+msgstr "Baja (320 kbps)"
+
+msgid "Low (96 kbps)"
+msgstr "Baja (96 kbps)"
+
+msgid "Lyrics"
+msgstr "Letra"
+
+msgid "Main Menu"
+msgstr "Menú principal"
+
+msgid "Max"
+msgstr "Máxima"
+
+msgid "Maximum history length before dropping old entries"
+msgstr "Longitud máxima del historial antes de eliminar entradas antiguas"
+
+msgid "More"
+msgstr "Más"
+
+msgid "More…"
+msgstr "Más…"
+
+msgid "My Albums"
+msgstr "Mis álbumes"
+
+msgid "My Artists"
+msgstr "Mis artistas"
+
+msgid "My Collection"
+msgstr "Mi colección"
+
+msgid "My Playlists"
+msgstr "Mis listas de reproducción"
+
+msgid "My Tracks"
+msgstr "Mis pistas"
+
+msgid "Navigate Back"
+msgstr "Volver atrás"
+
+msgid "Navigate to %s"
+msgstr "Ir a %s"
+
+msgid "Navigate to Album"
+msgstr "Ir al álbum"
+
+msgid "Navigate to Artist"
+msgstr "Ir al artista"
+
+msgid "Navigate to Collection"
+msgstr "Ir a la colección"
+
+msgid "Navigate to Explore"
+msgstr "Ir a Explorar"
+
+msgid "Navigate to Home"
+msgstr "Ir al inicio"
+
+msgid "Navigate to Track Mix"
+msgstr "Ir al mix de la pista"
+
+msgid "Navigation"
+msgstr "Navegación"
+
+msgid "Navigation Behaviour"
+msgstr "Comportamiento de navegación"
+
+msgid "Next"
+msgstr "Siguiente"
+
+msgid "No Artist"
+msgstr "Sin artista"
+
+msgid "No Lyrics Available"
+msgstr "Letra no disponible"
+
+msgid "No Song Currently Playing"
+msgstr "No se está reproduciendo ninguna canción"
+
+msgid "No Track"
+msgstr "Sin pista"
+
+msgid "No Tracks in Queue"
+msgstr "No hay pistas en la cola"
+
+msgid "No mix found for the current track"
+msgstr "No se encontró un mix para la pista actual"
+
+msgid ""
+"No secret service provider is available.\n"
+"\n"
+"Tonearm will not be able to store any authentication-related data and you "
+"will not be able to sign in.\n"
+"\n"
+"Please install a secret service provider such as GNOME Keyring or KDE Wallet."
+msgstr ""
+"No hay un proveedor de servicio de secretos disponible.\n"
+"\n"
+"Tonearm no podrá almacenar datos relacionados con la autenticación y no "
+"podrá iniciar sesión.\n"
+"\n"
+"Por favor, instale un proveedor de servicio de secretos como GNOME Keyring o "
+"KDE Wallet."
+
+msgid "Normalize Volume"
+msgstr "Normalizar volumen"
+
+msgid "Not Found"
+msgstr "No encontrado"
+
+msgid "Not found"
+msgstr "No encontrado"
+
+msgid "Older"
+msgstr "Más antiguo"
+
+msgid "Open TIDAL Page"
+msgstr "Abrir página de TIDAL"
+
+msgid "OpenAPI Base URL"
+msgstr "URL base de OpenAPI"
+
+msgid "Pause"
+msgstr "Pausa"
+
+msgid "Performance"
+msgstr "Rendimiento"
+
+msgid "Personal Mix"
+msgstr "Mix personal"
+
+msgid "Play"
+msgstr "Reproducir"
+
+msgid "Play / Pause"
+msgstr "Reproducir / Pausa"
+
+msgid "Play Album"
+msgstr "Reproducir álbum"
+
+msgid "Playback"
+msgstr "Reproducción"
+
+msgid "Playback quality saved. Changes will be applied on next track change"
+msgstr ""
+"Calidad de reproducción guardada. Los cambios se aplicarán en la siguiente "
+"pista"
+
+msgid "Player"
+msgstr "Reproductor"
+
+msgid "Playing From"
+msgstr "Reproduciendo desde"
+
+msgid "Playlist"
+msgstr "Lista de reproducción"
+
+msgid "Playlists"
+msgstr "Listas de reproducción"
+
+msgid "Please sign in to view your collection"
+msgstr "Inicie sesión para ver su colección"
+
+msgid "Please sign in to view your feed"
+msgstr "Inicie sesión para ver sus novedades"
+
+msgid "Preferences"
+msgstr "Preferencias"
+
+msgid "Preferred Replay Gain"
+msgstr "Ganancia de reproducción preferida"
+
+msgid "Previous"
+msgstr "Anterior"
+
+msgid "Queue"
+msgstr "Cola"
+
+msgid "Quit"
+msgstr "Salir"
+
+msgid "Remove Track from Queue"
+msgstr "Eliminar pista de la cola"
+
+msgid "Remove from Collection"
+msgstr "Eliminar de la colección"
+
+msgid "Reopen Browser"
+msgstr "Reabrir navegador"
+
+msgid "Repeat Queue"
+msgstr "Repetir cola"
+
+msgid "Repeat Track"
+msgstr "Repetir pista"
+
+msgid "Resources Base URL"
+msgstr "URL base de recursos"
+
+msgid "Scan this QR code to sign into your TIDAL account"
+msgstr "Escanee este código QR para iniciar sesión en su cuenta de TIDAL"
+
+msgid "Scrobbling"
+msgstr "Registro de reproducciones (Scrobbling)"
+
+msgid "Scroll to the Left"
+msgstr "Desplazar a la izquierda"
+
+msgid "Scroll to the Right"
+msgstr "Desplazar a la derecha"
+
+msgid "Search"
+msgstr "Buscar"
+
+msgid "Secret Service Error"
+msgstr "Error del servicio de secretos"
+
+msgid "Secret Service Issue"
+msgstr "Error al guardar las contraseñas"
+
+msgid "Secret Service Unavailable"
+msgstr "No se puede guardar las contraseñas"
+
+msgid "Set as Default Page"
+msgstr "Páginade inicio por defecto"
+
+msgid "Set current page as default"
+msgstr "Fijar como inicio"
+
+msgid "Set the same volume for all tracks"
+msgstr "Igualar volumen para todas las canciones"
+
+msgid "Shuffle Album"
+msgstr "Álbum en aleatorio"
+
+msgid "Side Pane"
+msgstr "Panel lateral"
+
+msgid "Sign In"
+msgstr "Iniciar sesión"
+
+msgid "Sign In…"
+msgstr "Iniciar sesión…"
+
+msgid "Sign Out"
+msgstr "Cerrar sesión"
+
+msgid "Sign in failed or aborted"
+msgstr "El inicio de sesión falló o fue cancelado"
+
+msgid "Signed in as %s"
+msgstr "Sesión iniciada como %s"
+
+msgid "Signed out"
+msgstr "Sesión cerrada"
+
+msgid "Single by %s"
+msgstr "Sencillo de %s"
+
+msgid ""
+"Start typing in the search bar to search for songs, artists, albums or "
+"playlists"
+msgstr ""
+"Comience a escribir en la barra de búsqueda para buscar canciones, artistas, "
+"álbumes o listas de reproducción"
+
+msgid "Sync with Track"
+msgstr "Sincronizar con la pista"
+
+msgid "TIDAL Settings"
+msgstr "Ajustes de TILDAL"
+
+msgid "TIDAL-specific settings for advanced users"
+msgstr "Ajustes específicos de TIDAL para usuarios avanzados"
+
+msgid ""
+"The macOS Keychain is not available or accessible.\n"
+"\n"
+"Tonearm will not be able to store any authentication-related data and you "
+"will not be able to sign in.\n"
+"\n"
+"Please ensure your keychain is unlocked and accessible."
+msgstr ""
+"No se puede acceder al llavero de macOS o no está disponible.\n"
+"\n"
+"Tonearm no podrá guardar la información de inicio de sesión y no podrás "
+"acceder.\n"
+"\n"
+"Por favor, asegúrate de que el llavero esté desbloqueado y disponible."
+
+msgid "The requested deeplink did not have any available handlers."
+msgstr "El enlace solicitado no tiene controladores disponibles."
+
+msgid "This Month"
+msgstr "Este mes"
+
+msgid "This Week"
+msgstr "Esta semana"
+
+msgid "This track is not available for streaming"
+msgstr "No se puede reproducir esta pista en Tonearm"
+
+msgid "Today"
+msgstr "Hoy"
+
+msgid "Toggle Sidebar"
+msgstr "Mostrar/ocultar panel lateral"
+
+msgid "Track"
+msgstr "Pista"
+
+msgid "Track not available for streaming, skipping to next track"
+msgstr "Pista no disponible para streaming, pasando a la siguiente pista"
+
+msgid "Tracks"
+msgstr "Pistas"
+
+msgid ""
+"Unfortunately an error occurred while loading this view. Please try again "
+"later. If the error persists, please open an issue!\n"
+"\n"
+"Error Message: "
+msgstr ""
+"Lamentablemente se produjo un error al cargar esta vista. Por favor, "
+"inténtelo de nuevo más tarde. Si el error persiste, abra un informe de "
+"error.\n"
+"\n"
+"Mensaje de error: "
+
+msgid "Unknown album type"
+msgstr "Tipo de álbum desconocido"
+
+msgid "Unsupported activity"
+msgstr "Actividad no compatible"
+
+msgid "View All"
+msgstr "Ver todo"
+
+msgid "Volume"
+msgstr "Volumen"
+
+msgid "You are currently not logged in to Last.fm"
+msgstr "Actualmente no ha iniciado sesión en Last.fm"
+
+msgid "You are logged in to Last.fm"
+msgstr "Ha iniciado sesión en Last.fm"
+
+msgid "You are logged in to Last.fm as %s"
+msgstr "Ha iniciado sesión en Last.fm como %s"
+
+msgid "You can also open the linking page using the button below"
+msgstr "También puede abrir la página de vinculación con el botón de abajo"
+
+msgid ""
+"Your secret service provider was found, but refused to interact with "
+"Tonearm.\n"
+"\n"
+"This could because you cancelled a prompt or, if you are using a Flatpak, "
+"the provider not implementing the XDG Secret Portal service.\n"
+"\n"
+"Tonearm will not be able to store any authentication-related data and you "
+"will not be able to sign in."
+msgstr ""
+"Se encontró su proveedor de servicio de secretos, pero rechazó interactuar "
+"con Tonearm.\n"
+"\n"
+"Esto puede deberse a que canceló un mensaje o, si está usando Flatpak, a que "
+"el proveedor no implementa el servicio XDG Secret Portal.\n"
+"\n"
+"Tonearm no podrá almacenar datos relacionados con la autenticación y no "
+"podrá iniciar sesión."
+
+msgid "translator-credits"
+msgstr "rubiojr https://codeberg.org/rubiojr"
+
+msgid "Network"
+msgstr "Red"
+
+msgid "Configure how much Tonearm downloads in the background"
+msgstr "Configura cuánto descarga Tonearm en segundo plano"
+
+msgid "Preload Content"
+msgstr "Precargar contenido"
+
+msgid "Download your playlists, albums and favourite tracks in the background so they open instantly. Turn off to save bandwidth; changes apply immediately"
+msgstr "Descarga tus listas, álbumes y canciones favoritas en segundo plano para que se abran al instante. Desactívalo para ahorrar ancho de banda; los cambios se aplican al momento"
+
+msgid "Country / Region"
+msgstr "País / región"
+
+msgid "Catalogue region for TIDAL requests; Automatic uses your account's country. Applies to pages you open next"
+msgstr "Región del catálogo para las peticiones a TIDAL; Automático usa el país de tu cuenta. Se aplica a las páginas que abras a continuación"
+
+msgid "Automatic"
+msgstr "Automático"
+
+#~ msgid ""
+#~ "Allow Tonearm to temporarily store images on the file system to improve "
+#~ "performance and reduce network traffic"
+#~ msgstr ""
+#~ "Permitir a Tonearm guardar imágenes temporalmente para mejorar el "
+#~ "rendimiento y ahorrar datos"
+
+#~ msgid "Copied album URL to clipboard"
+#~ msgstr "URL del álbum copiada al portapapeles"
+
+#~ msgid "Copied artist URL to clipboard"
+#~ msgstr "URL del artista copiada al portapapeles"
+
+#~ msgid "Copied playlist URL to clipboard"
+#~ msgstr "URL de la lista de reproducción copiada al portapapeles"
+
+#~ msgid "Copy Album URL"
+#~ msgstr "Copiar URL del álbum"
+
+#~ msgid "Copy Artist URL"
+#~ msgstr "Copiar URL del artista"
+
+#~ msgid "Copy Playlist URL"
+#~ msgstr "Copiar URL de la lista de reproducción"
+
+#~ msgid "Last.fm"
+#~ msgstr "Last.fm"
+
+#~ msgid "ListenBrainz"
+#~ msgstr "ListenBrainz"
+
+#~ msgid "Play My Tracks"
+#~ msgstr "Reproducir mis pistas"
+
+#~ msgid "Play Playlist"
+#~ msgstr "Reproducir lista de reproducción"
+
+#~ msgid "Play Top Tracks"
+#~ msgstr "Reproducir pistas más populares"
+
+#~ msgid "Shuffle My Tracks"
+#~ msgstr "Reproducir mis pistas en modo aleatorio"
+
+#~ msgid "Shuffle Playlist"
+#~ msgstr "Reproducir lista en modo aleatorio"
+
+#~ msgid "Shuffle Top Tracks"
+#~ msgstr "Reproducir pistas más populares en modo aleatorio"

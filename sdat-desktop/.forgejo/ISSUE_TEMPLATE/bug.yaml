@@ -1,0 +1,65 @@
+name: Bug Report
+description: If you encountered a problem while using Tonearm you can help us improve by filing a bug report.
+title: "[Bug]: "
+labels: ["bug", "triage"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        ## Thank you for taking your time to report a bug
+        We prepared this issue template to help you submit your report in a form that helps us better understand how the issue came to be
+        and what outcome you actually wanted to achieve.
+  
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened?
+      description: What issue(s) did you encounter when you noticed the bug? What steps lead up to the issue?
+      placeholder: "Example: When I clicked 'Pause', the player jumped to the next track"
+    validations:
+      required: true
+  
+  - type: textarea
+    id: what-should-have-happened
+    attributes:
+      label: What was your goal?
+      description: What did you expect Tonearm to do? What was the desired outcome?
+      placeholder: "Example: When I click 'Pause', the player should pause the current track"
+    validations:
+      required: true
+  
+  - type: dropdown
+    id: severity
+    attributes:
+      label: Impact on usability
+      description: "How badly does this bug affect day to day use of Tonearm?"
+      options:
+        - Tonearm is unusable
+        - Tonearm is barely usable
+        - Tonearm is mostly useable
+        - Tonearm is useable
+    validations:
+      required: true
+  
+  - type: input
+    id: tonearm-version
+    attributes:
+      label: Tonearm Version
+      description: What version of Tonearm were you using?
+      placeholder: "Hint: You can copy the version by opening to Tonearm's about page and clicking the version under the icon."
+    validations:
+      required: true
+  
+  - type: dropdown
+    id: packaging
+    attributes:
+      label: Package Manager / Packaging Method
+      description: "How did you install Tonearm? What packaging method did you use?"
+      options:
+        - AUR
+        - Flatpak
+        - Nix Flake
+        - Manual (Please describe)
+        - Other
+    validations:
+      required: true

@@ -1,0 +1,41 @@
+package search_results
+
+import (
+	"context"
+	"encoding/json"
+	"fmt"
+	"net/http"
+	"strings"
+
+	"codeberg.org/dergs/tonearm/internal/settings"
+	"codeberg.org/dergs/tonearm/pkg/tidalapi/models/openapi"
+)
+
+func (s *SearchResults) Search(ctx context.Context, query string, include ...string) (*openapi.SearchResult, error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, fmt.Sprintf("%s/v2/searchResults", settings.ServiceTidal().OpenAPIBaseURL()), nil)
+	if err != nil {
+		return nil, err
+	}
+
+	params := req.URL.Query()
+	params.Set("filter[query]", query)
+	params.Set("include", strings.Join(include, ","))
+	req.URL.RawQuery = params.Encode()
+
+	resp, err := s.client.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("unexpected status code: %d", resp.StatusCode)
+	}
+
+	var searchResult openapi.SearchResult
+	if err := json.NewDecoder(resp.Body).Decode(&searchResult); err != nil {
+		return nil, err
+	}
+
+	return &searchResult, nil
+}

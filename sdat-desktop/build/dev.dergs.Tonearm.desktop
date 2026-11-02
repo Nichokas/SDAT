@@ -1,0 +1,10 @@
+[Desktop Entry]
+Categories=Audio;AudioVideo;Music;GNOME;GTK
+Comment=Tonearm is a GTK client for TIDAL written in GoLang.
+Exec=tonearm %u
+Icon=dev.dergs.Tonearm
+MimeType=x-scheme-handler/tidal
+Name=Tonearm
+Keywords=Tidal;Music
+Type=Application
+Version=1.5

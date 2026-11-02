@@ -1,0 +1,31 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<Project
+    xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#"
+    xmlns:rdfs="http://www.w3.org/2000/01/rdf-schema#"
+    xmlns:foaf="http://xmlns.com/foaf/0.1/"
+    xmlns:gnome="http://api.gnome.org/doap-extensions#"
+    xmlns="http://usefulinc.com/ns/doap#"
+>
+
+    <name>Tonearm</name>
+    <shortdesc xml:lang="en">An unofficial native GTK4 / Adwaita music streaming client for TIDAL</shortdesc>
+
+    <homepage rdf:resource="https://codeberg.org/dergs/Tonearm" />
+    <download-page rdf:resource="https://codeberg.org/dergs/Tonearm" />
+    <bug-database rdf:resource="https://codeberg.org/dergs/Tonearm/issues" />
+
+    <programming-language>Golang</programming-language>
+
+    <maintainer>
+        <foaf:Person>
+        <foaf:name>Nila The Dragon</foaf:name>
+        </foaf:Person>
+    </maintainer>
+
+    <maintainer>
+        <foaf:Person>
+        <foaf:name>Dråfølin</foaf:name>
+        </foaf:Person>
+    </maintainer>
+
+</Project>

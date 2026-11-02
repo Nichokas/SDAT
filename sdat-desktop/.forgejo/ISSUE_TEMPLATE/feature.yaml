@@ -1,0 +1,63 @@
+name: Feature Request
+description: If you have an idea for a new feature or other improvements, you can help us improve Tonearm by submitting a feature request.
+title: "[Enhancement]: "
+labels: ["enhancement", "triage"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        ## Thank you for taking your time to submit a feature request
+        We prepared this issue template to help you submit your feature request in a form that helps us better understand how Tonearm
+        could be improved.
+  
+  - type: textarea
+    id: feature-description
+    attributes:
+      label: Your idea
+      description: Describe the kind of feature or improvement you would like to see in Tonearm
+      placeholder: ""
+    validations:
+      required: true
+  
+  - type: textarea
+    id: similar-features
+    attributes:
+      label: Is there a similar feature in TIDAL?
+      description: Did you see this feature in TIDAL's player? If so, where can we find it?
+      placeholder: "Example: When I click 'Pause', the player should pause the current track"
+  
+  - type: dropdown
+    id: severity
+    attributes:
+      label: Impact on usability
+      description: "How badly does the lack of this feature affect day to day use of Tonearm?"
+      options:
+        - Tonearm is unusable
+        - Tonearm is barely usable
+        - Tonearm is mostly useable
+        - Tonearm is useable
+    validations:
+      required: true
+  
+  - type: input
+    id: tonearm-version
+    attributes:
+      label: Tonearm Version
+      description: What version of Tonearm were you using?
+      placeholder: "Hint: You can copy the version by opening to Tonearm's about page and clicking the version under the icon."
+    validations:
+      required: true
+  
+  - type: dropdown
+    id: packaging
+    attributes:
+      label: Package Manager / Packaging Method
+      description: "How did you install Tonearm? What packaging method did you use?"
+      options:
+        - AUR
+        - Flatpak
+        - Nix Flake
+        - Manual (Please describe)
+        - Other
+    validations:
+      required: true
