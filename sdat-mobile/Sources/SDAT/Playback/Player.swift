@@ -264,6 +264,7 @@ final class Player {
     /// loads it paused, so joining a paused session never blips audio.
     func livePlay(_ tracks: [Track], index i: Int, at secs: Double, playing: Bool) {
         guard tracks.indices.contains(i) else { return }
+        liveSeekLead = 0 // seek timing is per item: do not carry it to a new track
         recentIDs = []; recentOrder = []
         infinite = nil
         original = tracks
