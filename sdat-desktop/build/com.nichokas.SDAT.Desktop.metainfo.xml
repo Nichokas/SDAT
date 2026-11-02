@@ -1,12 +1,14 @@
 <?xml version="1.0" encoding="UTF-8" ?>
 <component type="desktop-application">
-  <id>dev.dergs.Tonearm</id>
+  <id>com.nichokas.SDAT.Desktop</id>
+  <provides><id>dev.dergs.Tonearm</id></provides>
+  <replaces><id>dev.dergs.Tonearm</id></replaces>
   <metadata_license>MIT</metadata_license>
-  <name>Tonearm</name>
+  <name>SDAT</name>
   <summary>Stream your favorite music</summary>
   <description>
     <p>
-    With Tonearm you are able to play tracks at their highest quality, explore new tracks using discovery mixes or the explore tab or just enjoy the songs you already know you love from your collection. Just like you would expect from the real app. Tonearm also has some additional features such as
+    With SDAT you are able to play tracks at their highest quality, explore new tracks using discovery mixes or the explore tab or just enjoy the songs you already know you love from your collection. Just like you would expect from the real app. SDAT also has some additional features such as
     </p>
     <ul>
       <li>Background Playback</li>
@@ -18,7 +20,7 @@
     Don't have a TIDAL account? You can still try the app and enjoy song previews of up to 30 seconds to see if it's for you.
     </p>
   </description>
-  <icon type="stock">dev.dergs.Tonearm</icon>
+  <icon type="stock">com.nichokas.SDAT.Desktop</icon>
 
   <categories>
       <category>Audio</category>
@@ -40,10 +42,10 @@
     <color type="primary" scheme_preference="dark">#690daf</color>
   </branding>
 
-  <!-- Rust port (tonearm-rs) of the original Tonearm by the dergs team: https://codeberg.org/dergs/Tonearm -->
-  <url type="homepage">https://github.com/Nichokas/tonearm-rs</url>
-  <url type="bugtracker">https://github.com/Nichokas/tonearm-rs/issues</url>
-  <url type="vcs-browser">https://github.com/Nichokas/tonearm-rs</url>
+  <!-- SDAT desktop: Rust port (formerly tonearm-rs) of the original Tonearm by the dergs team: https://codeberg.org/dergs/Tonearm -->
+  <url type="homepage">https://github.com/Nichokas/SDAT</url>
+  <url type="bugtracker">https://github.com/Nichokas/SDAT/issues</url>
+  <url type="vcs-browser">https://github.com/Nichokas/SDAT</url>
 
   <releases>
     <release version="1.5.1" date="2026-09-24">
@@ -279,7 +281,7 @@
     </release>
   </releases>
 
-  <launchable type="desktop-id">dev.dergs.Tonearm.desktop</launchable>
+  <launchable type="desktop-id">com.nichokas.SDAT.Desktop.desktop</launchable>
 
   <recommends>
     <control>keyboard</control>

@@ -11,6 +11,7 @@ mod router;
 mod scrobbling;
 mod secrets;
 mod service;
+mod migrate;
 mod settings;
 mod ui;
 
@@ -71,11 +72,15 @@ fn main() -> glib::ExitCode {
     env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("info")).init();
     install_panic_hook();
     ensure_schema();
+    migrate::run();
     tonearm_core::config::install(Box::new(settings::GSettingsConfig));
     tonearm_core::auth::install(Box::new(secrets::KeyringTokens));
 
     register_resources();
     let app = adw::Application::new(Some(settings::APP_ID), gio::ApplicationFlags::HANDLES_COMMAND_LINE);
+    // Bundled icons/styles still live under the original resource prefix; GTK would
+    // otherwise derive it from the new app ID and miss them.
+    app.set_resource_base_path(Some("/dev/dergs/Tonearm"));
     app.connect_startup(|_| {
         ui::components::tracklist_header::init();
         ui::components::sidebar::player_view::init();

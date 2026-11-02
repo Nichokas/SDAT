@@ -1,27 +1,27 @@
-# tonearm-rs.spec — Fedora/COPR packaging for Tonearm (Rust port),
-# https://github.com/Nichokas/tonearm-rs
+# sdat-desktop.spec — Fedora/COPR packaging for the SDAT desktop app
+# (formerly tonearm-rs, the Rust port of Tonearm), https://github.com/Nichokas/SDAT
 #
 # Sources:
-#   Source0: GitHub tag tarball of this repo (v%%{version}).
+#   Source0: GitHub tag tarball of the SDAT monorepo (desktop-v%%{version}).
 #   Source1: `cargo vendor` archive for the same tag, produced by
-#            packaging/fedora/make-vendor.sh and attached to GitHub release
-#            v%%{version}. COPR downloads both while making the SRPM; the RPM
-#            build itself runs fully offline (cargo --offline --frozen).
+#            sdat-desktop/packaging/fedora/make-vendor.sh and attached to GitHub
+#            release desktop-v%%{version}. The RPM build runs fully offline.
 #
-# The package is named tonearm-rs so it can live next to nichokas/tonearm (Go);
-# both ship /usr/bin/tonearm and the dev.dergs.Tonearm files, so they conflict.
+# Replaces the old tonearm-rs package; still conflicts with nichokas/tonearm (Go),
+# which ships the legacy dev.dergs.Tonearm schema we also install for migration.
 
-%global appid dev.dergs.Tonearm
+%global appid com.nichokas.SDAT.Desktop
+%global legacy_appid dev.dergs.Tonearm
 
-Name:           tonearm-rs
-Version:        1.1.0
+Name:           sdat-desktop
+Version:        1.2.0
 Release:        1%{?dist}
 Summary:        Native GTK4/libadwaita TIDAL client (Rust port)
 
 License:        GPL-3.0-or-later
-URL:            https://github.com/Nichokas/tonearm-rs
-Source0:        %{url}/archive/v%{version}/%{name}-%{version}.tar.gz
-Source1:        %{url}/releases/download/v%{version}/%{name}-%{version}-vendor.tar.xz
+URL:            https://github.com/Nichokas/SDAT
+Source0:        %{url}/archive/desktop-v%{version}/SDAT-desktop-v%{version}.tar.gz
+Source1:        %{url}/releases/download/desktop-v%{version}/%{name}-%{version}-vendor.tar.xz
 
 ExclusiveArch:  x86_64 aarch64
 
@@ -51,14 +51,16 @@ Suggests:       gstreamer1-libav
 
 Conflicts:      tonearm
 Provides:       tonearm-app = %{version}-%{release}
+Obsoletes:      tonearm-rs < 1.2.0-1
+Provides:       tonearm-rs = %{version}-%{release}
 
 %description
-Tonearm is a native GTK4/libadwaita client for the TIDAL music streaming
+SDAT is a native GTK4/libadwaita client for the TIDAL music streaming
 service. This is the Rust port (gtk4-rs, libadwaita-rs, gstreamer-rs) of the
 original Go application, with the same interface.
 
 %prep
-%autosetup -n %{name}-%{version}
+%autosetup -n SDAT-desktop-v%{version}
 tar -xf %{SOURCE1}
 mkdir -p .cargo
 cat > .cargo/config.toml <<'CFG'
@@ -73,20 +75,23 @@ CFG
 export TONEARM_VERSION=%{version}
 export TONEARM_COMMIT=v%{version}
 export RUSTFLAGS="%{?build_rustflags}"
-cargo build --release --offline --frozen
+cargo build --release --offline --frozen -p sdat-desktop
 
 %install
-install -Dm0755 target/release/tonearm %{buildroot}%{_bindir}/tonearm
-install -Dm0644 internal/icons/hicolor/scalable/apps/%{appid}.svg \
+install -Dm0755 target/release/sdat-desktop %{buildroot}%{_bindir}/sdat-desktop
+install -Dm0644 sdat-desktop/internal/icons/hicolor/scalable/apps/%{appid}.svg \
     %{buildroot}%{_datadir}/icons/hicolor/scalable/apps/%{appid}.svg
-install -Dm0644 internal/icons/hicolor/symbolic/apps/%{appid}-symbolic.svg \
+install -Dm0644 sdat-desktop/internal/icons/hicolor/symbolic/apps/%{appid}-symbolic.svg \
     %{buildroot}%{_datadir}/icons/hicolor/symbolic/apps/%{appid}-symbolic.svg
-install -Dm0644 internal/icons/hicolor/128x128/apps/%{appid}.png \
+install -Dm0644 sdat-desktop/internal/icons/hicolor/128x128/apps/%{appid}.png \
     %{buildroot}%{_datadir}/icons/hicolor/128x128/apps/%{appid}.png
-install -Dm0644 build/%{appid}.desktop %{buildroot}%{_datadir}/applications/%{appid}.desktop
-install -Dm0644 build/%{appid}.metainfo.xml %{buildroot}%{_metainfodir}/%{appid}.metainfo.xml
-install -Dm0644 internal/settings/%{appid}.gschema.xml \
+install -Dm0644 sdat-desktop/build/%{appid}.desktop %{buildroot}%{_datadir}/applications/%{appid}.desktop
+install -Dm0644 sdat-desktop/build/%{appid}.metainfo.xml %{buildroot}%{_metainfodir}/%{appid}.metainfo.xml
+install -Dm0644 sdat-desktop/internal/settings/%{appid}.gschema.xml \
     %{buildroot}%{_datadir}/glib-2.0/schemas/%{appid}.gschema.xml
+# Legacy schema, read once by the settings migration from Tonearm.
+install -Dm0644 sdat-desktop/internal/settings/%{legacy_appid}.gschema.xml \
+    %{buildroot}%{_datadir}/glib-2.0/schemas/%{legacy_appid}.gschema.xml
 
 %check
 desktop-file-validate %{buildroot}%{_datadir}/applications/%{appid}.desktop
@@ -94,17 +99,21 @@ appstream-util validate-relax --nonet %{buildroot}%{_metainfodir}/%{appid}.metai
 glib-compile-schemas --strict --dry-run %{buildroot}%{_datadir}/glib-2.0/schemas
 
 %files
-%license LICENSE
-%doc README.md
-%{_bindir}/tonearm
+%license sdat-desktop/LICENSE
+%doc sdat-desktop/README.md
+%{_bindir}/sdat-desktop
 %{_datadir}/applications/%{appid}.desktop
 %{_metainfodir}/%{appid}.metainfo.xml
 %{_datadir}/glib-2.0/schemas/%{appid}.gschema.xml
+%{_datadir}/glib-2.0/schemas/%{legacy_appid}.gschema.xml
 %{_datadir}/icons/hicolor/scalable/apps/%{appid}.svg
 %{_datadir}/icons/hicolor/symbolic/apps/%{appid}-symbolic.svg
 %{_datadir}/icons/hicolor/128x128/apps/%{appid}.png
 
 %changelog
+* Mon Nov 02 2026 Nicolas Rodriguez-Alvarez <me@nichokas.eu> - 1.2.0-1
+- Rename to sdat-desktop, build from the SDAT monorepo, migrate Tonearm settings
+
 * Sat Oct 31 2026 tonearm-rs CI <noreply@github.com> - 1.1.0-1
 - Update to 1.1.0
 

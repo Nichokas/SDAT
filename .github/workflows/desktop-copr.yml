@@ -1,6 +1,7 @@
-name: COPR publish
+name: Desktop COPR publish
 
-# Rebuild nichokas/tonearm-rs on Fedora COPR. Fired manually or by
+# Rebuild the desktop package on Fedora COPR (project still nichokas/tonearm-rs;
+# renaming the COPR project/package needs an explicit decision). Fired manually or by
 # fedora-auto-update (repository_dispatch copr-rebuild).
 # Needs: secret COPR_WEBHOOK_TOKEN (COPR → Settings → Integrations),
 #        variable COPR_PROJECT_ID (numeric COPR project id).

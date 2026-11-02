@@ -102,7 +102,7 @@ static PRELOAD_LOADED: AtomicBool = AtomicBool::new(false);
 static PRELOAD: AtomicBool = AtomicBool::new(true);
 
 fn preload_marker() -> std::path::PathBuf {
-    glib::user_config_dir().join("tonearm").join("preload-disabled")
+    glib::user_config_dir().join(crate::settings::CONFIG_DIR_NAME).join("preload-disabled")
 }
 
 /// Whether background preloading is enabled (default on).

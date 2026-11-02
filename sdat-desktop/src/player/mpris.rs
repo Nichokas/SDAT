@@ -16,10 +16,10 @@ use zbus::zvariant::{ObjectPath, OwnedValue, Value};
 
 use super::{playback_state_changed, PlaybackStatus, CONTINUE, repeat_mode_changed, RepeatMode, shuffle_state_changed, track_changed, volume_changed, seeked, next, previous, pause, play_pause, play, seek_to_position, set_repeat_mode, set_shuffle, current_track_id, set_volume};
 
-const BUS_NAME: &str = "org.mpris.MediaPlayer2.dev.dergs.Tonearm";
+const BUS_NAME: &str = "org.mpris.MediaPlayer2.com.nichokas.SDAT.Desktop";
 const PATH: &str = "/org/mpris/MediaPlayer2";
-const DESKTOP_ENTRY: &str = "dev.dergs.Tonearm";
-const IDENTITY: &str = "Tonearm";
+const DESKTOP_ENTRY: &str = "com.nichokas.SDAT.Desktop";
+const IDENTITY: &str = "SDAT";
 
 #[derive(Debug)]
 enum Cmd {

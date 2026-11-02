@@ -1,20 +1,25 @@
 //! Thin typed wrappers around the `GSettings` schemas from
-//! `internal/settings/dev.dergs.Tonearm.gschema.xml` (unchanged keys).
+//! `internal/settings/com.nichokas.SDAT.Desktop.gschema.xml` (same keys as the
+//! legacy `dev.dergs.Tonearm` schema; see `migrate`).
 
 use gtk::gio;
 use gtk::gio::prelude::*;
 
 use crate::model::TrackQuality;
 
-pub const APP_ID: &str = "dev.dergs.Tonearm";
+pub const APP_ID: &str = "com.nichokas.SDAT.Desktop";
+/// Settings schema / config dir used before the SDAT rename (read only by `migrate`).
+pub const LEGACY_APP_ID: &str = "dev.dergs.Tonearm";
+pub const CONFIG_DIR_NAME: &str = "sdat-desktop";
+pub const LEGACY_CONFIG_DIR_NAME: &str = "tonearm";
 
 thread_local! {
     static GENERAL: gio::Settings = gio::Settings::new(APP_ID);
-    static PLAYBACK: gio::Settings = gio::Settings::new("dev.dergs.Tonearm.playback");
-    static PERFORMANCE: gio::Settings = gio::Settings::new("dev.dergs.Tonearm.performance");
-    static PLAYER: gio::Settings = gio::Settings::new("dev.dergs.Tonearm.player");
-    static SCROBBLING: gio::Settings = gio::Settings::new("dev.dergs.Tonearm.scrobbling");
-    static SERVICE_TIDAL: gio::Settings = gio::Settings::new("dev.dergs.Tonearm.service.tidal");
+    static PLAYBACK: gio::Settings = gio::Settings::new(&format!("{APP_ID}.playback"));
+    static PERFORMANCE: gio::Settings = gio::Settings::new(&format!("{APP_ID}.performance"));
+    static PLAYER: gio::Settings = gio::Settings::new(&format!("{APP_ID}.player"));
+    static SCROBBLING: gio::Settings = gio::Settings::new(&format!("{APP_ID}.scrobbling"));
+    static SERVICE_TIDAL: gio::Settings = gio::Settings::new(&format!("{APP_ID}.service.tidal"));
 }
 
 pub fn general() -> gio::Settings {
@@ -63,7 +68,7 @@ impl tonearm_core::config::Config for GSettingsConfig {
         audio_quality()
     }
     fn config_dir(&self) -> Option<std::path::PathBuf> {
-        Some(glib::user_config_dir().join("tonearm"))
+        Some(glib::user_config_dir().join(CONFIG_DIR_NAME))
     }
 }
 

@@ -1,10 +1,10 @@
 [package]
-name = "tonearm"
-version = "1.0.0"
+name = "sdat-desktop"
+version = "1.2.0"
 edition = "2024"
-description = "An unofficial native GTK4 / Adwaita music streaming client for TIDAL"
+description = "SDAT desktop: an unofficial native GTK4 / Adwaita music streaming client for TIDAL (Rust port of Tonearm)"
 license = "GPL-3.0-or-later"
-repository = "https://codeberg.org/dergs/Tonearm"
+repository = "https://github.com/Nichokas/SDAT"
 readme = "README.md"
 keywords = ["tidal", "music", "gtk", "libadwaita", "gnome"]
 categories = ["multimedia::audio", "gui"]

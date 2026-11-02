@@ -137,7 +137,7 @@ pub fn new_window(app: &adw::Application) -> adw::ApplicationWindow {
     install_mouse_click_handler(&window);
 
     window.set_content(Some(&build(app, &window)));
-    window.set_title(Some("Tonearm"));
+    window.set_title(Some("SDAT"));
     window.set_icon_name(Some("logo-symbolic"));
     window.set_default_size(settings::window_width(), settings::window_height());
     let save = |w: &adw::ApplicationWindow| {
@@ -264,13 +264,13 @@ fn build_content_header() -> gtk::Widget {
 }
 
 fn build_sidebar_header(app: &adw::Application, window: &adw::ApplicationWindow) -> gtk::Widget {
-    let title = adw::WindowTitle::new("Tonearm", "");
+    let title = adw::WindowTitle::new("SDAT", "");
     let w = window.downgrade();
     on_signal(router::navigation(), &title, move |_, ev| {
         if ev.completed
             && let (Some(w), Some(r)) = (w.upgrade(), ev.result.as_ref())
         {
-            w.set_title(Some(&format!("Tonearm - {}", r.page_title)));
+            w.set_title(Some(&format!("SDAT - {}", r.page_title)));
         }
     });
 
@@ -630,14 +630,14 @@ fn present_about(window: &adw::ApplicationWindow) {
 fn about_dialog() -> adw::AboutDialog {
     let a = adw::AboutDialog::new();
     a.set_application_icon("logo");
-    a.set_application_name("Tonearm-rs");
+    a.set_application_name("SDAT");
     a.set_developer_name("Nichokas");
     a.set_comments(&tr("Rust port of Tonearm, the unofficial GTK4 / Adwaita client for TIDAL. Done with the help of Grok Bot."));
     a.set_version(&version_number(VERSION, COMMIT));
     // GTK's Gpl30 is "GPL 3.0 or later".
     a.set_license_type(gtk::License::Gpl30);
-    a.set_website("https://github.com/Nichokas/tonearm-rs");
-    a.set_issue_url("https://github.com/Nichokas/tonearm-rs/issues");
+    a.set_website("https://github.com/Nichokas/SDAT");
+    a.set_issue_url("https://github.com/Nichokas/SDAT/issues");
     a.add_link(&tr("Original Tonearm"), "https://codeberg.org/dergs/Tonearm");
     a.set_developers(&["Nichokas https://github.com/Nichokas"]);
     a.add_credit_section(

@@ -1,6 +1,6 @@
-//! Secret storage through libsecret (Secret Service / XDG portal), same schema
-//! (`dev.dergs.Tonearm`, attribute `key`) as the Go implementation, so existing
-//! sign-ins keep working.
+//! Secret storage through libsecret (Secret Service / XDG portal), schema
+//! `com.nichokas.SDAT.Desktop`, attribute `key`. Sign-ins stored under the legacy
+//! `dev.dergs.Tonearm` schema are copied over by `migrate` on first start.
 
 use std::collections::HashMap;
 
@@ -8,7 +8,7 @@ use base64::Engine;
 
 use crate::i18n::{tr, trf};
 
-const REFRESH_TOKEN_KEY: &str = "refresh_token";
+pub(crate) const REFRESH_TOKEN_KEY: &str = "refresh_token";
 
 #[derive(Debug, Clone)]
 pub struct ServiceError {
@@ -18,9 +18,22 @@ pub struct ServiceError {
 }
 
 fn schema() -> libsecret::Schema {
+    schema_named(crate::settings::APP_ID)
+}
+
+pub(crate) fn schema_named(name: &str) -> libsecret::Schema {
     let mut attrs = HashMap::new();
     attrs.insert("key", libsecret::SchemaAttributeType::String);
-    libsecret::Schema::new("dev.dergs.Tonearm", libsecret::SchemaFlags::NONE, attrs)
+    libsecret::Schema::new(name, libsecret::SchemaFlags::NONE, attrs)
+}
+
+/// Raw lookup/store against a named schema, used by `migrate` for the legacy keyring entry.
+pub(crate) fn lookup_in(schema_name: &str, key: &str) -> Result<Option<String>, gtk::glib::Error> {
+    libsecret::password_lookup_sync(Some(&schema_named(schema_name)), attrs(key), gtk::gio::Cancellable::NONE).map(|o| o.map(|s| s.to_string()))
+}
+
+pub(crate) fn store_in(schema_name: &str, key: &str, label: &str, value: &str) -> Result<(), gtk::glib::Error> {
+    libsecret::password_store_sync(Some(&schema_named(schema_name)), attrs(key), Some("default"), label, value, gtk::gio::Cancellable::NONE)
 }
 
 fn attrs(key: &str) -> HashMap<&str, &str> {
@@ -86,7 +99,7 @@ pub fn set_refresh_token(token: &str) -> anyhow::Result<()> {
         Some(&schema()),
         attrs(REFRESH_TOKEN_KEY),
         Some("default"),
-        "Tonearm TIDAL Refresh Token",
+        "SDAT TIDAL Refresh Token",
         token,
         gtk::gio::Cancellable::NONE,
     )?;

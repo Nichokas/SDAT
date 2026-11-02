@@ -42,4 +42,4 @@ jobs:
         run: dnf -y install cargo rust gcc git-core gtk4-devel libadwaita-devel gstreamer1-devel gstreamer1-plugins-base-devel libsecret-devel openssl-devel glib2-devel
       - uses: actions/checkout@v4
       - name: Check desktop app
-        run: cargo check -p tonearm --locked
+        run: cargo check -p sdat-desktop --locked
