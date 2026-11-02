@@ -77,6 +77,12 @@ pub fn play_next_ticket() -> PlayNextTicket {
 /// each batch to the host as a normal enqueue, in the same order.
 pub fn complete_play_next(ticket: PlayNextTicket, tracks: Vec<Track>) {
     if ticket.generation != PLAY_NEXT_GENERATION.with(Cell::get) {
+        // The local queues were replaced (e.g. a guest following a host track
+        // change), but a guest's request belongs to the session: still send it.
+        // Outside a session `user_enqueue` does nothing and the batch is dropped.
+        if !tracks.is_empty() {
+            crate::live::user_enqueue(tracks.iter().map(|t| t.id().to_string()).collect());
+        }
         return;
     }
     let batches = PLAY_NEXT_ORDER.with(|s| s.borrow_mut().complete(ticket.seq, tracks));
