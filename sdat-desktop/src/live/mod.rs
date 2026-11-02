@@ -3,7 +3,7 @@
 //!
 //! The host publishes its queue and playback anchors; guests load the host's
 //! track through their own TIDAL session and follow the anchors with the
-//! core's drift policy (ignore < 30 ms, ±2 % rate up to 300 ms, seek above).
+//! core's drift policy with seeks only: the playback rate is never changed.
 //! Only metadata travels.
 
 pub mod link;
@@ -267,7 +267,6 @@ fn teardown() {
     let loading = LOADS.with(RefCell::take).is_loading();
     LAST_STATUS.with(|l| l.set(None));
     if was_guest {
-        player::set_rate(1.0);
         // A host track still loading would start after we left: the player
         // handles triggers in order, so this stop lands after that load.
         if loading {
@@ -792,13 +791,8 @@ fn guest_tick() {
         return;
     }
     match g.correction(latency, actual) {
-        Correction::None => {}
-        Correction::Rate(r) => {
-            if !player::set_rate(r) {
-                log::warn!("player refused a rate change, falling back to seeks");
-                g.set_seek_only(true);
-            }
-        }
+        // Never change the playback speed: a rate answer is ignored.
+        Correction::None | Correction::Rate(_) => {}
         Correction::Seek(to) => player::seek_to_position(Duration::from_millis(u64::try_from(to.max(0)).unwrap_or(0)), true),
     }
 }
