@@ -303,20 +303,20 @@ final class Player {
     /// When the last start or drift seek finished (Live waits before measuring again).
     @ObservationIgnored private(set) var liveSeekEndedAt: Date?
 
-    /// Large drift correction (core only asks for one above a few seconds).
-    /// Re-joins the host the same way as a fresh start: parked ahead, with a
-    /// full buffer, started on time. Playback speed is never changed.
-    func liveSeek() {
+    /// Large drift correction (only above a few seconds of error). A plain
+    /// seek to where the host is, while playing: AVPlayer waits for its own
+    /// buffer there. Parking ahead like `liveAlign` would mean seconds of
+    /// silence; this costs only the refill. Playback speed is never changed.
+    func liveSeek(to secs: Double) {
         guard !liveSeeking, let item = avPlayer.currentItem else { return }
         liveSeeking = true
         liveSeekTask = Task {
-            let playing = await liveAlign(item)
+            _ = await avPlayer.seek(to: CMTime(seconds: max(secs, 0), preferredTimescale: 600),
+                                    toleranceBefore: .zero, toleranceAfter: .zero)
             guard !Task.isCancelled else { return }
             liveSeeking = false
             liveSeekEndedAt = Date()
-            guard avPlayer.currentItem === item else { return }
-            isPlaying = playing
-            updateNowPlaying()
+            if avPlayer.currentItem === item { updateNowPlaying() }
         }
     }
 
@@ -365,6 +365,7 @@ final class Player {
                 return false
             }
             if now.secs - startAt > Self.liveLateTolerance { continue } // buffering took too long
+            if systemPaused { return false } // call / headphones unplugged meanwhile
             try? AVAudioSession.sharedInstance().setActive(true)
             avPlayer.play()
             return true
@@ -372,7 +373,7 @@ final class Player {
         // Very slow network: start where the host is and let AVPlayer buffer.
         guard stillOurs(), let t = liveTarget?() else { return false }
         _ = await avPlayer.seek(to: at(t.secs), toleranceBefore: .zero, toleranceAfter: .zero)
-        guard stillOurs(), t.playing else { return false }
+        guard stillOurs(), t.playing, !systemPaused else { return false }
         try? AVAudioSession.sharedInstance().setActive(true)
         avPlayer.play()
         return true
@@ -498,9 +499,9 @@ final class Player {
                 let item = Self.makeItem(url)
                 avPlayer.insert(item, after: nil)
                 if url.isFileURL { watchLocal(item, track: track) }
-                if liveFollowing && liveTarget != nil {
-                    // Following a host: start only with a healthy buffer and on
-                    // time, so nothing needs correcting right after the start.
+                if liveFollowing && autoplay && liveTarget != nil {
+                    // Following a playing host: start only with a healthy buffer
+                    // and on time, so nothing needs correcting after the start.
                     let playing = await liveAlign(item)
                     guard !Task.isCancelled, current?.id == track.id else { return }
                     isPlaying = playing
@@ -510,8 +511,9 @@ final class Player {
                     return
                 }
                 if resumeAt > 0 {
+                    let tol: CMTime = liveFollowing ? .zero : .positiveInfinity
                     await avPlayer.seek(to: CMTime(seconds: resumeAt, preferredTimescale: 600),
-                                        toleranceBefore: .positiveInfinity, toleranceAfter: .positiveInfinity)
+                                        toleranceBefore: tol, toleranceAfter: tol)
                 }
                 try? AVAudioSession.sharedInstance().setActive(true)
                 if autoplay {

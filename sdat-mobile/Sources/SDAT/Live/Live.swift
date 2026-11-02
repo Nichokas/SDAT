@@ -410,13 +410,16 @@ final class Live {
         // Core only asks for a seek when the error is above a few seconds;
         // the playback speed is never changed (a `rate` answer is ignored).
         guard case .seek(let ms) = guest.correction(latencyMs: latencyMs, actualMs: actual) else { return }
+        // Also enforced here so an older core (300 ms seek threshold) can't
+        // cause seeks for small, acceptable drift.
+        guard abs(ms - actual) > Self.toleranceMs else { return }
         if let last = lastSeekAt, now.timeIntervalSince(last) < Self.minSeekInterval {
             Self.log.debug("drift seek skipped (too soon) errMs=\(ms - actual)")
             return
         }
         lastSeekAt = now
         Self.log.notice("drift seek errMs=\(ms - actual)")
-        player.liveSeek()
+        player.liveSeek(to: Double(ms) / 1000)
     }
 
     /// The host's position for the track loaded here (latency included).
@@ -431,6 +434,8 @@ final class Live {
     private static let seekSettle: TimeInterval = 3
     /// Never two drift seeks closer than this (core also spaces them).
     private static let minSeekInterval: TimeInterval = 10
+    /// A few seconds of divergence between listeners is fine.
+    private static let toleranceMs: Int64 = 3_000
     private var lastSeekAt: Date?
 
     private func resolve(_ id: String) async -> Track? {
