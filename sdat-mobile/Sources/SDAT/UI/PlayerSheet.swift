@@ -6,6 +6,8 @@ struct PlayerSheet: View {
     @State private var page = 0
 
     var body: some View {
+        // Read in body so Observation re-renders this view when either flag changes.
+        let showLive = Live.shared.showSheet && Chrome.shared.showPlayer
         ZStack {
             CoverBackdrop(url: player.current?.album?.coverUrlLarge ?? player.current?.album?.coverUrl, animated: player.isPlaying)
                 .ignoresSafeArea()
@@ -16,6 +18,10 @@ struct PlayerSheet: View {
             .tabViewStyle(.page(indexDisplayMode: .never))
             .ignoresSafeArea(edges: .bottom)
         }
+        // Listen Together from the queue (or a join link opened while the player is up):
+        // the root-level sheet can't present over this one, so present it from here.
+        .sheet(isPresented: Binding(get: { showLive },
+                                    set: { if !$0 { Live.shared.showSheet = false } })) { LiveSheet() }
         .presentationDragIndicator(.visible)
         .presentationBackground(.black)
         .preferredColorScheme(.dark)
