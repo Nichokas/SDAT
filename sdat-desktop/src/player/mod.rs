@@ -85,9 +85,10 @@ pub fn complete_play_next(ticket: PlayNextTicket, tracks: Vec<Track>) {
         insert_tracklist_next(b);
         queued = true;
     }
-    // Start playback once after all ready batches are queued: `next()` only
-    // queues the start, so calling it per batch would pop (and lose) tracks.
-    if queued && playback_state_changed().get().status == PlaybackStatus::Stopped {
+    // Start playback once, and only if no start is already queued or in
+    // flight: `next()` only queues the start, so a second call before the
+    // first track plays would pop (and lose) another track.
+    if queued && with(|p| p.machine.idle_stopped()).unwrap_or(false) {
         next();
     }
 }

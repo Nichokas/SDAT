@@ -299,6 +299,12 @@ impl Machine {
         self.state.get() == State::PlayingGapless
     }
 
+    /// Whether the machine is stopped with no trigger queued or running, so
+    /// nothing is about to start playback.
+    pub fn idle_stopped(&self) -> bool {
+        self.state.get() == State::Stopped && !self.running.get()
+    }
+
     /// Queues a trigger; transitions run in order on the main loop.
     pub fn fire(self: &Rc<Self>, t: Trigger) {
         self.queue.borrow_mut().push_back(t);
