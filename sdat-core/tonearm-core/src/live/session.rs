@@ -119,8 +119,38 @@ struct PlayNextRun {
     after: Option<String>,
     /// Entry ids of inserted tracks, in insertion order.
     items: Vec<String>,
-    /// Track ids handed out and not yet seen in a queue update, in order.
+    /// Track ids handed out and not yet seen in a queue update, in order
+    /// (at most [`super::MAX_QUEUE`]).
     pending: Vec<String>,
+    /// Handed-out tracks past `pending`'s bound: they only count for offsets.
+    hidden: usize,
+}
+
+impl PlayNextRun {
+    fn offset(&self) -> usize {
+        self.items.len() + self.pending.len() + self.hidden
+    }
+
+    /// Keeps `pending` bounded; the overflow is only counted.
+    fn set_pending(&mut self, pending: Vec<String>) {
+        self.pending = pending;
+        if self.pending.len() > super::MAX_QUEUE {
+            self.hidden += self.pending.len() - super::MAX_QUEUE;
+            self.pending.truncate(super::MAX_QUEUE);
+        }
+    }
+
+    fn add_pending(&mut self, track_ids: &[String]) {
+        let mut pending = std::mem::take(&mut self.pending);
+        pending.extend_from_slice(track_ids);
+        self.set_pending(pending);
+    }
+}
+
+/// The run entries right after `start` in `items`, in queue order.
+fn contiguous_run(items: &[QueueItem], start: usize, run: &[String]) -> Vec<String> {
+    let run: std::collections::HashSet<&str> = run.iter().map(String::as_str).collect();
+    items[start..].iter().take_while(|i| run.contains(i.item_id.as_str())).map(|i| i.item_id.clone()).collect()
 }
 
 /// Entry ids for a queue replaced by `new` track ids: entries kept from
@@ -128,12 +158,27 @@ struct PlayNextRun {
 /// the rest get fresh ones. The flag tells whether the id is new. When the
 /// match is ambiguous (two copies of a track, one removed), entries in
 /// `prefer_drop` (guest Play Next entries) are the ones taken as removed, so
-/// a removed Play Next never borrows the identity of another copy.
-fn stable_ids(old: &[QueueItem], new: &[String], prefer_drop: &[String]) -> Vec<(String, bool)> {
+/// a removed Play Next never borrows the identity of another copy, and the
+/// `playing` entry is the copy kept.
+fn stable_ids(old: &[QueueItem], new: &[String], prefer_drop: &[String], playing: Option<&str>) -> Vec<(String, bool)> {
     let (old_len, new_len) = (old.len(), new.len());
     // Weight of keeping old[oi]: every match counts the same (longest
-    // subsequence first); keeping a non-run entry breaks ties.
-    let weight = |oi: usize| -> u32 { 1024 + if prefer_drop.contains(&old[oi].item_id) { 2 } else { 3 } };
+    // subsequence first); keeping the playing entry, then a non-run entry,
+    // breaks ties.
+    let drop: std::collections::HashSet<&str> = prefer_drop.iter().map(String::as_str).collect();
+    let weights: Vec<u32> = old
+        .iter()
+        .map(|i| {
+            1024 + if Some(i.item_id.as_str()) == playing {
+                4
+            } else if drop.contains(i.item_id.as_str()) {
+                2
+            } else {
+                3
+            }
+        })
+        .collect();
+    let weight = |oi: usize| weights[oi];
     // best[oi][ni]: best weight for old[oi..] and new[ni..]. At most 501 x 501.
     let mut best = vec![vec![0u32; new_len + 1]; old_len + 1];
     for oi in (0..old_len).rev() {
@@ -256,26 +301,26 @@ impl HostSession {
         if let Some(app) = &self.app_queue {
             // Exact: the run is the run entries right after the playing one
             // in the app's whole queue.
-            let run = &self.run.items;
             self.run.items = match self.anchor_start(app) {
-                Some(p) => app[p..].iter().take_while(|i| run.contains(&i.item_id)).map(|i| i.item_id.clone()).collect(),
+                Some(p) => contiguous_run(app, p, &self.run.items),
                 None => Vec::new(),
             };
-            let offset = self.run.items.len() + self.run.pending.len();
-            self.run.pending.extend_from_slice(track_ids);
+            let offset = self.run.offset();
+            self.run.add_pending(track_ids);
             return offset;
         }
         let items = &self.queue.queue().items;
-        let run = &self.run.items;
-        self.run.items = match self.run_start() {
+        self.run.items = if let Some(p) = self.run_start() {
             // The run entries still right after the playing one.
-            Some(p) => items[p..].iter().take_while(|i| run.contains(&i.item_id)).map(|i| i.item_id.clone()).collect(),
+            contiguous_run(items, p, &self.run.items)
+        } else {
             // Playing entry past the queue cap:
             // keep counting the run so requests still keep their order.
-            None => run.iter().filter(|r| items.iter().any(|i| &i.item_id == *r)).cloned().collect(),
+            let present: std::collections::HashSet<&str> = items.iter().map(|i| i.item_id.as_str()).collect();
+            self.run.items.iter().filter(|r| present.contains(r.as_str())).cloned().collect()
         };
-        let offset = self.run.items.len() + self.run.pending.len();
-        self.run.pending.extend_from_slice(track_ids);
+        let offset = self.run.offset();
+        self.run.add_pending(track_ids);
         offset
     }
 
@@ -325,27 +370,23 @@ impl HostSession {
         // Bind handed-out tracks to entries the app added right after the
         // playing entry and the run; an entry the app already had never
         // joins the run.
+        // Requests the app has not published yet stay pending.
         let mut run = Vec::new();
+        let mut bound = 0;
         if let Some(start) = self.anchor_start(&entries) {
-            let mut j = start;
-            while j < entries.len() && self.run.items.contains(&entries[j].item_id) {
-                run.push(entries[j].item_id.clone());
-                j += 1;
-            }
-            for t in &self.run.pending {
-                match entries.get(j) {
-                    Some(e) if &e.track_id == t && !known.contains(e.item_id.as_str()) => {
-                        run.push(e.item_id.clone());
-                        j += 1;
-                    }
-                    _ => break,
-                }
+            run = contiguous_run(&entries, start, &self.run.items);
+            let next = entries[start + run.len()..].iter().zip(&self.run.pending);
+            for (e, t) in next.take_while(|(e, t)| &e.track_id == *t && !known.contains(e.item_id.as_str())) {
+                debug_assert_eq!(&e.track_id, t);
+                run.push(e.item_id.clone());
+                bound += 1;
             }
         }
+        let rest = self.run.pending[bound..].to_vec();
         let shared = entries.iter().take(super::MAX_QUEUE).cloned().collect();
         let out = self.apply_shared(OpKind::Replace { items: shared })?;
         self.run.items = run;
-        self.run.pending.clear();
+        self.run.set_pending(rest);
         self.app_queue = Some(entries);
         Ok(out)
     }
@@ -368,7 +409,7 @@ impl HostSession {
             // Back to inferring: the run's ids are the app's, start over.
             self.run = PlayNextRun { after: self.anchor.item_id.clone(), ..PlayNextRun::default() };
         }
-        let mut ids = stable_ids(&self.queue.queue().items, &track_ids, &self.run.items);
+        let mut ids = stable_ids(&self.queue.queue().items, &track_ids, &self.run.items, self.anchor.item_id.as_deref());
         let capped = ids.len() == super::MAX_QUEUE;
         // Bind handed-out tracks to the entries right after the playing one
         // and the run. Pending requests inside the shared queue are consumed
@@ -383,11 +424,14 @@ impl HostSession {
             None => Some(0),
             Some(id) => ids.iter().position(|(i, _)| i == id).map(|p| p + 1),
         };
-        if let Some(mut j) = start {
-            while j < ids.len() && run.contains(&ids[j].0) {
-                j += 1;
-            }
+        if let Some(start) = start {
+            // Run entries moved away from the playing one stop counting.
+            let kept: std::collections::HashSet<&str> = run.iter().map(String::as_str).collect();
+            let contiguous: Vec<String> = ids[start..].iter().take_while(|(i, _)| kept.contains(i.as_str())).map(|(i, _)| i.clone()).collect();
+            run = contiguous;
+            let first = start + run.len();
             for (n, t) in self.run.pending.iter().enumerate() {
+                let j = first + n;
                 if j >= ids.len() {
                     if capped {
                         beyond_cap = self.run.pending[n..].to_vec();
@@ -410,19 +454,19 @@ impl HostSession {
                     }
                 }
                 run.push(ids[j].0.clone());
-                j += 1;
             }
         } else if capped {
             // The playing entry itself is past the cap.
             beyond_cap.clone_from(&self.run.pending);
         }
-        // Not truncated: the app's queue is not capped, and growth is bounded
-        // by the per-guest command budget and reset when the track changes.
         let items: Vec<QueueItem> = ids.iter().zip(&track_ids).map(|((item_id, _), t)| QueueItem { item_id: item_id.clone(), track_id: t.clone() }).collect();
         let out = self.queue_op(OpKind::Replace { items })?;
         self.app_queue = None;
         self.run.items = run;
-        self.run.pending = beyond_cap;
+        if !capped {
+            self.run.hidden = 0;
+        }
+        self.run.set_pending(beyond_cap);
         Ok((out, ids.into_iter().map(|(id, _)| id).collect()))
     }
 
@@ -1453,7 +1497,7 @@ mod tests {
         // Qodo 1: an existing copy of the requested track is never the run.
         assert_eq!(h.play_next_offset(&ids(&["x"])), 0);
         h.replace_queue_entries(entries(&q)).expect("replace");
-        assert_eq!(h.play_next_offset(&ids(&["x"])), 0);
+        assert!(h.run.items.is_empty());
         h.replace_queue_entries(entries(&[("a", "p"), ("n1", "x"), ("b", "x"), ("c", "x")])).expect("replace");
         assert_eq!(h.play_next_offset(&ids(&["y"])), 1);
         h.replace_queue_entries(entries(&[("a", "p"), ("n1", "x"), ("n2", "y"), ("b", "x"), ("c", "x")])).expect("replace");
@@ -1495,6 +1539,44 @@ mod tests {
         h.replace_queue_entries(entries(&[("a", "p"), ("n1", "y"), ("b", "x")])).expect("replace");
         h.queue_op(OpKind::Remove { item_id: "n1".into() }).expect("remove");
         assert_eq!(h.play_next_offset(&ids(&["z"])), 0);
+    }
+
+    #[test]
+    fn exact_partial_updates_keep_later_requests_pending() {
+        let mut h = exact_host(&[("a", "p"), ("b", "q")], "a");
+        assert_eq!(h.play_next_offset(&ids(&["x"])), 0);
+        assert_eq!(h.play_next_offset(&ids(&["y"])), 1);
+        h.replace_queue_entries(entries(&[("a", "p"), ("n1", "x"), ("b", "q")])).expect("replace");
+        h.replace_queue_entries(entries(&[("a", "p"), ("n1", "x"), ("n2", "y"), ("b", "q")])).expect("replace");
+        assert_eq!(h.play_next_offset(&ids(&["z"])), 2);
+    }
+
+    #[test]
+    fn moved_away_play_next_does_not_rejoin_the_run() {
+        let (mut h, _) = host_with(&["p", "a", "b"], 0);
+        let mut q = ids(&["p", "a", "b"]);
+        insert_next(&mut h, &mut q, 0, &["x"]);
+        h.replace_queue(ids(&["p", "a", "b", "x"])).expect("move away");
+        h.replace_queue(ids(&["p", "x", "a", "b"])).expect("move back");
+        assert_eq!(h.play_next_offset(&ids(&["y"])), 0);
+    }
+
+    #[test]
+    fn playing_duplicate_keeps_its_identity() {
+        let (mut h, e) = host_with(&["a", "a"], 1);
+        let (_, kept) = h.replace_queue(ids(&["a"])).expect("replace");
+        assert_eq!(kept, vec![e[1].clone()]);
+    }
+
+    #[test]
+    fn pending_requests_stay_bounded() {
+        let (mut h, _) = host_with(&["p"], 0);
+        let n = super::super::MAX_QUEUE + 10;
+        for k in 0..n {
+            assert_eq!(h.play_next_offset(&ids(&["x"])), k);
+        }
+        assert_eq!(h.run.pending.len(), super::super::MAX_QUEUE);
+        assert_eq!(h.play_next_offset(&ids(&["y"])), n);
     }
 
     #[test]
