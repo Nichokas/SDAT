@@ -231,7 +231,7 @@ final class Live {
         let now = Date()
         // The host itself jumped (seek, restart): follow it at once, the
         // seek backoff only exists to stop our own correction loop.
-        if let last = lastTarget, abs(Double(t.positionMs - last.ms) - now.timeIntervalSince(last.at) * 1000) > 1000 {
+        if let last = lastTarget, abs(Double(t.positionMs - last.ms) - now.timeIntervalSince(last.at) * 1000) > Self.hostJumpMs {
             lastSeekAt = nil; seekBackoff = Self.seekBackoffMin
         }
         lastTarget = (t.positionMs, now)
@@ -266,6 +266,8 @@ final class Live {
     private static let seekSettle: TimeInterval = 1.0
     private static let seekBackoffMin: TimeInterval = 2
     private static let seekBackoffMax: TimeInterval = 16
+    /// A host target jump larger than the core seek threshold is a host seek, not drift.
+    private static let hostJumpMs: Double = 300
     private var lastSeekAt: Date?
     private var lastTarget: (ms: Int64, at: Date)?
     private var seekBackoff: TimeInterval = Live.seekBackoffMin
