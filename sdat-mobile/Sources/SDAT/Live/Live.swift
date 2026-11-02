@@ -455,8 +455,9 @@ final class Live {
         // more than core's tolerance: realign once instead of staying off.
         let lat = latencyMs
         let previous = alignedLatencyMs
-        alignedLatencyMs = lat
+        if previous == nil { alignedLatencyMs = lat }
         if let previous, abs(lat - previous) >= Self.latencyRealignMs, let t = guest.target(latencyMs: lat) {
+            alignedLatencyMs = lat
             Self.log.notice("latency changed \(previous)->\(lat) ms, realigning")
             player.liveSeek(to: Double(t.positionMs) / 1000)
             return
