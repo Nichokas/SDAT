@@ -16,7 +16,7 @@ final class Live {
     private(set) var hostName = ""
     private(set) var reconnecting = false
     /// Guest view of the host's queue (resolved lazily).
-    private(set) var upNext: [Track] = []
+    private(set) var upNext: [LiveRow] = []
     var showSheet = false
     var showScanner = false
     /// Manual extra output delay (e.g. Bluetooth), in ms.
@@ -31,6 +31,8 @@ final class Live {
     /// Bumped on every start, join and teardown. Async results and core callbacks
     /// carry the value they began with and are dropped once it is stale.
     private var generation = 0
+    /// Bumped by every refreshUpNext(): only the newest refresh may publish.
+    private var upNextRefresh = 0
     private let player = Player.shared
 
     // host bookkeeping
@@ -200,6 +202,9 @@ final class Live {
             return
         }
         if player.loading || switching != nil { return }
+        // Paused by the system (call, headphones unplugged): wait for the
+        // user or the system to resume instead of restarting on the speaker.
+        if t.playing && !player.isPlaying && player.systemPaused { return }
         if t.playing != player.isPlaying {
             player.toggle()
             if !t.playing { player.seek(to: Double(t.positionMs) / 1000) }
@@ -233,14 +238,23 @@ final class Live {
         let entries = guest.queue()
         let playing = guest.target(latencyMs: 0)?.itemId
         let start = playing.flatMap { p in entries.firstIndex { $0.itemId == p } }.map { $0 + 1 } ?? 1
-        let ids = entries.dropFirst(start).prefix(30).map(\.trackId)
+        let next = Array(entries.dropFirst(start).prefix(30))
         let gen = generation
+        upNextRefresh &+= 1
+        let refresh = upNextRefresh
         Task {
-            var out: [Track] = []
-            for id in ids { if let t = await resolve(id) { out.append(t) } }
-            if gen == generation { upNext = out }
+            var out: [LiveRow] = []
+            for e in next { if let t = await resolve(e.trackId) { out.append(LiveRow(id: e.itemId, track: t)) } }
+            if gen == generation && refresh == upNextRefresh { upNext = out }
         }
     }
+}
+
+/// A guest's upcoming entry, keyed by the shared queue item id so the same
+/// song queued twice gets two rows.
+struct LiveRow: Identifiable {
+    let id: String
+    let track: Track
 }
 
 /// Callbacks arrive on core threads; hop to the main actor.

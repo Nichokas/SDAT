@@ -61,10 +61,10 @@ struct LiveSheet: View {
             } footer: { Text("Raise this if your speakers or headphones sound behind.") }
             if !live.upNext.isEmpty {
                 Section("Up next") {
-                    ForEach(live.upNext, id: \.id) { t in
+                    ForEach(live.upNext) { row in
                         VStack(alignment: .leading) {
-                            Text(t.title)
-                            Text(t.artists.map(\.name).joined(separator: ", ")).font(.caption).foregroundStyle(.secondary)
+                            Text(row.track.title)
+                            Text(row.track.artists.map(\.name).joined(separator: ", ")).font(.caption).foregroundStyle(.secondary)
                         }
                     }
                 }

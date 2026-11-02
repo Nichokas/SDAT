@@ -47,6 +47,9 @@ final class Player {
     private var systemObservers: [NSObjectProtocol] = []
     /// Set when an audio-session interruption paused active playback.
     private var resumeAfterInterruption = false
+    /// Paused by the system (interruption, headphones unplugged) rather than
+    /// by the user; Listen Together must not resume on its own then.
+    private(set) var systemPaused = false
     private var infinite: Shuffle?
     private var loadTask: Task<Void, Never>?
     private var preloadTask: Task<Void, Never>?
@@ -216,6 +219,7 @@ final class Player {
             return
         }
         resumeAfterInterruption = false
+        systemPaused = false
         if isPlaying { avPlayer.pause() } else {
             try? AVAudioSession.sharedInstance().setActive(true)
             avPlayer.play()
@@ -621,13 +625,14 @@ final class Player {
                 switch type {
                 case .began:
                     // Remember only real playback; a cold-restored paused state never auto-resumes.
-                    if self.isPlaying { self.resumeAfterInterruption = true }
+                    if self.isPlaying { self.resumeAfterInterruption = true; self.systemPaused = true }
                     self.markPaused()
                 case .ended:
                     let should = AVAudioSession.InterruptionOptions(rawValue: opts).contains(.shouldResume)
                     let resume = should && self.resumeAfterInterruption && !self.needsStart && self.current != nil
                     self.resumeAfterInterruption = false
                     if resume {
+                        self.systemPaused = false
                         try? AVAudioSession.sharedInstance().setActive(true)
                         self.avPlayer.play()
                         self.isPlaying = true
@@ -644,6 +649,7 @@ final class Player {
                 guard let raw, AVAudioSession.RouteChangeReason(rawValue: raw) == .oldDeviceUnavailable,
                       let self, self.isPlaying else { return }
                 self.resumeAfterInterruption = false
+                self.systemPaused = true
                 self.markPaused()
             }
         })
