@@ -278,6 +278,9 @@ pub struct Machine {
     playbin: Rc<dyn Playbin>,
     gapless_manifest: RefCell<Option<TrackManifest>>,
     retry_position: Cell<Duration>,
+    /// A pause arrived while the track was still preparing: the stream
+    /// starts paused instead of playing (Listen Together aligned start).
+    pause_on_start: Cell<bool>,
     hooks: Hooks,
 }
 
@@ -291,6 +294,7 @@ impl Machine {
             playbin,
             gapless_manifest: RefCell::new(None),
             retry_position: Cell::new(Duration::ZERO),
+            pause_on_start: Cell::new(false),
             hooks,
         })
     }
@@ -363,8 +367,22 @@ impl Machine {
 
     async fn handle(self: &Rc<Self>, t: Trigger) {
         let from = self.state.get();
-        let Some(to) = self.target(&t) else {
+        if matches!(t, Trigger::PlayTrack(..) | Trigger::PlayTrackId(..) | Trigger::Stop) {
+            self.pause_on_start.set(false);
+        }
+        let Some(mut to) = self.target(&t) else {
             match t {
+                Trigger::Pause if from == State::Preparing => {
+                    self.pause_on_start.set(true);
+                    if let Err(e) = self.playbin.set_state(gst::State::Paused) {
+                        log::error!("failed to pause a preparing track: {e:#}");
+                    }
+                }
+                Trigger::Resume if from == State::Preparing && self.pause_on_start.replace(false) => {
+                    if let Err(e) = self.playbin.set_state(gst::State::Playing) {
+                        log::error!("failed to resume a preparing track: {e:#}");
+                    }
+                }
                 // Ignore(): the hint is a byproduct of retrying / already handled.
                 Trigger::GaplessHint(done) => {
                     if let Some(d) = done {
@@ -377,6 +395,13 @@ impl Machine {
             }
             return;
         };
+        if from == State::Preparing && to == State::Playing && self.pause_on_start.replace(false) {
+            to = State::Paused;
+            playback_state_changed().notify(|mut s| {
+                s.loading = false;
+                s
+            });
+        }
         log::debug!("Transitioning source={from:?} destination={to:?} trigger={t:?}");
 
         // Exit actions.
@@ -739,6 +764,35 @@ pub mod tests {
                 assert_eq!(m.state.get(), State::Stopped, "{from:?}");
                 assert_eq!(CLEARED.with(Cell::get), 0, "the queued Stop cleared the source (from {from:?})");
             }
+        })
+        .unwrap();
+    }
+
+    /// A pause while the track is still preparing (Listen Together guest
+    /// loading a host track paused) holds the pipeline and makes the stream
+    /// start paused instead of playing from 0:00.
+    #[test]
+    fn pause_while_preparing_starts_paused() {
+        let ctx = glib::MainContext::new();
+        ctx.with_thread_default(|| {
+            let pb = Rc::new(Testbin { state: Cell::new(Some(gst::State::Playing)), ..Default::default() });
+            let m = Machine::new(
+                Rc::clone(&pb) as Rc<dyn Playbin>,
+                Hooks { next_track: |_| (None, false), on_eos_stopped: || Box::pin(async {}), clear_source: || {} },
+            );
+            m.state.set(State::Preparing);
+            m.fire(Trigger::Pause);
+            while ctx.iteration(false) {}
+            assert_eq!(pb.state.get(), Some(gst::State::Paused));
+            m.fire(Trigger::StreamStart);
+            while ctx.iteration(false) {}
+            assert_eq!(m.state.get(), State::Paused);
+            assert_eq!(pb.state.get(), Some(gst::State::Paused));
+            // Without a pending pause the stream starts playing as usual.
+            m.state.set(State::Preparing);
+            m.fire(Trigger::StreamStart);
+            while ctx.iteration(false) {}
+            assert_eq!(m.state.get(), State::Playing);
         })
         .unwrap();
     }
