@@ -18,6 +18,15 @@
       "category": "entertainment",
       "versions": [
         {
+          "version": "1.2.2",
+          "buildVersion": "5",
+          "date": "2026-11-02T21:20:46Z",
+          "localizedDescription": "Changes since 1.1.0:\n- Listen Together: guests can control playback when the host allows it\n- Listen Together: the Queue button works again\n- Listen Together: guests no longer get stuck in a seek loop that silenced audio\n- Listen Together: more stable guest playback, and sync never changes the playback speed\n- The audio session is released when idle so iOS can suspend the app\n\nUnsigned build: sideload with your own signing tool.",
+          "downloadURL": "https://github.com/Nichokas/SDAT/releases/download/v1.2.2/SDAT-v1.2.2-unsigned.ipa",
+          "size": 28297027,
+          "minOSVersion": "26.0"
+        },
+        {
           "version": "1.1.0",
           "buildVersion": "2",
           "date": "2026-11-01T16:34:00Z",
@@ -36,11 +45,11 @@
           "minOSVersion": "26.0"
         }
       ],
-      "version": "1.1.0",
-      "versionDate": "2026-11-01T16:34:00Z",
-      "versionDescription": "Changes since 1.0.0:\n- Renamed to SDAT (new bundle id `com.nichokas.SDAT`, so it installs as a separate app from Torneam)\n- Redesigned login and a boot loader that shows real warm-up progress\n- Offline downloads: Downloads screen, download status ring, download option in \"…\" menus\n- Highest-quality downloads and an offline playback indicator\n- Offline album pages and local-first covers\n- Background downloads with system progress (BGContinuedProcessingTask); interrupted queues resume on next launch\n- Discover: long-press context menu on cover tiles\n- Faster collapse/expand animations; miniplayer hold threshold 0.12 s\n- New transparent reel app icon\n\nUnsigned build: sideload with your own signing tool.",
-      "downloadURL": "https://github.com/Nichokas/SDAT/releases/download/v1.1.0/SDAT-v1.1.0-unsigned.ipa",
-      "size": 14843905
+      "version": "1.2.2",
+      "versionDate": "2026-11-02T21:20:46Z",
+      "versionDescription": "Changes since 1.1.0:\n- Listen Together: guests can control playback when the host allows it\n- Listen Together: the Queue button works again\n- Listen Together: guests no longer get stuck in a seek loop that silenced audio\n- Listen Together: more stable guest playback, and sync never changes the playback speed\n- The audio session is released when idle so iOS can suspend the app\n\nUnsigned build: sideload with your own signing tool.",
+      "downloadURL": "https://github.com/Nichokas/SDAT/releases/download/v1.2.2/SDAT-v1.2.2-unsigned.ipa",
+      "size": 28297027
     }
   ],
   "news": []
