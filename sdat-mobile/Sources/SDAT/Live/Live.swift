@@ -72,7 +72,6 @@ final class Live {
 
     /// Handles a scanned QR or an opened `sdat://join/...` link.
     func open(_ text: String) {
-        player.clearSystemPause()
         guard liveIsInvite(text: text) else { return }
         showScanner = false
         showSheet = true
@@ -81,6 +80,8 @@ final class Live {
         do {
             guest = try LiveGuest.join(invite: text, name: deviceName, relays: nil, observer: LiveBridge(generation: generation))
             mode = .joining
+            // Only an accepted invitation clears an older system pause.
+            player.clearSystemPause()
             switching = nil
             player.liveFollowing = true
             run(every: 0.25) { $0.guestTick() }
