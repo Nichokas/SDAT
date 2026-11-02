@@ -250,12 +250,22 @@ final class Live {
     func userToggle() {
         let hostPlaying = guest?.target(latencyMs: 0)?.playing ?? false
         if hostPlaying, resumeLocally() { return }
-        if !route(hostPlaying ? .pause : .play) { player.toggle() }
+        if hostPlaying { if !route(.pause) { player.toggle() } } else { requestPlay() }
     }
 
     func userPlay() {
         if guest?.target(latencyMs: 0)?.playing == true, resumeLocally() { return }
-        if !route(.play) { if !player.isPlaying { player.toggle() } }
+        requestPlay()
+    }
+
+    /// Asks the host to play. An explicit play also lifts a local system
+    /// pause, otherwise the guest would stay silent once the host resumes.
+    private func requestPlay() {
+        guard route(.play) else {
+            if !player.isPlaying { player.toggle() }
+            return
+        }
+        if guestControl, player.systemPaused { player.clearSystemPause() }
     }
 
     /// Guest paused by the system (call, headphones unplugged) while the host
