@@ -368,8 +368,9 @@ impl LiveGuest {
     }
     /// Connection and clock diagnostics for logging (path, RTT, offset).
     pub fn diagnostics(&self) -> LiveDiagnostics {
-        let (clock_offset_ms, clock_rtt_ms) = self.0.clock_stats();
         let p = self.0.path();
+        // Between connections the clock estimate belongs to the old one.
+        let (clock_offset_ms, clock_rtt_ms) = if p.is_some() { self.0.clock_stats() } else { (None, None) };
         LiveDiagnostics {
             path: match p { None => LivePath::Unknown, Some(p) if p.relay => LivePath::Relay, Some(_) => LivePath::Direct },
             path_rtt_ms: p.map(|p| p.rtt_ms),

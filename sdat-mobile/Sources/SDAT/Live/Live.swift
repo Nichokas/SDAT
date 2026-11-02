@@ -25,8 +25,10 @@ final class Live {
     var showScanner = false
     /// Manual extra output delay (e.g. Bluetooth), in ms.
     /// Stored (so views observe it) and persisted.
-    var extraLatencyMs: Int = UserDefaults.standard.integer(forKey: "liveExtraLatencyMs") {
-        didSet { UserDefaults.standard.set(extraLatencyMs, forKey: "liveExtraLatencyMs") }
+    /// Manual output delay. A new key: offsets saved before the Bluetooth and
+    /// AirPlay floors existed would now be counted twice.
+    var extraLatencyMs: Int = UserDefaults.standard.integer(forKey: "liveExtraLatencyMsV2") {
+        didSet { UserDefaults.standard.set(extraLatencyMs, forKey: "liveExtraLatencyMsV2") }
     }
 
     private var host: LiveHost?
@@ -380,6 +382,8 @@ final class Live {
         return .wired
     }
 
+    private static func ms(_ v: Int64?) -> String { v.map(String.init) ?? "none" }
+
     @ObservationIgnored private var lastDiagAt = Date.distantPast
     @ObservationIgnored private var lastPath: LivePath?
     @ObservationIgnored private var lastDriftLogAt = Date.distantPast
@@ -393,7 +397,7 @@ final class Live {
         let d = guest.diagnostics()
         guard d.path != lastPath || now.timeIntervalSince(lastDiagAt) >= 10 else { return }
         lastPath = d.path; lastDiagAt = now
-        Self.log.notice("path=\(String(describing: d.path), privacy: .public) pathRttMs=\(d.pathRttMs ?? -1) clockOffsetMs=\(d.clockOffsetMs ?? 0) clockRttMs=\(d.clockRttMs ?? -1) latencyMs=\(self.latencyMs)")
+        Self.log.notice("path=\(String(describing: d.path), privacy: .public) pathRttMs=\(Self.ms(d.pathRttMs), privacy: .public) clockOffsetMs=\(Self.ms(d.clockOffsetMs), privacy: .public) clockRttMs=\(Self.ms(d.clockRttMs), privacy: .public) latencyMs=\(self.latencyMs)")
     }
 
     private func guestTick() {
@@ -457,7 +461,7 @@ final class Live {
             player.liveSeek(to: Double(t.positionMs) / 1000)
             return
         }
-        if let t = guest.target(latencyMs: latencyMs), now.timeIntervalSince(lastDriftLogAt) >= 10 {
+        if now.timeIntervalSince(lastDriftLogAt) >= 10 {
             lastDriftLogAt = now
             Self.log.notice("drift errMs=\(t.positionMs - actual)")
         }
