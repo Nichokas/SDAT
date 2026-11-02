@@ -1,3 +1,4 @@
+import os
 import AVFoundation
 import Observation
 import UIKit
@@ -103,6 +104,7 @@ final class Live {
         loop?.cancel(); loop = nil
         host = nil; guest = nil
         switching = nil
+        lastSeekAt = nil; seekBackoff = Self.seekBackoffMin; lastTarget = nil
         player.liveFollowing = false
         invite = nil; guests = []; upNext = []; reconnecting = false
         if player.isPlaying { player.liveSetRate(1) }
@@ -181,7 +183,9 @@ final class Live {
 
     private func guestTick() {
         guard let guest, mode == .joined else { return }
-        guest.setSeekOnly(on: ProcessInfo.processInfo.isLowPowerModeEnabled)
+        // Seek-only mode turns every 30 ms of clock jitter into an audible
+        // exact seek; rate nudges are much gentler, so always use them.
+        guest.setSeekOnly(on: false)
         guard let t = guest.target(latencyMs: latencyMs) else { return }
         guard let trackId = t.trackId else {
             if player.isPlaying { player.toggle() }
@@ -224,14 +228,49 @@ final class Live {
             return
         }
         guard player.liveAdvancing else { return }
-        switch guest.correction(latencyMs: latencyMs, actualMs: Int64(player.livePosition * 1000)) {
+        let now = Date()
+        // The host itself jumped (seek, restart): follow it at once, the
+        // seek backoff only exists to stop our own correction loop.
+        if let last = lastTarget, abs(Double(t.positionMs - last.ms) - now.timeIntervalSince(last.at) * 1000) > Self.hostJumpMs {
+            lastSeekAt = nil; seekBackoff = Self.seekBackoffMin
+        }
+        lastTarget = (t.positionMs, now)
+        // Right after a seek the position isn't trustworthy yet (the item is
+        // still refilling), so measuring then reports a large error and
+        // seeks again: a silent gap every ~0.7 s. Let it settle first.
+        if let s = player.liveSeekEndedAt, now.timeIntervalSince(s) < Self.seekSettle { return }
+        let actual = Int64(player.livePosition * 1000)
+        switch guest.correction(latencyMs: latencyMs, actualMs: actual) {
         case .none: break
-        case .rate(let r): player.liveSetRate(Float(r))
+        case .rate(let r):
+            Self.log.debug("drift nudge rate=\(r) actualMs=\(actual)")
+            player.liveSetRate(Float(r))
         case .seek(let ms):
+            // A seek that didn't fix the error means the error isn't real
+            // drift (or seeking can't fix it): back off instead of looping.
+            if let last = lastSeekAt, now.timeIntervalSince(last) < seekBackoff {
+                Self.log.debug("drift seek skipped (backoff \(self.seekBackoff)s) errMs=\(ms - actual)")
+                player.liveSetRate(1) // core ended its nudge with this seek decision
+                return
+            }
+            seekBackoff = lastSeekAt.map { now.timeIntervalSince($0) < self.seekBackoff * 2 } == true
+                ? min(seekBackoff * 2, Self.seekBackoffMax) : Self.seekBackoffMin
+            lastSeekAt = now
+            Self.log.notice("drift seek errMs=\(ms - actual) next backoff=\(self.seekBackoff)s")
             player.liveSeek(to: Double(ms) / 1000)
             player.liveSetRate(1) // a seek always ends any nudge
         }
     }
+
+    private static let log = Logger(subsystem: "dev.sdat", category: "live")
+    private static let seekSettle: TimeInterval = 1.0
+    private static let seekBackoffMin: TimeInterval = 2
+    private static let seekBackoffMax: TimeInterval = 16
+    /// A host target jump larger than the core seek threshold is a host seek, not drift.
+    private static let hostJumpMs: Double = 300
+    private var lastSeekAt: Date?
+    private var lastTarget: (ms: Int64, at: Date)?
+    private var seekBackoff: TimeInterval = Live.seekBackoffMin
 
     private func resolve(_ id: String) async -> Track? {
         if let t = cache[id] { return t }
