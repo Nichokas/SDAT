@@ -311,9 +311,16 @@ async fn on_eos_stopped() {
         return;
     }
     let result = mix.and_then(|(info, tracks)| {
+        // An automatic transition: keep "play next" requests still fetching so
+        // they land in the radio queue instead of being discarded.
+        let generation = PLAY_NEXT_GENERATION.with(Cell::get);
+        let order = PLAY_NEXT_ORDER.with(|s| std::mem::take(&mut *s.borrow_mut()));
         clear_queues();
         stop();
-        play_tracks(tracks, false, 1)?;
+        let started = play_tracks(tracks, false, 1);
+        PLAY_NEXT_GENERATION.with(|g| g.set(generation));
+        PLAY_NEXT_ORDER.with(|s| *s.borrow_mut() = order);
+        started?;
         source_changed().set(Some(PlaybackSource::Playlist(info)));
         Ok(())
     });
