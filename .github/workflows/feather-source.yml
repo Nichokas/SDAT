@@ -60,7 +60,7 @@ jobs:
       - name: Update source.json
         env:
           TAG: ${{ steps.tag.outputs.tag }}
-        run: python3 scripts/update-feather-source.py "$TAG" --repo "$GITHUB_REPOSITORY"
+        run: python3 sdat-mobile/scripts/update-feather-source.py "$TAG" --repo "$GITHUB_REPOSITORY"
 
       - name: Validate JSON
         run: jq -e '.apps[0].versions | length > 0' feather/source.json

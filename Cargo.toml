@@ -1,0 +1,74 @@
+# SDAT monorepo Cargo workspace (desktop app + Rust core).
+# Microsoft Pragmatic Rust Guidelines, M-STATIC-VERIFICATION.
+[workspace]
+resolver = "3"
+members = ["sdat-desktop", "sdat-core/tonearm-core", "sdat-core/tonearm-ffi"]
+
+[workspace.package]
+edition = "2024"
+license = "GPL-3.0-or-later"
+repository = "https://github.com/Nichokas/SDAT"
+
+[workspace.lints.rust]
+ambiguous_negative_literals = "warn"
+missing_debug_implementations = "warn"
+redundant_imports = "warn"
+redundant_lifetimes = "warn"
+trivial_numeric_casts = "warn"
+unsafe_op_in_unsafe_fn = "warn"
+unused_lifetimes = "warn"
+
+[workspace.lints.clippy]
+# rust-skills anti-unwrap-abuse: no unwrap() outside tests (see clippy.toml).
+unwrap_used = "warn"
+# rust-skills lint-clippy-nursery-selected / anti-clone-excessive
+redundant_clone = "warn"
+needless_collect = "warn"
+or_fun_call = "warn"
+equatable_if_let = "warn"
+needless_pass_by_ref_mut = "warn"
+useless_let_if_seq = "warn"
+branches_sharing_code = "warn"
+implicit_clone = "warn"
+cargo = { level = "warn", priority = -1 }
+complexity = { level = "warn", priority = -1 }
+correctness = { level = "warn", priority = -1 }
+pedantic = { level = "warn", priority = -1 }
+perf = { level = "warn", priority = -1 }
+style = { level = "warn", priority = -1 }
+suspicious = { level = "warn", priority = -1 }
+allow_attributes_without_reason = "warn"
+as_pointer_underscore = "warn"
+assertions_on_result_states = "warn"
+clone_on_ref_ptr = "warn"
+deref_by_slicing = "warn"
+disallowed_script_idents = "warn"
+empty_drop = "warn"
+empty_enum_variants_with_brackets = "warn"
+empty_structs_with_brackets = "warn"
+fn_to_numeric_cast_any = "warn"
+if_then_some_else_none = "warn"
+map_err_ignore = "warn"
+redundant_type_annotations = "warn"
+renamed_function_params = "warn"
+semicolon_outside_block = "warn"
+undocumented_unsafe_blocks = "warn"
+unnecessary_safety_comment = "warn"
+unnecessary_safety_doc = "warn"
+unneeded_field_pattern = "warn"
+unused_result_ok = "warn"
+too_long_first_doc_paragraph = "warn"
+literal_string_with_formatting_args = "allow"
+# Project opt-outs (M-STATIC-VERIFICATION allows case-by-case opt-outs).
+# GTK, GStreamer and the TIDAL API speak i32/u32/f64/i64; the values crossing
+# these boundaries (pixel sizes, list positions, durations, volumes) are small
+# and bounded, and the casts mirror the Go original's int conversions.
+cast_possible_truncation = "allow"
+cast_sign_loss = "allow"
+cast_precision_loss = "allow"
+cast_possible_wrap = "allow"
+# Duplicate versions come from transitive dependencies we do not control.
+multiple_crate_versions = "allow"
+# UI builders port Go's declarative widget trees one-to-one; splitting them
+# would make them harder to diff against the original.
+too_many_lines = "allow"

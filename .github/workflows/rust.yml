@@ -1,0 +1,45 @@
+name: Rust (core + desktop)
+
+on:
+  push:
+    branches: ["**"]
+    paths:
+      - "sdat-core/**"
+      - "sdat-desktop/**"
+      - "Cargo.toml"
+      - "Cargo.lock"
+      - ".github/workflows/rust.yml"
+  pull_request:
+    paths:
+      - "sdat-core/**"
+      - "sdat-desktop/**"
+      - "Cargo.toml"
+      - "Cargo.lock"
+      - ".github/workflows/rust.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  core:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: cargo-linux-${{ hashFiles('Cargo.lock') }}
+      - name: Test core and FFI
+        run: cargo test -p tonearm-core -p tonearm-ffi --locked
+  desktop:
+    runs-on: ubuntu-latest
+    container: fedora:latest
+    steps:
+      - name: Install GTK/GStreamer deps
+        run: dnf -y install cargo rust gcc git-core gtk4-devel libadwaita-devel gstreamer1-devel gstreamer1-plugins-base-devel libsecret-devel openssl-devel glib2-devel
+      - uses: actions/checkout@v4
+      - name: Check desktop app
+        run: cargo check -p tonearm --locked
