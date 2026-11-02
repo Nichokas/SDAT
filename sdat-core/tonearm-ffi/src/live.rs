@@ -87,6 +87,19 @@ pub trait LiveControlObserver: Send + Sync {
     fn on_guest_command(&self, peer: String, name: String, command: LiveCommand);
 }
 
+/// Host: guest Play Next, kept apart from [`LiveControlObserver`] so apps
+/// that do not handle it are unaffected (they keep getting `Enqueue`).
+/// Install it with `LiveHost::set_play_next_observer`.
+#[uniffi::export(with_foreign)]
+pub trait LivePlayNextObserver: Send + Sync {
+    /// A guest asked to play these tracks next (permission, validation and
+    /// rate limits already checked). Insert them at
+    /// `index_of_playing + 1 + LiveHost::play_next_offset(count)`.
+    fn on_guest_play_next(&self, peer: String, name: String, track_ids: Vec<String>);
+}
+
+type PlayNextSlot = Arc<std::sync::Mutex<Option<Arc<dyn LivePlayNextObserver>>>>;
+
 type ControlSlot = Arc<std::sync::Mutex<Option<Arc<dyn LiveControlObserver>>>>;
 
 fn control(slot: &ControlSlot) -> Option<Arc<dyn LiveControlObserver>> {
@@ -108,7 +121,7 @@ fn cfg(c: Option<LiveRelayConfig>) -> NetConfig {
     }
 }
 
-struct Bridge(Arc<dyn LiveObserver>, ControlSlot);
+struct Bridge(Arc<dyn LiveObserver>, ControlSlot, PlayNextSlot);
 
 fn end_of(r: EndReason) -> LiveEnd {
     match r {
@@ -130,8 +143,15 @@ impl LiveListener for Bridge {
     fn on_event(&self, ev: LiveEvent) {
         let u = match ev {
             LiveEvent::Command(c) => {
-                if let (Some(o), Some(command)) = (control(&self.1), command_of(c.cmd)) {
-                    o.on_guest_command(c.peer, c.name, command);
+                let next = if c.next { self.2.lock().unwrap_or_else(std::sync::PoisonError::into_inner).clone() } else { None };
+                match (next, command_of(c.cmd)) {
+                    (Some(p), Some(LiveCommand::Enqueue { track_ids })) => p.on_guest_play_next(c.peer, c.name, track_ids),
+                    (_, Some(command)) => {
+                        if let Some(o) = control(&self.1) {
+                            o.on_guest_command(c.peer, c.name, command);
+                        }
+                    }
+                    (_, None) => {}
                 }
                 return;
             }
@@ -159,7 +179,7 @@ fn err(e: net::NetError) -> FfiError {
 
 /// A session this device hosts.
 #[derive(uniffi::Object)]
-pub struct LiveHost(net::LiveHost, ControlSlot);
+pub struct LiveHost(net::LiveHost, ControlSlot, PlayNextSlot);
 
 impl std::fmt::Debug for LiveHost {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -174,9 +194,10 @@ impl LiveHost {
     pub async fn start(name: String, relays: Option<LiveRelayConfig>, observer: Arc<dyn LiveObserver>) -> Result<Arc<Self>, FfiError> {
         let c = cfg(relays);
         let slot = ControlSlot::default();
-        let bridge = Arc::new(Bridge(observer, slot.clone()));
+        let next = PlayNextSlot::default();
+        let bridge = Arc::new(Bridge(observer, slot.clone(), Arc::clone(&next)));
         let h = blocking::unblock(move || net::LiveHost::start(name, &c, bridge)).await.map_err(err)?;
-        Ok(Arc::new(Self(h, slot)))
+        Ok(Arc::new(Self(h, slot, next)))
     }
     /// `sdat://join/...`, for the QR code.
     pub fn invite_url(&self) -> String {
@@ -203,6 +224,17 @@ impl LiveHost {
     }
     pub fn guest_control(&self) -> bool {
         self.0.guest_control()
+    }
+    /// Receives guest Play Next (off while none is installed: guests then
+    /// append). Install before guests join so they learn it in the Welcome.
+    pub fn set_play_next_observer(&self, observer: Option<Arc<dyn LivePlayNextObserver>>) {
+        self.0.set_play_next(observer.is_some());
+        *self.2.lock().unwrap_or_else(std::sync::PoisonError::into_inner) = observer;
+    }
+    /// Offset after the playing entry at which to insert `count` guest
+    /// Play Next tracks; keeps several requests in order.
+    pub fn play_next_offset(&self, count: u32) -> u32 {
+        u32::try_from(self.0.play_next_offset(count as usize)).unwrap_or(u32::MAX)
     }
     pub fn end(&self) {
         self.0.end();
@@ -246,7 +278,7 @@ impl LiveGuest {
     #[uniffi::constructor]
     pub fn join(invite: String, name: String, relays: Option<LiveRelayConfig>, observer: Arc<dyn LiveObserver>) -> Result<Arc<Self>, FfiError> {
         let slot = ControlSlot::default();
-        let g = net::LiveGuest::join(&invite, name, &cfg(relays), Arc::new(Bridge(observer, slot.clone()))).map_err(err)?;
+        let g = net::LiveGuest::join(&invite, name, &cfg(relays), Arc::new(Bridge(observer, slot.clone(), PlayNextSlot::default()))).map_err(err)?;
         Ok(Arc::new(Self(g, slot)))
     }
     pub fn host_name(&self) -> String {
@@ -289,6 +321,15 @@ impl LiveGuest {
     /// Asks the host for a playback change; `false` if it was not sent.
     pub fn send_command(&self, command: LiveCommand) -> bool {
         self.0.send_command(to_core(command))
+    }
+    /// Whether the host places our Play Next after the playing track
+    /// (otherwise `send_play_next` appends, like `Enqueue`).
+    pub fn host_supports_play_next(&self) -> bool {
+        self.0.host_supports_play_next()
+    }
+    /// Asks the host to play these tracks next; `false` if it was not sent.
+    pub fn send_play_next(&self, track_ids: Vec<String>) -> bool {
+        self.0.send_play_next(track_ids)
     }
     pub fn leave(&self) {
         self.0.leave();

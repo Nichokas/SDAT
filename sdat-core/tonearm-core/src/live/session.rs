@@ -5,7 +5,7 @@ use std::collections::BTreeMap;
 
 use super::clock::{ClockSync, Sample};
 use super::drift::{Correction, DriftController};
-use super::proto::{Anchor, EndReason, GuestCommand, Msg, RejectReason};
+use super::proto::{Anchor, EndReason, FEATURE_PLAY_NEXT, GuestCommand, Msg, RejectReason};
 use super::queue::{Accepted, GuestApply, GuestQueue, HostQueue, Op, OpKind, QueueError, QueueItem};
 use super::{HEARTBEAT_NS, HOST_TIMEOUT_NS, PROTO_VERSION, new_id};
 
@@ -53,6 +53,11 @@ pub struct HostCommand {
     pub peer: String,
     pub name: String,
     pub cmd: GuestCommand,
+    /// Guest Play Next: `cmd` is an `Enqueue` whose tracks go right after
+    /// the playing one. Insert them at the index from
+    /// [`HostSession::play_next_offset`]. Only set when the app enabled it
+    /// with [`HostSession::set_play_next`]; otherwise it is a plain enqueue.
+    pub next: bool,
 }
 
 /// Whether `cmd` is well formed: known, and for `Enqueue` 1..=[`MAX_ENQUEUE`]
@@ -94,6 +99,10 @@ pub struct HostSession {
     /// Recent command times per guest (rate limit).
     cmd_times: BTreeMap<String, std::collections::VecDeque<i64>>,
     pending_cmds: std::collections::VecDeque<HostCommand>,
+    /// The app can insert guest Play Next tracks after the playing one.
+    play_next: bool,
+    /// Play-next tracks already inserted after `.0` (the playing item).
+    play_next_cursor: (Option<String>, usize),
 }
 
 impl HostSession {
@@ -117,6 +126,8 @@ impl HostSession {
             guest_control: false,
             cmd_times: BTreeMap::new(),
             pending_cmds: std::collections::VecDeque::new(),
+            play_next: false,
+            play_next_cursor: (None, 0),
         }
         .with_epoch()
     }
@@ -153,6 +164,33 @@ impl HostSession {
             self.pending_cmds.clear();
         }
         vec![all(Msg::Control { guest_control: allowed })]
+    }
+
+    /// Declares that the app applies guest Play Next ([`HostCommand::next`]).
+    /// Off by default, so apps that do not handle it keep getting plain
+    /// enqueues. Advertised to guests in the `Welcome` as
+    /// [`FEATURE_PLAY_NEXT`]; enable it before guests join.
+    pub fn set_play_next(&mut self, enabled: bool) {
+        self.play_next = enabled;
+    }
+
+    pub fn play_next(&self) -> bool {
+        self.play_next
+    }
+
+    /// Where to insert `count` play-next tracks: this many entries after the
+    /// playing one (insert at `index_of_playing + 1 + offset`, clamped to the
+    /// queue length). Successive calls for the same playing item return
+    /// growing offsets, so several Play Next requests keep their order and
+    /// all stay ahead of the rest of the queue. Resets when the playing item
+    /// (as last given to [`Self::set_playback`]) changes.
+    pub fn play_next_offset(&mut self, count: usize) -> usize {
+        if self.play_next_cursor.0 != self.anchor.item_id {
+            self.play_next_cursor = (self.anchor.item_id.clone(), 0);
+        }
+        let offset = self.play_next_cursor.1;
+        self.play_next_cursor.1 = offset.saturating_add(count);
+        offset
     }
 
     /// Accepted guest commands, oldest first. The app applies them through
@@ -209,6 +247,7 @@ impl HostSession {
                         snapshot: self.queue.snapshot(),
                         anchor,
                         guest_control: self.guest_control,
+                        features: if self.play_next { vec![FEATURE_PLAY_NEXT.to_owned()] } else { Vec::new() },
                     },
                 )]
             }
@@ -232,13 +271,15 @@ impl HostSession {
             Msg::Command { .. } if !self.guest_control => {
                 if self.within_budget(peer, now_ns) { vec![to(peer, Msg::Control { guest_control: false })] } else { Vec::new() }
             }
-            Msg::Command { cmd } => {
+            Msg::Command { cmd, next } => {
                 if self.within_budget(peer, now_ns) && valid_command(&cmd) {
+                    // `next` only means something on an enqueue the app can place.
+                    let next = next && self.play_next && matches!(cmd, GuestCommand::Enqueue { .. });
                     if self.pending_cmds.len() >= MAX_PENDING_CMDS {
                         self.pending_cmds.pop_front();
                     }
                     let name = self.guests.get(peer).map(|g| g.name.clone()).unwrap_or_default();
-                    self.pending_cmds.push_back(HostCommand { peer: peer.to_owned(), name, cmd });
+                    self.pending_cmds.push_back(HostCommand { peer: peer.to_owned(), name, cmd, next });
                 }
                 Vec::new()
             }
@@ -376,6 +417,8 @@ pub struct GuestSession {
     /// Our recent command times: the same budget as the host's, so honest
     /// commands are never dropped there and the outgoing queue stays small.
     cmd_times: std::collections::VecDeque<i64>,
+    /// The host advertised [`FEATURE_PLAY_NEXT`].
+    host_play_next: bool,
 }
 
 impl GuestSession {
@@ -399,6 +442,7 @@ impl GuestSession {
             need_snapshot: false,
             guest_control: false,
             cmd_times: std::collections::VecDeque::new(),
+            host_play_next: false,
         }
     }
 
@@ -437,7 +481,24 @@ impl GuestSession {
             return None;
         }
         self.cmd_times.push_back(now_ns);
-        Some(Msg::Command { cmd })
+        Some(Msg::Command { cmd, next: false })
+    }
+
+    /// Whether the host places guest Play Next after the playing track.
+    /// When `false`, [`Self::play_next`] falls back to appending.
+    pub fn host_supports_play_next(&self) -> bool {
+        self.host_play_next
+    }
+
+    /// Play Next request for `track_ids`, with the same checks as
+    /// [`Self::command`]. Hosts without [`FEATURE_PLAY_NEXT`] get a plain
+    /// enqueue (the tracks are appended).
+    pub fn play_next(&mut self, track_ids: Vec<String>, now_ns: i64) -> Option<Msg> {
+        let next = self.host_play_next;
+        match self.command(GuestCommand::Enqueue { track_ids }, now_ns)? {
+            Msg::Command { cmd, .. } => Some(Msg::Command { cmd, next }),
+            m => Some(m),
+        }
     }
 
     fn set_control(&mut self, allowed: bool, ev: &mut Vec<GuestEvent>) {
@@ -525,7 +586,7 @@ impl GuestSession {
             return (out, ev); // state arrives with the Welcome
         }
         match msg {
-            Msg::Welcome { proto, host_name, snapshot, anchor, guest_control, .. } => {
+            Msg::Welcome { proto, host_name, snapshot, anchor, guest_control, features, .. } => {
                 if proto != PROTO_VERSION {
                     self.phase = GuestPhase::Rejected(RejectReason::IncompatibleVersion);
                     ev.push(GuestEvent::Rejected(RejectReason::IncompatibleVersion));
@@ -546,6 +607,7 @@ impl GuestSession {
                     ev.push(GuestEvent::PlaybackChanged);
                 }
                 self.set_control(guest_control, &mut ev);
+                self.host_play_next = features.iter().any(|f| f == FEATURE_PLAY_NEXT);
                 if first {
                     ev.insert(0, GuestEvent::Joined { host_name });
                 }
@@ -960,7 +1022,7 @@ mod tests {
         assert!(!w.guest.guest_control());
         assert_eq!(w.guest.command(GuestCommand::Pause, S), None, "locked by default");
         // A guest sending anyway is ignored and told it is locked.
-        let r = w.host.on_message("g", Msg::Command { cmd: GuestCommand::Next }, S);
+        let r = w.host.on_message("g", Msg::Command { cmd: GuestCommand::Next, next: false }, S);
         assert_eq!(r, vec![to("g", Msg::Control { guest_control: false })]);
         assert!(w.host.take_commands().is_empty());
         // The host allows it: guests hear about it.
@@ -970,14 +1032,84 @@ mod tests {
         let m = w.guest.command(GuestCommand::Enqueue { track_ids: vec!["123".into()] }, 3 * S).unwrap();
         w.send_guest(vec![m], 3 * S);
         let cmds = w.host.take_commands();
-        assert_eq!(cmds, vec![HostCommand { peer: "g".into(), name: "Guest".into(), cmd: GuestCommand::Enqueue { track_ids: vec!["123".into()] } }]);
+        assert_eq!(cmds, vec![HostCommand { peer: "g".into(), name: "Guest".into(), cmd: GuestCommand::Enqueue { track_ids: vec!["123".into()] }, next: false }]);
         // Forbidding again drops what the app has not taken.
-        w.host.on_message("g", Msg::Command { cmd: GuestCommand::Play }, 4 * S);
+        w.host.on_message("g", Msg::Command { cmd: GuestCommand::Play, next: false }, 4 * S);
         let o = w.host.set_guest_control(false);
         assert!(w.host.take_commands().is_empty());
         w.deliver(o, 5 * S);
         assert!(!w.guest.guest_control());
         assert!(w.host.set_guest_control(false).is_empty(), "no change, no broadcast");
+    }
+
+    fn ids(v: &[&str]) -> Vec<String> {
+        v.iter().map(|s| (*s).to_owned()).collect()
+    }
+
+    #[test]
+    fn play_next_needs_permission() {
+        let mut w = World::new(0, MS);
+        w.host.set_play_next(true);
+        w.join(0);
+        assert!(w.guest.host_supports_play_next());
+        assert_eq!(w.guest.play_next(ids(&["1"]), S), None, "locked by default");
+        let r = w.host.on_message("g", Msg::Command { cmd: GuestCommand::Enqueue { track_ids: ids(&["1"]) }, next: true }, S);
+        assert_eq!(r, vec![to("g", Msg::Control { guest_control: false })]);
+        assert!(w.host.take_commands().is_empty());
+        // Malformed play-next is dropped like a malformed enqueue.
+        w.host.set_guest_control(true);
+        w.host.on_message("g", Msg::Command { cmd: GuestCommand::Enqueue { track_ids: ids(&["x"]) }, next: true }, 2 * S);
+        assert!(w.host.take_commands().is_empty());
+    }
+
+    #[test]
+    fn play_next_reaches_host_in_order() {
+        let mut w = World::new(0, MS);
+        w.host.set_play_next(true);
+        w.host.set_guest_control(true);
+        w.join(0);
+        for (i, t) in ["1", "2", "3"].iter().enumerate() {
+            let m = w.guest.play_next(ids(&[t]), S + i as i64 * MS).expect("sent");
+            assert_eq!(m, Msg::Command { cmd: GuestCommand::Enqueue { track_ids: ids(&[t]) }, next: true });
+            w.send_guest(vec![m], S + i as i64 * MS);
+        }
+        let cmds = w.host.take_commands();
+        assert!(cmds.iter().all(|c| c.next));
+        assert_eq!(cmds.iter().map(|c| c.cmd.clone()).collect::<Vec<_>>(), ["1", "2", "3"].map(|t| GuestCommand::Enqueue { track_ids: ids(&[t]) }));
+    }
+
+    #[test]
+    fn play_next_offsets_keep_request_order() {
+        // Queue: a (playing), b, c. Three play-next requests in a row.
+        let mut h = HostSession::new("H".into(), 0);
+        h.set_playback(Some("a".into()), Some("10".into()), 0, true, 0);
+        let mut q = ids(&["a", "b", "c"]);
+        let playing = 0;
+        for (req, n) in [(ids(&["x1", "x2"]), 2), (ids(&["y"]), 1), (ids(&["z"]), 1)] {
+            let at = (playing + 1 + h.play_next_offset(n)).min(q.len());
+            q.splice(at..at, req);
+        }
+        assert_eq!(q, ids(&["a", "x1", "x2", "y", "z", "b", "c"]));
+        // A new playing track starts a fresh run right after it.
+        h.set_playback(Some("x1".into()), Some("11".into()), 0, true, S);
+        assert_eq!(h.play_next_offset(1), 0);
+        assert_eq!(h.play_next_offset(1), 1);
+    }
+
+    #[test]
+    fn play_next_falls_back_to_append() {
+        // A host that does not advertise the feature (older host, or an app
+        // that has not opted in): the guest sends a plain enqueue.
+        let mut w = World::new(0, MS);
+        w.host.set_guest_control(true);
+        w.join(0);
+        assert!(!w.guest.host_supports_play_next());
+        let m = w.guest.play_next(ids(&["1"]), S).expect("sent");
+        assert_eq!(m, Msg::Command { cmd: GuestCommand::Enqueue { track_ids: ids(&["1"]) }, next: false });
+        // And a host app that has not opted in never sees `next`.
+        w.host.on_message("g", Msg::Command { cmd: GuestCommand::Enqueue { track_ids: ids(&["1"]) }, next: true }, 2 * S);
+        w.host.on_message("g", Msg::Command { cmd: GuestCommand::Next, next: true }, 3 * S);
+        assert!(w.host.take_commands().iter().all(|c| !c.next));
     }
 
     #[test]
@@ -1004,13 +1136,13 @@ mod tests {
             GuestCommand::Enqueue { track_ids: vec!["1".into(); MAX_ENQUEUE + 1] },
         ];
         for (i, c) in bad.into_iter().enumerate() {
-            h.on_message("g", Msg::Command { cmd: c }, i as i64 * CMD_WINDOW_NS);
+            h.on_message("g", Msg::Command { cmd: c, next: false }, i as i64 * CMD_WINDOW_NS);
         }
         assert!(h.take_commands().is_empty());
         // Strangers cannot send commands at all.
-        h.on_message("x", Msg::Command { cmd: GuestCommand::Play }, 100 * S);
+        h.on_message("x", Msg::Command { cmd: GuestCommand::Play, next: false }, 100 * S);
         assert!(h.take_commands().is_empty());
-        h.on_message("g", Msg::Command { cmd: GuestCommand::Enqueue { track_ids: vec!["1".into(); MAX_ENQUEUE] } }, 100 * S);
+        h.on_message("g", Msg::Command { cmd: GuestCommand::Enqueue { track_ids: vec!["1".into(); MAX_ENQUEUE] }, next: false }, 100 * S);
         assert_eq!(h.take_commands().len(), 1);
     }
 
@@ -1022,14 +1154,14 @@ mod tests {
         h.on_message("g", hello(&secret), 0);
         h.set_guest_control(true);
         for i in 0..CMD_BURST as i64 {
-            h.on_message("g", Msg::Command { cmd: GuestCommand::Next }, S + i * MS);
+            h.on_message("g", Msg::Command { cmd: GuestCommand::Next, next: false }, S + i * MS);
         }
         h.on_message("g", Msg::Bye, S + 10 * MS);
         h.on_message("g", hello(&secret), S + RESYNC_MIN_NS + 20 * MS);
-        h.on_message("g", Msg::Command { cmd: GuestCommand::Next }, S + RESYNC_MIN_NS + 30 * MS);
+        h.on_message("g", Msg::Command { cmd: GuestCommand::Next, next: false }, S + RESYNC_MIN_NS + 30 * MS);
         h.peer_disconnected("g");
         h.on_message("g", hello(&secret), S + 2 * RESYNC_MIN_NS + 40 * MS);
-        h.on_message("g", Msg::Command { cmd: GuestCommand::Next }, S + 2 * RESYNC_MIN_NS + 50 * MS);
+        h.on_message("g", Msg::Command { cmd: GuestCommand::Next, next: false }, S + 2 * RESYNC_MIN_NS + 50 * MS);
         assert_eq!(h.take_commands().len(), CMD_BURST);
     }
 
@@ -1050,14 +1182,14 @@ mod tests {
         h.on_message("g", Msg::Hello { proto: PROTO_VERSION, secret, name: "G".into() }, 0);
         h.set_guest_control(true);
         for i in 0..1_000 {
-            h.on_message("g", Msg::Command { cmd: GuestCommand::Next }, S + i * MS);
+            h.on_message("g", Msg::Command { cmd: GuestCommand::Next, next: false }, S + i * MS);
         }
         assert_eq!(h.take_commands().len(), CMD_BURST);
-        h.on_message("g", Msg::Command { cmd: GuestCommand::Next }, S + CMD_WINDOW_NS);
+        h.on_message("g", Msg::Command { cmd: GuestCommand::Next, next: false }, S + CMD_WINDOW_NS);
         assert_eq!(h.take_commands().len(), 1, "budget refills");
         // Even when the app never drains, pending commands stay bounded.
         for i in 0..1_000 {
-            h.on_message("g", Msg::Command { cmd: GuestCommand::Play }, 10 * S + i * CMD_WINDOW_NS);
+            h.on_message("g", Msg::Command { cmd: GuestCommand::Play, next: false }, 10 * S + i * CMD_WINDOW_NS);
         }
         assert_eq!(h.take_commands().len(), MAX_PENDING_CMDS);
     }

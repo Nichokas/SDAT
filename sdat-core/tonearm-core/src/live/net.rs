@@ -336,6 +336,17 @@ impl LiveHost {
         self.state.lock().unwrap_or_else(PoisonError::into_inner).guest_control()
     }
 
+    /// Declares that the app applies guest Play Next (see
+    /// [`HostSession::set_play_next`]). Off by default.
+    pub fn set_play_next(&self, enabled: bool) {
+        self.state.lock().unwrap_or_else(PoisonError::into_inner).set_play_next(enabled);
+    }
+
+    /// See [`HostSession::play_next_offset`].
+    pub fn play_next_offset(&self, count: usize) -> usize {
+        self.state.lock().unwrap_or_else(PoisonError::into_inner).play_next_offset(count)
+    }
+
     /// Replaces the shared queue; returns the entry ids given to each track.
     pub fn replace_queue(&self, track_ids: Vec<String>) -> Result<Vec<String>, NetError> {
         let items: Vec<QueueItem> = track_ids.into_iter().take(super::MAX_QUEUE).map(|track_id| QueueItem { item_id: new_id(), track_id }).collect();
@@ -564,6 +575,18 @@ impl LiveGuest {
     /// which also bounds the outgoing queue).
     pub fn send_command(&self, cmd: GuestCommand) -> bool {
         let Some(m) = self.state.lock().unwrap_or_else(PoisonError::into_inner).command(cmd, mono_now_ns()) else { return false };
+        self.tx.lock().unwrap_or_else(PoisonError::into_inner).as_ref().is_some_and(|tx| tx.send(m).is_ok())
+    }
+
+    /// Whether the host places our Play Next after the playing track; when
+    /// `false`, [`Self::send_play_next`] appends instead.
+    pub fn host_supports_play_next(&self) -> bool {
+        self.state.lock().unwrap_or_else(PoisonError::into_inner).host_supports_play_next()
+    }
+
+    /// Asks the host to play `track_ids` next; `false` if it was not sent.
+    pub fn send_play_next(&self, track_ids: Vec<String>) -> bool {
+        let Some(m) = self.state.lock().unwrap_or_else(PoisonError::into_inner).play_next(track_ids, mono_now_ns()) else { return false };
         self.tx.lock().unwrap_or_else(PoisonError::into_inner).as_ref().is_some_and(|tx| tx.send(m).is_ok())
     }
 
