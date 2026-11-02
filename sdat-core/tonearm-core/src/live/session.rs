@@ -101,7 +101,8 @@ pub struct HostSession {
     pending_cmds: std::collections::VecDeque<HostCommand>,
     /// The app can insert guest Play Next tracks after the playing one.
     play_next: bool,
-    /// Play-next track ids handed out for the playing item `.0`, in order.
+    /// Play-next track ids handed out while track `.0` plays, in order.
+    /// Keyed by track, not entry: `replace_queue` renews every entry id.
     play_next_cursor: (Option<String>, Vec<String>),
 }
 
@@ -187,13 +188,22 @@ impl HostSession {
     /// earlier play-next tracks still sitting right after the playing entry,
     /// so ones the host removed or moved away no longer count. Mirror each
     /// insertion with the usual queue update before the next call. The run
-    /// restarts when the playing item changes.
+    /// restarts when the playing track changes. Entries are matched by track
+    /// id (queue refreshes renew entry ids), so a removed play-next track
+    /// followed by an unrelated copy of the same track still counts.
     pub fn play_next_offset(&mut self, track_ids: &[String]) -> usize {
-        if self.play_next_cursor.0 != self.anchor.item_id {
-            self.play_next_cursor = (self.anchor.item_id.clone(), Vec::new());
+        if self.play_next_cursor.0 != self.anchor.track_id {
+            self.play_next_cursor = (self.anchor.track_id.clone(), Vec::new());
         }
         let items = &self.queue.queue().items;
-        let after = self.anchor.item_id.as_ref().and_then(|id| items.iter().position(|i| &i.item_id == id)).map_or(&[][..], |p| &items[p + 1..]);
+        // The playing entry; by track when a queue refresh renewed its id.
+        let playing = self
+            .anchor
+            .item_id
+            .as_ref()
+            .and_then(|id| items.iter().position(|i| &i.item_id == id))
+            .or_else(|| self.anchor.track_id.as_ref().and_then(|t| items.iter().position(|i| &i.track_id == t)));
+        let after = playing.map_or(&[][..], |p| &items[p + 1..]);
         // Earlier play-next tracks still in place, in order; drop the rest.
         let mut offset = 0;
         let mut kept = Vec::new();
@@ -317,8 +327,8 @@ impl HostSession {
     /// within [`DEBOUNCE_NS`]; the rest goes out on [`Self::tick`].
     pub fn set_playback(&mut self, item_id: Option<String>, track_id: Option<String>, position_ms: i64, playing: bool, now_ns: i64) -> Vec<Out> {
         let track_changed = item_id != self.anchor.item_id || track_id != self.anchor.track_id;
-        if item_id != self.anchor.item_id {
-            self.play_next_cursor = (item_id.clone(), Vec::new());
+        if track_id != self.anchor.track_id {
+            self.play_next_cursor = (track_id.clone(), Vec::new());
         }
         self.anchor = Anchor {
             epoch: self.epoch,
@@ -1102,12 +1112,15 @@ mod tests {
         // app inserts each one and mirrors the queue before the next.
         let mut h = HostSession::new("H".into(), 0);
         let mut q = ids(&["1", "2", "3"]);
-        let sync = |h: &mut HostSession, q: &[String]| {
-            let items: Vec<QueueItem> = q.iter().enumerate().map(|(i, t)| QueueItem { item_id: format!("i{i}"), track_id: t.clone() }).collect();
+        // Like `net::LiveHost::replace_queue`: every refresh renews entry ids.
+        let mut round = 0;
+        let mut sync = |h: &mut HostSession, q: &[String]| {
+            round += 1;
+            let items: Vec<QueueItem> = q.iter().enumerate().map(|(i, t)| QueueItem { item_id: format!("g{round}i{i}"), track_id: t.clone() }).collect();
             h.queue_op(OpKind::Replace { items }).expect("replace");
         };
         sync(&mut h, &q);
-        h.set_playback(Some("i0".into()), Some("1".into()), 0, true, 0);
+        h.set_playback(Some("g1i0".into()), Some("1".into()), 0, true, 0);
         for req in [ids(&["x1", "x2"]), ids(&["y"]), ids(&["z"])] {
             let at = (1 + h.play_next_offset(&req)).min(q.len());
             q.splice(at..at, req);
@@ -1121,8 +1134,8 @@ mod tests {
         assert_eq!(h.play_next_offset(&ids(&["w"])), 3);
         // A new playing item starts a fresh run, even when returning to the
         // old one without any request in between.
-        h.set_playback(Some("i1".into()), Some("x2".into()), 0, true, S);
-        h.set_playback(Some("i0".into()), Some("1".into()), 0, true, 2 * S);
+        h.set_playback(Some("g5i1".into()), Some("x2".into()), 0, true, S);
+        h.set_playback(Some("g5i0".into()), Some("1".into()), 0, true, 2 * S);
         assert_eq!(h.play_next_offset(&ids(&["v"])), 0);
     }
 
