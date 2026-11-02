@@ -58,7 +58,8 @@ impl DriftController {
     /// `actual_ms`: where the local player is; `now_ns`: local monotonic time.
     /// Call it only while the local player is actually playing.
     pub fn decide(&mut self, expected_ms: i64, actual_ms: i64, now_ns: i64) -> Correction {
-        let abs = (expected_ms - actual_ms).abs();
+        // abs_diff: positions come from the network and may be extreme.
+        let abs = i64::try_from(expected_ms.abs_diff(actual_ms)).unwrap_or(i64::MAX);
         if std::mem::take(&mut self.host_jump) && abs > TOLERANCE_MS {
             return self.seek(expected_ms, now_ns);
         }

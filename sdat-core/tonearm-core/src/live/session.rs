@@ -864,13 +864,17 @@ impl GuestSession {
         let newer = self.anchor.as_ref().is_none_or(|cur| a.is_newer_than(cur));
         if newer {
             match self.anchor.as_ref() {
-                // Same song, still playing: the client keeps its player, so a
-                // new entry of that song or a host seek is followed at once.
-                Some(cur) if cur.track_id.is_some() && cur.track_id == a.track_id && a.playing && cur.playing => {
-                    let moved = (a.position_ms - cur.position_at(a.host_mono_ns)).abs() > HOST_JUMP_MS;
-                    if cur.item_id != a.item_id || moved {
+                // Same entry, still playing: keep the drift state unless the
+                // host seeked, which is followed at once.
+                Some(cur) if cur.item_id == a.item_id && cur.track_id == a.track_id && a.playing && cur.playing => {
+                    if a.position_ms.abs_diff(cur.position_at(a.host_mono_ns)) > HOST_JUMP_MS.unsigned_abs() {
                         self.drift.host_jumped();
                     }
+                }
+                // Another entry of the same song: clients keep their player,
+                // so the new position is followed at once.
+                Some(cur) if cur.track_id.is_some() && cur.track_id == a.track_id && a.playing && cur.playing => {
+                    self.drift.host_jumped();
                 }
                 _ => self.drift.reset(),
             }
@@ -1941,6 +1945,33 @@ mod tests {
         w.deliver(o, 60 * S);
         // The guest still plays the old entry at 57 s: seek now, no settle.
         assert_eq!(w.guest.correction(local(60 * S), 0, 57_000), Correction::Seek(0));
+    }
+
+    #[test]
+    fn extreme_anchor_positions_do_not_panic() {
+        let (mut w, local) = following("i");
+        let o = w.host.set_playback(Some("i".into()), Some("t".into()), i64::MIN, true, 3 * S + 1);
+        w.deliver(o, 3 * S + 1);
+        let _ = w.guest.correction(local(4 * S), 0, i64::MAX);
+    }
+
+    #[test]
+    fn anchors_without_track_id_keep_drift_state() {
+        use crate::live::drift::SETTLE_NS;
+        let mut w = World::new(7 * S, 10 * MS);
+        w.join(0);
+        for i in 1..12 {
+            w.guest_tick(i * 200 * MS);
+        }
+        let o = w.host.set_playback(Some("i".into()), None, 0, true, 3 * S);
+        w.deliver(o, 3 * S);
+        assert_eq!(w.guest.correction(3 * S - 7 * S, 0, 0), Correction::None); // settle starts
+        for h in 4..9 {
+            let o = w.host.set_playback(Some("i".into()), None, (h - 3) * 1_000, true, h * S);
+            w.deliver(o, h * S);
+        }
+        let t = 3 * S - 7 * S + SETTLE_NS; // host at 5_000
+        assert_eq!(w.guest.correction(t, 0, 0), Correction::Seek(5_000));
     }
 
     #[test]
