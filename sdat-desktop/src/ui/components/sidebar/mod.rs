@@ -13,6 +13,20 @@ use crate::ui::dsl::{W, label, on_state, spacing, vstack, hstack, spacer};
 use crate::imgutil;
 
 /// Port of `MiniPlayer`.
+/// Dims a playback button while listening to a host that does not allow
+/// guest control (clicks would only show "The host controls playback").
+fn lock_for_guests(b: &gtk::Button) {
+    let normal = b.tooltip_text().map(|t| t.to_string());
+    let update = move |b: &gtk::Button| {
+        let locked = crate::live::phase().get().is_guest() && !crate::live::guest_control().get();
+        b.set_opacity(if locked { 0.4 } else { 1.0 });
+        b.set_tooltip_text(if locked { Some(tr("The host controls playback")) } else { normal.clone() }.as_deref());
+    };
+    let u = update.clone();
+    on_state(crate::live::phase(), b, move |b, _| u(b));
+    on_state(crate::live::guest_control(), b, move |b, _| update(b));
+}
+
 pub fn mini_player() -> adw::Bin {
     let cover = gtk::Image::from_paintable(Some(&imgutil::missing_album()));
     cover.set_pixel_size(54);
@@ -48,7 +62,7 @@ pub fn mini_player() -> adw::Bin {
     });
     let texts = spacing(vstack(&[title.upcast_ref(), album.upcast_ref()]), 3).valign(gtk::Align::Center).halign(gtk::Align::Start).hexp(true);
     let pp = gtk::Button::from_icon_name("play-symbolic").tooltip(&tr("Play / Pause")).class("flat");
-    pp.connect_clicked(|_| player::play_pause());
+    pp.connect_clicked(|_| crate::live::user_play_pause());
     on_state(player::playback_state_changed(), &pp, |b, ps| {
         b.set_sensitive(!ps.loading);
         if ps.loading {
@@ -60,6 +74,8 @@ pub fn mini_player() -> adw::Bin {
     let next = gtk::Button::from_icon_name("skip-forward-large-symbolic").tooltip(&tr("Next")).class("flat");
     next.set_action_name(Some("win.player.next"));
     on_state(player::playback_state_changed(), &next, |b, ps| b.set_sensitive(!ps.loading));
+    lock_for_guests(&pp);
+    lock_for_guests(&next);
     let buttons = spacing(hstack(&[pp.upcast_ref(), next.upcast_ref()]), 7).halign(gtk::Align::End).valign(gtk::Align::Center);
     let row = spacing(hstack(&[frame.upcast_ref(), texts.upcast_ref(), spacer().vexp(false).upcast_ref(), buttons.upcast_ref()]), 16)
         .padding(10)

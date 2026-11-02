@@ -14,7 +14,7 @@ use gtk::prelude::*;
 use zbus::object_server::SignalEmitter;
 use zbus::zvariant::{ObjectPath, OwnedValue, Value};
 
-use super::{playback_state_changed, PlaybackStatus, CONTINUE, repeat_mode_changed, RepeatMode, shuffle_state_changed, track_changed, volume_changed, seeked, next, previous, pause, play_pause, play, seek_to_position, set_repeat_mode, set_shuffle, current_track_id, set_volume};
+use super::{playback_state_changed, PlaybackStatus, CONTINUE, repeat_mode_changed, RepeatMode, shuffle_state_changed, track_changed, volume_changed, seeked, previous, seek_to_position, set_repeat_mode, set_shuffle, current_track_id, set_volume};
 
 const BUS_NAME: &str = "org.mpris.MediaPlayer2.com.nichokas.SDAT.Desktop";
 const PATH: &str = "/org/mpris/MediaPlayer2";
@@ -421,12 +421,14 @@ fn handle(cmd: Cmd) {
                 a.quit();
             }
         }
-        Cmd::Next => next(),
+        Cmd::Next => crate::live::user_next(),
+        Cmd::Pause => crate::live::user_pause(),
+        Cmd::PlayPause => crate::live::user_play_pause(),
+        Cmd::Play => crate::live::user_play(),
+        // Guests never take these; the refusal is shown as a toast.
+        Cmd::Previous | Cmd::Stop | Cmd::Seek(_) | Cmd::SetPosition(_) if crate::live::guest_refuses() => {}
         Cmd::Previous => previous(),
-        Cmd::Pause => pause(),
-        Cmd::PlayPause => play_pause(),
         Cmd::Stop => super::stop(),
-        Cmd::Play => play(),
         Cmd::Seek(off) => {
             let pos = playback_state_changed().get().position.as_micros() as i64 + off;
             seek_to_position(Duration::from_micros(pos.max(0) as u64), false);

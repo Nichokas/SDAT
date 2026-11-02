@@ -10,6 +10,7 @@ pub mod link;
 pub mod state;
 
 use std::cell::{Cell, RefCell};
+use std::collections::VecDeque;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
@@ -17,6 +18,8 @@ use gtk::gio;
 use gtk::gio::prelude::*;
 use tonearm_core::live::drift::{Correction, SEEK_MS};
 use tonearm_core::live::net::{LiveEvent, LiveGuest, LiveHost, LiveListener, NetConfig};
+use tonearm_core::live::proto::GuestCommand;
+use tonearm_core::live::session::{GuestEvent, HostCommand};
 use tonearm_core::live::queue::QueueItem;
 use tonearm_core::live::MAX_QUEUE;
 
@@ -27,6 +30,9 @@ use crate::{global_signal, settings};
 pub use state::{Ended, Phase};
 
 global_signal!(pub fn phase() -> State<Phase> = State::new(Phase::Idle));
+// Guest playback control: the host's toggle while hosting, the host's
+// permission while listening. Off otherwise.
+global_signal!(pub fn guest_control() -> State<bool> = State::new(false));
 
 enum Session {
     Host(Arc<LiveHost>),
@@ -45,6 +51,12 @@ thread_local! {
     static LOADS: RefCell<LoadGate> = RefCell::new(LoadGate::default());
     static HOOKED: Cell<bool> = const { Cell::new(false) };
     static OUTPUT_DELAY: Cell<i32> = const { Cell::new(0) };
+    /// Host: accepted guest track ids waiting to be fetched, in arrival order.
+    static HOST_ENQUEUE: RefCell<VecDeque<(u64, String)>> = const { RefCell::new(VecDeque::new()) };
+    static HOST_ENQUEUE_BUSY: Cell<bool> = const { Cell::new(false) };
+    /// Guest: enqueue chunks paced against the command budget.
+    static OUTBOX: RefCell<Outbox<GuestCommand>> = RefCell::new(Outbox::default());
+    static OUTBOX_BUSY: Cell<bool> = const { Cell::new(false) };
 }
 
 const OUTPUT_DELAY_KEY: &str = "live-output-delay";
@@ -126,6 +138,14 @@ fn listener(generation: u64) -> Arc<dyn LiveListener> {
 }
 
 fn on_event(ev: &LiveEvent) {
+    match ev {
+        LiveEvent::Command(c) => {
+            apply_guest_command(c);
+            return;
+        }
+        LiveEvent::Guest(GuestEvent::ControlChanged(allowed)) if guest().is_some() => guest_control().set(*allowed),
+        _ => {}
+    }
     let current = phase().get();
     if let Some(next) = state::apply_event(&current, ev) {
         if let Phase::Ended(e) = &next {
@@ -173,6 +193,7 @@ pub fn start_host() {
                 let url = h.ticket_url();
                 SESSION.with(|s| *s.borrow_mut() = Some(Session::Host(h)));
                 install_hooks();
+                guest_control().set(false);
                 phase().set(Phase::Hosting { url, guests: Vec::new() });
                 publish_queue();
                 start_host_refresh(generation);
@@ -237,6 +258,9 @@ fn teardown() {
     next_generation();
     let was_guest = matches!(SESSION.with(|s| s.borrow_mut().take()), Some(Session::Guest(_))) || phase().get().is_guest();
     CURRENT_ITEM.with(|c| c.borrow_mut().take());
+    if guest_control().get() {
+        guest_control().set(false);
+    }
     let loading = LOADS.with(RefCell::take).is_loading();
     LAST_STATUS.with(|l| l.set(None));
     if was_guest {
@@ -247,6 +271,252 @@ fn teardown() {
             player::stop();
         }
     }
+}
+
+// ---------------------------------------------------------------- guest control
+
+/// Host: lets guests play/pause, skip and add tracks (off by default).
+pub fn set_allow_guest_control(allowed: bool) {
+    let Some(h) = host() else { return };
+    h.set_guest_control(allowed);
+    guest_control().set(h.guest_control());
+}
+
+/// Host: applies an accepted guest command through the normal player path;
+/// the usual queue and playback publishing then updates every guest.
+fn apply_guest_command(c: &HostCommand) {
+    let Some(h) = host() else { return };
+    if !h.guest_control() {
+        return;
+    }
+    log::info!("applying a Listen Together guest command peer={} cmd={:?}", c.peer, c.cmd);
+    match &c.cmd {
+        GuestCommand::Play => player::play(),
+        GuestCommand::Pause => player::pause(),
+        GuestCommand::Next => player::next(),
+        GuestCommand::Enqueue { track_ids } => {
+            let generation = current_generation();
+            HOST_ENQUEUE.with(|q| q.borrow_mut().extend(track_ids.iter().map(|id| (generation, id.clone()))));
+            pump_host_enqueue();
+        }
+        GuestCommand::Unknown => {}
+    }
+}
+
+/// `true` while the host session that accepted a guest request is still
+/// live and still lets guests control playback.
+fn guest_request_still_valid(generation: u64) -> bool {
+    generation == current_generation() && host().is_some_and(|h| h.guest_control())
+}
+
+/// Host: fetches queued guest tracks one at a time so they land in the order
+/// they were sent, and drops them once the session ends or control is
+/// turned off (checked again after every fetch).
+fn pump_host_enqueue() {
+    if HOST_ENQUEUE_BUSY.with(|b| b.replace(true)) {
+        return;
+    }
+    glib::spawn_future_local(async {
+        while let Some((generation, id)) = HOST_ENQUEUE.with(|q| q.borrow_mut().pop_front()) {
+            if !guest_request_still_valid(generation) {
+                continue;
+            }
+            let fetch_id = id.clone();
+            match crate::api::run(move || crate::service::get_track(&fetch_id)).await {
+                Ok(track) if guest_request_still_valid(generation) => player::add_tracklist_to_user_queue(vec![track]),
+                Ok(_) => {}
+                Err(e) => log::warn!("failed to queue a guest track id={id} error={e}"),
+            }
+        }
+        HOST_ENQUEUE_BUSY.with(|b| b.set(false));
+    });
+}
+
+/// Guest commands waiting for room in the command budget, tagged with the
+/// session they belong to.
+#[derive(Debug)]
+pub struct Outbox<T> {
+    items: VecDeque<(u64, T)>,
+    failures: u32,
+}
+
+impl<T> Default for Outbox<T> {
+    fn default() -> Self {
+        Self { items: VecDeque::new(), failures: 0 }
+    }
+}
+
+/// What the outbox needs next.
+#[derive(Debug, PartialEq, Eq)]
+pub enum Pump {
+    /// Everything was sent (or belonged to an old session).
+    Empty,
+    /// The head could not be sent yet; try again after a short wait.
+    Wait,
+    /// The host stayed unreachable; the rest was dropped.
+    GaveUp,
+}
+
+/// Retries for one blocked item, `OUTBOX_RETRY` apart (about 10 s).
+pub const OUTBOX_RETRIES: u32 = 20;
+const OUTBOX_RETRY: Duration = Duration::from_millis(500);
+
+impl<T: Clone> Outbox<T> {
+    pub fn push(&mut self, generation: u64, item: T) {
+        self.items.push_back((generation, item));
+    }
+
+    /// Sends items in order until one is refused; stale items are skipped.
+    pub fn pump(&mut self, generation: u64, mut send: impl FnMut(T) -> bool) -> Pump {
+        while let Some((g, item)) = self.items.front().cloned() {
+            if g != generation {
+                self.items.pop_front();
+                continue;
+            }
+            if !send(item) {
+                self.failures += 1;
+                if self.failures >= OUTBOX_RETRIES {
+                    self.items.clear();
+                    self.failures = 0;
+                    return Pump::GaveUp;
+                }
+                return Pump::Wait;
+            }
+            self.failures = 0;
+            self.items.pop_front();
+        }
+        Pump::Empty
+    }
+}
+
+fn pump_outbox() {
+    if OUTBOX_BUSY.with(|b| b.replace(true)) {
+        return;
+    }
+    glib::spawn_future_local(async {
+        loop {
+            let generation = current_generation();
+            let g = guest();
+            let step = OUTBOX.with(|o| {
+                o.borrow_mut().pump(generation, |cmd| g.as_ref().is_some_and(|g| guest_control().get() && g.send_command(cmd)))
+            });
+            match step {
+                Pump::Empty => break,
+                Pump::Wait => glib::timeout_future(OUTBOX_RETRY).await,
+                Pump::GaveUp => {
+                    if guest().is_some() {
+                        player::toasts().notify(&tr("Could not reach the host, try again in a moment"));
+                    }
+                    break;
+                }
+            }
+        }
+        OUTBOX_BUSY.with(|b| b.set(false));
+    });
+}
+
+/// What a user action does while listening to someone else.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Route {
+    /// Not a guest: act locally.
+    Local,
+    /// Send this to the host.
+    Send(GuestCommand),
+    /// A guest cannot do this now.
+    Locked,
+}
+
+/// Pure routing of a guest's play/pause: with permission it asks the host
+/// for the opposite of the host's state.
+pub fn route_play_pause(is_guest: bool, allowed: bool, host_playing: bool) -> Route {
+    match (is_guest, allowed) {
+        (false, _) => Route::Local,
+        (true, false) => Route::Locked,
+        (true, true) => Route::Send(if host_playing { GuestCommand::Pause } else { GuestCommand::Play }),
+    }
+}
+
+pub fn route(is_guest: bool, allowed: bool, cmd: GuestCommand) -> Route {
+    match (is_guest, allowed) {
+        (false, _) => Route::Local,
+        (true, false) => Route::Locked,
+        (true, true) => Route::Send(cmd),
+    }
+}
+
+/// Runs a routed action; returns `true` when it was handled here (sent or
+/// refused), `false` when the caller should act locally.
+fn run(r: Route) -> bool {
+    match r {
+        Route::Local => false,
+        Route::Locked => {
+            player::toasts().notify(&tr("The host controls playback"));
+            true
+        }
+        Route::Send(cmd) => {
+            if !guest().is_some_and(|g| g.send_command(cmd)) {
+                player::toasts().notify(&tr("Could not reach the host, try again in a moment"));
+            }
+            true
+        }
+    }
+}
+
+fn is_guest() -> bool {
+    guest().is_some()
+}
+
+/// UI play/pause. Guests ask the host (or are refused).
+pub fn user_play_pause() {
+    let playing = guest().and_then(|g| g.target(0)).is_some_and(|t| t.playing);
+    if !run(route_play_pause(is_guest(), guest_control().get(), playing)) {
+        player::play_pause();
+    }
+}
+
+pub fn user_play() {
+    if !run(route(is_guest(), guest_control().get(), GuestCommand::Play)) {
+        player::play();
+    }
+}
+
+pub fn user_pause() {
+    if !run(route(is_guest(), guest_control().get(), GuestCommand::Pause)) {
+        player::pause();
+    }
+}
+
+pub fn user_next() {
+    if !run(route(is_guest(), guest_control().get(), GuestCommand::Next)) {
+        player::next();
+    }
+}
+
+/// Actions guests can never take (previous, seek, stop, shuffle, repeat):
+/// `true` when refused.
+pub fn guest_refuses() -> bool {
+    is_guest() && run(Route::Locked)
+}
+
+/// UI "add to queue". Guests send the track ids to the host in chunks the
+/// protocol accepts; `false` means act locally.
+pub fn user_enqueue(track_ids: Vec<String>) -> bool {
+    if !is_guest() {
+        return false;
+    }
+    if !guest_control().get() {
+        return run(Route::Locked);
+    }
+    // Chunks wait for room in the command budget instead of being dropped.
+    let generation = current_generation();
+    OUTBOX.with(|o| {
+        let mut o = o.borrow_mut();
+        for chunk in track_ids.chunks(tonearm_core::live::session::MAX_ENQUEUE) {
+            o.push(generation, GuestCommand::Enqueue { track_ids: chunk.to_vec() });
+        }
+    });
+    pump_outbox();
+    true
 }
 
 // ---------------------------------------------------------------- host
@@ -533,6 +803,55 @@ fn guest_tick() {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn guest_actions_follow_the_host_permission() {
+        assert_eq!(route(false, false, GuestCommand::Next), Route::Local, "not a guest: local player");
+        assert_eq!(route(true, false, GuestCommand::Next), Route::Locked, "locked by default");
+        assert_eq!(route(true, true, GuestCommand::Next), Route::Send(GuestCommand::Next));
+        assert_eq!(route_play_pause(true, true, true), Route::Send(GuestCommand::Pause));
+        assert_eq!(route_play_pause(true, true, false), Route::Send(GuestCommand::Play));
+        assert_eq!(route_play_pause(true, false, true), Route::Locked);
+        assert_eq!(route_play_pause(false, false, true), Route::Local);
+    }
+
+    #[test]
+    fn outbox_waits_for_budget_and_keeps_order() {
+        let mut o = Outbox::default();
+        for i in 0..6 {
+            o.push(1, i);
+        }
+        let mut sent = Vec::new();
+        let mut budget = 5;
+        let send = |i: i32, budget: &mut i32, sent: &mut Vec<i32>| {
+            if *budget == 0 {
+                return false;
+            }
+            *budget -= 1;
+            sent.push(i);
+            true
+        };
+        assert_eq!(o.pump(1, |i| send(i, &mut budget, &mut sent)), Pump::Wait, "sixth chunk waits");
+        budget = 5;
+        assert_eq!(o.pump(1, |i| send(i, &mut budget, &mut sent)), Pump::Empty);
+        assert_eq!(sent, vec![0, 1, 2, 3, 4, 5], "nothing dropped, order kept");
+    }
+
+    #[test]
+    fn outbox_drops_old_sessions_and_gives_up() {
+        let mut o = Outbox::default();
+        o.push(1, "old");
+        o.push(2, "new");
+        let mut sent = Vec::new();
+        assert_eq!(o.pump(2, |i| { sent.push(i); true }), Pump::Empty);
+        assert_eq!(sent, vec!["new"]);
+        o.push(2, "x");
+        for _ in 1..OUTBOX_RETRIES {
+            assert_eq!(o.pump(2, |_| false), Pump::Wait);
+        }
+        assert_eq!(o.pump(2, |_| false), Pump::GaveUp);
+        assert_eq!(o.pump(2, |_| true), Pump::Empty, "cleared after giving up");
+    }
 
     fn v(ids: &[&str]) -> Vec<String> {
         ids.iter().map(ToString::to_string).collect()

@@ -383,6 +383,10 @@ fn track_timeline() -> gtk::Overlay {
     let scale = scale.hexp(true).background("transparent").hpadding(0);
     on_state(is_controllable(), &scale, |s, v| s.set_sensitive(*v));
     scale.connect_change_value(|_, _, f| {
+        // Guests follow the host's position; a local scrub is refused.
+        if crate::live::guest_refuses() {
+            return glib::Propagation::Stop;
+        }
         player::seek_to_percent(f);
         glib::Propagation::Proceed
     });
