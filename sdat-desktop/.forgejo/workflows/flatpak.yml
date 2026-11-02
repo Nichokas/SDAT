@@ -1,3 +1,5 @@
+# Legacy Forgejo/Codeberg workflow kept for reference: GitHub does not run it and
+# Forgejo only reads .forgejo/ at the repo root. Paths are updated for the monorepo.
 name: Flatpak
 
 on:
@@ -24,7 +26,7 @@ jobs:
         uses: https://code.forgejo.org/actions/cache@v6
         with:
           path: ~/.local/share/flatpak
-          key: flatpak-builder-${{ hashFiles('build/flatpak/dev.dergs.Tonearm.yaml', 'build/flatpak/go.mod.yml') }}
+          key: flatpak-builder-${{ hashFiles('sdat-desktop/build/flatpak/com.nichokas.SDAT.Desktop.yaml', 'sdat-desktop/build/flatpak/cargo-sources.json') }}
           restore-keys: |
             flatpak-builder-
 
@@ -33,17 +35,17 @@ jobs:
           flatpak-builder --user --repo=repo --disable-rofiles-fuse \
             --install-deps-from=flathub \
             --force-clean --default-branch=master \
-            flatpak_app build/flatpak/dev.dergs.Tonearm.yaml
+            flatpak_app sdat-desktop/build/flatpak/com.nichokas.SDAT.Desktop.yaml
 
       - name: Create bundle
         run: |
-          flatpak build-bundle repo dev.dergs.Tonearm.flatpak \
+          flatpak build-bundle repo com.nichokas.SDAT.Desktop.flatpak \
             --runtime-repo=https://flathub.org/repo/flathub.flatpakrepo \
-            --arch=x86_64 dev.dergs.Tonearm master
+            --arch=x86_64 com.nichokas.SDAT.Desktop master
 
       - name: Upload artifact
         uses: https://code.forgejo.org/forgejo/upload-artifact@v4
         with:
           name: dev.dergs.Tonearm-x86_64.flatpak
-          path: dev.dergs.Tonearm.flatpak
+          path: com.nichokas.SDAT.Desktop.flatpak
           retention-days: ${{ github.ref == 'refs/heads/main' && 7 || 3 }}
