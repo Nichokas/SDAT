@@ -3,7 +3,7 @@
   "identifier": "com.nichokas.SDAT.source",
   "subtitle": "Personal iPhone TIDAL player",
   "description": "Unsigned builds of SDAT, a SwiftUI TIDAL player for iOS 26 with Liquid Glass, powered by the tonearm-rs Rust core. Built by GitHub Actions from https://github.com/Nichokas/SDAT.",
-  "iconURL": "https://raw.githubusercontent.com/Nichokas/SDAT/main/Resources/AppIcon.png",
+  "iconURL": "https://raw.githubusercontent.com/Nichokas/SDAT/main/sdat-mobile/Resources/AppIcon.png",
   "website": "https://github.com/Nichokas/SDAT",
   "tintColor": "#1C1C1E",
   "apps": [
@@ -13,7 +13,7 @@
       "developerName": "Nichokas",
       "subtitle": "TIDAL player with Liquid Glass",
       "localizedDescription": "Personal iPhone TIDAL player in SwiftUI with Liquid Glass, powered by the tonearm-rs Rust core.",
-      "iconURL": "https://raw.githubusercontent.com/Nichokas/SDAT/main/Resources/AppIcon.png",
+      "iconURL": "https://raw.githubusercontent.com/Nichokas/SDAT/main/sdat-mobile/Resources/AppIcon.png",
       "tintColor": "#1C1C1E",
       "category": "entertainment",
       "versions": [

@@ -25,6 +25,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
       - uses: actions/cache@v4
         with:
           path: |
@@ -41,5 +43,9 @@ jobs:
       - name: Install GTK/GStreamer deps
         run: dnf -y install cargo rust gcc git-core gtk4-devel libadwaita-devel gstreamer1-devel gstreamer1-plugins-base-devel libsecret-devel openssl-devel glib2-devel
       - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
       - name: Check desktop app
         run: cargo check -p sdat-desktop --locked
+      - name: Test desktop app (migration and other unit tests)
+        run: cargo test -p sdat-desktop --locked

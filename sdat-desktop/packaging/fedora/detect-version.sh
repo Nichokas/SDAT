@@ -6,8 +6,10 @@ set -euo pipefail
 cd "$(dirname "$0")"
 git fetch --tags --quiet origin 2>/dev/null || true
 latest="$(git tag -l 'desktop-v*' | grep -E '^desktop-v[0-9]+\.[0-9]+\.[0-9]+$' | sed 's/^desktop-v//' | sort -V | tail -1)"
-[[ -n "$latest" ]] || { echo "no release tags found" >&2; exit 1; }
 current="$(awk '/^Version:/{print $2; exit}' sdat-desktop.spec)"
+# Before the first desktop-v* tag there is nothing to release: report "not new"
+# instead of failing the daily run.
+[[ -n "$latest" ]] || { echo "no desktop-v* tags yet" >&2; latest="$current"; }
 is_new=false
 [[ "$(printf '%s\n%s\n' "$current" "$latest" | sort -V | tail -1)" != "$current" ]] && is_new=true
 if [[ -n "${GITHUB_OUTPUT:-}" ]]; then

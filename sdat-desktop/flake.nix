@@ -81,6 +81,7 @@
             gst_all_1.gst-plugins-bad
             gtk4
             libadwaita
+            libsecret
           ];
           doCheck = false;
           nativeBuildInputs = with pkgs; [

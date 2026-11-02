@@ -16,17 +16,35 @@ use gtk::gio::prelude::*;
 use crate::settings::{APP_ID, CONFIG_DIR_NAME, LEGACY_APP_ID, LEGACY_CONFIG_DIR_NAME};
 
 const MARKER: &str = ".migrated-from-tonearm";
+const SECRET_MARKER: &str = ".migrated-secret-from-tonearm";
 const SUB_SCHEMAS: [&str; 6] = ["", ".playback", ".performance", ".player", ".scrobbling", ".service.tidal"];
 
 /// Runs all steps against the real user session. Logs and continues on errors.
 pub fn run() {
     let config = glib::user_config_dir();
     let new_dir = config.join(CONFIG_DIR_NAME);
-    if new_dir.join(MARKER).exists() {
-        return;
+    if !new_dir.join(MARKER).exists() {
+        migrate_files_and_settings(&config, &new_dir);
     }
+    if !new_dir.join(SECRET_MARKER).exists() {
+        match copy_missing_secret(&Keyring, crate::secrets::REFRESH_TOKEN_KEY) {
+            Ok(_) => write_marker(&new_dir, SECRET_MARKER),
+            Err(e) => log::error!("migrate: keyring copy failed error={e:#}"),
+        }
+    }
+}
+
+/// Each step has its own marker, so a failing keyring step is retried alone and
+/// never re-copies files or settings the user may have changed since.
+fn write_marker(dir: &Path, name: &str) {
+    if let Err(e) = std::fs::create_dir_all(dir).and_then(|()| std::fs::write(dir.join(name), b"1\n")) {
+        log::error!("migrate: could not write marker {name} error={e}");
+    }
+}
+
+fn migrate_files_and_settings(config: &Path, new_dir: &Path) {
     let mut ok = true;
-    match copy_missing_tree(&config.join(LEGACY_CONFIG_DIR_NAME), &new_dir) {
+    match copy_missing_tree(&config.join(LEGACY_CONFIG_DIR_NAME), new_dir) {
         Ok(n) if n > 0 => log::info!("migrate: copied {n} files from ~/.config/{LEGACY_CONFIG_DIR_NAME}"),
         Ok(_) => {}
         Err(e) => {
@@ -49,14 +67,8 @@ pub fn run() {
         }
         gio::Settings::sync();
     }
-    if let Err(e) = copy_missing_secret(&Keyring, crate::secrets::REFRESH_TOKEN_KEY) {
-        ok = false;
-        log::error!("migrate: keyring copy failed error={e:#}");
-    }
-    if ok
-        && let Err(e) = std::fs::create_dir_all(&new_dir).and_then(|()| std::fs::write(new_dir.join(MARKER), b"1\n"))
-    {
-        log::error!("migrate: could not write marker error={e}");
+    if ok {
+        write_marker(new_dir, MARKER);
     }
 }
 
@@ -69,7 +81,13 @@ pub(crate) fn copy_missing_tree(old: &Path, new: &Path) -> std::io::Result<usize
     let mut copied = 0;
     for entry in std::fs::read_dir(old)? {
         let entry = entry?;
-        let (from, to): (PathBuf, PathBuf) = (entry.path(), new.join(entry.file_name()));
+        let Some(to) = safe_child(new, &entry.file_name()) else {
+            log::warn!("migrate: skipping unexpected entry name {}", entry.file_name().display());
+            continue;
+        };
+        let from = entry.path();
+        // `DirEntry::file_type` does not follow symlinks: symlinks are neither dirs nor
+        // files here and are skipped, so the copy never leaves `old` or writes outside `new`.
         let kind = entry.file_type()?;
         if kind.is_dir() {
             copied += copy_missing_tree(&from, &to)?;
@@ -82,6 +100,16 @@ pub(crate) fn copy_missing_tree(old: &Path, new: &Path) -> std::io::Result<usize
         }
     }
     Ok(copied)
+}
+
+/// Joins `name` onto `dir` only if it is a single plain path component (no `..`,
+/// root, prefix or separators), so the result always stays inside `dir`.
+pub(crate) fn safe_child(dir: &Path, name: &std::ffi::OsStr) -> Option<PathBuf> {
+    let mut parts = Path::new(name).components();
+    match (parts.next(), parts.next()) {
+        (Some(std::path::Component::Normal(n)), None) if n == name => Some(dir.join(n)),
+        _ => None,
+    }
 }
 
 /// Copies every key the user changed in `old` into `new`, unless `new` already has a user value.
@@ -157,6 +185,29 @@ mod tests {
         assert!(old.join("a.json").exists() && old.join("sub/b").exists());
         assert_eq!(copy_missing_tree(&old, &new).expect("second run"), 0);
         assert_eq!(copy_missing_tree(&root.join("missing"), &new).expect("no old dir"), 0);
+    }
+
+    #[test]
+    fn safe_child_rejects_traversal() {
+        let d = Path::new("/base");
+        assert_eq!(safe_child(d, "a.json".as_ref()), Some(PathBuf::from("/base/a.json")));
+        for bad in ["..", ".", "", "../x", "a/b", "/etc/passwd"] {
+            assert_eq!(safe_child(d, bad.as_ref()), None, "{bad:?}");
+        }
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn tree_copy_does_not_follow_symlinks() {
+        let root = tmp("symlink");
+        let (old, new, outside) = (root.join("old"), root.join("new"), root.join("outside"));
+        std::fs::create_dir_all(&old).expect("mkdir");
+        std::fs::create_dir_all(&outside).expect("mkdir");
+        std::fs::write(outside.join("secret"), "s").expect("write");
+        std::os::unix::fs::symlink(&outside, old.join("link")).expect("symlink");
+        std::os::unix::fs::symlink(outside.join("secret"), old.join("file-link")).expect("symlink");
+        assert_eq!(copy_missing_tree(&old, &new).expect("copy"), 0);
+        assert!(!new.join("link").exists() && !new.join("file-link").exists());
     }
 
     fn settings_pair(dir: &Path) -> (gio::Settings, gio::Settings) {

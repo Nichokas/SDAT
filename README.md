@@ -24,8 +24,9 @@ sdat-mobile/scripts/build-rust.sh           # iOS static lib + Swift bindings, t
 
 ## History and licence
 
-`sdat-mobile/` keeps the history of this repository; `sdat-desktop/` and `sdat-core/` keep the history of
-[Nichokas/tonearm-rs](https://github.com/Nichokas/tonearm-rs), which itself descends from Tonearm by the dergs team.
+`sdat-mobile/` keeps the history of this repository. `sdat-desktop/` and `sdat-core/` were imported without their
+history, which stays in [Nichokas/tonearm-rs](https://github.com/Nichokas/tonearm-rs). That project descends from
+[Tonearm](https://codeberg.org/dergs/Tonearm) by the dergs team.
 The desktop app and core are GPL-3.0-or-later (see `sdat-desktop/LICENSE`); original authors are credited in the
 desktop About dialog and metainfo.
 

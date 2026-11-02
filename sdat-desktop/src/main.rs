@@ -32,11 +32,17 @@ pub(crate) fn register_resources() {
 }
 
 /// Falls back to the schema compiled at build time when it is not installed.
+///
+/// This must run before anything touches `gio::SettingsSchemaSource::default()`:
+/// GLib reads `GSETTINGS_SCHEMA_DIR` once, when the default source is first built.
+/// `GSETTINGS_SCHEMA_DIR` is searched in addition to the installed schemas, and the
+/// build-time directory only exists on the machine that built the binary, so packaged
+/// installs are unaffected.
 pub(crate) fn ensure_schema() {
-    let installed = gio::SettingsSchemaSource::default().and_then(|s| s.lookup(settings::APP_ID, true)).is_some();
-    if !installed && std::env::var_os("GSETTINGS_SCHEMA_DIR").is_none() {
+    let dir = env!("TONEARM_SCHEMA_DIR");
+    if std::env::var_os("GSETTINGS_SCHEMA_DIR").is_none() && std::path::Path::new(dir).join("gschemas.compiled").is_file() {
         // SAFETY: single threaded at this point (before GTK and any worker starts).
-        unsafe { std::env::set_var("GSETTINGS_SCHEMA_DIR", env!("TONEARM_SCHEMA_DIR")) };
+        unsafe { std::env::set_var("GSETTINGS_SCHEMA_DIR", dir) };
     }
 }
 

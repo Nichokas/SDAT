@@ -36,6 +36,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
+          persist-credentials: false
       - id: detect
         run: bash sdat-desktop/packaging/fedora/detect-version.sh
 
@@ -51,12 +52,18 @@ jobs:
       - uses: actions/checkout@v4
         with:
           ref: main
-      - uses: dtolnay/rust-toolchain@stable
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8 # master
+        with:
+          toolchain: stable
       - name: Bump spec and build vendor archive
         env:
+          # A published release builds exactly its own tag, not the newest one.
+          RELEASE_TAG: ${{ github.event_name == 'release' && github.event.release.tag_name || '' }}
           VERSION: ${{ needs.detect-version.outputs.is_new == 'true' && needs.detect-version.outputs.version || needs.detect-version.outputs.current }}
         run: |
           set -euo pipefail
+          if [[ -n "$RELEASE_TAG" ]]; then VERSION="${RELEASE_TAG#desktop-v}"; fi
           echo "VERSION=$VERSION" >> "$GITHUB_ENV"
           bash sdat-desktop/packaging/fedora/update-spec.sh "$VERSION"
       - name: Upload vendor archive to the release
@@ -68,9 +75,11 @@ jobs:
           if gh release view "desktop-v${VERSION}" >/dev/null 2>&1; then
             gh release upload "desktop-v${VERSION}" "$asset" --clobber
           else
-            gh release create "desktop-v${VERSION}" "$asset" --title "SDAT desktop ${VERSION}" --notes "SDAT desktop ${VERSION}"
+            gh release create "desktop-v${VERSION}" "$asset" --title "SDAT desktop ${VERSION}" --notes "SDAT desktop ${VERSION}" --latest=false
           fi
       - name: Commit spec bump
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
           git config user.name "github-actions[bot]"
@@ -78,7 +87,7 @@ jobs:
           git add sdat-desktop/packaging/fedora/sdat-desktop.spec
           if git diff --cached --quiet; then echo "spec unchanged"; exit 0; fi
           git commit -m "packaging(fedora): update to ${VERSION}"
-          git push origin HEAD:main
+          git push "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" HEAD:main
       - name: Trigger COPR rebuild
         env:
           GH_TOKEN: ${{ github.token }}
@@ -92,6 +101,8 @@ jobs:
       - name: Install tools
         run: dnf -y install rpmlint rpm-build rpmdevtools 'dnf-command(builddep)' git-core cargo xz
       - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
       - name: rpmlint
         run: rpmlint sdat-desktop/packaging/fedora/sdat-desktop.spec || true
       - name: rpmbuild smoke (SRPM + full offline build)
