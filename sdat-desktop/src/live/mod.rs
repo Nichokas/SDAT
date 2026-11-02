@@ -513,9 +513,11 @@ pub fn user_seek(to: Duration) -> bool {
     run(route(is_guest(), guest_control().get(), GuestCommand::Seek { position_ms: ms }))
 }
 
-/// Guest: the track the host is playing now.
-pub fn host_track() -> Option<String> {
-    guest().and_then(|g| g.target(0)).and_then(|t| t.track_id)
+/// Guest: the session and the track the host is playing now, to check a
+/// delayed request still applies.
+pub fn host_track() -> Option<(u64, String)> {
+    let track = guest().and_then(|g| g.target(0)).and_then(|t| t.track_id)?;
+    Some((current_generation(), track))
 }
 
 /// UI relative seek (`offset_ms`). For guests it is relative to the host's
@@ -524,7 +526,11 @@ pub fn user_seek_by(offset_ms: i64) -> bool {
     if !is_guest() {
         return false;
     }
-    let Some(t) = guest().and_then(|g| g.target(0)) else { return run(Route::Locked) };
+    let Some(t) = guest().and_then(|g| g.target(0)) else {
+        // Nothing playing on the host yet: nothing to seek (still refused
+        // for guests without control).
+        return guest_control().get() || run(Route::Locked);
+    };
     user_seek(Duration::from_millis(u64::try_from(t.position_ms.saturating_add(offset_ms)).unwrap_or(0)))
 }
 

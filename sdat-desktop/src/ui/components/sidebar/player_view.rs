@@ -380,9 +380,9 @@ fn quality_entry(q: TrackQuality, css: &str, title: &str, details: &str, popover
 const SCRUB_DEBOUNCE: std::time::Duration = std::time::Duration::from_millis(250);
 
 thread_local! {
-    /// Guest scrub waiting to be sent: position, the host track it is for,
+    /// Guest scrub waiting to be sent: position, the session and host track it is for,
     /// and its pending timer.
-    static SCRUB: std::cell::RefCell<Option<(std::time::Duration, Option<String>, glib::SourceId)>> = const { std::cell::RefCell::new(None) };
+    static SCRUB: std::cell::RefCell<Option<(std::time::Duration, Option<(u64, String)>, glib::SourceId)>> = const { std::cell::RefCell::new(None) };
 }
 
 fn track_timeline() -> gtk::Overlay {
@@ -403,7 +403,7 @@ fn track_timeline() -> gtk::Overlay {
                     id.remove();
                 }
                 let id = glib::timeout_add_local_once(SCRUB_DEBOUNCE, || {
-                    // Dropped if the host moved to another track meanwhile.
+                    // Dropped if the session or the host's track changed meanwhile.
                     if let Some((to, track, _)) = SCRUB.with(|s| s.borrow_mut().take())
                         && track.is_some()
                         && crate::live::host_track() == track
