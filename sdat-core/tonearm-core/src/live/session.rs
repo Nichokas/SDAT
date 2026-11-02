@@ -418,10 +418,9 @@ impl HostSession {
     pub fn replace_queue(&mut self, track_ids: Vec<String>) -> Result<(Vec<Out>, Vec<String>), QueueError> {
         self.sync_run();
         let track_ids: Vec<String> = track_ids.into_iter().take(super::MAX_QUEUE).collect();
-        if self.app_queue.is_some() {
-            // Back to inferring: the run's ids are the app's, start over.
-            self.run = PlayNextRun { after: self.anchor.item_id.clone(), ..PlayNextRun::default() };
-        }
+        // Back to inferring: the run's ids are the app's, start over. The
+        // old run comes back if the queue rejects the replacement.
+        let saved = self.app_queue.is_some().then(|| std::mem::replace(&mut self.run, PlayNextRun { after: self.anchor.item_id.clone(), ..PlayNextRun::default() }));
         let old_tracks: Vec<&str> = self.queue.queue().items.iter().map(|i| i.track_id.as_str()).collect();
         let mut ids = stable_ids(&self.queue.queue().items, &track_ids, &self.run.items, self.anchor.item_id.as_deref());
         let capped = ids.len() == super::MAX_QUEUE;
@@ -481,8 +480,15 @@ impl HostSession {
             beyond_cap.clone_from(&self.run.pending);
         }
         let items: Vec<QueueItem> = ids.iter().zip(&track_ids).map(|((item_id, _), t)| QueueItem { item_id: item_id.clone(), track_id: t.clone() }).collect();
-        let out = self.queue_op(OpKind::Replace { items })?;
-        self.app_queue = None;
+        let out = match self.queue_op(OpKind::Replace { items }) {
+            Ok(out) => out,
+            Err(e) => {
+                if let Some(saved) = saved {
+                    self.run = saved;
+                }
+                return Err(e);
+            }
+        };
         self.run.items = run;
         if !capped {
             self.run.hidden = 0;
@@ -1603,6 +1609,14 @@ mod tests {
         h.run.hidden = 10;
         h.replace_queue_entries(entries(&[("a", "p")])).expect("replace");
         assert_eq!(h.play_next_offset(&ids(&["x"])), 0);
+    }
+
+    #[test]
+    fn rejected_fallback_replace_keeps_the_exact_run() {
+        let mut h = exact_host(&[("a", "p"), ("b", "q")], "a");
+        assert_eq!(h.play_next_offset(&ids(&["x"])), 0);
+        h.replace_queue(vec![String::new()]).expect_err("invalid track");
+        assert_eq!(h.play_next_offset(&ids(&["y"])), 1);
     }
 
     #[test]
