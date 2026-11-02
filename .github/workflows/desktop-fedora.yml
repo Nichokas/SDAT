@@ -65,7 +65,16 @@ jobs:
           set -euo pipefail
           if [[ -n "$RELEASE_TAG" ]]; then VERSION="${RELEASE_TAG#desktop-v}"; fi
           echo "VERSION=$VERSION" >> "$GITHUB_ENV"
-          bash sdat-desktop/packaging/fedora/update-spec.sh "$VERSION"
+          spec_ver="$(awk '/^Version:/{print $2; exit}' sdat-desktop/packaging/fedora/sdat-desktop.spec)"
+          if [[ "$(printf '%s\n%s\n' "$spec_ver" "$VERSION" | sort -V | tail -1)" != "$VERSION" ]]; then
+            # Older than the spec (e.g. a 1.2.x hotfix after 1.3.0): only attach its vendor
+            # archive; never rewind the spec on main or rebuild COPR with the old version.
+            echo "SPEC_UPDATE=false" >> "$GITHUB_ENV"
+            bash sdat-desktop/packaging/fedora/make-vendor.sh "$VERSION" dist
+          else
+            echo "SPEC_UPDATE=true" >> "$GITHUB_ENV"
+            bash sdat-desktop/packaging/fedora/update-spec.sh "$VERSION"
+          fi
       - name: Upload vendor archive to the release
         env:
           GH_TOKEN: ${{ github.token }}
@@ -78,6 +87,7 @@ jobs:
             gh release create "desktop-v${VERSION}" "$asset" --title "SDAT desktop ${VERSION}" --notes "SDAT desktop ${VERSION}" --latest=false
           fi
       - name: Commit spec bump
+        if: env.SPEC_UPDATE == 'true'
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
@@ -89,6 +99,7 @@ jobs:
           git commit -m "packaging(fedora): update to ${VERSION}"
           git push "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" HEAD:main
       - name: Trigger COPR rebuild
+        if: env.SPEC_UPDATE == 'true'
         env:
           GH_TOKEN: ${{ github.token }}
         run: gh api "repos/${GITHUB_REPOSITORY}/dispatches" -f event_type=copr-rebuild
