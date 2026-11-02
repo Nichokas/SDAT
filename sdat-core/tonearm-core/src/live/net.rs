@@ -479,15 +479,20 @@ impl LiveGuest {
                     if !first {
                         listener.on_event(LiveEvent::Reconnecting);
                     }
-                    // The host timeout keeps running while we dial.
+                    // The host timeout keeps running while we dial. Opening the
+                    // stream is part of the bounded attempt: a peer that accepts
+                    // the connection but never the stream cannot stall us.
+                    let dial = async {
+                        let conn = ep.connect(addr.clone(), ALPN).await.ok()?;
+                        let (send, recv) = conn.open_bi().await.ok()?;
+                        Some((conn, send, recv))
+                    };
                     let attempt = tokio::select! {
-                        r = tokio::time::timeout(Duration::from_secs(8), ep.connect(addr.clone(), ALPN)) => r,
+                        r = tokio::time::timeout(Duration::from_secs(8), dial) => r,
                         () = watch_timeout(&state, &listener) => break,
                         () = stop.wait() => break,
                     };
-                    if let Ok(Ok(conn)) = attempt
-                        && let Ok((send, recv)) = conn.open_bi().await
-                    {
+                    if let Ok(Some((conn, send, recv))) = attempt {
                         let hello = {
                             let mut s = state.lock().unwrap_or_else(PoisonError::into_inner);
                             if first { vec![s.hello()] } else { s.on_reconnect(mono_now_ns()) }
@@ -598,7 +603,7 @@ async fn run_guest_conn(
     for m in hello {
         drop(tx.send(m));
     }
-    let writer = tokio::spawn(async move {
+    let mut writer = tokio::spawn(async move {
         while let Some(m) = rx.recv().await {
             let bye = matches!(m, Msg::Bye);
             if write_msg(&mut send, &m).await.is_err() {
@@ -617,8 +622,15 @@ async fn run_guest_conn(
     };
     let (mut inbox, reader) = spawn_reader(recv);
     let mut iv = tokio::time::interval(Duration::from_millis(100));
+    let mut writer_done = false;
     loop {
         tokio::select! {
+            // A dead outbound side means pings and resyncs no longer reach
+            // the host: drop this connection so the retry path reconnects.
+            _ = &mut writer => {
+                writer_done = true;
+                break;
+            }
             m = inbox.recv() => {
                 let Some(m) = m else { break };
                 let (out, ev) = state.lock().unwrap_or_else(PoisonError::into_inner).on_message(m, mono_now_ns());
@@ -643,7 +655,9 @@ async fn run_guest_conn(
     reader.abort();
     *tx_slot.lock().unwrap_or_else(PoisonError::into_inner) = None;
     drop(tx);
-    drop(tokio::time::timeout(Duration::from_millis(500), writer).await);
+    if !writer_done {
+        drop(tokio::time::timeout(Duration::from_millis(500), writer).await);
+    }
 }
 
 #[cfg(test)]
