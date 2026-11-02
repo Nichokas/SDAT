@@ -63,6 +63,21 @@ pub enum EndReason {
     Other,
 }
 
+/// Playback request a guest sends to the host. Only honoured while the host
+/// allows guest control; the host applies it through its own player and the
+/// usual anchor/queue broadcast tells everybody.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "c", rename_all = "snake_case")]
+pub enum GuestCommand {
+    Play,
+    Pause,
+    Next,
+    /// Append TIDAL track ids (each listener resolves them with their own account).
+    Enqueue { track_ids: Vec<String> },
+    #[serde(other)]
+    Unknown,
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "t", rename_all = "snake_case")]
 pub enum Msg {
@@ -71,9 +86,21 @@ pub enum Msg {
     Ping { id: u64, t0: i64 },
     /// Guest has queue `have`; host answers with `Ops` or `Snapshot`.
     Resync { have: u64 },
+    /// Playback request (ignored by hosts that do not allow guest control,
+    /// and by older hosts, which decode it as [`Msg::Unknown`]).
+    Command { cmd: GuestCommand },
     Bye,
     // host -> guest
-    Welcome { proto: u32, session_id: String, host_name: String, snapshot: Snapshot, anchor: Anchor },
+    Welcome {
+        proto: u32,
+        session_id: String,
+        host_name: String,
+        snapshot: Snapshot,
+        anchor: Anchor,
+        /// Whether guests may send [`Msg::Command`]. Absent from older hosts.
+        #[serde(default)]
+        guest_control: bool,
+    },
     Reject { reason: RejectReason, proto: u32 },
     Pong { id: u64, t0: i64, t1: i64, t2: i64 },
     Anchor(Anchor),
@@ -82,6 +109,8 @@ pub enum Msg {
     Snapshot(Snapshot),
     Heartbeat { host_mono_ns: i64 },
     End { reason: EndReason },
+    /// The host changed whether guests may control playback.
+    Control { guest_control: bool },
     #[serde(other)]
     Unknown,
 }
@@ -149,6 +178,21 @@ mod tests {
         let items = (0..crate::live::MAX_QUEUE).map(|_| QueueItem { item_id: crate::live::new_id(), track_id: "123456789".into() }).collect();
         let m = Msg::Snapshot(Snapshot { version: 1, items });
         assert!(encode(&m).is_ok());
+    }
+
+    #[test]
+    fn guest_control_is_backward_compatible() {
+        // A Welcome from an older host has no `guest_control`: locked.
+        let a = serde_json::to_value(anchor()).unwrap();
+        let old = serde_json::json!({"t":"welcome","proto":1,"session_id":"s","host_name":"h","snapshot":{"version":0,"items":[]},"anchor":a});
+        let Msg::Welcome { guest_control, .. } = decode(old.to_string().as_bytes()).unwrap() else { panic!() };
+        assert!(!guest_control);
+        // Commands round-trip; unknown commands do not break decoding.
+        let m = Msg::Command { cmd: GuestCommand::Enqueue { track_ids: vec!["1".into()] } };
+        let f = encode(&m).unwrap();
+        assert_eq!(decode(&f[4..]).unwrap(), m);
+        assert_eq!(decode(br#"{"t":"command","cmd":{"c":"shuffle"}}"#).unwrap(), Msg::Command { cmd: GuestCommand::Unknown });
+        assert_eq!(decode(br#"{"t":"control","guest_control":true}"#).unwrap(), Msg::Control { guest_control: true });
     }
 
     #[test]

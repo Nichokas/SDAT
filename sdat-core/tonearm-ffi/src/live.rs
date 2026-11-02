@@ -4,7 +4,7 @@ use std::sync::Arc;
 
 use tonearm_core::live::drift::Correction;
 use tonearm_core::live::net::{self, LiveEvent, LiveListener, NetConfig};
-use tonearm_core::live::proto::{EndReason, RejectReason};
+use tonearm_core::live::proto::{EndReason, GuestCommand, RejectReason};
 use tonearm_core::live::session::GuestEvent;
 
 use crate::FfiError;
@@ -29,12 +29,46 @@ pub enum LiveEnd {
     Full,
 }
 
+/// Playback request from a guest (host side) or to the host (guest side).
+#[derive(Debug, Clone, PartialEq, Eq, uniffi::Enum)]
+pub enum LiveCommand {
+    Play,
+    Pause,
+    Next,
+    /// Append these TIDAL track ids to the shared queue (max 50, digits only).
+    Enqueue { track_ids: Vec<String> },
+}
+
+fn command_of(c: GuestCommand) -> Option<LiveCommand> {
+    Some(match c {
+        GuestCommand::Play => LiveCommand::Play,
+        GuestCommand::Pause => LiveCommand::Pause,
+        GuestCommand::Next => LiveCommand::Next,
+        GuestCommand::Enqueue { track_ids } => LiveCommand::Enqueue { track_ids },
+        GuestCommand::Unknown => return None,
+    })
+}
+
+fn to_core(c: LiveCommand) -> GuestCommand {
+    match c {
+        LiveCommand::Play => GuestCommand::Play,
+        LiveCommand::Pause => GuestCommand::Pause,
+        LiveCommand::Next => GuestCommand::Next,
+        LiveCommand::Enqueue { track_ids } => GuestCommand::Enqueue { track_ids },
+    }
+}
+
 #[derive(Debug, Clone, uniffi::Enum)]
 pub enum LiveUpdate {
     Guests { guests: Vec<LiveGuestInfo> },
     Joined { host_name: String },
     QueueChanged,
     PlaybackChanged,
+    /// Guest: the host allowed (`true`) or forbade guest playback control.
+    ControlChanged { allowed: bool },
+    /// Host: a guest asked for a playback change; apply it through the
+    /// normal player path (the host already checked permission and limits).
+    GuestCommand { peer: String, name: String, command: LiveCommand },
     Reconnecting,
     Ended { reason: LiveEnd },
 }
@@ -81,6 +115,11 @@ fn reject_of(r: RejectReason) -> LiveEnd {
 impl LiveListener for Bridge {
     fn on_event(&self, ev: LiveEvent) {
         let u = match ev {
+            LiveEvent::Command(c) => match command_of(c.cmd) {
+                Some(command) => LiveUpdate::GuestCommand { peer: c.peer, name: c.name, command },
+                None => return,
+            },
+            LiveEvent::Guest(GuestEvent::ControlChanged(allowed)) => LiveUpdate::ControlChanged { allowed },
             LiveEvent::Guests(g) => LiveUpdate::Guests { guests: g.into_iter().map(|g| LiveGuestInfo { peer: g.peer, name: g.name }).collect() },
             LiveEvent::Reconnecting => LiveUpdate::Reconnecting,
             LiveEvent::Guest(GuestEvent::Joined { host_name }) => LiveUpdate::Joined { host_name },
@@ -124,6 +163,13 @@ impl LiveHost {
     /// Call on play, pause, seek and track change.
     pub fn set_playback(&self, item_id: Option<String>, track_id: Option<String>, position_ms: i64, playing: bool) {
         self.0.set_playback(item_id, track_id, position_ms, playing);
+    }
+    /// Lets guests play/pause, skip and add tracks (off by default).
+    pub fn set_guest_control(&self, allowed: bool) {
+        self.0.set_guest_control(allowed);
+    }
+    pub fn guest_control(&self) -> bool {
+        self.0.guest_control()
     }
     pub fn end(&self) {
         self.0.end();
@@ -191,8 +237,29 @@ impl LiveGuest {
     pub fn set_seek_only(&self, on: bool) {
         self.0.set_seek_only(on);
     }
+    /// Whether the host allows our playback commands (lock controls otherwise).
+    pub fn guest_control(&self) -> bool {
+        self.0.guest_control()
+    }
+    /// Asks the host for a playback change; `false` if it was not sent.
+    pub fn send_command(&self, command: LiveCommand) -> bool {
+        self.0.send_command(to_core(command))
+    }
     pub fn leave(&self) {
         self.0.leave();
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn commands_map_both_ways() {
+        for c in [LiveCommand::Play, LiveCommand::Pause, LiveCommand::Next, LiveCommand::Enqueue { track_ids: vec!["1".into()] }] {
+            assert_eq!(command_of(to_core(c.clone())), Some(c));
+        }
+        assert_eq!(command_of(GuestCommand::Unknown), None);
     }
 }
 
