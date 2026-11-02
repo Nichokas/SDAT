@@ -178,7 +178,7 @@ impl LiveListener for Bridge {
 }
 
 fn err(e: net::NetError) -> FfiError {
-    FfiError::Other { message: e.to_string() }
+    FfiError::Other { detail: e.to_string() }
 }
 
 /// A session this device hosts.
