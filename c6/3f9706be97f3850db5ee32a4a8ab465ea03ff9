@@ -1,0 +1,16 @@
+sdat-core/tonearm-ffi/src/live.rs
+  h_4221ae13ba15cb 372-373
+sdat-mobile/Sources/SDAT/Live/Live.swift
+  h_4221ae13ba15cb 28-31,385-386,400,464
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "c63f9706be97f3850db5ee32a4a8ab465ea03ff9",
+  "prompts": {},
+  "humans": {
+    "h_4221ae13ba15cb": {
+      "author": "Nicolas Rodriguez-Alvarez <me@nichokas.eu>"
+    }
+  }
+}
