@@ -101,6 +101,7 @@
               desktopName = "SDAT";
               mimeTypes = [
                 "x-scheme-handler/tidal"
+                "x-scheme-handler/sdat"
               ];
               categories = [
                 "Audio"
