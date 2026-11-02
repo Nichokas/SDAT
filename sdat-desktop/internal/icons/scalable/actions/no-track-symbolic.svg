@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="UTF-8" standalone="no"?>
+<svg height="16px" viewBox="0 0 16 16" width="16px" xmlns="http://www.w3.org/2000/svg" xmlns:inkscape="http://www.inkscape.org/namespaces/inkscape" xmlns:sodipodi="http://sodipodi.sourceforge.net/DTD/sodipodi-0.dtd" xmlns:svg="http://www.w3.org/2000/svg" sodipodi:docname="no-track-symbolic.svg" inkscape:version="1.4.3 (0d15f75042, 2025-12-25)">
+    <sodipodi:namedview pagecolor="#ffffff" bordercolor="#000000" borderopacity="0.25" inkscape:showpageshadow="2" inkscape:pageopacity="0.0" inkscape:pagecheckerboard="0" inkscape:deskcolor="#d1d1d1" inkscape:zoom="51.265242" inkscape:cx="5.1301816" inkscape:cy="7.4124297" inkscape:window-width="2560" inkscape:window-height="1371" inkscape:window-x="0" inkscape:window-y="0" inkscape:window-maximized="1" inkscape:current-layer="surface5623"/>
+    <g stroke-width="1.00001">
+        <path d="m 7.5 9.5 l -2 -2 v 0.84375 c -0.4570298 -0.2187494 -0.9648443 -0.34375 -1.5 -0.34375 c -1.9218756 0 -3.5 1.5820303 -3.5 3.5 c 0 1.921863 1.5781244 3.5 3.5 3.5 c 1.9140621 0 3.4921876 -1.566389 3.5 -3.480469 v -0.019531 z m -3.5 0.5 c 0.8398451 0 1.5 0.660158 1.5 1.5 v 0.01563 c -0.00773 0.83593 -0.66406 1.48437 -1.5 1.48437 c -0.839843 0 -1.5 -0.656253 -1.5 -1.5 c 0 -0.839843 0.660157 -1.5 1.5 -1.5 z"/>
+        <path d="m 12.884766 14.884766 l -4.2695316 -4.269532 c -0.0749514 0.283175 -0.1152344 0.579556 -0.1152344 0.884766 c 0 1.921863 1.578124 3.5 3.5 3.5 c 0.305453 0 0.601634 -0.04046 0.884766 -0.115234 z"/>
+        <path d="m 5.5 5.5 l 2 2 v -3.5 c 0 -0.5624999 0.4375002 -1 1 -1 h 4 c 0.562498 0 1 0.4375001 1 1 v 4.34375 c -0.457038 -0.2187494 -0.964848 -0.34375 -1.5 -0.34375 c -1.086856 0 -2.0632928 0.5064339 -2.7070312 1.2929688 l 1.4218752 1.4218752 c 0.260795 -0.431901 0.734704 -0.714844 1.285156 -0.714844 c 0.839849 0 1.5 0.660158 1.5 1.5 c 0 0.552771 -0.28326 1.025141 -0.714844 1.285156 l 1.423828 1.423828 c 0.78667 -0.64373 1.291016 -1.621722 1.291016 -2.708984 v -7.5 c 0 -1.6445304 -1.355463 -3 -3 -3 h -4 c -1.6445304 0 -3 1.3554696 -3 3 z"/>
+    </g>
+    <path d="m 2 0 l -1 1 l 14 14 l 1 -1 z" sodipodi:nodetypes="ccccc"/>
+</svg>

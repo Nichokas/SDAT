@@ -1,0 +1,150 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<schemalist gettext-domain="tonearm">
+    <!-- General Settings -->
+	<schema id="dev.dergs.Tonearm" path="/dev/dergs/Tonearm/">
+	    <key name="allow-running-in-background" type="b">
+    		<default>true</default>
+    		<summary>Run in Background</summary>
+    		<description>Whether the application should run in the background when the window is closed</description>
+    	</key>
+        <key name="default-page" type="s">
+			<default>'home'</default>
+			<summary>Default Page</summary>
+			<description>The default page to open when the application starts</description>
+		</key>
+		<key name="hide-secret-service-warning" type="b">
+            <default>false</default>
+            <summary>Hide Secret Service Warning</summary>
+            <description>Do not show any warning when the secret service health check fails on startup</description>
+        </key>
+    	<key name="window-height" type="i">
+    		<default>920</default>
+    		<summary>Window Height</summary>
+    		<description>Stores the last used window height to restore on next startup</description>
+    	</key>
+		<key name="window-width" type="i">
+			<default>1460</default>
+			<summary>Window Width</summary>
+			<description>Stores the last used window width to restore on next startup</description>
+		</key>
+	</schema>
+
+	<!-- Playback Settings -->
+	<schema id="dev.dergs.Tonearm.playback" path="/dev/dergs/Tonearm/playback/">
+        <key name="allow-autoplay" type="b">
+    		<default>true</default>
+    		<summary>Allow Autoplay</summary>
+    		<description
+            >Whether the application should keep feeding the user with mixes when reaching the end of a track list</description>
+    	</key>
+        <key name="normalize-volume" type="b">
+      		<default>true</default>
+  		    <summary>Normalize volume</summary>
+  		    <description>Set the same volume level for all tracks</description>
+   	    </key>
+        <key name="replay-gain-mode" type="i">
+            <default>0</default>
+            <summary>Replay Gain Mode</summary>
+            <description>When to apply album or track replay gain</description>
+        </key>
+     </schema>
+
+	<!-- Performance Settings -->
+    <schema id="dev.dergs.Tonearm.performance" path="/dev/dergs/Tonearm/performance/">
+        <key name="allow-mediacard-images" type="b">
+      		<default>true</default>
+      		<summary>Allow Media Card Images</summary>
+      		<description>Whether the application will load the images for media cards</description>
+       	</key>
+        <key name="allow-shortcuts-images" type="b">
+      		<default>true</default>
+      		<summary>Allow Tracklist Images</summary>
+      		<description>Whether the application will load the images for shortcuts</description>
+       	</key>
+        <key name="allow-tracklist-images" type="b">
+      		<default>true</default>
+      		<summary>Allow Tracklist Images</summary>
+      		<description>Whether the application will load the cover for each track in a tracklist</description>
+       	</key>
+        <key name="cache-images" type="b">
+      		<default>true</default>
+      		<summary>Cache Images</summary>
+      		<description>Whether the application will temporarily cache images in memory</description>
+       	</key>
+        <key name="max-router-history-size" type="i">
+			<default>10</default>
+			<summary>Maximum Router History Size</summary>
+			<description>The maximum number of router history entries to keep</description>
+		</key>
+    </schema>
+
+	<!-- Player State -->
+    <schema id="dev.dergs.Tonearm.player" path="/dev/dergs/Tonearm/player/">
+		<key name="audio-quality" type="s">
+			<default>'HI_RES_LOSSLESS'</default>
+			<summary>Audio Quality</summary>
+			<description>The highest accepted audio quality requested from TIDAL during playback</description>
+		</key>
+		<key name="volume" type="d">
+			<default>1.0</default>
+			<summary>Volume</summary>
+			<description>The last configured volume level</description>
+		</key>
+    </schema>
+
+	<!-- Scrobbling -->
+    <schema id="dev.dergs.Tonearm.scrobbling" path="/dev/dergs/Tonearm/scrobbling/">
+        <key name="enable-listenbrainz" type="b">
+      		<default>false</default>
+      		<summary>Enable ListenBrainz</summary>
+      		<description>Whether the application will attempt to scrobble tracks to ListenBrainz</description>
+       	</key>
+        <key name="listenbrainz-token" type="s">
+            <default>''</default>
+			<summary>ListenBrainz Token</summary>
+			<description>The token used to authenticate with ListenBrainz</description>
+		</key>
+		<key name="listenbrainz-url" type="s">
+            <default>'https://api.listenbrainz.org'</default>
+            <summary>ListenBrainz API URL</summary>
+            <description>ListenBrainz-compatible instance API URL</description>
+        </key>
+
+        <key name="enable-lastfm" type="b">
+      		<default>false</default>
+      		<summary>Enable Last.fm</summary>
+      		<description>Whether the application will attempt to scrobble tracks to Last.fm</description>
+       	</key>
+		<key name="lastfm-token" type="s">
+            <default>''</default>
+            <summary>Last.fm Token</summary>
+            <description>The token used to authenticate with Last.fm</description>
+        </key>
+
+    </schema>
+
+	<!-- Service: TIDAL -->
+	<schema id="dev.dergs.Tonearm.service.tidal" path="/dev/dergs/Tonearm/service/tidal/">
+		<key name="api-baseurl" type="s">
+			<default>'https://tidal.com'</default>
+			<summary>API Base URL</summary>
+			<description>The base URL for the TIDAL API</description>
+		</key>
+		<key name="openapi-baseurl" type="s">
+			<default>'https://openapi.tidal.com'</default>
+			<summary>OpenAPI Base URL</summary>
+			<description>The base URL for the TIDAL OpenAPI</description>
+		</key>
+		<key name="resources-baseurl" type="s">
+			<default>'https://resources.tidal.com'</default>
+			<summary>Resources Base URL</summary>
+			<description>The base URL for the TIDAL Resources</description>
+		</key>
+		<key name="auth-baseurl" type="s">
+			<default>'https://auth.tidal.com'</default>
+			<summary>Auth Base URL</summary>
+			<description>The base URL for the TIDAL Auth</description>
+		</key>
+
+	</schema>
+</schemalist>
