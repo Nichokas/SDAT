@@ -4,7 +4,7 @@
 use std::collections::BTreeMap;
 
 use super::clock::{ClockSync, Sample};
-use super::drift::{Correction, DriftController};
+use super::drift::{Correction, DriftController, HOST_JUMP_MS};
 use super::proto::{Anchor, EndReason, FEATURE_PLAY_NEXT, GuestCommand, Msg, RejectReason};
 use super::queue::{Accepted, GuestApply, GuestQueue, HostQueue, Op, OpKind, QueueError, QueueItem};
 use super::{HEARTBEAT_NS, HOST_TIMEOUT_NS, PROTO_VERSION, new_id};
@@ -863,8 +863,23 @@ impl GuestSession {
     fn take_anchor(&mut self, a: Anchor) -> bool {
         let newer = self.anchor.as_ref().is_none_or(|cur| a.is_newer_than(cur));
         if newer {
-            if self.anchor.as_ref().is_none_or(|cur| cur.item_id != a.item_id || cur.track_id != a.track_id || !a.playing || !cur.playing) {
-                self.drift.reset();
+            match self.anchor.as_ref() {
+                // Same song still playing (same entry, or another entry of it:
+                // clients keep their player, and desktop regenerates entry ids
+                // on queue edits): keep the drift state, unless the position
+                // really jumped (host seek, or the next entry of the same song
+                // starting over), which is followed at once.
+                Some(cur)
+                    if a.playing
+                        && cur.playing
+                        && cur.track_id == a.track_id
+                        && (cur.item_id == a.item_id || cur.track_id.is_some()) =>
+                {
+                    if a.position_ms.abs_diff(cur.position_at(a.host_mono_ns)) > HOST_JUMP_MS.unsigned_abs() {
+                        self.drift.host_jumped();
+                    }
+                }
+                _ => self.drift.reset(),
             }
             self.anchor = Some(a);
         }
@@ -1899,8 +1914,92 @@ mod tests {
         assert_eq!(w.guest.correction(60 * S, 0, 0), Correction::None);
     }
 
+    /// Joined guest following "i"/"t" from host 0 ms at host 3 s, with the
+    /// local clock 7 s behind the host. Returns local time for host time `h`.
+    fn following(item: &str) -> (World, impl Fn(i64) -> i64) {
+        let mut w = World::new(7 * S, 10 * MS);
+        w.join(0);
+        for i in 1..12 {
+            w.guest_tick(i * 200 * MS);
+        }
+        let o = w.host.set_playback(Some(item.into()), Some("t".into()), 0, true, 3 * S);
+        w.deliver(o, 3 * S);
+        (w, |h| h - 7 * S)
+    }
+
+    #[test]
+    fn host_seek_on_same_track_is_followed_despite_cooldown() {
+        use crate::live::drift::SETTLE_NS;
+        let (mut w, local) = following("i");
+        assert_eq!(w.guest.correction(local(13 * S), 0, 0), Correction::None); // settle starts
+        let t = local(13 * S) + SETTLE_NS; // host at 15_000
+        assert_eq!(w.guest.correction(t, 0, 0), Correction::Seek(15_000));
+        // One second later the host seeks to 100 s on the same entry.
+        let o = w.host.set_playback(Some("i".into()), Some("t".into()), 100_000, true, 19 * S);
+        w.deliver(o, 19 * S);
+        assert_eq!(w.guest.correction(local(19 * S), 0, 16_000), Correction::Seek(100_000));
+    }
+
+    #[test]
+    fn same_song_next_entry_is_followed_at_once() {
+        let (mut w, local) = following("i");
+        // Host moves early to another entry of the same song, from 0.
+        let o = w.host.set_playback(Some("j".into()), Some("t".into()), 0, true, 60 * S);
+        w.deliver(o, 60 * S);
+        // The guest still plays the old entry at 57 s: seek now, no settle.
+        assert_eq!(w.guest.correction(local(60 * S), 0, 57_000), Correction::Seek(0));
+    }
+
+    #[test]
+    fn extreme_anchor_positions_do_not_panic() {
+        let (mut w, local) = following("i");
+        let o = w.host.set_playback(Some("i".into()), Some("t".into()), i64::MIN, true, 3 * S + 1);
+        w.deliver(o, 3 * S + 1);
+        let _ = w.guest.correction(local(4 * S), 0, i64::MAX);
+    }
+
+    #[test]
+    fn anchors_without_track_id_keep_drift_state() {
+        use crate::live::drift::SETTLE_NS;
+        let mut w = World::new(7 * S, 10 * MS);
+        w.join(0);
+        for i in 1..12 {
+            w.guest_tick(i * 200 * MS);
+        }
+        let o = w.host.set_playback(Some("i".into()), None, 0, true, 3 * S);
+        w.deliver(o, 3 * S);
+        assert_eq!(w.guest.correction(3 * S - 7 * S, 0, 0), Correction::None); // settle starts
+        for h in 4..9 {
+            let o = w.host.set_playback(Some("i".into()), None, (h - 3) * 1_000, true, h * S);
+            w.deliver(o, h * S);
+        }
+        let t = 3 * S - 7 * S + SETTLE_NS; // host at 5_000
+        assert_eq!(w.guest.correction(t, 0, 0), Correction::Seek(5_000));
+    }
+
+    #[test]
+    fn regenerated_entry_id_without_jump_keeps_settling() {
+        let (mut w, local) = following("i");
+        assert_eq!(w.guest.correction(local(13 * S), 0, 0), Correction::None); // settle starts
+        // Queue edit: same song, new entry id, normal progress.
+        let o = w.host.set_playback(Some("k".into()), Some("t".into()), 11_000, true, 14 * S);
+        w.deliver(o, 14 * S);
+        assert_eq!(w.guest.correction(local(15 * S), 0, 0), Correction::None);
+    }
+
+    #[test]
+    fn regular_anchor_is_not_a_host_jump() {
+        let (mut w, local) = following("i");
+        assert_eq!(w.guest.correction(local(13 * S), 0, 0), Correction::None); // settle starts
+        // Periodic anchor with normal progress: settle still applies.
+        let o = w.host.set_playback(Some("i".into()), Some("t".into()), 11_100, true, 14 * S);
+        w.deliver(o, 14 * S);
+        assert_eq!(w.guest.correction(local(15 * S), 0, 0), Correction::None);
+    }
+
     #[test]
     fn drift_correction_uses_host_time() {
+        use crate::live::drift::SETTLE_NS;
         let mut w = World::new(7 * S, 10 * MS);
         w.join(0);
         for i in 1..12 {
@@ -1909,9 +2008,12 @@ mod tests {
         let o = w.host.set_playback(Some("i".into()), None, 0, true, 3 * S);
         w.deliver(o, 3 * S);
         let local = 13 * S - 7 * S; // host time 13 s => host at 10_000 ms
-        assert_eq!(w.guest.correction(local, 0, 10_000), Correction::None);
-        assert_eq!(w.guest.correction(local, 0, 9_900), Correction::Rate(1.02));
-        assert_eq!(w.guest.correction(local + 10 * MS, 0, 5_000), Correction::Seek(10_010));
+        // The first measurement opens the settle window: nothing until it ends.
+        assert_eq!(w.guest.correction(local, 0, 5_000), Correction::None);
+        let later = local + SETTLE_NS; // host at 15_000 ms
+        assert_eq!(w.guest.correction(later, 0, 14_900), Correction::None, "small error, never a rate change");
+        assert_eq!(w.guest.correction(later, 0, 12_000), Correction::None, "within tolerance");
+        assert_eq!(w.guest.correction(later + 10 * MS, 0, 5_000), Correction::Seek(15_010));
     }
 
     #[test]

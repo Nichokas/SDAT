@@ -318,7 +318,9 @@ impl LiveGuest {
     pub fn target(&self, latency_ms: i64) -> Option<LiveTarget> {
         self.0.target(latency_ms).map(|t| LiveTarget { item_id: t.item_id, track_id: t.track_id, position_ms: t.position_ms, playing: t.playing })
     }
-    /// Drift correction for a player at `actual_ms` on the target track.
+    /// Drift correction for a player at `actual_ms` on the target track. Only
+    /// `None` or `Seek` (errors above a few seconds) are returned; `Rate` is
+    /// never produced and exists only for API compatibility.
     pub fn correction(&self, latency_ms: i64, actual_ms: i64) -> LiveCorrection {
         match self.0.correction(latency_ms, actual_ms) {
             Correction::None => LiveCorrection::None,
@@ -326,7 +328,8 @@ impl LiveGuest {
             Correction::Seek(position_ms) => LiveCorrection::Seek { position_ms },
         }
     }
-    /// Low power mode: no rate nudging, seeks only.
+    /// No effect any more: the drift policy never changes the rate. Kept for
+    /// API compatibility.
     pub fn set_seek_only(&self, on: bool) {
         self.0.set_seek_only(on);
     }
