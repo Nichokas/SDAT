@@ -197,7 +197,10 @@ final class Live {
                 // Re-read the target: the host may have moved on while resolving.
                 guard let track, let now = self.guest?.target(latencyMs: latencyMs),
                       now.trackId == trackId else { return }
-                player.livePlay([track], index: 0, at: Double(now.positionMs) / 1000, playing: now.playing)
+                // A system pause (call, headphones unplugged) also holds a new
+                // host track: it loads paused until the user or system resumes.
+                player.livePlay([track], index: 0, at: Double(now.positionMs) / 1000,
+                                playing: now.playing && !player.systemPaused)
             }
             return
         }
