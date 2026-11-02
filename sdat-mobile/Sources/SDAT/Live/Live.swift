@@ -283,7 +283,11 @@ final class Live {
     /// Seeking. Guests with control ask the host, which moves everyone at
     /// once; returns `false` when the caller should seek locally.
     func userSeek(_ secs: Double) -> Bool {
-        route(.seek(positionMs: Int64(max(secs, 0) * 1000)))
+        if let guest, guestControl, !guest.hostSupportsSeek() {
+            Chrome.shared.flash("The host's app is too old to seek for everyone")
+            return true
+        }
+        return route(.seek(positionMs: Int64(max(secs, 0) * 1000)))
     }
 
     /// Previous track: guests always follow the host.

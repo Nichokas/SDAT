@@ -506,7 +506,21 @@ pub fn user_next() {
 /// `true` when handled here, `false` when the caller should seek locally.
 pub fn user_seek(to: Duration) -> bool {
     let ms = i64::try_from(to.as_millis()).unwrap_or(i64::MAX);
+    if is_guest() && guest_control().get() && !guest().is_some_and(|g| g.host_supports_seek()) {
+        player::toasts().notify(&tr("The host's app is too old to seek for everyone"));
+        return true;
+    }
     run(route(is_guest(), guest_control().get(), GuestCommand::Seek { position_ms: ms }))
+}
+
+/// UI relative seek (`offset_ms`). For guests it is relative to the host's
+/// position, not the local one (which may differ by the accepted drift).
+pub fn user_seek_by(offset_ms: i64) -> bool {
+    if !is_guest() {
+        return false;
+    }
+    let Some(t) = guest().and_then(|g| g.target(0)) else { return run(Route::Locked) };
+    user_seek(Duration::from_millis(u64::try_from(t.position_ms.saturating_add(offset_ms)).unwrap_or(0)))
 }
 
 /// Actions guests can never take (previous, stop, shuffle, repeat):

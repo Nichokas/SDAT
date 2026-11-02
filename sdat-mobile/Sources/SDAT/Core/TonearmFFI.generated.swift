@@ -1617,6 +1617,11 @@ public protocol LiveGuestProtocol: AnyObject, Sendable {
      */
     func hostSupportsPlayNext()  -> Bool
     
+    /**
+     * Whether the host applies `LiveCommand::Seek` (older hosts ignore it).
+     */
+    func hostSupportsSeek()  -> Bool
+    
     func leave() 
     
     /**
@@ -1774,6 +1779,18 @@ open func hostSupportsPlayNext() -> Bool  {
     return try!  FfiConverterBool.lift(try! rustCall() {
         uniffiCallStatus in
     uniffi_tonearm_ffi_fn_method_liveguest_host_supports_play_next(
+            self.uniffiCloneHandle(),uniffiCallStatus
+    )
+})
+}
+    
+    /**
+     * Whether the host applies `LiveCommand::Seek` (older hosts ignore it).
+     */
+open func hostSupportsSeek() -> Bool  {
+    return try!  FfiConverterBool.lift(try! rustCall() {
+        uniffiCallStatus in
+    uniffi_tonearm_ffi_fn_method_liveguest_host_supports_seek(
             self.uniffiCloneHandle(),uniffiCallStatus
     )
 })
@@ -7135,6 +7152,9 @@ private let initializationResult: InitializationResult = {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_tonearm_ffi_checksum_method_liveguest_host_supports_play_next() != 7492) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_tonearm_ffi_checksum_method_liveguest_host_supports_seek() != 28248) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_tonearm_ffi_checksum_method_liveguest_leave() != 12374) {

@@ -552,6 +552,11 @@ RustBuffer uniffi_tonearm_ffi_fn_method_liveguest_host_name(uint64_t ptr, RustCa
 int8_t uniffi_tonearm_ffi_fn_method_liveguest_host_supports_play_next(uint64_t ptr, RustCallStatus *_Nonnull out_status
 );
 #endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_TONEARM_FFI_FN_METHOD_LIVEGUEST_HOST_SUPPORTS_SEEK
+#define UNIFFI_FFIDEF_UNIFFI_TONEARM_FFI_FN_METHOD_LIVEGUEST_HOST_SUPPORTS_SEEK
+int8_t uniffi_tonearm_ffi_fn_method_liveguest_host_supports_seek(uint64_t ptr, RustCallStatus *_Nonnull out_status
+);
+#endif
 #ifndef UNIFFI_FFIDEF_UNIFFI_TONEARM_FFI_FN_METHOD_LIVEGUEST_LEAVE
 #define UNIFFI_FFIDEF_UNIFFI_TONEARM_FFI_FN_METHOD_LIVEGUEST_LEAVE
 void uniffi_tonearm_ffi_fn_method_liveguest_leave(uint64_t ptr, RustCallStatus *_Nonnull out_status
@@ -1544,6 +1549,12 @@ uint16_t uniffi_tonearm_ffi_checksum_method_liveguest_host_name(void
 #ifndef UNIFFI_FFIDEF_UNIFFI_TONEARM_FFI_CHECKSUM_METHOD_LIVEGUEST_HOST_SUPPORTS_PLAY_NEXT
 #define UNIFFI_FFIDEF_UNIFFI_TONEARM_FFI_CHECKSUM_METHOD_LIVEGUEST_HOST_SUPPORTS_PLAY_NEXT
 uint16_t uniffi_tonearm_ffi_checksum_method_liveguest_host_supports_play_next(void
+    
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_TONEARM_FFI_CHECKSUM_METHOD_LIVEGUEST_HOST_SUPPORTS_SEEK
+#define UNIFFI_FFIDEF_UNIFFI_TONEARM_FFI_CHECKSUM_METHOD_LIVEGUEST_HOST_SUPPORTS_SEEK
+uint16_t uniffi_tonearm_ffi_checksum_method_liveguest_host_supports_seek(void
     
 );
 #endif

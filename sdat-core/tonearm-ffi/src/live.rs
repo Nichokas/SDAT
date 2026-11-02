@@ -355,6 +355,10 @@ impl LiveGuest {
     pub fn host_supports_play_next(&self) -> bool {
         self.0.host_supports_play_next()
     }
+    /// Whether the host applies `LiveCommand::Seek` (older hosts ignore it).
+    pub fn host_supports_seek(&self) -> bool {
+        self.0.host_supports_seek()
+    }
     /// Asks the host to play these tracks next; `false` if it was not sent.
     pub fn send_play_next(&self, track_ids: Vec<String>) -> bool {
         self.0.send_play_next(track_ids)

@@ -593,6 +593,11 @@ impl LiveGuest {
         self.state.lock().unwrap_or_else(PoisonError::into_inner).host_supports_play_next()
     }
 
+    /// Whether the host applies [`GuestCommand::Seek`].
+    pub fn host_supports_seek(&self) -> bool {
+        self.state.lock().unwrap_or_else(PoisonError::into_inner).host_supports_seek()
+    }
+
     /// Asks the host to play `track_ids` next; `false` if it was not sent.
     pub fn send_play_next(&self, track_ids: Vec<String>) -> bool {
         let Some(m) = self.state.lock().unwrap_or_else(PoisonError::into_inner).play_next(track_ids, mono_now_ns()) else { return false };

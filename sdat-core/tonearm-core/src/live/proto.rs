@@ -81,6 +81,9 @@ pub enum GuestCommand {
     Unknown,
 }
 
+/// Host capability: applies [`GuestCommand::Seek`]. Older hosts ignore it.
+pub const FEATURE_SEEK: &str = "seek";
+
 /// Host capability: honours `next` on [`Msg::Command`] (guest Play Next).
 pub const FEATURE_PLAY_NEXT: &str = "play_next";
 
