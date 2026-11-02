@@ -110,13 +110,16 @@ jobs:
     container: registry.fedoraproject.org/fedora:latest
     steps:
       - name: Install tools
-        run: dnf -y install rpmlint rpm-build rpmdevtools 'dnf-command(builddep)' git-core cargo xz
+        run: dnf -y install --setopt=install_weak_deps=False rpmlint rpm-build rpmdevtools 'dnf-command(builddep)' git-core cargo xz
       - uses: actions/checkout@v4
         with:
           persist-credentials: false
       - name: rpmlint
         run: rpmlint sdat-desktop/packaging/fedora/sdat-desktop.spec || true
-      - name: rpmbuild smoke (SRPM + full offline build)
+      - name: Spec smoke (SRPM + %prep with vendored sources)
+        # Full compile is covered by rust.yml (same Fedora image) and by COPR itself; here we only
+        # check that the spec parses, its sources unpack, the vendor tree is offline-complete and
+        # the build deps resolve. This used to run a full ~15 min rpmbuild -ba on every PR.
         run: |
           set -euo pipefail
           spec=sdat-desktop/packaging/fedora/sdat-desktop.spec
@@ -129,5 +132,7 @@ jobs:
           cargo vendor --locked --versioned-dirs vendor >/dev/null
           tar -cJf ~/rpmbuild/SOURCES/"sdat-desktop-${ver}-vendor.tar.xz" vendor
           dnf -y builddep "$spec"
-          rpmbuild -ba "$spec"
-          rpm -qpl ~/rpmbuild/RPMS/*/sdat-desktop-*.rpm
+          rpmbuild -bs "$spec"
+          rpmbuild -bp "$spec"
+          cd ~/rpmbuild/BUILD/*/"${top}" 2>/dev/null || cd ~/rpmbuild/BUILD/"${top}"
+          cargo metadata --offline --locked --format-version 1 >/dev/null
