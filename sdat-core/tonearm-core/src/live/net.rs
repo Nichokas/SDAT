@@ -359,6 +359,14 @@ impl LiveHost {
         Ok(ids)
     }
 
+    /// See [`HostSession::replace_queue_entries`].
+    pub fn replace_queue_entries(&self, entries: Vec<QueueItem>) -> Result<(), NetError> {
+        let mut s = self.state.lock().unwrap_or_else(PoisonError::into_inner);
+        let outs = s.replace_queue_entries(entries).map_err(net)?;
+        route(&self.peers, outs);
+        Ok(())
+    }
+
     /// Ends the session for everyone.
     pub fn end(&self) {
         if !self.stop.trigger() {

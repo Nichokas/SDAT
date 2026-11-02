@@ -210,6 +210,14 @@ impl LiveHost {
     pub fn set_queue(&self, track_ids: Vec<String>) -> Result<Vec<String>, FfiError> {
         self.0.replace_queue(track_ids).map_err(err)
     }
+    /// Replaces the shared queue from the app's whole queue with the app's
+    /// own stable entry ids (max 20000; the first 500 are shared). Prefer it
+    /// over `set_queue`: Play Next tracking is then exact. Pass the same
+    /// entry ids to `set_playback`.
+    pub fn set_queue_entries(&self, entries: Vec<LiveQueueEntry>) -> Result<(), FfiError> {
+        let items = entries.into_iter().map(|e| tonearm_core::live::queue::QueueItem { item_id: e.item_id, track_id: e.track_id }).collect();
+        self.0.replace_queue_entries(items).map_err(err)
+    }
     /// Call on play, pause, seek and track change.
     pub fn set_playback(&self, item_id: Option<String>, track_id: Option<String>, position_ms: i64, playing: bool) {
         self.0.set_playback(item_id, track_id, position_ms, playing);
