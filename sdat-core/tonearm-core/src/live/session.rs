@@ -278,25 +278,39 @@ impl HostSession {
     pub fn replace_queue(&mut self, track_ids: Vec<String>) -> Result<(Vec<Out>, Vec<String>), QueueError> {
         self.sync_run();
         let track_ids: Vec<String> = track_ids.into_iter().take(super::MAX_QUEUE).collect();
-        let ids = stable_ids(&self.queue.queue().items, &track_ids, &self.run.items);
-        let items: Vec<QueueItem> = ids.iter().zip(&track_ids).map(|((item_id, _), t)| QueueItem { item_id: item_id.clone(), track_id: t.clone() }).collect();
-        // Bind handed-out tracks to the new entries right after the run.
-        if let Some(p) = self.anchor.item_id.as_ref().and_then(|id| items.iter().position(|i| &i.item_id == id)) {
+        let mut ids = stable_ids(&self.queue.queue().items, &track_ids, &self.run.items);
+        // Bind handed-out tracks to the entries right after the playing one
+        // and the run. Pending requests are consumed by every replace (they
+        // either landed now or were dropped by the app); the run only changes
+        // once the queue accepted the replacement.
+        let mut run = self.run.items.clone();
+        if let Some(p) = self.anchor.item_id.as_ref().and_then(|id| ids.iter().position(|(i, _)| i == id)) {
             let mut j = p + 1;
-            while j < items.len() && self.run.items.contains(&items[j].item_id) {
+            while j < ids.len() && run.contains(&ids[j].0) {
                 j += 1;
             }
-            let pending = std::mem::take(&mut self.run.pending);
-            for t in pending {
-                if j < items.len() && ids[j].1 && items[j].track_id == t {
-                    self.run.items.push(items[j].item_id.clone());
-                    j += 1;
-                } else {
+            for t in &self.run.pending {
+                if j >= ids.len() || &track_ids[j] != t {
                     break;
                 }
+                if !ids[j].1 {
+                    // Inserted before another copy of the same track: the
+                    // diff gave the old id to the first copy. The old entry
+                    // is the fresh copy further along that same-track stretch.
+                    let fresh = (j + 1..ids.len()).take_while(|&k| &track_ids[k] == t).find(|&k| ids[k].1);
+                    match fresh {
+                        Some(k) => ids.swap(j, k),
+                        None => break,
+                    }
+                }
+                run.push(ids[j].0.clone());
+                j += 1;
             }
         }
+        let items: Vec<QueueItem> = ids.iter().zip(&track_ids).map(|((item_id, _), t)| QueueItem { item_id: item_id.clone(), track_id: t.clone() }).collect();
         let out = self.queue_op(OpKind::Replace { items })?;
+        self.run.items = run;
+        self.run.pending.clear();
         Ok((out, ids.into_iter().map(|(id, _)| id).collect()))
     }
 
@@ -1222,6 +1236,38 @@ mod tests {
         let a = h.play_next_offset(&ids(&["p"]));
         let b = h.play_next_offset(&ids(&["r"]));
         assert_eq!((a, b), (4, 5));
+    }
+
+    #[test]
+    fn play_next_before_another_copy_of_the_same_track() {
+        // [playing, x] + Play Next x -> [playing, x(new), x(old)]; the next
+        // request still goes after the inserted x.
+        let (mut h, _) = host_with(&["p", "x"], 0);
+        let mut q = ids(&["p", "x"]);
+        insert_next(&mut h, &mut q, 0, &["x"]);
+        insert_next(&mut h, &mut q, 0, &["y"]);
+        assert_eq!(q, ids(&["p", "x", "y", "x"]));
+    }
+
+    #[test]
+    fn pending_play_next_is_dropped_without_a_playing_entry() {
+        let (mut h, _) = host_with(&["a", "b"], 0);
+        h.set_playback(None, None, 0, false, 0);
+        assert_eq!(h.play_next_offset(&ids(&["x"])), 0);
+        h.replace_queue(ids(&["x", "a", "b"])).expect("replace");
+        h.replace_queue(ids(&["a", "b"])).expect("replace");
+        assert_eq!(h.play_next_offset(&ids(&["y"])), 0);
+    }
+
+    #[test]
+    fn failed_replace_keeps_the_pending_play_next() {
+        let (mut h, _) = host_with(&["p", "b"], 0);
+        let mut q = ids(&["p", "b"]);
+        assert_eq!(h.play_next_offset(&ids(&["x"])), 0);
+        assert!(h.replace_queue(ids(&["p", "x", ""])).is_err());
+        q.insert(1, "x".into());
+        h.replace_queue(q.clone()).expect("replace");
+        assert_eq!(h.play_next_offset(&ids(&["y"])), 1);
     }
 
     #[test]
