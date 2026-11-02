@@ -101,12 +101,55 @@ pub struct HostSession {
     pending_cmds: std::collections::VecDeque<HostCommand>,
     /// The app can insert guest Play Next tracks after the playing one.
     play_next: bool,
-    /// Play-next track ids handed out while track `.0` plays, in order.
-    /// Keyed by track, not entry: `replace_queue` renews every entry id.
-    play_next_cursor: (Option<String>, Vec<String>),
-    /// Index of the playing entry when last found, to pick the right copy
-    /// of a repeated track after a queue refresh renewed entry ids.
-    play_next_index: usize,
+    /// The current Play Next run, see [`Self::play_next_offset`].
+    run: PlayNextRun,
+}
+
+/// Guest Play Next tracks inserted after one playing entry, by identity.
+#[derive(Debug, Default)]
+struct PlayNextRun {
+    /// Playing entry the run belongs to.
+    after: Option<String>,
+    /// Entry ids of inserted tracks, in insertion order.
+    items: Vec<String>,
+    /// Track ids handed out and not yet seen in a queue update, in order.
+    pending: Vec<String>,
+}
+
+/// Entry ids for a queue replaced by `new` track ids: entries kept from
+/// `old` (a longest common subsequence of tracks, in order) keep their id,
+/// the rest get fresh ones. The flag tells whether the id is new. When the
+/// match is ambiguous (two copies of a track, one removed), entries in
+/// `prefer_drop` (guest Play Next entries) are the ones taken as removed, so
+/// a removed Play Next never borrows the identity of another copy.
+fn stable_ids(old: &[QueueItem], new: &[String], prefer_drop: &[String]) -> Vec<(String, bool)> {
+    let (old_len, new_len) = (old.len(), new.len());
+    // Weight of keeping old[oi]: every match counts the same (longest
+    // subsequence first); keeping a non-run entry breaks ties.
+    let weight = |oi: usize| -> u32 { 1024 + if prefer_drop.contains(&old[oi].item_id) { 2 } else { 3 } };
+    // best[oi][ni]: best weight for old[oi..] and new[ni..]. At most 501 x 501.
+    let mut best = vec![vec![0u32; new_len + 1]; old_len + 1];
+    for oi in (0..old_len).rev() {
+        for ni in (0..new_len).rev() {
+            let keep = if old[oi].track_id == new[ni] { best[oi + 1][ni + 1] + weight(oi) } else { 0 };
+            best[oi][ni] = keep.max(best[oi + 1][ni]).max(best[oi][ni + 1]);
+        }
+    }
+    let mut out = Vec::with_capacity(new_len);
+    let (mut oi, mut ni) = (0, 0);
+    while ni < new_len {
+        if oi < old_len && old[oi].track_id == new[ni] && best[oi][ni] == best[oi + 1][ni + 1] + weight(oi) {
+            out.push((old[oi].item_id.clone(), false));
+            oi += 1;
+            ni += 1;
+        } else if oi < old_len && best[oi][ni] == best[oi + 1][ni] {
+            oi += 1;
+        } else {
+            out.push((new_id(), true));
+            ni += 1;
+        }
+    }
+    out
 }
 
 impl HostSession {
@@ -131,8 +174,7 @@ impl HostSession {
             cmd_times: BTreeMap::new(),
             pending_cmds: std::collections::VecDeque::new(),
             play_next: false,
-            play_next_cursor: (None, Vec::new()),
-            play_next_index: 0,
+            run: PlayNextRun::default(),
         }
         .with_epoch()
     }
@@ -173,14 +215,22 @@ impl HostSession {
 
     /// Declares that the app applies guest Play Next ([`HostCommand::next`]).
     /// Off by default, so apps that do not handle it keep getting plain
-    /// enqueues. Advertised to guests in the `Welcome` as
-    /// [`FEATURE_PLAY_NEXT`]; enable it before guests join.
-    pub fn set_play_next(&mut self, enabled: bool) {
+    /// enqueues. Advertised as [`FEATURE_PLAY_NEXT`] in the `Welcome`, and
+    /// to guests already joined with a `Features` message.
+    pub fn set_play_next(&mut self, enabled: bool) -> Vec<Out> {
+        if enabled == self.play_next {
+            return Vec::new();
+        }
         self.play_next = enabled;
+        vec![all(Msg::Features { features: self.features() })]
     }
 
     pub fn play_next(&self) -> bool {
         self.play_next
+    }
+
+    fn features(&self) -> Vec<String> {
+        if self.play_next { vec![FEATURE_PLAY_NEXT.to_owned()] } else { Vec::new() }
     }
 
     /// Where to insert play-next `track_ids`: this many entries after the
@@ -188,48 +238,66 @@ impl HostSession {
     /// queue length). Several Play Next requests keep their request order
     /// and all stay ahead of the rest of the queue.
     ///
-    /// The offset is measured on the shared queue: it skips the run of
-    /// earlier play-next tracks still sitting right after the playing entry,
-    /// so ones the host removed or moved away no longer count. Mirror each
-    /// insertion with the usual queue update before the next call. The run
-    /// restarts when the playing track changes. Entries are matched by track
-    /// id (queue refreshes renew entry ids), so a removed play-next track
-    /// followed by an unrelated copy of the same track still counts.
+    /// The run is tracked by entry identity: the next [`Self::replace_queue`]
+    /// binds the handed-out tracks to the new entries found at those slots,
+    /// and entry ids survive refreshes. Play-next entries the host removed or
+    /// moved away stop counting; other copies of the same track never count.
+    /// The run restarts when another entry starts playing.
     pub fn play_next_offset(&mut self, track_ids: &[String]) -> usize {
-        if self.play_next_cursor.0 != self.anchor.track_id {
-            self.play_next_cursor = (self.anchor.track_id.clone(), Vec::new());
-        }
-        let playing = self.locate_playing();
+        self.sync_run();
         let items = &self.queue.queue().items;
-        let after = playing.map_or(&[][..], |p| &items[p + 1..]);
-        // Earlier play-next tracks still in place, in order; drop the rest.
-        let mut offset = 0;
-        let mut kept = Vec::new();
-        for t in self.play_next_cursor.1.drain(..) {
-            if after.get(offset).is_some_and(|i| i.track_id == t) {
-                offset += 1;
-                kept.push(t);
-            }
-        }
-        kept.extend_from_slice(track_ids);
-        self.play_next_cursor.1 = kept;
+        let run = &self.run.items;
+        self.run.items = match self.playing_index() {
+            // The run entries still right after the playing one.
+            Some(p) => items[p + 1..].iter().take_while(|i| run.contains(&i.item_id)).map(|i| i.item_id.clone()).collect(),
+            // Playing entry unknown (nothing playing, or past the queue cap):
+            // keep counting the run so requests still keep their order.
+            None => run.iter().filter(|r| items.iter().any(|i| &i.item_id == *r)).cloned().collect(),
+        };
+        let offset = self.run.items.len() + self.run.pending.len();
+        self.run.pending.extend_from_slice(track_ids);
         offset
     }
 
-    /// Index of the playing entry in the shared queue, remembered in
-    /// [`Self::play_next_index`]. When a queue refresh renewed its id, the
-    /// copy of the playing track nearest to where it was last found.
-    fn locate_playing(&mut self) -> Option<usize> {
-        let items = &self.queue.queue().items;
-        let last = self.play_next_index;
-        let playing = self.anchor.item_id.as_ref().and_then(|id| items.iter().position(|i| &i.item_id == id)).or_else(|| {
-            let t = self.anchor.track_id.as_ref()?;
-            items.iter().enumerate().filter(|(_, i)| &i.track_id == t).map(|(p, _)| p).min_by_key(|p| p.abs_diff(last))
-        });
-        if let Some(p) = playing {
-            self.play_next_index = p;
+    fn playing_index(&self) -> Option<usize> {
+        let id = self.anchor.item_id.as_ref()?;
+        self.queue.queue().items.iter().position(|i| &i.item_id == id)
+    }
+
+    /// Starts a new run when another entry is playing.
+    fn sync_run(&mut self) {
+        if self.run.after != self.anchor.item_id {
+            self.run = PlayNextRun { after: self.anchor.item_id.clone(), ..PlayNextRun::default() };
         }
-        playing
+    }
+
+    /// Replaces the shared queue with `track_ids` (at most
+    /// [`super::MAX_QUEUE`]); returns the entry id of each track. Entries
+    /// that stay keep their id, so the playing entry and the Play Next run
+    /// survive refreshes.
+    pub fn replace_queue(&mut self, track_ids: Vec<String>) -> Result<(Vec<Out>, Vec<String>), QueueError> {
+        self.sync_run();
+        let track_ids: Vec<String> = track_ids.into_iter().take(super::MAX_QUEUE).collect();
+        let ids = stable_ids(&self.queue.queue().items, &track_ids, &self.run.items);
+        let items: Vec<QueueItem> = ids.iter().zip(&track_ids).map(|((item_id, _), t)| QueueItem { item_id: item_id.clone(), track_id: t.clone() }).collect();
+        // Bind handed-out tracks to the new entries right after the run.
+        if let Some(p) = self.anchor.item_id.as_ref().and_then(|id| items.iter().position(|i| &i.item_id == id)) {
+            let mut j = p + 1;
+            while j < items.len() && self.run.items.contains(&items[j].item_id) {
+                j += 1;
+            }
+            let pending = std::mem::take(&mut self.run.pending);
+            for t in pending {
+                if j < items.len() && ids[j].1 && items[j].track_id == t {
+                    self.run.items.push(items[j].item_id.clone());
+                    j += 1;
+                } else {
+                    break;
+                }
+            }
+        }
+        let out = self.queue_op(OpKind::Replace { items })?;
+        Ok((out, ids.into_iter().map(|(id, _)| id).collect()))
     }
 
     /// Accepted guest commands, oldest first. The app applies them through
@@ -286,7 +354,7 @@ impl HostSession {
                         snapshot: self.queue.snapshot(),
                         anchor,
                         guest_control: self.guest_control,
-                        features: if self.play_next { vec![FEATURE_PLAY_NEXT.to_owned()] } else { Vec::new() },
+                        features: self.features(),
                     },
                 )]
             }
@@ -341,9 +409,6 @@ impl HostSession {
     /// within [`DEBOUNCE_NS`]; the rest goes out on [`Self::tick`].
     pub fn set_playback(&mut self, item_id: Option<String>, track_id: Option<String>, position_ms: i64, playing: bool, now_ns: i64) -> Vec<Out> {
         let track_changed = item_id != self.anchor.item_id || track_id != self.anchor.track_id;
-        if track_id != self.anchor.track_id {
-            self.play_next_cursor = (track_id.clone(), Vec::new());
-        }
         self.anchor = Anchor {
             epoch: self.epoch,
             seq: self.anchor.seq + 1,
@@ -354,7 +419,7 @@ impl HostSession {
             host_mono_ns: now_ns,
             playing,
         };
-        self.locate_playing();
+        self.sync_run();
         if track_changed || now_ns - self.last_anchor_sent_ns >= DEBOUNCE_NS {
             self.flush_anchor(now_ns)
         } else {
@@ -371,8 +436,6 @@ impl HostSession {
 
     /// Changes the shared queue (host only in the MVP).
     pub fn queue_op(&mut self, kind: OpKind) -> Result<Vec<Out>, QueueError> {
-        // Pin the playing entry while its id still resolves (a Replace renews ids).
-        self.locate_playing();
         match self.queue.apply(Op { op_id: new_id(), kind })? {
             Accepted::New(v) => Ok(vec![all(Msg::Op(v))]),
             Accepted::Duplicate => Ok(Vec::new()),
@@ -699,6 +762,7 @@ impl GuestSession {
             }
             Msg::End { reason } => ev.extend(self.ended(reason)),
             Msg::Control { guest_control } => self.set_control(guest_control, &mut ev),
+            Msg::Features { features } => self.host_play_next = features.iter().any(|f| f == FEATURE_PLAY_NEXT),
             Msg::Heartbeat { .. } | Msg::Hello { .. } | Msg::Ping { .. } | Msg::Resync { .. } | Msg::Command { .. } | Msg::Bye | Msg::Unknown => {}
         }
         (out, ev)
@@ -1123,60 +1187,113 @@ mod tests {
         assert_eq!(cmds.iter().map(|c| c.cmd.clone()).collect::<Vec<_>>(), ["1", "2", "3"].map(|t| GuestCommand::Enqueue { track_ids: ids(&[t]) }));
     }
 
+    /// Host with queue `q` playing entry `playing`; returns the entry ids.
+    fn host_with(q: &[&str], playing: usize) -> (HostSession, Vec<String>) {
+        let mut h = HostSession::new("H".into(), 0);
+        let (_, e) = h.replace_queue(ids(q)).expect("replace");
+        h.set_playback(Some(e[playing].clone()), Some(q[playing].into()), 0, true, 0);
+        (h, e)
+    }
+
+    /// What a host app does: insert at the offset after `playing`, then sync.
+    fn insert_next(h: &mut HostSession, q: &mut Vec<String>, playing: usize, req: &[&str]) -> Vec<String> {
+        let at = (playing + 1 + h.play_next_offset(&ids(req))).min(q.len());
+        q.splice(at..at, ids(req));
+        h.replace_queue(q.clone()).expect("replace").1
+    }
+
+    #[test]
+    fn replace_keeps_entry_ids() {
+        let (mut h, e) = host_with(&["a", "b", "a", "c"], 2);
+        let (_, e2) = h.replace_queue(ids(&["a", "b", "x", "a", "c"])).expect("replace");
+        assert_eq!((&e2[0], &e2[1], &e2[3], &e2[4]), (&e[0], &e[1], &e[2], &e[3]));
+        assert!(!e.contains(&e2[2]), "new entry, new id");
+    }
+
     #[test]
     fn play_next_offsets_keep_request_order() {
-        // Queue: a (playing), b, c. Three play-next requests in a row; the
-        // app inserts each one and mirrors the queue before the next.
-        let mut h = HostSession::new("H".into(), 0);
+        let (mut h, _) = host_with(&["1", "2", "3"], 0);
         let mut q = ids(&["1", "2", "3"]);
-        // Like `net::LiveHost::replace_queue`: every refresh renews entry ids.
-        let mut round = 0;
-        let mut sync = |h: &mut HostSession, q: &[String]| {
-            round += 1;
-            let items: Vec<QueueItem> = q.iter().enumerate().map(|(i, t)| QueueItem { item_id: format!("g{round}i{i}"), track_id: t.clone() }).collect();
-            h.queue_op(OpKind::Replace { items }).expect("replace");
-        };
-        sync(&mut h, &q);
-        h.set_playback(Some("g1i0".into()), Some("1".into()), 0, true, 0);
-        for req in [ids(&["x1", "x2"]), ids(&["y"]), ids(&["z"])] {
-            let at = (1 + h.play_next_offset(&req)).min(q.len());
-            q.splice(at..at, req);
-            sync(&mut h, &q);
+        for req in [&["x1", "x2"][..], &["y"], &["z"]] {
+            insert_next(&mut h, &mut q, 0, req);
         }
         assert_eq!(q, ids(&["1", "x1", "x2", "y", "z", "2", "3"]));
-        // The host removes a play-next track: the next one goes right after
-        // the surviving run, not past an unrelated track.
+        // Several requests applied before one sync keep their order too.
+        let a = h.play_next_offset(&ids(&["p"]));
+        let b = h.play_next_offset(&ids(&["r"]));
+        assert_eq!((a, b), (4, 5));
+    }
+
+    #[test]
+    fn play_next_ignores_another_copy_of_a_removed_track() {
+        // Qodo 1: [playing, inserted X, existing X] -> remove the inserted X.
+        let (mut h, _) = host_with(&["p", "x"], 0);
+        let mut q = ids(&["p", "x"]);
+        insert_next(&mut h, &mut q, 0, &["x"]);
+        assert_eq!(q, ids(&["p", "x", "x"]));
         q.remove(1);
-        sync(&mut h, &q);
-        assert_eq!(h.play_next_offset(&ids(&["w"])), 3);
-        // A new playing item starts a fresh run, even when returning to the
-        // old one without any request in between.
-        h.set_playback(Some("g5i1".into()), Some("x2".into()), 0, true, S);
-        h.set_playback(Some("g5i0".into()), Some("1".into()), 0, true, 2 * S);
-        assert_eq!(h.play_next_offset(&ids(&["v"])), 0);
+        h.replace_queue(q.clone()).expect("replace");
+        assert_eq!(h.play_next_offset(&ids(&["y"])), 0, "right after the playing entry, not after the old copy");
+        // Removing through a non-refresh op is exact.
+        let (mut h, _) = host_with(&["p", "x"], 0);
+        let mut q = ids(&["p", "x"]);
+        let e = insert_next(&mut h, &mut q, 0, &["x"]);
+        h.queue_op(OpKind::Remove { item_id: e[1].clone() }).expect("remove");
+        assert_eq!(h.play_next_offset(&ids(&["y"])), 0);
+    }
+
+    #[test]
+    fn play_next_restarts_on_another_copy_of_the_same_track() {
+        // Qodo 2: [a, x, a]: run after the first a, then the second a plays.
+        let (mut h, _) = host_with(&["a", "x", "a"], 0);
+        let mut q = ids(&["a", "x", "a"]);
+        let e = insert_next(&mut h, &mut q, 0, &["n"]);
+        assert_eq!(q, ids(&["a", "n", "x", "a"]));
+        h.set_playback(Some(e[3].clone()), Some("a".into()), 0, true, S);
+        assert_eq!(h.play_next_offset(&ids(&["m"])), 0, "fresh run");
+        // A plain refresh does not restart the run (ids survive).
+        let (mut h, _) = host_with(&["a", "b"], 0);
+        let mut q = ids(&["a", "b"]);
+        insert_next(&mut h, &mut q, 0, &["n"]);
+        h.replace_queue(q.clone()).expect("replace");
+        assert_eq!(h.play_next_offset(&ids(&["m"])), 1);
+    }
+
+    #[test]
+    fn play_next_keeps_order_when_the_playing_entry_is_unknown() {
+        // Qodo 3: nothing playing (or playing entry past the queue cap).
+        let mut h = HostSession::new("H".into(), 0);
+        h.replace_queue(ids(&["a", "b"])).expect("replace");
+        let offs: Vec<usize> = (0..3).map(|i| h.play_next_offset(&ids(&[&i.to_string()]))).collect();
+        assert_eq!(offs, vec![0, 1, 2]);
     }
 
     #[test]
     fn play_next_keeps_the_playing_copy_of_a_repeated_track() {
-        // [A, B, A, C] playing the second A; refreshes renew every entry id.
-        let mut h = HostSession::new("H".into(), 0);
-        let mut round = 0;
-        let mut sync = |h: &mut HostSession, q: &[String]| {
-            round += 1;
-            let items: Vec<QueueItem> = q.iter().enumerate().map(|(i, t)| QueueItem { item_id: format!("g{round}i{i}"), track_id: t.clone() }).collect();
-            h.queue_op(OpKind::Replace { items }).expect("replace");
-        };
+        let (mut h, _) = host_with(&["a", "b", "a", "c"], 2);
         let mut q = ids(&["a", "b", "a", "c"]);
-        sync(&mut h, &q);
-        h.set_playback(Some("g1i2".into()), Some("a".into()), 0, true, 0);
-        // A plain refresh before the first request must not lose the copy.
-        sync(&mut h, &q);
-        for req in [ids(&["x"]), ids(&["y"])] {
-            let at = (2 + 1 + h.play_next_offset(&req)).min(q.len());
-            q.splice(at..at, req);
-            sync(&mut h, &q);
-        }
+        h.replace_queue(q.clone()).expect("plain refresh first");
+        insert_next(&mut h, &mut q, 2, &["x"]);
+        insert_next(&mut h, &mut q, 2, &["y"]);
         assert_eq!(q, ids(&["a", "b", "a", "x", "y", "c"]));
+    }
+
+    #[test]
+    fn joined_guests_learn_play_next_changes() {
+        // Qodo 5: the capability changes after the guest joined.
+        let mut w = World::new(0, MS);
+        w.host.set_guest_control(true);
+        w.join(0);
+        assert!(!w.guest.host_supports_play_next());
+        let o = w.host.set_play_next(true);
+        w.deliver(o, S);
+        assert!(w.guest.host_supports_play_next());
+        assert!(w.host.set_play_next(true).is_empty(), "no change, no broadcast");
+        let o = w.host.set_play_next(false);
+        w.deliver(o, 2 * S);
+        assert!(!w.guest.host_supports_play_next());
+        // Older guests ignore the new message.
+        assert_eq!(super::super::proto::decode(br#"{"t":"features","features":["play_next"]}"#).expect("decode"), Msg::Features { features: ids(&["play_next"]) });
     }
 
     #[test]

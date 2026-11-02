@@ -226,10 +226,22 @@ impl LiveHost {
         self.0.guest_control()
     }
     /// Receives guest Play Next (off while none is installed: guests then
-    /// append). Install before guests join so they learn it in the Welcome.
+    /// append). Guests already joined are told about the change.
     pub fn set_play_next_observer(&self, observer: Option<Arc<dyn LivePlayNextObserver>>) {
-        self.0.set_play_next(observer.is_some());
-        *self.2.lock().unwrap_or_else(std::sync::PoisonError::into_inner) = observer;
+        // Under the slot lock, and the slot is filled before the host
+        // accepts Play Next (and emptied after it stops), so a request
+        // accepted as Play Next always finds the observer. Only a request
+        // already in flight while the app removes the observer is handed
+        // over as a plain enqueue, which is what the app now wants.
+        let mut slot = self.2.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        let on = observer.is_some();
+        if on {
+            *slot = observer;
+            self.0.set_play_next(true);
+        } else {
+            self.0.set_play_next(false);
+            *slot = None;
+        }
     }
     /// Offset after the playing entry at which to insert these guest Play
     /// Next tracks; keeps several requests in order. Call `set_queue` after
@@ -347,6 +359,41 @@ mod tests {
             assert_eq!(command_of(to_core(c.clone())), Some(c));
         }
         assert_eq!(command_of(GuestCommand::Unknown), None);
+    }
+
+    #[derive(Default)]
+    struct Rec(std::sync::Mutex<Vec<String>>);
+    use tonearm_core::live::session::HostCommand;
+    impl LiveObserver for Rec {
+        fn on_update(&self, _: LiveUpdate) {}
+    }
+    impl LiveControlObserver for Rec {
+        fn on_control_changed(&self, _: bool) {}
+        fn on_guest_command(&self, _: String, _: String, command: LiveCommand) {
+            self.0.lock().unwrap_or_else(std::sync::PoisonError::into_inner).push(format!("cmd {command:?}"));
+        }
+    }
+    impl LivePlayNextObserver for Rec {
+        fn on_guest_play_next(&self, _: String, _: String, track_ids: Vec<String>) {
+            self.0.lock().unwrap_or_else(std::sync::PoisonError::into_inner).push(format!("next {track_ids:?}"));
+        }
+    }
+
+    #[test]
+    fn play_next_routing() {
+        // Qodo 4: a request accepted as Play Next reaches the Play Next
+        // observer, even with no control observer installed; without one
+        // (only while the app is removing it) it is a plain enqueue.
+        let rec = Arc::new(Rec::default());
+        let ev = |next| LiveEvent::Command(HostCommand { peer: "p".into(), name: "n".into(), cmd: GuestCommand::Enqueue { track_ids: vec!["1".into()] }, next });
+        let next_only = Bridge(Arc::clone(&rec) as Arc<dyn LiveObserver>, ControlSlot::default(), Arc::new(std::sync::Mutex::new(Some(Arc::clone(&rec) as Arc<dyn LivePlayNextObserver>))));
+        next_only.on_event(ev(true));
+        let control_only = Bridge(Arc::clone(&rec) as Arc<dyn LiveObserver>, Arc::new(std::sync::Mutex::new(Some(Arc::clone(&rec) as Arc<dyn LiveControlObserver>))), PlayNextSlot::default());
+        control_only.on_event(ev(true));
+        control_only.on_event(ev(false));
+        let got = rec.0.lock().unwrap_or_else(std::sync::PoisonError::into_inner).clone();
+        let enq = "cmd Enqueue { track_ids: [\"1\"] }".to_owned();
+        assert_eq!(got, vec!["next [\"1\"]".to_owned(), enq.clone(), enq]);
     }
 }
 

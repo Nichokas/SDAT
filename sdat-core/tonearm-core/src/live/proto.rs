@@ -131,6 +131,9 @@ pub enum Msg {
     End { reason: EndReason },
     /// The host changed whether guests may control playback.
     Control { guest_control: bool },
+    /// The host's capabilities changed (see `Welcome::features`). Older
+    /// guests decode it as [`Msg::Unknown`] and ignore it.
+    Features { features: Vec<String> },
     #[serde(other)]
     Unknown,
 }

@@ -19,10 +19,10 @@ use tokio::sync::mpsc;
 
 use super::drift::Correction;
 use super::proto::{self, EndReason, GuestCommand, Msg, RejectReason};
-use super::queue::{OpKind, QueueItem};
+use super::queue::QueueItem;
 use super::session::{GuestEvent, GuestInfo, GuestPhase, GuestSession, HostCommand, HostSession, Target, To};
 use super::ticket::Ticket;
-use super::{ALPN, PROTO_VERSION, mono_now_ns, new_id};
+use super::{ALPN, PROTO_VERSION, mono_now_ns};
 
 /// Relay of the SDAT project on iroh services (public URL, not a secret).
 pub const DEFAULT_RELAYS: &[&str] = &["https://efc2pr1s527pykb0a.euc1.relay.iroh-svc.com/"];
@@ -339,7 +339,9 @@ impl LiveHost {
     /// Declares that the app applies guest Play Next (see
     /// [`HostSession::set_play_next`]). Off by default.
     pub fn set_play_next(&self, enabled: bool) {
-        self.state.lock().unwrap_or_else(PoisonError::into_inner).set_play_next(enabled);
+        let mut s = self.state.lock().unwrap_or_else(PoisonError::into_inner);
+        let outs = s.set_play_next(enabled);
+        route(&self.peers, outs);
     }
 
     /// See [`HostSession::play_next_offset`].
@@ -347,12 +349,11 @@ impl LiveHost {
         self.state.lock().unwrap_or_else(PoisonError::into_inner).play_next_offset(track_ids)
     }
 
-    /// Replaces the shared queue; returns the entry ids given to each track.
+    /// Replaces the shared queue; returns the entry id of each track.
+    /// Entries that stay keep their id (see [`HostSession::replace_queue`]).
     pub fn replace_queue(&self, track_ids: Vec<String>) -> Result<Vec<String>, NetError> {
-        let items: Vec<QueueItem> = track_ids.into_iter().take(super::MAX_QUEUE).map(|track_id| QueueItem { item_id: new_id(), track_id }).collect();
-        let ids = items.iter().map(|i| i.item_id.clone()).collect();
         let mut s = self.state.lock().unwrap_or_else(PoisonError::into_inner);
-        let outs = s.queue_op(OpKind::Replace { items }).map_err(net)?;
+        let (outs, ids) = s.replace_queue(track_ids).map_err(net)?;
         route(&self.peers, outs);
         drop(s);
         Ok(ids)
