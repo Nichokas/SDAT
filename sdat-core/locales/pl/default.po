@@ -1,0 +1,831 @@
+# Polish translations for v1.0.0-26-g6264155 package
+# Polskie tłumaczenia dla pakietu v1.0.0-26-g6264155.
+# Copyright (C) 2026 THE v1.0.0-26-g6264155'S COPYRIGHT HOLDER
+# This file is distributed under the same license as the v1.0.0-26-g6264155 package.
+# Łukasz Horodecki <lukasz@horodecki.net>, 2026.
+#
+msgid ""
+msgstr ""
+"Project-Id-Version: v1.0.0-26-g6264155\n"
+"Report-Msgid-Bugs-To: \n"
+"POT-Creation-Date: 2026-08-08 22:44+0200\n"
+"PO-Revision-Date: 2026-08-11 02:26+0000\n"
+"Last-Translator: Łukasz Horodecki <lukasz@horodecki.net>\n"
+"Language-Team: Polish <https://translate.codeberg.org/projects/tonearm/"
+"tonearm/pl/>\n"
+"Language: pl\n"
+"MIME-Version: 1.0\n"
+"Content-Type: text/plain; charset=UTF-8\n"
+"Content-Transfer-Encoding: 8bit\n"
+"Plural-Forms: nplurals=3; plural=n==1 ? 0 : n%10>=2 && n%10<=4 && (n%100<10 "
+"|| n%100>=20) ? 1 : 2;\n"
+"X-Generator: Weblate 2026.8.1\n"
+
+msgid "%d Fan"
+msgid_plural "%d Fans"
+msgstr[0] "%d fan"
+msgstr[1] "%d fanów"
+msgstr[2] "%d fanów"
+
+msgid "%d Track"
+msgid_plural "%d Tracks"
+msgstr[0] "%d utwór"
+msgstr[1] "%d utwory"
+msgstr[2] "%d utworów"
+
+msgid "%d Track (%s)"
+msgid_plural "%d Tracks (%s)"
+msgstr[0] "%d utwór (%s)"
+msgstr[1] "%d utwory (%s)"
+msgstr[2] "%d utworów (%s)"
+
+msgid "%s and %s"
+msgstr "%s i %s"
+
+msgid "API Base URL"
+msgstr "Podstawowy adres URL API"
+
+msgid "About SDAT"
+msgstr "O aplikacji"
+
+msgid "Add Album to Queue"
+msgstr "Dodaj album do kolejki"
+
+msgid "Add My Tracks to Queue"
+msgstr "Dodaj moje utwory do kolejki"
+
+msgid "Add Playlist to Queue"
+msgstr "Dodaj playlistę do kolejki"
+
+msgid "Add Top Tracks to Queue"
+msgstr "Dodaj topowe utwory do kolejki"
+
+msgid "Add to Collection"
+msgstr "Dodaj do kolekcji"
+
+msgid "Add to Queue"
+msgstr "Dodaj do kolejki"
+
+msgid "Album"
+msgstr "Album"
+
+msgid "Album by %s"
+msgstr "Album autorstwa %s"
+
+msgid "Albums"
+msgstr "Albumy"
+
+msgid "Allow Background Activity"
+msgstr "Pozwól na działanie w tle"
+
+msgid "Allow Media Card Images"
+msgstr "Pozwól na obrazy albumów"
+
+msgid "Allow Shortcut Images"
+msgstr "Pozwól na obrazy na skrótach"
+
+msgid "Allow SDAT to load images for media card buttons"
+msgstr "Pozwól SDAT na wczytywanie obrazów na listach albumów"
+
+msgid "Allow SDAT to load images for shortcut buttons"
+msgstr "Pozwól SDAT na wczytywanie obrazów na przyciskach skrótów"
+
+msgid "Allow SDAT to load images for tracklists with the cover column"
+msgstr "Pozwól SDAT na wczytywanie obrazów na listach utworów z okładkami"
+
+msgid ""
+"Allow SDAT to retain recently loaded images in memory to improve "
+"performance and reduce network traffic (estimated 50 MiB limit)"
+msgstr ""
+"Pozwól SDAT na przechowanie w pamięci ostatnio pobranych obrazów, aby "
+"poprawić wydajność i  zmniejszyć ruch w sieci (limit około 50 MiB)"
+
+msgid ""
+"Allow SDAT to run in the background by hiding the player window instead "
+"of quitting the application"
+msgstr ""
+"Pozwól SDAT na działanie w tle przez ukrywanie okna odtwarzacza zamiast "
+"zamykania aplikacji."
+
+msgid "Allow SDAT to send scrobbling data to Last.fm"
+msgstr "Pozwól SDAT na wysyłanie danych scrobblowania do Last.fm"
+
+msgid "Allow SDAT to send scrobbling data to ListenBrainz"
+msgstr "Pozwól SDAT na wysyłanie danych scrobblowania do ListenBrainz"
+
+msgid ""
+"Allow SDAT to start a mix with the current playing song when you're at "
+"the end of an album/queue"
+msgstr ""
+"Pozwól SDAT na rozpoczęcie miksu z aktualnie odtwarzaną piosenką, gdy "
+"jesteś na końcu albumu/kolejki"
+
+msgid "Allow Tracklist Images"
+msgstr "Pozwól na obrazy na listach utworów"
+
+msgid "An error occurred while fetching the track mix"
+msgstr "Wystąpił błąd podczas pobierania miksu utworów"
+
+msgid "An error occurred while logging in to Last.fm"
+msgstr "Wystąpił błąd podczas logowania do Last.fm"
+
+msgid "An error occurred while logging out of Last.fm"
+msgstr "Wystąpił błąd podczas wylogowania z Last.fm"
+
+msgid "An error occurred while playing the album"
+msgstr "Wystąpił błąd podczas odtwarzania albumu"
+
+msgid "An error occurred while playing the playlist"
+msgstr "Wystąpił błąd podczas odtwarzania playlisty"
+
+msgid "An error occurred while playing the top tracks"
+msgstr "Wystąpił błąd podczas odtwarzania top utworów"
+
+msgid "An error occurred while playing the track"
+msgstr "Wystąpił błąd podczas odtwarzania utworu"
+
+msgid "An error occurred while playing the tracks"
+msgstr "Wystąpił błąd podczas odtwarzania utworów"
+
+msgid "An error occurred while shuffling the tracks"
+msgstr "Wystąpił błąd podczas losowania utworów"
+
+msgid ""
+"An unknown error occurred when checking for a secret service provider.\n"
+"\n"
+"Signing in may or may not work. Please see the raw error message for more "
+"details:\n"
+"\n"
+"%s"
+msgstr ""
+"Wystąpił nieznany błąd w czasie sprawdzania dostawcy sekretów.\n"
+"\n"
+"Zalogowanie może zadziałać lub nie. Proszę sprawdzić treść komunikatu błędu "
+"po więcej szczegółów.\n"
+"\n"
+"%s"
+
+msgid "Artist"
+msgstr "Artysta"
+
+msgid "Artists"
+msgstr "Artyści"
+
+msgid "Auth Base URL"
+msgstr "Podstawowy adres URL autoryzacji"
+
+msgid "Authentication Required"
+msgstr "Wymagane uwierzytelnienie"
+
+msgid "Auto"
+msgstr "Auto"
+
+msgid "Back"
+msgstr "Wstecz"
+
+msgid "Background Activity"
+msgstr "Działanie w tle"
+
+msgid "Base URLs"
+msgstr "Podstawowe adresy URL"
+
+msgid "Basic Shortcuts"
+msgstr "Ogólne"
+
+msgid "Cache Images"
+msgstr "Pamięć podręczna obrazów"
+
+msgid "Cancel"
+msgstr "Anuluj"
+
+msgid "Cancel Login"
+msgstr "Anuluj logowanie"
+
+msgid ""
+"Choose whether SDAT should prefer album replay gain, track replay gain or "
+"decide automatically"
+msgstr ""
+"Wybierz, czy SDAT powinien stosować normalizację całych albumów, "
+"pojedynczych utworów, czy decydować automatycznie"
+
+msgid "Close"
+msgstr "Zamknij"
+
+msgid "Collection"
+msgstr "Kolekcja"
+
+msgid "Configure SDAT to send scrobbling data to Last.fm"
+msgstr "Skonfiguruj SDAT do wysyłania danych do Last.fm"
+
+msgid "Configure SDAT to send scrobbling data to ListenBrainz"
+msgstr "Skonfiguruj SDAT do wysyłania danych scrobblowania do ListenBrainz"
+
+msgid "Configure the base URLs for TIDAL"
+msgstr "Skonfiguruj podstawowe adresy URL TIDAL"
+
+msgid "Configure the behaviour of SDAT regarding images"
+msgstr "Skonfiguruj zachowanie SDAT dotyczące obrazów"
+
+msgid "Configure the behaviour of SDAT regarding playback"
+msgstr "Skonfiguruj zachowanie SDAT dotyczące odtwarzania"
+
+msgid "Configure the behaviour of SDAT when navigating between pages"
+msgstr "Skonfiguruj zachowanie SDAT podczas nawigowania między stronami"
+
+msgid "Configure the behaviour of SDAT when running in the background"
+msgstr "Skonfiguruj zachowanie SDAT w czasie pracy w tle"
+
+msgid "Continue"
+msgstr "Kontynuuj"
+
+msgid "Continue the authentication process in your browser."
+msgstr "Dokończ proces uwierzytelniania w swojej przeglądarce."
+
+msgid "Copied URL to clipboard"
+msgstr "Skopiowano adres URL do schowka"
+
+msgid "Copied track URL to clipboard"
+msgstr "Skopiowano do schowka adres URL utworu"
+
+msgid "Copy Track URL"
+msgstr "Skopiuj adres URL utworu"
+
+msgid "Copy URL"
+msgstr "Skopiuj adres URL"
+
+msgid "Default Page"
+msgstr "Strona domyślna"
+
+msgid "Disable Repeat"
+msgstr "Wyłącz powtarzanie"
+
+msgid "Disable Shuffle"
+msgstr "Wyłącz losowanie"
+
+msgid "Don't show again"
+msgstr "Nie pokazuj ponownie"
+
+msgid "EP by %s"
+msgstr "EP autorstwa %s"
+
+msgid "Enable Autoplay"
+msgstr "Włącz autoodtwarzanie"
+
+msgid "Enable Last.fm"
+msgstr "Włącz Last.fm"
+
+msgid "Enable ListenBrainz"
+msgstr "Włącz ListenBrainz"
+
+msgid "Enable Shuffle"
+msgstr "Włącz losowanie"
+
+msgid "Error Fetching Lyrics"
+msgstr "Błąd przy pobieraniu tekstu utworu"
+
+msgid "Error loading collection"
+msgstr "Błąd wczytywania kolekcji"
+
+msgid "Explore"
+msgstr "Eksploruj"
+
+msgid "External Link"
+msgstr "Odnośnik zewnętrzny"
+
+msgid "Feed"
+msgstr "Treści dla ciebie"
+
+msgid "For example, Fox Stevenson"
+msgstr "Np. Fox Stevenson"
+
+msgid "General"
+msgstr "Ogólne"
+
+msgid "High"
+msgstr "Wysoka"
+
+msgid "History Length"
+msgstr "Długość historii"
+
+msgid "Home"
+msgstr "Muzyka"
+
+msgid "Images"
+msgstr "Obrazy"
+
+msgid "Internal Error"
+msgstr "Błąd wewnętrzny"
+
+msgid "Keyboard Shortcuts"
+msgstr "Skróty klawiszowe"
+
+msgid "Keychain Unavailable"
+msgstr "Pęk kluczy jest niedostępny"
+
+msgid "Last Month"
+msgstr "Ostatni miesiąc"
+
+msgid "Last Week"
+msgstr "Ostatni tydzień"
+
+msgid "ListenBrainz API Token"
+msgstr "Token API ListenBrainz"
+
+msgid "ListenBrainz API URL"
+msgstr "Adres URL API ListenBrainz"
+
+msgid "Loading Lyrics"
+msgstr "Wczytywanie tekstu utworu"
+
+msgid "Log In to Last.fm…"
+msgstr "Zaloguj do Last.fm…"
+
+msgid "Log Out of Last.fm"
+msgstr "Wyloguj z Last.fm"
+
+msgid "Logged in to Last.fm as %s"
+msgstr "Zalogowano do Last.fm jako %s"
+
+msgid "Logged out of Last.fm"
+msgstr "Wylogowano z Last.fm"
+
+msgid "Logging in to Last.fm"
+msgstr "Logowanie do Last.fm"
+
+msgid "Low (320 kbps)"
+msgstr "Niska (320 kbps)"
+
+msgid "Low (96 kbps)"
+msgstr "Niska (96 kbps)"
+
+msgid "Lyrics"
+msgstr "Tekst"
+
+msgid "Main Menu"
+msgstr "Menu główne"
+
+msgid "Max"
+msgstr "Najwyższa"
+
+msgid "Maximum history length before dropping old entries"
+msgstr "Maksymalna długość historii przed usuwaniem starych pozycji"
+
+msgid "More"
+msgstr "Więcej"
+
+msgid "More…"
+msgstr "Więcej…"
+
+msgid "My Albums"
+msgstr "Moje albumy"
+
+msgid "My Artists"
+msgstr "Moi artyści"
+
+msgid "My Collection"
+msgstr "Moja kolekcja"
+
+msgid "My Playlists"
+msgstr "Moje playlisty"
+
+msgid "My Tracks"
+msgstr "Moje utwory"
+
+msgid "Navigate Back"
+msgstr "Przejdź wstecz"
+
+msgid "Navigate to %s"
+msgstr "Przejdź do %s"
+
+msgid "Navigate to Album"
+msgstr "Przejdź do albumu"
+
+msgid "Navigate to Artist"
+msgstr "Przejdź do artysty"
+
+msgid "Navigate to Collection"
+msgstr "Przejdź do kolekcji"
+
+msgid "Navigate to Explore"
+msgstr "Przejdź do eksplorowania"
+
+msgid "Navigate to Home"
+msgstr "Przejdź do strony głównej"
+
+msgid "Navigate to Track Mix"
+msgstr "Przejdź do radia utworu"
+
+msgid "Navigation"
+msgstr "Nawigacja"
+
+msgid "Navigation Behaviour"
+msgstr "Zachowanie nawigacji"
+
+msgid "Next"
+msgstr "Następny"
+
+msgid "No Artist"
+msgstr "Brak artysty"
+
+msgid "No Lyrics Available"
+msgstr "Tekst utworu niedostępny"
+
+msgid "No Song Currently Playing"
+msgstr "Brak odtwarzanej piosenki"
+
+msgid "No Track"
+msgstr "Brak utworu"
+
+msgid "No Tracks in Queue"
+msgstr "Brak utworów w kolejce"
+
+msgid "No mix found for the current track"
+msgstr "Brak radia dla aktualnego utworu"
+
+msgid ""
+"No secret service provider is available.\n"
+"\n"
+"SDAT will not be able to store any authentication-related data and you "
+"will not be able to sign in.\n"
+"\n"
+"Please install a secret service provider such as GNOME Keyring or KDE Wallet."
+msgstr ""
+"Dostawca sekretów jest niedostępny.\n"
+"\n"
+"SDAT nie będzie w stanie zapisać danych uwierzytelniania i nie będziesz "
+"móc się zalogować.\n"
+"\n"
+"Proszę zainstalować dostawcę sekretów takiego jak GNOME Keyring lub KDE "
+"Wallet."
+
+msgid "Normalize Volume"
+msgstr "Normalizuj głośność"
+
+msgid "Not Found"
+msgstr "Nie znaleziono"
+
+msgid "Not found"
+msgstr "Nie znaleziono"
+
+msgid "Older"
+msgstr "Starsze"
+
+msgid "Open TIDAL Page"
+msgstr "Otwórz stronę TIDAL"
+
+msgid "OpenAPI Base URL"
+msgstr "Podstawowy adres URL OpenAPI"
+
+msgid "Pause"
+msgstr "Wstrzymaj"
+
+msgid "Performance"
+msgstr "Wydajność"
+
+msgid "Personal Mix"
+msgstr "Spersonalizowany miks"
+
+msgid "Play"
+msgstr "Odtwarzaj"
+
+msgid "Play / Pause"
+msgstr "Odtwarzaj / wstrzymaj"
+
+msgid "Play Album"
+msgstr "Odtwórz album"
+
+msgid "Playback"
+msgstr "Odtwarzanie"
+
+msgid "Playback quality saved. Changes will be applied on next track change"
+msgstr ""
+"Jakość dźwięku została zapisana. Zmiany zostaną zastosowane przy następnej "
+"zmianie utworu"
+
+msgid "Player"
+msgstr "Odtwarzacz"
+
+msgid "Playing From"
+msgstr "Odtwarzane z"
+
+msgid "Playlist"
+msgstr "Playlista"
+
+msgid "Playlists"
+msgstr "Playlisty"
+
+msgid "Please sign in to view your collection"
+msgstr "Zaloguj się, by zobaczyć swoją kolekcję"
+
+msgid "Please sign in to view your feed"
+msgstr "Zaloguj się, by zobaczyć swoje treści"
+
+msgid "Preferences"
+msgstr "Preferencje"
+
+msgid "Preferred Replay Gain"
+msgstr "Preferowana metoda ReplayGain"
+
+msgid "Previous"
+msgstr "Poprzedni"
+
+msgid "Queue"
+msgstr "Kolejka"
+
+msgid "Quit"
+msgstr "Wyjdź"
+
+msgid "Remove Track from Queue"
+msgstr "Usuń utwór z kolejki"
+
+msgid "Remove from Collection"
+msgstr "Usuń z kolekcji"
+
+msgid "Reopen Browser"
+msgstr "Ponownie otwórz przeglądarkę"
+
+msgid "Repeat Queue"
+msgstr "Powtarzaj kolejkę"
+
+msgid "Repeat Track"
+msgstr "Powtarzaj utwór"
+
+msgid "Resources Base URL"
+msgstr "Podstawowy adres URL zasobów"
+
+msgid "Scan this QR code to sign into your TIDAL account"
+msgstr "Zeskanuj ten kod QR, by zalogować się do swojego konta TIDAL"
+
+msgid "Scrobbling"
+msgstr "Scrobblowanie"
+
+msgid "Scroll to the Left"
+msgstr "Przewiń w lewo"
+
+msgid "Scroll to the Right"
+msgstr "Przewiń w prawo"
+
+msgid "Search"
+msgstr "Wyszukiwanie"
+
+msgid "Secret Service Error"
+msgstr "Błąd usługi sekretów"
+
+msgid "Secret Service Issue"
+msgstr "Problem z usługą sekretów"
+
+msgid "Secret Service Unavailable"
+msgstr "Usługa sekretów niedostępna"
+
+msgid "Set as Default Page"
+msgstr "Ustaw jako stronę domyślną"
+
+msgid "Set current page as default"
+msgstr "Ustaw aktualną stronę jako domyślną"
+
+msgid "Set the same volume for all tracks"
+msgstr "Ustaw jednakową głośność wszystkich utworów"
+
+msgid "Shuffle Album"
+msgstr "Odtwarzaj losowo album"
+
+msgid "Side Pane"
+msgstr "Panel boczny"
+
+msgid "Sign In"
+msgstr "Zaloguj"
+
+msgid "Sign In…"
+msgstr "Zaloguj się…"
+
+msgid "Sign Out"
+msgstr "Wyloguj"
+
+msgid "Sign in failed or aborted"
+msgstr "Logowanie nieudane lub przerwane"
+
+msgid "Signed in as %s"
+msgstr "Zalogowano jako %s"
+
+msgid "Signed out"
+msgstr "Wylogowano"
+
+msgid "Single by %s"
+msgstr "Singel autorstwa %s"
+
+msgid ""
+"Start typing in the search bar to search for songs, artists, albums or "
+"playlists"
+msgstr ""
+"Zacznij wpisywać w pasku wyszukiwania, by szukać piosenek, artystów, albumów "
+"lub playlist"
+
+msgid "Sync with Track"
+msgstr "Synchronizuj z utworem"
+
+msgid "TIDAL Settings"
+msgstr "Ustawienia TIDAL"
+
+msgid "TIDAL-specific settings for advanced users"
+msgstr "Ustawienia TIDAL dla zaawansowanych użytkowników"
+
+msgid ""
+"The macOS Keychain is not available or accessible.\n"
+"\n"
+"SDAT will not be able to store any authentication-related data and you "
+"will not be able to sign in.\n"
+"\n"
+"Please ensure your keychain is unlocked and accessible."
+msgstr ""
+"Pęk kluczy macOS jest niedostępny.\n"
+"\n"
+"SDAT nie będzie mógł przechować żadnych danych związanych z autoryzacją i "
+"nie będziesz móc się zalogować.\n"
+"\n"
+"Proszę upewnij się, że pęk kluczy jest odblokowany i dostępny."
+
+msgid "The requested deeplink did not have any available handlers."
+msgstr "Żądany deeplink nie miał żadnych dostępnych handlerów."
+
+msgid "This Month"
+msgstr "W tym miesiącu"
+
+msgid "This Week"
+msgstr "W tym tygodniu"
+
+msgid "This track is not available for streaming"
+msgstr "Ten utwór nie jest dostępny do przesyłania strumieniowego"
+
+msgid "Today"
+msgstr "Dzisiaj"
+
+msgid "Toggle Sidebar"
+msgstr "Przełącz panel boczny"
+
+msgid "Track"
+msgstr "Utwór"
+
+msgid "Track not available for streaming, skipping to next track"
+msgstr "Utwór niedostępny w streamingu, przeskakuję do następnego utworu"
+
+msgid "Tracks"
+msgstr "Utwory"
+
+msgid ""
+"Unfortunately an error occurred while loading this view. Please try again "
+"later. If the error persists, please open an issue!\n"
+"\n"
+"Error Message: "
+msgstr ""
+"Niestety wystąpił błąd przy wczytywaniu tego widoku. Proszę spróbuj ponownie "
+"później. Jeżeli błąd będzie nadal występował, proszę go zgłosić!\n"
+"\n"
+"Komunikat błędu: "
+
+msgid "Unknown album type"
+msgstr "Niewspierany typ albumu"
+
+msgid "Unsupported activity"
+msgstr "Niewspierana aktywność"
+
+msgid "View All"
+msgstr "Wszystkie"
+
+msgid "Volume"
+msgstr "Głośność"
+
+msgid "You are currently not logged in to Last.fm"
+msgstr "Nie zalogowano do Last.fm"
+
+msgid "You are logged in to Last.fm"
+msgstr "Zalogowano do Last.fm"
+
+msgid "You are logged in to Last.fm as %s"
+msgstr "Zalogowano do Last.fm jako %s"
+
+msgid "You can also open the linking page using the button below"
+msgstr "Możesz również otworzyć stronę łączenia, klikając przycisk poniżej"
+
+msgid ""
+"Your secret service provider was found, but refused to interact with "
+"SDAT.\n"
+"\n"
+"This could because you cancelled a prompt or, if you are using a Flatpak, "
+"the provider not implementing the XDG Secret Portal service.\n"
+"\n"
+"SDAT will not be able to store any authentication-related data and you "
+"will not be able to sign in."
+msgstr ""
+"Znaleziono twojego dostawcę sekretów, ale odmówił interakcji z SDAT.\n"
+"\n"
+"Mogło to mieć miejsce z powodu anulowania łączenia, lub, jeżeli używasz "
+"Flatpaka, dostawca nie zaimplementował usługi XDG Portal Sekretów.\n"
+"\n"
+"SDAT nie będzie w stanie zapisać danych uwierzytelniania i nie będziesz "
+"móc się zalogować."
+
+msgid "translator-credits"
+msgstr "Łukasz Horodecki https://horodecki.net"
+
+#~ msgid ""
+#~ "Allow Tonearm to temporarily store images on the file system to improve "
+#~ "performance and reduce network traffic"
+#~ msgstr ""
+#~ "Pozwól Tonearm na tymczasowe przechowywanie obrazów, by poprawić "
+#~ "wydajność i zmniejszyć obciążenie sieci"
+
+#~ msgid "Copied album URL to clipboard"
+#~ msgstr "Skopiowano adres URL albumu do schowka"
+
+#~ msgid "Copied artist URL to clipboard"
+#~ msgstr "Skopiowano do schowka adres URL artysty"
+
+#~ msgid "Copied playlist URL to clipboard"
+#~ msgstr "Skopiowano do schowka adres URL playlisty"
+
+#~ msgid "Copy Album URL"
+#~ msgstr "Skopiuj adres URL albumu"
+
+#~ msgid "Copy Artist URL"
+#~ msgstr "Skopiuj adres URL artysty"
+
+#~ msgid "Copy Playlist URL"
+#~ msgstr "Skopiuj adres URL playlisty"
+
+#~ msgid "Last.fm"
+#~ msgstr "Last.fm"
+
+#~ msgid "ListenBrainz"
+#~ msgstr "ListenBrainz"
+
+#~ msgid "Play My Tracks"
+#~ msgstr "Odtwarzaj moje utwory"
+
+#~ msgid "Play Playlist"
+#~ msgstr "Odtwórz playlistę"
+
+#~ msgid "Play Top Tracks"
+#~ msgstr "Odtwarzaj top utwory"
+
+#~ msgid "Shuffle My Tracks"
+#~ msgstr "Losuj moje utwory"
+
+#~ msgid "Shuffle Playlist"
+#~ msgstr "Odtwarzaj losowo playlistę"
+
+#~ msgid "Shuffle Top Tracks"
+#~ msgstr "Odtwarzaj losowo topowe utwory"
+
+#~ msgid "Allow Tonearm to load images for tracklists with the cover column."
+#~ msgstr ""
+#~ "Pozwól Tonearm na wczytywanie obrazów na listach utworów z okładkami"
+
+#~ msgid ""
+#~ "Allow Tonearm to temporarily store images on the file system to improve "
+#~ "performance and reduce network traffic."
+#~ msgstr ""
+#~ "Pozwól Tonearm na tymczasowe przechowywanie obrazów, by poprawić "
+#~ "wydajność i zmniejszyć obciążenie sieci."
+
+#~ msgid "Enable autoplay"
+#~ msgstr "Włącz autoodtwarzanie"
+
+#~ msgid "Normalize volume"
+#~ msgstr "Normalizuj głośność"
+
+#~ msgid "Set as default page"
+#~ msgstr "Ustaw jako stronę domyślną"
+
+#~ msgid ""
+#~ "Start typing in the search bar to search for songs, artists, albums or "
+#~ "playlists."
+#~ msgstr ""
+#~ "Zacznij wpisywać w pasku wyszukiwania by szukać piosenek, artystów lub "
+#~ "playlist."
+
+#~ msgid "Sync With Track"
+#~ msgstr "Synchronizuj z utworem"
+
+#~ msgid "No lyrics available"
+#~ msgstr "Brak dostępnego tekstu utworu"
+
+#~ msgid "Sync with track"
+#~ msgstr "Synchronizuj z utworem"
+
+#~ msgid "Error fetching lyrics"
+#~ msgstr "Błąd pobierania tekstu utworu"
+
+#~ msgid "No song currently playing"
+#~ msgstr "Brak aktualnie odtwarzanej piosenki"
+
+#~ msgid "Authentication required"
+#~ msgstr "Wymagane połączenie"
+
+#~ msgid "Please log in to view your collection"
+#~ msgstr "Zaloguj się, by zobaczyć swoją kolekcję"
+
+#~ msgid "You need to sign in to your account to access this page"
+#~ msgstr "Musisz się zalogować na swoje konto, by mieć dostęp do tej strony"
+
+#~ msgid "Connection required"
+#~ msgstr "Wymagane połączenie"

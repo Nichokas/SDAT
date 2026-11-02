@@ -1,0 +1,768 @@
+# SOME DESCRIPTIVE TITLE.
+# Copyright (C) YEAR THE PACKAGE'S COPYRIGHT HOLDER
+# This file is distributed under the same license as the PACKAGE package.
+# FIRST AUTHOR <EMAIL@ADDRESS>, YEAR.
+#
+msgid ""
+msgstr ""
+"Project-Id-Version: v1.3.1-38-gf3ed956\n"
+"Report-Msgid-Bugs-To: \n"
+"POT-Creation-Date: 2026-08-08 22:44+0200\n"
+"PO-Revision-Date: 2026-03-10 07:50+0000\n"
+"Last-Translator: drafolin <drafolin@noreply.codeberg.org>\n"
+"Language-Team: Czech <https://translate.codeberg.org/projects/tonearm/"
+"tonearm/cs/>\n"
+"Language: cs\n"
+"MIME-Version: 1.0\n"
+"Content-Type: text/plain; charset=UTF-8\n"
+"Content-Transfer-Encoding: 8bit\n"
+"Plural-Forms: nplurals=3; plural=(n==1) ? 0 : (n>=2 && n<=4) ? 1 : 2;\n"
+"X-Generator: Weblate 5.15.2\n"
+
+msgid "%d Fan"
+msgid_plural "%d Fans"
+msgstr[0] "%d Fanoušek"
+msgstr[1] "%d Fanoušci"
+msgstr[2] "%d Fanoušci"
+
+msgid "%d Track"
+msgid_plural "%d Tracks"
+msgstr[0] "%d Skladba"
+msgstr[1] "%d Skladby"
+msgstr[2] "%d Skladby"
+
+msgid "%d Track (%s)"
+msgid_plural "%d Tracks (%s)"
+msgstr[0] "%d Skladba (%s)"
+msgstr[1] "%d Skladby (%s)"
+msgstr[2] "%d Skladby (%s)"
+
+msgid "%s and %s"
+msgstr "%s a %s"
+
+msgid "API Base URL"
+msgstr ""
+
+msgid "About SDAT"
+msgstr "O SDAT"
+
+msgid "Add Album to Queue"
+msgstr "Přidat Album do fronty"
+
+msgid "Add My Tracks to Queue"
+msgstr "Přidat mé skladby do fronty"
+
+msgid "Add Playlist to Queue"
+msgstr "Přidat seznam skladeb do fronty"
+
+msgid "Add Top Tracks to Queue"
+msgstr "Přidat Nejlepší skladby do fronty"
+
+msgid "Add to Collection"
+msgstr "Přidat do sbírky"
+
+msgid "Add to Queue"
+msgstr "Přidat do fronty"
+
+msgid "Album"
+msgstr "Album"
+
+msgid "Album by %s"
+msgstr "Album podle %s"
+
+msgid "Albums"
+msgstr "Alba"
+
+msgid "Allow Background Activity"
+msgstr "Povolit Aktivitu Na Pozadí"
+
+msgid "Allow Media Card Images"
+msgstr "Povolit Obrázky Z Paměťové Karty"
+
+msgid "Allow Shortcut Images"
+msgstr "Povolit Obrázky Zástupců"
+
+msgid "Allow SDAT to load images for media card buttons"
+msgstr "Povolit SDAT načíst obrázky pro tlačítka paměťové karty"
+
+msgid "Allow SDAT to load images for shortcut buttons"
+msgstr "Povolit SDAT načíst obrázky pro tlačítka zástupců"
+
+msgid "Allow SDAT to load images for tracklists with the cover column"
+msgstr "Povolit SDAT načíst obrázky pro seznamy skladeb se sloupcem krytu"
+
+msgid ""
+"Allow SDAT to retain recently loaded images in memory to improve "
+"performance and reduce network traffic (estimated 50 MiB limit)"
+msgstr ""
+
+msgid ""
+"Allow SDAT to run in the background by hiding the player window instead "
+"of quitting the application"
+msgstr ""
+"Nechte SDAT běžet na pozadí skrytím okna přehrávače místo ukončení "
+"aplikace"
+
+msgid "Allow SDAT to send scrobbling data to Last.fm"
+msgstr "Povolit SDAT odesílat data scrobbling do Last.fm"
+
+msgid "Allow SDAT to send scrobbling data to ListenBrainz"
+msgstr "Povolit SDAT odesílat data scrobbling do ListenBrainz"
+
+msgid ""
+"Allow SDAT to start a mix with the current playing song when you're at "
+"the end of an album/queue"
+msgstr ""
+"Nechte SDAT zahájit mix s aktuální přehrávanou skladbou, když jste na "
+"konci alba / fronty"
+
+msgid "Allow Tracklist Images"
+msgstr "Povolit Obrázky Seznamu Skladeb"
+
+msgid "An error occurred while fetching the track mix"
+msgstr ""
+
+msgid "An error occurred while logging in to Last.fm"
+msgstr "Při přihlášení do Last.fm"
+
+msgid "An error occurred while logging out of Last.fm"
+msgstr "Při odhlášení došlo k chybě Last.fm"
+
+msgid "An error occurred while playing the album"
+msgstr "Při přehrávání alba došlo k chybě"
+
+msgid "An error occurred while playing the playlist"
+msgstr "Při přehrávání seznamu skladeb došlo k chybě"
+
+msgid "An error occurred while playing the top tracks"
+msgstr "Při přehrávání nejlepších skladeb došlo k chybě"
+
+msgid "An error occurred while playing the track"
+msgstr "Při přehrávání skladby došlo k chybě"
+
+msgid "An error occurred while playing the tracks"
+msgstr "Při přehrávání skladeb došlo k chybě"
+
+msgid "An error occurred while shuffling the tracks"
+msgstr "Při míchání Stop došlo k chybě"
+
+msgid ""
+"An unknown error occurred when checking for a secret service provider.\n"
+"\n"
+"Signing in may or may not work. Please see the raw error message for more "
+"details:\n"
+"\n"
+"%s"
+msgstr ""
+"Při kontrole poskytovatele tajných služeb došlo k neznámé chybě.\n"
+"\n"
+"Podpis může nebo nemusí fungovat. Další podrobnosti naleznete v chybové "
+"zprávě raw:\n"
+"\n"
+"%s"
+
+msgid "Artist"
+msgstr "Umělec"
+
+msgid "Artists"
+msgstr "Umělci"
+
+msgid "Auth Base URL"
+msgstr ""
+
+msgid "Authentication Required"
+msgstr "Vyžadováno Ověření"
+
+msgid "Auto"
+msgstr "Auto"
+
+msgid "Back"
+msgstr "Zpět"
+
+msgid "Background Activity"
+msgstr "Aktivita Na Pozadí"
+
+msgid "Base URLs"
+msgstr ""
+
+msgid "Basic Shortcuts"
+msgstr "Základní Zkratky"
+
+msgid "Cache Images"
+msgstr "Obrázky Mezipaměti"
+
+msgid "Cancel"
+msgstr "Zrušit"
+
+msgid "Cancel Login"
+msgstr "Zrušit Přihlášení"
+
+msgid ""
+"Choose whether SDAT should prefer album replay gain, track replay gain or "
+"decide automatically"
+msgstr ""
+"Zvolte, zda SDAT by měl preferovat album replay gain, track replay gain "
+"nebo rozhodnout automaticky"
+
+msgid "Close"
+msgstr "Uzavřít"
+
+msgid "Collection"
+msgstr "Sbírka"
+
+msgid "Configure SDAT to send scrobbling data to Last.fm"
+msgstr "Nakonfigurujte SDAT pro odesílání dat scrobbling do Last.fm"
+
+msgid "Configure SDAT to send scrobbling data to ListenBrainz"
+msgstr ""
+"Nakonfigurujte SDAT pro odesílání scrobblingových dat do ListenBrainz"
+
+msgid "Configure the base URLs for TIDAL"
+msgstr ""
+
+msgid "Configure the behaviour of SDAT regarding images"
+msgstr "Nakonfigurujte chování SDAT týkající se obrázků"
+
+msgid "Configure the behaviour of SDAT regarding playback"
+msgstr "Nakonfigurujte chování SDAT ohledně přehrávání"
+
+msgid "Configure the behaviour of SDAT when navigating between pages"
+msgstr "Nakonfigurujte chování SDAT při navigaci mezi stránkami"
+
+msgid "Configure the behaviour of SDAT when running in the background"
+msgstr "Nakonfigurujte chování SDAT při běhu na pozadí"
+
+msgid "Continue"
+msgstr "Pokračovat"
+
+msgid "Continue the authentication process in your browser."
+msgstr "Pokračujte v procesu ověřování ve svém prohlížeči."
+
+msgid "Copied URL to clipboard"
+msgstr ""
+
+msgid "Copied track URL to clipboard"
+msgstr "Zkopírovaná adresa URL stopy do schránky"
+
+msgid "Copy Track URL"
+msgstr "Kopírovat adresu URL stopy"
+
+msgid "Copy URL"
+msgstr ""
+
+msgid "Default Page"
+msgstr "Výchozí Stránka"
+
+msgid "Disable Repeat"
+msgstr "Zakázat Opakování"
+
+msgid "Disable Shuffle"
+msgstr "Zakázat Náhodné Přehrávání"
+
+msgid "Don't show again"
+msgstr "Nezobrazovat znovu"
+
+msgid "EP by %s"
+msgstr "EP podle %s"
+
+msgid "Enable Autoplay"
+msgstr "Povolit Automatické Přehrávání"
+
+msgid "Enable Last.fm"
+msgstr "Povolit Last.fm"
+
+msgid "Enable ListenBrainz"
+msgstr "Povolit ListenBrainz"
+
+msgid "Enable Shuffle"
+msgstr "Povolit Náhodné Přehrávání"
+
+msgid "Error Fetching Lyrics"
+msgstr "Chyba Načítání Textů"
+
+msgid "Error loading collection"
+msgstr "Chyba při načítání kolekce"
+
+msgid "Explore"
+msgstr "Prozkoumat"
+
+msgid "External Link"
+msgstr "Externí Odkaz"
+
+msgid "Feed"
+msgstr "Přehled"
+
+msgid "For example, Fox Stevenson"
+msgstr "Například, Fox Stevenson"
+
+msgid "General"
+msgstr "Obecná"
+
+msgid "High"
+msgstr "Vysoká"
+
+msgid "History Length"
+msgstr "Délka Historie"
+
+msgid "Home"
+msgstr "Stránka"
+
+msgid "Images"
+msgstr "Obrázky"
+
+msgid "Internal Error"
+msgstr "Interní Chyba"
+
+msgid "Keyboard Shortcuts"
+msgstr "Klávesové Zkratky"
+
+msgid "Keychain Unavailable"
+msgstr ""
+
+msgid "Last Month"
+msgstr "Minulý měsíc"
+
+msgid "Last Week"
+msgstr "Minulý týden"
+
+msgid "ListenBrainz API Token"
+msgstr "Token API ListenBrainz"
+
+msgid "ListenBrainz API URL"
+msgstr "URL rozhraní API ListenBrainz"
+
+msgid "Loading Lyrics"
+msgstr "Načítání Textů"
+
+msgid "Log In to Last.fm…"
+msgstr "Přihlásit se Last.fm…"
+
+msgid "Log Out of Last.fm"
+msgstr "Odhlásit se z Last.fm"
+
+msgid "Logged in to Last.fm as %s"
+msgstr "Přihlášen do Last.fm jako %s"
+
+msgid "Logged out of Last.fm"
+msgstr "Odhlášeno z Last.fm"
+
+msgid "Logging in to Last.fm"
+msgstr "Přihlášení do Last.fm"
+
+msgid "Low (320 kbps)"
+msgstr "Nízká (320 kbps)"
+
+msgid "Low (96 kbps)"
+msgstr "Nízká (96 kbps)"
+
+msgid "Lyrics"
+msgstr "Texty písní"
+
+msgid "Main Menu"
+msgstr "Hlavní menu"
+
+msgid "Max"
+msgstr "Máks"
+
+msgid "Maximum history length before dropping old entries"
+msgstr "Maximální délka historie před zrušením starých záznamů"
+
+msgid "More"
+msgstr "Více"
+
+msgid "More…"
+msgstr "Více…"
+
+msgid "My Albums"
+msgstr "Moje Alba"
+
+msgid "My Artists"
+msgstr "Moji Umělci"
+
+msgid "My Collection"
+msgstr "Moje Sbírka"
+
+msgid "My Playlists"
+msgstr "Moje Playlisty"
+
+msgid "My Tracks"
+msgstr "Moje Stopy"
+
+msgid "Navigate Back"
+msgstr "Navigace Zpět"
+
+msgid "Navigate to %s"
+msgstr "Přejděte na %s"
+
+msgid "Navigate to Album"
+msgstr "Přejít na Album"
+
+msgid "Navigate to Artist"
+msgstr "Přejít na Umělec"
+
+msgid "Navigate to Collection"
+msgstr "Přejděte do sbírky"
+
+msgid "Navigate to Explore"
+msgstr "Navigovat prozkoumat"
+
+msgid "Navigate to Home"
+msgstr "Přejít na domovskou stránku"
+
+msgid "Navigate to Track Mix"
+msgstr "Přejděte na Track Mix"
+
+msgid "Navigation"
+msgstr "Navigace"
+
+msgid "Navigation Behaviour"
+msgstr "Navigační Chování"
+
+msgid "Next"
+msgstr "Další"
+
+msgid "No Artist"
+msgstr "Žádný Umělec"
+
+msgid "No Lyrics Available"
+msgstr "Žádné Texty Nejsou K Dispozici"
+
+msgid "No Song Currently Playing"
+msgstr "Momentálně Se Nehraje Žádná Skladba"
+
+msgid "No Track"
+msgstr "Žádná Stopa"
+
+msgid "No Tracks in Queue"
+msgstr "Žádné Stopy ve frontě"
+
+msgid "No mix found for the current track"
+msgstr "Pro aktuální skladbu nebyl nalezen žádný mix"
+
+msgid ""
+"No secret service provider is available.\n"
+"\n"
+"SDAT will not be able to store any authentication-related data and you "
+"will not be able to sign in.\n"
+"\n"
+"Please install a secret service provider such as GNOME Keyring or KDE Wallet."
+msgstr ""
+"Není k dispozici žádný poskytovatel tajných služeb.\n"
+"\n"
+"SDAT nebude moci ukládat žádná data související s ověřováním a nebudete "
+"se moci přihlásit.\n"
+"\n"
+"Nainstalujte si prosím poskytovatele tajných služeb, jako je klíčenka GNOME "
+"nebo peněženka KDE."
+
+msgid "Normalize Volume"
+msgstr "Normalizovat Hlasitost"
+
+msgid "Not Found"
+msgstr "Nenalezeno"
+
+msgid "Not found"
+msgstr "Nezobrazeno"
+
+msgid "Older"
+msgstr "Starší"
+
+msgid "Open TIDAL Page"
+msgstr "Otevřít stránku TIDAL"
+
+msgid "OpenAPI Base URL"
+msgstr ""
+
+msgid "Pause"
+msgstr "Pauza"
+
+msgid "Performance"
+msgstr "Výkon"
+
+msgid "Personal Mix"
+msgstr "Osobní Mix"
+
+msgid "Play"
+msgstr "Přehrát"
+
+msgid "Play / Pause"
+msgstr "Přehrát / Pozastavit"
+
+msgid "Play Album"
+msgstr "Přehrát Album"
+
+msgid "Playback"
+msgstr "Přehrávání"
+
+msgid "Playback quality saved. Changes will be applied on next track change"
+msgstr ""
+"Kvalita přehrávání uložena. Změny budou aplikovány na další změnu skladby"
+
+msgid "Player"
+msgstr "Přehrávač"
+
+msgid "Playing From"
+msgstr "Přehrávání z"
+
+msgid "Playlist"
+msgstr "Seznam skladeb"
+
+msgid "Playlists"
+msgstr "Seznamy skladeb"
+
+msgid "Please sign in to view your collection"
+msgstr "Chcete-li zobrazit svou sbírku, přihlaste se"
+
+msgid "Please sign in to view your feed"
+msgstr "Pro zobrazení přehledu, přihlaste se"
+
+msgid "Preferences"
+msgstr "Předvolba"
+
+msgid "Preferred Replay Gain"
+msgstr "Preferovaný Zisk Přehrávání"
+
+msgid "Previous"
+msgstr "Předchozí"
+
+msgid "Queue"
+msgstr "Fronta"
+
+msgid "Quit"
+msgstr "Ukončit"
+
+msgid "Remove Track from Queue"
+msgstr "Odebrat stopu z fronty"
+
+msgid "Remove from Collection"
+msgstr "Odebrat ze sbírky"
+
+msgid "Reopen Browser"
+msgstr "Znovu Otevřete Prohlížeč"
+
+msgid "Repeat Queue"
+msgstr "Opakování Fronty"
+
+msgid "Repeat Track"
+msgstr "Opakovat Stopu"
+
+msgid "Resources Base URL"
+msgstr ""
+
+msgid "Scan this QR code to sign into your TIDAL account"
+msgstr "Naskenujte tento QR kód a přihlaste se ke svému účtu TIDAL"
+
+msgid "Scrobbling"
+msgstr "Skrobování"
+
+msgid "Scroll to the Left"
+msgstr "Přejděte doleva"
+
+msgid "Scroll to the Right"
+msgstr "Přejděte doprava"
+
+msgid "Search"
+msgstr "Vyhledávání"
+
+msgid "Secret Service Error"
+msgstr "Chyba Tajné Služby"
+
+msgid "Secret Service Issue"
+msgstr "Vydání Tajné Služby"
+
+msgid "Secret Service Unavailable"
+msgstr "Tajná Služba Nedostupná"
+
+msgid "Set as Default Page"
+msgstr "Nastavit jako výchozí stránku"
+
+msgid "Set current page as default"
+msgstr "Nastavit aktuální stránku jako výchozí"
+
+msgid "Set the same volume for all tracks"
+msgstr "Nastavte stejnou hlasitost pro všechny skladby"
+
+msgid "Shuffle Album"
+msgstr "Náhodné přehrávání alba"
+
+msgid "Side Pane"
+msgstr "Boční Panel"
+
+msgid "Sign In"
+msgstr "Přihlásit"
+
+msgid "Sign In…"
+msgstr "Přihlásit…"
+
+msgid "Sign Out"
+msgstr "Odhlásit se"
+
+msgid "Sign in failed or aborted"
+msgstr "Přihlášení se nezdařilo nebo přerušeno"
+
+msgid "Signed in as %s"
+msgstr "Přihlášeno jako %s"
+
+msgid "Signed out"
+msgstr "Odhlášeno"
+
+msgid "Single by %s"
+msgstr "Single od %s"
+
+msgid ""
+"Start typing in the search bar to search for songs, artists, albums or "
+"playlists"
+msgstr ""
+"Začněte psát do vyhledávacího pole a vyhledejte skladby, umělce, alba nebo "
+"seznamy skladeb"
+
+msgid "Sync with Track"
+msgstr "Synchronizace se stopou"
+
+msgid "TIDAL Settings"
+msgstr ""
+
+msgid "TIDAL-specific settings for advanced users"
+msgstr ""
+
+msgid ""
+"The macOS Keychain is not available or accessible.\n"
+"\n"
+"SDAT will not be able to store any authentication-related data and you "
+"will not be able to sign in.\n"
+"\n"
+"Please ensure your keychain is unlocked and accessible."
+msgstr ""
+
+msgid "The requested deeplink did not have any available handlers."
+msgstr "Požadovaný deeplink neměl žádné dostupné obslužné rutiny."
+
+msgid "This Month"
+msgstr "Tento měsíc"
+
+msgid "This Week"
+msgstr "Tento týden"
+
+msgid "This track is not available for streaming"
+msgstr ""
+
+msgid "Today"
+msgstr "Dnešek"
+
+msgid "Toggle Sidebar"
+msgstr "Přepnout postranní panel"
+
+msgid "Track"
+msgstr "Skladba"
+
+msgid "Track not available for streaming, skipping to next track"
+msgstr "Skladba není k dispozici pro streamování, přechod na další skladbu"
+
+msgid "Tracks"
+msgstr "Skladby"
+
+msgid ""
+"Unfortunately an error occurred while loading this view. Please try again "
+"later. If the error persists, please open an issue!\n"
+"\n"
+"Error Message: "
+msgstr ""
+"Při načítání tohoto zobrazení bohužel došlo k chybě. Zkuste to prosím "
+"později. Pokud chyba přetrvává, otevřete problém!\n"
+"\n"
+"chyba: "
+
+msgid "Unknown album type"
+msgstr "Neznámý typ alba"
+
+msgid "Unsupported activity"
+msgstr "Nepodporovaná aktivita"
+
+msgid "View All"
+msgstr "Zobrazit Vše"
+
+msgid "Volume"
+msgstr "Objem"
+
+msgid "You are currently not logged in to Last.fm"
+msgstr "Momentálně nejste přihlášeni Last.fm"
+
+msgid "You are logged in to Last.fm"
+msgstr "Jste přihlášeni k odběru novinek Last.fm"
+
+msgid "You are logged in to Last.fm as %s"
+msgstr "Jste přihlášeni do Last.fm jako %s"
+
+msgid "You can also open the linking page using the button below"
+msgstr "Odkazující stránku můžete také otevřít pomocí tlačítka níže"
+
+msgid ""
+"Your secret service provider was found, but refused to interact with "
+"SDAT.\n"
+"\n"
+"This could because you cancelled a prompt or, if you are using a Flatpak, "
+"the provider not implementing the XDG Secret Portal service.\n"
+"\n"
+"SDAT will not be able to store any authentication-related data and you "
+"will not be able to sign in."
+msgstr ""
+"Váš poskytovatel tajných služeb byl nalezen, ale odmítl komunikovat S "
+"SDAT.\n"
+"\n"
+"Mohlo by to být proto, že jste zrušili výzvu nebo, pokud používáte Flatpak, "
+"poskytovatel neimplementuje službu tajného portálu XDG.\n"
+"\n"
+"SDAT nebude moci ukládat žádná data související s ověřováním a nebudete "
+"se moci přihlásit."
+
+msgid "translator-credits"
+msgstr "překladatel-kredity"
+
+#~ msgid ""
+#~ "Allow Tonearm to temporarily store images on the file system to improve "
+#~ "performance and reduce network traffic"
+#~ msgstr ""
+#~ "Povolte Tonearm dočasně ukládat obrázky do systému souborů, abyste "
+#~ "zlepšili výkon a snížili síťový provoz"
+
+#~ msgid "Copied album URL to clipboard"
+#~ msgstr "Zkopírovaná adresa URL alba do schránky"
+
+#~ msgid "Copied artist URL to clipboard"
+#~ msgstr "Zkopírovaný umělec URL do schránky"
+
+#~ msgid "Copied playlist URL to clipboard"
+#~ msgstr "Zkopírovaná adresa URL seznamu skladeb do schránky"
+
+#~ msgid "Copy Album URL"
+#~ msgstr "Kopírovat URL Alba"
+
+#~ msgid "Copy Artist URL"
+#~ msgstr "Kopírovat URL umělce"
+
+#~ msgid "Copy Playlist URL"
+#~ msgstr "Kopírovat URL seznamu skladeb"
+
+#~ msgid "Last.fm"
+#~ msgstr "Last.fm"
+
+#~ msgid "ListenBrainz"
+#~ msgstr "ListenBrainz"
+
+#~ msgid "Play My Tracks"
+#~ msgstr "Přehrát Moje Skladby"
+
+#~ msgid "Play Playlist"
+#~ msgstr "Přehrát Seznam skladeb"
+
+#~ msgid "Play Top Tracks"
+#~ msgstr "Přehrát Nejlepší Skladby"
+
+#~ msgid "Shuffle My Tracks"
+#~ msgstr "Shuffle Moje Skladby"
+
+#~ msgid "Shuffle Playlist"
+#~ msgstr "Přehrát seznam skladeb náhodně"
+
+#~ msgid "Shuffle Top Tracks"
+#~ msgstr "Shuffle Top Skladby"

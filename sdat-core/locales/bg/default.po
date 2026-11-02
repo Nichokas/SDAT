@@ -1,0 +1,746 @@
+# SOME DESCRIPTIVE TITLE.
+# Copyright (C) YEAR THE PACKAGE'S COPYRIGHT HOLDER
+# This file is distributed under the same license as the PACKAGE package.
+# FIRST AUTHOR <EMAIL@ADDRESS>, YEAR.
+#
+msgid ""
+msgstr ""
+"Project-Id-Version: v1.1.0-99-ga37b2fb\n"
+"Report-Msgid-Bugs-To: \n"
+"POT-Creation-Date: 2026-08-08 22:44+0200\n"
+"PO-Revision-Date: 2026-02-15 23:06+0000\n"
+"Last-Translator: presi300 <presi300@noreply.codeberg.org>\n"
+"Language-Team: Bulgarian <https://translate.codeberg.org/projects/tonearm/"
+"tonearm/bg/>\n"
+"Language: bg\n"
+"MIME-Version: 1.0\n"
+"Content-Type: text/plain; charset=UTF-8\n"
+"Content-Transfer-Encoding: 8bit\n"
+"Plural-Forms: nplurals=2; plural=n != 1;\n"
+"X-Generator: Weblate 5.15.2\n"
+
+msgid "%d Fan"
+msgid_plural "%d Fans"
+msgstr[0] "%d фен"
+msgstr[1] "%d фенове"
+
+msgid "%d Track"
+msgid_plural "%d Tracks"
+msgstr[0] "%d Песен"
+msgstr[1] "%d Песни"
+
+msgid "%d Track (%s)"
+msgid_plural "%d Tracks (%s)"
+msgstr[0] "%d Песента (%s)"
+msgstr[1] "%d Песните (%s)"
+
+msgid "%s and %s"
+msgstr "%s и %s"
+
+msgid "API Base URL"
+msgstr ""
+
+msgid "About SDAT"
+msgstr "За SDAT"
+
+msgid "Add Album to Queue"
+msgstr ""
+
+msgid "Add My Tracks to Queue"
+msgstr ""
+
+msgid "Add Playlist to Queue"
+msgstr ""
+
+msgid "Add Top Tracks to Queue"
+msgstr ""
+
+msgid "Add to Collection"
+msgstr "Добави в колекция"
+
+#, fuzzy
+msgid "Add to Queue"
+msgstr "Добави към опашката"
+
+msgid "Album"
+msgstr "Албум"
+
+msgid "Album by %s"
+msgstr "Албум от %s"
+
+msgid "Albums"
+msgstr "Албуми"
+
+#, fuzzy
+msgid "Allow Background Activity"
+msgstr "Позволи работа във фона"
+
+#, fuzzy
+msgid "Allow Media Card Images"
+msgstr "Позволи \"Media Card\" изображения"
+
+#, fuzzy
+msgid "Allow Shortcut Images"
+msgstr "Позволи Shortcut Изображения"
+
+#, fuzzy
+msgid "Allow SDAT to load images for media card buttons"
+msgstr "Позволи на SDAT да зережда изображения за \"media card\" бутони"
+
+#, fuzzy
+msgid "Allow SDAT to load images for shortcut buttons"
+msgstr "Позволи на SDAT да зарежда изображения за шорткът бутони"
+
+#, fuzzy
+msgid "Allow SDAT to load images for tracklists with the cover column"
+msgstr ""
+"Позволи на SDAT да зарежда изображения за траклистовете, заедно с "
+"колоната за ковъри."
+
+msgid ""
+"Allow SDAT to retain recently loaded images in memory to improve "
+"performance and reduce network traffic (estimated 50 MiB limit)"
+msgstr ""
+
+#, fuzzy
+msgid ""
+"Allow SDAT to run in the background by hiding the player window instead "
+"of quitting the application"
+msgstr ""
+"Позволи на SDAT да работи във фонов режим като скрива прозореца, вместо "
+"да спира приложението"
+
+msgid "Allow SDAT to send scrobbling data to Last.fm"
+msgstr "Позволи на SDAT да изпраща скробълинг информация към Last.fm"
+
+msgid "Allow SDAT to send scrobbling data to ListenBrainz"
+msgstr "Позволи на SDAT да изпраща scrobbling информация към ListenBrainz"
+
+msgid ""
+"Allow SDAT to start a mix with the current playing song when you're at "
+"the end of an album/queue"
+msgstr ""
+"Позволи на SDAT да стартира микс според сегашната песен след края на "
+"албум/опашката"
+
+msgid "Allow Tracklist Images"
+msgstr "Позволи изображения в траклиста"
+
+msgid "An error occurred while fetching the track mix"
+msgstr ""
+
+msgid "An error occurred while logging in to Last.fm"
+msgstr "Възникна грешка при влизането в Last.fm"
+
+msgid "An error occurred while logging out of Last.fm"
+msgstr "Възникна грешка при излизането от Last.fm"
+
+msgid "An error occurred while playing the album"
+msgstr "Възникна грешка при възпроизвеждането на албума"
+
+msgid "An error occurred while playing the playlist"
+msgstr "Възникна грешка при възпроизвеждането на плейлиста"
+
+msgid "An error occurred while playing the top tracks"
+msgstr "Възникна грешка при възпроизвеждането на топ песните"
+
+msgid "An error occurred while playing the track"
+msgstr "Възникна грешка по време на песента"
+
+msgid "An error occurred while playing the tracks"
+msgstr ""
+
+msgid "An error occurred while shuffling the tracks"
+msgstr ""
+
+#, fuzzy
+msgid ""
+"An unknown error occurred when checking for a secret service provider.\n"
+"\n"
+"Signing in may or may not work. Please see the raw error message for more "
+"details:\n"
+"\n"
+"%s"
+msgstr ""
+"Възникна незнайна грешка при проверката за доставчик на тайни услуги.\n"
+"\n"
+"Възможно е влизането в акаунта ви да не проработи. За повече информация, "
+"моля прочетете дадената в терминала грешка."
+
+msgid "Artist"
+msgstr "Артист"
+
+msgid "Artists"
+msgstr "Артисти"
+
+msgid "Auth Base URL"
+msgstr ""
+
+msgid "Authentication Required"
+msgstr "Необходимо е удостоверение"
+
+msgid "Auto"
+msgstr ""
+"Използвано като стойност за \"Режим на усилване при повторно "
+"възпроизвеждане\" в настройките"
+
+msgid "Back"
+msgstr "Назад"
+
+msgid "Background Activity"
+msgstr "Фонова активност"
+
+msgid "Base URLs"
+msgstr ""
+
+msgid "Basic Shortcuts"
+msgstr "Обикновени шорткътове"
+
+msgid "Cache Images"
+msgstr "Кеширай изображенията"
+
+msgid "Cancel"
+msgstr "Откажи"
+
+#, fuzzy
+msgid "Cancel Login"
+msgstr "Откажи влизането"
+
+msgid ""
+"Choose whether SDAT should prefer album replay gain, track replay gain or "
+"decide automatically"
+msgstr ""
+
+msgid "Close"
+msgstr "Затвори"
+
+msgid "Collection"
+msgstr "Колекция"
+
+msgid "Configure SDAT to send scrobbling data to Last.fm"
+msgstr "Настрой SDAT да изпраща скробълинг информация към Last.fm"
+
+msgid "Configure SDAT to send scrobbling data to ListenBrainz"
+msgstr "Настрой изпращането на scrobbling информация към ListenBrainz"
+
+msgid "Configure the base URLs for TIDAL"
+msgstr ""
+
+#, fuzzy
+msgid "Configure the behaviour of SDAT regarding images"
+msgstr "Настрой поведението на SDAT относно изображенията"
+
+#, fuzzy
+msgid "Configure the behaviour of SDAT regarding playback"
+msgstr "Настрой поведението на SDAT относно възпроизвеждане"
+
+msgid "Configure the behaviour of SDAT when navigating between pages"
+msgstr "Настрой поведението на SDAT, по време на навигацията между страници"
+
+msgid "Configure the behaviour of SDAT when running in the background"
+msgstr "Настрой поведението на SDAT при работа във фона"
+
+msgid "Continue"
+msgstr "Продължи"
+
+msgid "Continue the authentication process in your browser."
+msgstr "Продължи удостоверяването в браузъра."
+
+msgid "Copied URL to clipboard"
+msgstr ""
+
+msgid "Copied track URL to clipboard"
+msgstr "URL-ът на песента е копиран"
+
+msgid "Copy Track URL"
+msgstr "Копирай URL-а на песента"
+
+msgid "Copy URL"
+msgstr ""
+
+msgid "Default Page"
+msgstr "Страница по подразбиране"
+
+msgid "Disable Repeat"
+msgstr ""
+
+msgid "Disable Shuffle"
+msgstr ""
+
+msgid "Don't show again"
+msgstr "Не показвай отново"
+
+msgid "EP by %s"
+msgstr "EP от %s"
+
+msgid "Enable Autoplay"
+msgstr ""
+
+msgid "Enable Last.fm"
+msgstr ""
+
+#, fuzzy
+msgid "Enable ListenBrainz"
+msgstr "Включи ListenBrainz"
+
+msgid "Enable Shuffle"
+msgstr ""
+
+msgid "Error Fetching Lyrics"
+msgstr ""
+
+msgid "Error loading collection"
+msgstr "Грешка при зареждането на колекцията"
+
+msgid "Explore"
+msgstr "Разгледай"
+
+msgid "External Link"
+msgstr "Вънжен линк"
+
+#, fuzzy
+msgid "Feed"
+msgstr "Канал"
+
+msgid "For example, Fox Stevenson"
+msgstr "Например Fox Stevenson"
+
+#, fuzzy
+msgid "General"
+msgstr "Общ"
+
+msgid "High"
+msgstr "Висок"
+
+msgid "History Length"
+msgstr "Дължина на историята"
+
+msgid "Home"
+msgstr "Начало"
+
+msgid "Images"
+msgstr "Изображения"
+
+msgid "Internal Error"
+msgstr "Вътрешна Грешка"
+
+msgid "Keyboard Shortcuts"
+msgstr "Клавишни Комбинации"
+
+msgid "Keychain Unavailable"
+msgstr ""
+
+msgid "Last Month"
+msgstr "Последния месец"
+
+msgid "Last Week"
+msgstr "Последната седмица"
+
+msgid "ListenBrainz API Token"
+msgstr "ListenBrainz API токън"
+
+msgid "ListenBrainz API URL"
+msgstr ""
+
+msgid "Loading Lyrics"
+msgstr ""
+
+msgid "Log In to Last.fm…"
+msgstr ""
+
+msgid "Log Out of Last.fm"
+msgstr ""
+
+msgid "Logged in to Last.fm as %s"
+msgstr ""
+
+msgid "Logged out of Last.fm"
+msgstr ""
+
+msgid "Logging in to Last.fm"
+msgstr ""
+
+msgid "Low (320 kbps)"
+msgstr "Ниско (320 kbps)"
+
+msgid "Low (96 kbps)"
+msgstr "Ниско (96 kbps)"
+
+msgid "Lyrics"
+msgstr "Лирики"
+
+msgid "Main Menu"
+msgstr "Главно меню"
+
+msgid "Max"
+msgstr "Макс"
+
+msgid "Maximum history length before dropping old entries"
+msgstr "Максимална дължина на историята преди изтриване на стари елементи"
+
+msgid "More"
+msgstr ""
+
+msgid "More…"
+msgstr ""
+
+msgid "My Albums"
+msgstr ""
+
+msgid "My Artists"
+msgstr ""
+
+msgid "My Collection"
+msgstr ""
+
+msgid "My Playlists"
+msgstr ""
+
+msgid "My Tracks"
+msgstr ""
+
+msgid "Navigate Back"
+msgstr ""
+
+msgid "Navigate to %s"
+msgstr ""
+
+msgid "Navigate to Album"
+msgstr ""
+
+msgid "Navigate to Artist"
+msgstr ""
+
+msgid "Navigate to Collection"
+msgstr ""
+
+msgid "Navigate to Explore"
+msgstr ""
+
+msgid "Navigate to Home"
+msgstr ""
+
+msgid "Navigate to Track Mix"
+msgstr ""
+
+msgid "Navigation"
+msgstr ""
+
+msgid "Navigation Behaviour"
+msgstr ""
+
+msgid "Next"
+msgstr ""
+
+msgid "No Artist"
+msgstr ""
+
+msgid "No Lyrics Available"
+msgstr ""
+
+msgid "No Song Currently Playing"
+msgstr ""
+
+msgid "No Track"
+msgstr ""
+
+msgid "No Tracks in Queue"
+msgstr ""
+
+msgid "No mix found for the current track"
+msgstr ""
+
+msgid ""
+"No secret service provider is available.\n"
+"\n"
+"SDAT will not be able to store any authentication-related data and you "
+"will not be able to sign in.\n"
+"\n"
+"Please install a secret service provider such as GNOME Keyring or KDE Wallet."
+msgstr ""
+
+msgid "Normalize Volume"
+msgstr ""
+
+msgid "Not Found"
+msgstr ""
+
+msgid "Not found"
+msgstr ""
+
+msgid "Older"
+msgstr ""
+
+msgid "Open TIDAL Page"
+msgstr ""
+
+msgid "OpenAPI Base URL"
+msgstr ""
+
+msgid "Pause"
+msgstr ""
+
+msgid "Performance"
+msgstr ""
+
+msgid "Personal Mix"
+msgstr ""
+
+msgid "Play"
+msgstr ""
+
+msgid "Play / Pause"
+msgstr ""
+
+msgid "Play Album"
+msgstr ""
+
+msgid "Playback"
+msgstr ""
+
+msgid "Playback quality saved. Changes will be applied on next track change"
+msgstr ""
+
+msgid "Player"
+msgstr ""
+
+msgid "Playing From"
+msgstr ""
+
+msgid "Playlist"
+msgstr ""
+
+msgid "Playlists"
+msgstr ""
+
+msgid "Please sign in to view your collection"
+msgstr ""
+
+msgid "Please sign in to view your feed"
+msgstr ""
+
+msgid "Preferences"
+msgstr ""
+
+msgid "Preferred Replay Gain"
+msgstr ""
+
+msgid "Previous"
+msgstr ""
+
+msgid "Queue"
+msgstr ""
+
+msgid "Quit"
+msgstr ""
+
+msgid "Remove Track from Queue"
+msgstr ""
+
+msgid "Remove from Collection"
+msgstr ""
+
+msgid "Reopen Browser"
+msgstr ""
+
+msgid "Repeat Queue"
+msgstr ""
+
+msgid "Repeat Track"
+msgstr ""
+
+msgid "Resources Base URL"
+msgstr ""
+
+msgid "Scan this QR code to sign into your TIDAL account"
+msgstr ""
+
+msgid "Scrobbling"
+msgstr ""
+
+msgid "Scroll to the Left"
+msgstr ""
+
+msgid "Scroll to the Right"
+msgstr ""
+
+msgid "Search"
+msgstr ""
+
+msgid "Secret Service Error"
+msgstr ""
+
+msgid "Secret Service Issue"
+msgstr ""
+
+msgid "Secret Service Unavailable"
+msgstr ""
+
+msgid "Set as Default Page"
+msgstr ""
+
+msgid "Set current page as default"
+msgstr ""
+
+msgid "Set the same volume for all tracks"
+msgstr ""
+
+msgid "Shuffle Album"
+msgstr ""
+
+msgid "Side Pane"
+msgstr ""
+
+msgid "Sign In"
+msgstr ""
+
+msgid "Sign In…"
+msgstr ""
+
+msgid "Sign Out"
+msgstr ""
+
+msgid "Sign in failed or aborted"
+msgstr ""
+
+msgid "Signed in as %s"
+msgstr ""
+
+msgid "Signed out"
+msgstr ""
+
+msgid "Single by %s"
+msgstr ""
+
+msgid ""
+"Start typing in the search bar to search for songs, artists, albums or "
+"playlists"
+msgstr ""
+
+msgid "Sync with Track"
+msgstr ""
+
+msgid "TIDAL Settings"
+msgstr ""
+
+msgid "TIDAL-specific settings for advanced users"
+msgstr ""
+
+msgid ""
+"The macOS Keychain is not available or accessible.\n"
+"\n"
+"SDAT will not be able to store any authentication-related data and you "
+"will not be able to sign in.\n"
+"\n"
+"Please ensure your keychain is unlocked and accessible."
+msgstr ""
+
+msgid "The requested deeplink did not have any available handlers."
+msgstr ""
+
+msgid "This Month"
+msgstr ""
+
+msgid "This Week"
+msgstr ""
+
+msgid "This track is not available for streaming"
+msgstr ""
+
+msgid "Today"
+msgstr ""
+
+msgid "Toggle Sidebar"
+msgstr ""
+
+msgid "Track"
+msgstr ""
+
+msgid "Track not available for streaming, skipping to next track"
+msgstr ""
+
+msgid "Tracks"
+msgstr ""
+
+msgid ""
+"Unfortunately an error occurred while loading this view. Please try again "
+"later. If the error persists, please open an issue!\n"
+"\n"
+"Error Message: "
+msgstr ""
+
+msgid "Unknown album type"
+msgstr ""
+
+msgid "Unsupported activity"
+msgstr ""
+
+msgid "View All"
+msgstr ""
+
+msgid "Volume"
+msgstr ""
+
+msgid "You are currently not logged in to Last.fm"
+msgstr ""
+
+msgid "You are logged in to Last.fm"
+msgstr ""
+
+msgid "You are logged in to Last.fm as %s"
+msgstr ""
+
+msgid "You can also open the linking page using the button below"
+msgstr ""
+
+msgid ""
+"Your secret service provider was found, but refused to interact with "
+"SDAT.\n"
+"\n"
+"This could because you cancelled a prompt or, if you are using a Flatpak, "
+"the provider not implementing the XDG Secret Portal service.\n"
+"\n"
+"SDAT will not be able to store any authentication-related data and you "
+"will not be able to sign in."
+msgstr ""
+
+msgid "translator-credits"
+msgstr ""
+
+#~ msgid "Copied album URL to clipboard"
+#~ msgstr "URL-ът на албума е копиран в клипборда"
+
+#~ msgid "Copied artist URL to clipboard"
+#~ msgstr "URL-ът на артиста е копиран"
+
+#~ msgid "Copied playlist URL to clipboard"
+#~ msgstr "URL-ът на плейлиста е копиран"
+
+#~ msgid "Copy Artist URL"
+#~ msgstr "Копирай URL-a на изпълнителя"
+
+#~ msgid "Copy Playlist URL"
+#~ msgstr "Копирай URL-a на плейлиста"
+
+#~ msgid "ListenBrainz"
+#~ msgstr "ListenBrainz"
+
+#, fuzzy
+#~ msgid ""
+#~ "Allow Tonearm to temporarily store images on the file system to improve "
+#~ "performance and reduce network traffic."
+#~ msgstr ""
+#~ "Позволи на Tonearm временно да съхранява изображения във файловата "
+#~ "система, с цел, подобряване на производителността и намаляване на "
+#~ "мрежовия трафик."
+
+#, fuzzy
+#~ msgid "Enable autoplay"
+#~ msgstr "Вклоючи автоматично възпроизвеждане"
+
+#, fuzzy
+#~ msgid "Error fetching lyrics"
+#~ msgstr "Грешка при извличането на лирики"
+
+#~ msgid "Authentication required"
+#~ msgstr "Необходимо е удостоверение"

@@ -1,0 +1,993 @@
+# SOME DESCRIPTIVE TITLE.
+# Copyright (C) YEAR THE PACKAGE'S COPYRIGHT HOLDER
+# This file is distributed under the same license as the PACKAGE package.
+# FIRST AUTHOR <EMAIL@ADDRESS>, YEAR.
+#
+msgid ""
+msgstr ""
+"Project-Id-Version: v1.4.2-21-g67c07b4\n"
+"Report-Msgid-Bugs-To: \n"
+"POT-Creation-Date: 2026-08-08 22:44+0200\n"
+"PO-Revision-Date: 2026-09-26 21:32+0000\n"
+"Last-Translator: Xapitonov <xapitonov@noreply.codeberg.org>\n"
+"Language-Team: Russian <https://translate.codeberg.org/projects/tonearm/"
+"tonearm/ru/>\n"
+"Language: ru\n"
+"MIME-Version: 1.0\n"
+"Content-Type: text/plain; charset=UTF-8\n"
+"Content-Transfer-Encoding: 8bit\n"
+"Plural-Forms: nplurals=3; plural=n%10==1 && n%100!=11 ? 0 : n%10>=2 && "
+"n%10<=4 && (n%100<10 || n%100>=20) ? 1 : 2;\n"
+"X-Generator: Weblate 2026.9.1\n"
+
+#: internal/ui/components/tracklist_header/tracklist_header_artist.go:25
+msgid "%d Fan"
+msgid_plural "%d Fans"
+msgstr[0] "%d поклонник"
+msgstr[1] "%d поклонников"
+msgstr[2] "%d поклонников"
+
+#: internal/ui/components/media_card/playlist.go:20
+#: internal/ui/components/shortcut_list/playlist.go:14
+msgid "%d Track"
+msgid_plural "%d Tracks"
+msgstr[0] "%d трек"
+msgstr[1] "%d трека"
+msgstr[2] "%d треков"
+
+#: internal/ui/components/tracklist_header/tracklist_header_album.go:52
+msgid "%d Track (%s)"
+msgid_plural "%d Tracks (%s)"
+msgstr[0] "%d трек (%s)"
+msgstr[1] "%d трека (%s)"
+msgstr[2] "%d треков (%s)"
+
+#: internal/ui/routes/feed.go:145
+msgid "%s and %s"
+msgstr "%s и %s"
+
+#: internal/ui/window_preferences.go:52
+msgid "API Base URL"
+msgstr "Базовый URL API"
+
+#: internal/ui/window_sidebar.go:35
+msgid "About SDAT"
+msgstr "О SDAT"
+
+#: internal/ui/components/tracklist_header/tracklist_header_album.go:57
+msgid "Add Album to Queue"
+msgstr "Добавить альбом в очередь"
+
+#: internal/ui/components/tracklist_header/tracklist_header_collection.go:30
+#: internal/ui/routes/my_collection/tracks.go:52
+msgid "Add My Tracks to Queue"
+msgstr "Добавить мои треки в очередь"
+
+#: internal/ui/components/tracklist_header/tracklist_header_playlist.go:47
+msgid "Add Playlist to Queue"
+msgstr "Добавить плейлист в очередь"
+
+#: internal/ui/components/tracklist_header/tracklist_header_artist.go:30
+msgid "Add Top Tracks to Queue"
+msgstr "Добавить популярные треки в очередь"
+
+#: internal/ui/components/favourite_button/favourite_button.go:55
+#: internal/ui/components/favourite_button/favourite_button.go:90
+#: internal/ui/components/sidebar/player/component_action_row.go:125
+#: internal/ui/components/sidebar/player/component_action_row.go:146
+msgid "Add to Collection"
+msgstr "Добавить в коллекцию"
+
+#: internal/ui/components/tracklist/column_controls.go:59
+msgid "Add to Queue"
+msgstr "Добавить в очередь"
+
+#: internal/settings/playback.go:23
+#: internal/ui/routes/album.go:30
+#: internal/ui/routes/album.go:35
+#: internal/ui/routes/album.go:40
+msgid "Album"
+msgstr "Альбом"
+
+#: internal/ui/routes/feed.go:153
+msgid "Album by %s"
+msgstr "Альбом исполнителя %s"
+
+#: internal/ui/routes/my-collection.go:52
+#: internal/ui/routes/search/top.go:31
+msgid "Albums"
+msgstr "Альбомы"
+
+#: internal/ui/window_preferences.go:23
+msgid "Allow Background Activity"
+msgstr "Разрешить работу в фоне"
+
+#: internal/ui/window_preferences.go:111
+msgid "Allow Media Card Images"
+msgstr "Разрешить изображения на медиа-карточках"
+
+#: internal/ui/window_preferences.go:117
+msgid "Allow Shortcut Images"
+msgstr "Разрешить изображения для ярлыков"
+
+#: internal/ui/window_preferences.go:112
+msgid "Allow SDAT to load images for media card buttons"
+msgstr "Разрешить SDAT загружать изображения для кнопок медиа-карточек"
+
+#: internal/ui/window_preferences.go:118
+msgid "Allow SDAT to load images for shortcut buttons"
+msgstr "Разрешить SDAT загружать изображения для кнопок ярлыков"
+
+#: internal/ui/window_preferences.go:124
+msgid "Allow SDAT to load images for tracklists with the cover column"
+msgstr ""
+"Разрешить SDAT загружать изображения для списков треков со столбцом "
+"обложки"
+
+#: internal/ui/window_preferences.go:130
+msgid "Allow SDAT to retain recently loaded images in memory to improve performance and reduce network traffic (estimated 50 MiB limit)"
+msgstr ""
+"Разрешить SDAT хранить недавно загруженные изображения в памяти для "
+"повышения производительности и снижения сетевого трафика (предполагаемый "
+"лимит — 50 МиБ)"
+
+#: internal/ui/window_preferences.go:24
+msgid "Allow SDAT to run in the background by hiding the player window instead of quitting the application"
+msgstr ""
+"Разрешить SDAT работать в фоне, скрывая окно проигрывателя вместо выхода "
+"из приложения"
+
+#: internal/ui/window_preferences.go:167
+msgid "Allow SDAT to send scrobbling data to Last.fm"
+msgstr "Разрешить SDAT отправлять данные скробблинга в Last.fm"
+
+#: internal/ui/window_preferences.go:147
+msgid "Allow SDAT to send scrobbling data to ListenBrainz"
+msgstr "Разрешить SDAT отправлять данные скробблинга в ListenBrainz"
+
+#: internal/ui/window_preferences.go:85
+msgid "Allow SDAT to start a mix with the current playing song when you're at the end of an album/queue"
+msgstr ""
+"Разрешить SDAT начинать микс с текущей воспроизводимой песней, когда вы "
+"находитесь в конце альбома или очереди"
+
+#: internal/ui/window_preferences.go:123
+msgid "Allow Tracklist Images"
+msgstr "Разрешить изображения в списках треков"
+
+#: internal/ui/components/sidebar/player/component_action_row.go:227
+msgid "An error occurred while fetching the track mix"
+msgstr "Произошла ошибка при получении микса трека"
+
+#: internal/ui/window_preferences.go:265
+msgid "An error occurred while logging in to Last.fm"
+msgstr "Произошла ошибка при входе в Last.fm"
+
+#: internal/ui/window_preferences.go:240
+msgid "An error occurred while logging out of Last.fm"
+msgstr "Произошла ошибка при выходе из Last.fm"
+
+#: internal/ui/routes/album.go:67
+#: internal/ui/routes/album.go:74
+msgid "An error occurred while playing the album"
+msgstr "Произошла ошибка при воспроизведении альбома"
+
+#: internal/ui/routes/playlist.go:68
+#: internal/ui/routes/playlist.go:75
+msgid "An error occurred while playing the playlist"
+msgstr "Произошла ошибка при воспроизведении плейлиста"
+
+#: internal/ui/routes/artist.go:55
+#: internal/ui/routes/artist.go:62
+msgid "An error occurred while playing the top tracks"
+msgstr "Произошла ошибка при воспроизведении популярных треков"
+
+#: internal/ui/routes/album.go:47
+#: internal/ui/routes/playlist.go:52
+msgid "An error occurred while playing the track"
+msgstr "Произошла ошибка при воспроизведении трека"
+
+#: internal/ui/routes/my_collection/tracks.go:65
+#: internal/ui/routes/my_collection/tracks.go:71
+msgid "An error occurred while playing the tracks"
+msgstr "Произошла ошибка при воспроизведении треков"
+
+#: internal/ui/routes/my_collection/tracks.go:79
+#: internal/ui/routes/my_collection/tracks.go:85
+msgid "An error occurred while shuffling the tracks"
+msgstr "Произошла ошибка при перемешивании треков"
+
+#: internal/secrets/service_linux.go:47
+msgid ""
+"An unknown error occurred when checking for a secret service provider.\n"
+"\n"
+"Signing in may or may not work. Please see the raw error message for more details:\n"
+"\n"
+"%s"
+msgstr ""
+"При проверке поставщика секретной службы произошла неизвестная ошибка.\n"
+"\n"
+"Вход может работать или не работать. Дополнительные сведения см. в исходном "
+"сообщении об ошибке:\n"
+"\n"
+"%s"
+
+#: internal/ui/routes/artist.go:29
+#: internal/ui/routes/artist.go:34
+#: internal/ui/routes/artist.go:40
+#: internal/ui/routes/artist.go:49
+msgid "Artist"
+msgstr "Исполнитель"
+
+#: internal/ui/routes/my-collection.go:47
+#: internal/ui/routes/search/top.go:17
+msgid "Artists"
+msgstr "Исполнители"
+
+#: internal/ui/window_preferences.go:57
+msgid "Auth Base URL"
+msgstr "Базовый URL аутентификации"
+
+#: internal/ui/components/auth_required.go:13
+msgid "Authentication Required"
+msgstr "Требуется аутентификация"
+
+#: internal/settings/playback.go:22
+msgid "Auto"
+msgstr "Автоматически"
+
+#: internal/ui/window_shortcuts.go:19
+msgid "Back"
+msgstr "Назад"
+
+#: internal/ui/window_preferences.go:29
+msgid "Background Activity"
+msgstr "Фоновая активность"
+
+#: internal/ui/window_preferences.go:72
+msgid "Base URLs"
+msgstr "Базовые URL"
+
+#: internal/ui/window_shortcuts.go:17
+msgid "Basic Shortcuts"
+msgstr "Основные сочетания клавиш"
+
+#: internal/ui/window_preferences.go:129
+msgid "Cache Images"
+msgstr "Кэшировать изображения"
+
+#: internal/features/scrobbling/lastfm.go:65
+msgid "Cancel"
+msgstr "Отмена"
+
+#: internal/ui/components/linking/linking.go:86
+msgid "Cancel Login"
+msgstr "Отменить вход"
+
+#: internal/ui/window_preferences.go:97
+msgid "Choose whether SDAT should prefer album replay gain, track replay gain or decide automatically"
+msgstr ""
+"Выберите, должен ли SDAT отдавать предпочтение усилению громкости "
+"альбома, усилению громкости трека или выбирать автоматически"
+
+#: internal/ui/window_shortcuts.go:11
+msgid "Close"
+msgstr "Закрыть"
+
+#: internal/ui/window_content.go:25
+msgid "Collection"
+msgstr "Коллекция"
+
+#: internal/ui/window_preferences.go:294
+msgid "Configure SDAT to send scrobbling data to Last.fm"
+msgstr "Настроить SDAT для отправки данных скробблинга в Last.fm"
+
+#: internal/ui/window_preferences.go:163
+msgid "Configure SDAT to send scrobbling data to ListenBrainz"
+msgstr "Настроить SDAT для отправки данных скробблинга в ListenBrainz"
+
+#: internal/ui/window_preferences.go:73
+msgid "Configure the base URLs for TIDAL"
+msgstr "Настроить базовые URL для TIDAL"
+
+#: internal/ui/window_preferences.go:134
+msgid "Configure the behaviour of SDAT regarding images"
+msgstr "Настроить работу SDAT с изображениями"
+
+#: internal/ui/window_preferences.go:103
+msgid "Configure the behaviour of SDAT regarding playback"
+msgstr "Настроить работу SDAT с воспроизведением"
+
+#: internal/ui/window_preferences.go:48
+msgid "Configure the behaviour of SDAT when navigating between pages"
+msgstr "Настроить работу SDAT при переходе между страницами"
+
+#: internal/ui/window_preferences.go:30
+msgid "Configure the behaviour of SDAT when running in the background"
+msgstr "Настроить работу SDAT в фоновом режиме"
+
+#: internal/ui/window_popups.go:28
+msgid "Continue"
+msgstr "Продолжить"
+
+#: internal/features/scrobbling/lastfm.go:42
+msgid "Continue the authentication process in your browser."
+msgstr "Продолжите процесс аутентификации в браузере."
+
+#: internal/ui/components/tracklist_header/component_secondary_controls.go:25
+msgid "Copied URL to clipboard"
+msgstr "URL скопирован в буфер обмена"
+
+#: internal/ui/components/sidebar/player/component_action_row.go:244
+msgid "Copied track URL to clipboard"
+msgstr "URL трека скопирован в буфер обмена"
+
+#: internal/ui/components/sidebar/player/component_action_row.go:233
+msgid "Copy Track URL"
+msgstr "Скопировать URL трека"
+
+#: internal/ui/components/tracklist_header/component_secondary_controls.go:15
+msgid "Copy URL"
+msgstr "Скопировать URL"
+
+#: internal/ui/window_preferences.go:33
+msgid "Default Page"
+msgstr "Страница по умолчанию"
+
+#: internal/ui/components/sidebar/player/component_controls.go:92
+msgid "Disable Repeat"
+msgstr "Отключить повтор"
+
+#: internal/ui/components/sidebar/player/component_controls.go:102
+msgid "Disable Shuffle"
+msgstr "Отключить перемешивание"
+
+#: internal/ui/window_popups.go:21
+msgid "Don't show again"
+msgstr "Больше не показывать"
+
+#: internal/ui/routes/feed.go:155
+msgid "EP by %s"
+msgstr "Мини-альбом исполнителя %s"
+
+#: internal/ui/window_preferences.go:84
+msgid "Enable Autoplay"
+msgstr "Включить автовоспроизведение"
+
+#: internal/ui/window_preferences.go:166
+msgid "Enable Last.fm"
+msgstr "Включить Last.fm"
+
+#: internal/ui/window_preferences.go:146
+msgid "Enable ListenBrainz"
+msgstr "Включить ListenBrainz"
+
+#: internal/ui/components/sidebar/player/component_controls.go:105
+msgid "Enable Shuffle"
+msgstr "Включить перемешивание"
+
+#: internal/ui/components/sidebar/lyrics/lyrics.go:51
+msgid "Error Fetching Lyrics"
+msgstr "Ошибка получения текста песни"
+
+#: internal/ui/routes/my-collection.go:43
+msgid "Error loading collection"
+msgstr "Ошибка загрузки коллекции"
+
+#: internal/ui/routes/explore.go:28
+#: internal/ui/window_content.go:20
+msgid "Explore"
+msgstr "Обзор"
+
+#: internal/ui/components/shortcut_list/deeplink.go:17
+msgid "External Link"
+msgstr "Внешняя ссылка"
+
+#: internal/ui/routes/feed.go:99
+#: internal/ui/routes/feed.go:107
+#: internal/ui/routes/feed.go:192
+#: internal/ui/routes/feed.go:247
+#: internal/ui/window_sidebar.go:68
+msgid "Feed"
+msgstr "Лента"
+
+#: internal/ui/routes/search.go:33
+msgid "For example, Fox Stevenson"
+msgstr "Например, Fox Stevenson"
+
+#: internal/ui/window_preferences.go:77
+msgid "General"
+msgstr "Основное"
+
+#: internal/ui/components/sidebar/player/component_track_timeline.go:144
+msgid "High"
+msgstr "Высокое"
+
+#: internal/ui/window_preferences.go:41
+msgid "History Length"
+msgstr "Длина истории"
+
+#: internal/ui/routes/home.go:23
+#: internal/ui/routes/home.go:32
+#: internal/ui/window_content.go:15
+msgid "Home"
+msgstr "Главная"
+
+#: internal/ui/window_preferences.go:134
+msgid "Images"
+msgstr "Изображения"
+
+#: internal/router/handler_error.go:10
+#: internal/router/handler_error.go:12
+msgid "Internal Error"
+msgstr "Внутренняя ошибка"
+
+#: internal/ui/window_shortcuts.go:15
+#: internal/ui/window_sidebar.go:33
+msgid "Keyboard Shortcuts"
+msgstr "Сочетания клавиш"
+
+#: internal/secrets/service_darwin.go:25
+msgid "Keychain Unavailable"
+msgstr "Связка ключей недоступна"
+
+#: internal/ui/routes/feed.go:85
+msgid "Last Month"
+msgstr "Прошлый месяц"
+
+#: internal/ui/routes/feed.go:81
+msgid "Last Week"
+msgstr "Прошлая неделя"
+
+#: internal/ui/window_preferences.go:152
+msgid "ListenBrainz API Token"
+msgstr "Токен API ListenBrainz"
+
+#: internal/ui/window_preferences.go:157
+msgid "ListenBrainz API URL"
+msgstr "URL API ListenBrainz"
+
+#: internal/ui/components/sidebar/lyrics/lyrics.go:53
+msgid "Loading Lyrics"
+msgstr "Загрузка текста песни"
+
+#: internal/ui/window_preferences.go:172
+#: internal/ui/window_preferences.go:198
+msgid "Log In to Last.fm…"
+msgstr "Войти в Last.fm…"
+
+#: internal/ui/window_preferences.go:183
+msgid "Log Out of Last.fm"
+msgstr "Выйти из Last.fm"
+
+#: internal/ui/window_preferences.go:281
+msgid "Logged in to Last.fm as %s"
+msgstr "Выполнен вход в Last.fm как %s"
+
+#: internal/ui/window_preferences.go:251
+msgid "Logged out of Last.fm"
+msgstr "Выход из Last.fm выполнен"
+
+#: internal/features/scrobbling/lastfm.go:41
+msgid "Logging in to Last.fm"
+msgstr "Выполняется вход в Last.fm"
+
+#: internal/ui/components/sidebar/player/component_track_timeline.go:141
+msgid "Low (320 kbps)"
+msgstr "Низкое (320 кбит/с)"
+
+#: internal/ui/components/sidebar/player/component_track_timeline.go:138
+msgid "Low (96 kbps)"
+msgstr "Низкое (96 кбит/с)"
+
+#: internal/ui/window_sidebar.go:76
+msgid "Lyrics"
+msgstr "Тексты песен"
+
+#: internal/ui/window_shortcuts.go:14
+#: internal/ui/window_sidebar.go:60
+msgid "Main Menu"
+msgstr "Главное меню"
+
+#: internal/ui/components/sidebar/player/component_track_timeline.go:147
+msgid "Max"
+msgstr "Максимум"
+
+#: internal/ui/window_preferences.go:42
+msgid "Maximum history length before dropping old entries"
+msgstr "Максимальная длина истории перед удалением старых записей"
+
+#: internal/ui/components/dynamic_v1.go:157
+msgid "More"
+msgstr "Ещё"
+
+#: internal/ui/components/tracklist/column_controls.go:67
+#: internal/ui/components/tracklist_header/component_secondary_controls.go:28
+msgid "More…"
+msgstr "Ещё…"
+
+#: internal/ui/routes/my_collection/albums.go:37
+msgid "My Albums"
+msgstr "Мои альбомы"
+
+#: internal/ui/routes/my_collection/artists.go:37
+msgid "My Artists"
+msgstr "Мои исполнители"
+
+#: internal/ui/components/tracklist_header/tracklist_header_collection.go:25
+#: internal/ui/routes/my-collection.go:34
+#: internal/ui/routes/my-collection.go:42
+#: internal/ui/routes/my-collection.go:72
+#: internal/ui/routes/my_collection/albums.go:23
+#: internal/ui/routes/my_collection/artists.go:23
+#: internal/ui/routes/my_collection/playlists.go:23
+#: internal/ui/routes/my_collection/tracks.go:32
+msgid "My Collection"
+msgstr "Моя коллекция"
+
+#: internal/ui/routes/my_collection/playlists.go:37
+msgid "My Playlists"
+msgstr "Мои плейлисты"
+
+#: internal/services/tidal/openapi/collection.go:19
+#: internal/ui/routes/my_collection/tracks.go:57
+msgid "My Tracks"
+msgstr "Мои треки"
+
+#: internal/ui/window_content.go:49
+msgid "Navigate Back"
+msgstr "Перейти назад"
+
+#: internal/ui/components/tracklist/column_controls.go:36
+msgid "Navigate to %s"
+msgstr "Перейти к %s"
+
+#: internal/ui/components/sidebar/player/component_action_row.go:196
+#: internal/ui/components/tracklist/column_controls.go:28
+msgid "Navigate to Album"
+msgstr "Перейти к альбому"
+
+#: internal/ui/components/sidebar/player/component_action_row.go:28
+#: internal/ui/components/sidebar/player/component_action_row.go:33
+#: internal/ui/components/tracklist/column_controls.go:41
+#: internal/ui/components/tracklist/column_controls.go:44
+#: internal/ui/components/tracklist_header/tracklist_header_album.go:31
+#: internal/ui/components/tracklist_header/tracklist_header_album.go:38
+msgid "Navigate to Artist"
+msgstr "Перейти к исполнителю"
+
+#: internal/ui/window_content.go:27
+msgid "Navigate to Collection"
+msgstr "Перейти к коллекции"
+
+#: internal/ui/window_content.go:22
+msgid "Navigate to Explore"
+msgstr "Перейти к обзору"
+
+#: internal/ui/window_content.go:17
+msgid "Navigate to Home"
+msgstr "Перейти на главную"
+
+#: internal/ui/components/sidebar/player/component_action_row.go:210
+msgid "Navigate to Track Mix"
+msgstr "Перейти к миксу трека"
+
+#: internal/ui/window_shortcuts.go:21
+msgid "Navigation"
+msgstr "Навигация"
+
+#: internal/ui/window_preferences.go:47
+msgid "Navigation Behaviour"
+msgstr "Поведение навигации"
+
+#: internal/ui/components/sidebar/miniplayer.go:125
+#: internal/ui/components/sidebar/player/component_controls.go:133
+msgid "Next"
+msgstr "Следующий"
+
+#: internal/ui/components/sidebar/player/component_track_info.go:25
+msgid "No Artist"
+msgstr "Исполнитель отсутствует"
+
+#: internal/ui/components/sidebar/lyrics/lyrics.go:55
+msgid "No Lyrics Available"
+msgstr "Текст песни недоступен"
+
+#: internal/ui/components/sidebar/lyrics/lyrics.go:49
+msgid "No Song Currently Playing"
+msgstr "Сейчас ничего не воспроизводится"
+
+#: internal/ui/components/sidebar/player/component_track_info.go:24
+msgid "No Track"
+msgstr "Трек отсутствует"
+
+#: internal/ui/components/sidebar/queue/queue.go:34
+#: internal/ui/components/sidebar/queue/queue.go:44
+msgid "No Tracks in Queue"
+msgstr "В очереди нет треков"
+
+#: internal/player/player.go:265
+#: internal/ui/components/sidebar/player/component_action_row.go:224
+msgid "No mix found for the current track"
+msgstr "Для текущего трека микс не найден"
+
+#: internal/secrets/service_linux.go:32
+msgid ""
+"No secret service provider is available.\n"
+"\n"
+"SDAT will not be able to store any authentication-related data and you will not be able to sign in.\n"
+"\n"
+"Please install a secret service provider such as GNOME Keyring or KDE Wallet."
+msgstr ""
+"Секретная служба недоступна.\n"
+"\n"
+"SDAT не сможет сохранять данные, связанные с аутентификацией, и вы не "
+"сможете войти в систему.\n"
+"\n"
+"Установите поставщика секретной службы, например GNOME Keyring или KDE "
+"Wallet."
+
+#: internal/ui/window_preferences.go:90
+msgid "Normalize Volume"
+msgstr "Нормализовать громкость"
+
+#: internal/router/handler_notfound.go:10
+msgid "Not Found"
+msgstr "Не найдено"
+
+#: internal/router/handler_notfound.go:12
+msgid "Not found"
+msgstr "Не найден"
+
+#: internal/ui/routes/feed.go:87
+msgid "Older"
+msgstr "Более старые"
+
+#: internal/ui/components/linking/linking.go:79
+msgid "Open TIDAL Page"
+msgstr "Открыть страницу TIDAL"
+
+#: internal/ui/window_preferences.go:62
+msgid "OpenAPI Base URL"
+msgstr "Открытый базовый URL API"
+
+#: internal/ui/components/sidebar/player/component_controls.go:46
+msgid "Pause"
+msgstr "Пауза"
+
+#: internal/ui/window_preferences.go:135
+msgid "Performance"
+msgstr "Производительность"
+
+#: internal/ui/components/tracklist_header/tracklist_header_playlist.go:39
+msgid "Personal Mix"
+msgstr "Персональный микс"
+
+#: internal/ui/components/sidebar/player/component_controls.go:49
+msgid "Play"
+msgstr "Воспроизвести"
+
+#: internal/ui/components/sidebar/miniplayer.go:101
+msgid "Play / Pause"
+msgstr "Воспроизвести / приостановить"
+
+#: internal/ui/components/tracklist_header/component_controls.go:21
+msgid "Play Album"
+msgstr "Воспроизвести альбом"
+
+#: internal/ui/window_preferences.go:103
+#: internal/ui/window_preferences.go:104
+msgid "Playback"
+msgstr "Воспроизведение"
+
+#: internal/ui/components/sidebar/player/component_track_timeline.go:66
+msgid "Playback quality saved. Changes will be applied on next track change"
+msgstr ""
+"Качество воспроизведения сохранено. Изменения будут применены при смене трека"
+
+#: internal/ui/window_sidebar.go:75
+msgid "Player"
+msgstr "Проигрыватель"
+
+#: internal/ui/components/sidebar/player/component_playing_from.go:63
+msgid "Playing From"
+msgstr "Источник воспроизведения"
+
+#: internal/ui/routes/playlist.go:35
+#: internal/ui/routes/playlist.go:40
+#: internal/ui/routes/playlist.go:45
+msgid "Playlist"
+msgstr "Плейлист"
+
+#: internal/ui/routes/my-collection.go:57
+#: internal/ui/routes/search/top.go:36
+msgid "Playlists"
+msgstr "Плейлисты"
+
+#: internal/ui/routes/my-collection.go:35
+#: internal/ui/routes/my_collection/albums.go:24
+#: internal/ui/routes/my_collection/artists.go:24
+#: internal/ui/routes/my_collection/playlists.go:24
+#: internal/ui/routes/my_collection/tracks.go:33
+msgid "Please sign in to view your collection"
+msgstr "Войдите в систему, чтобы просмотреть свою коллекцию"
+
+#: internal/ui/routes/feed.go:100
+msgid "Please sign in to view your feed"
+msgstr "Войдите в систему, чтобы просмотреть свою ленту"
+
+#: internal/ui/window_shortcuts.go:16
+#: internal/ui/window_sidebar.go:34
+msgid "Preferences"
+msgstr "Настройки"
+
+#: internal/ui/window_preferences.go:96
+msgid "Preferred Replay Gain"
+msgstr "Предпочтительное усиление громкости"
+
+#: internal/ui/components/sidebar/player/component_controls.go:119
+msgid "Previous"
+msgstr "Предыдущий"
+
+#: internal/ui/window_sidebar.go:77
+msgid "Queue"
+msgstr "Очередь"
+
+#: internal/ui/window_shortcuts.go:12
+#: internal/ui/window_sidebar.go:36
+msgid "Quit"
+msgstr "Выход"
+
+#: internal/ui/components/sidebar/queue/tracklist.go:50
+msgid "Remove Track from Queue"
+msgstr "Удалить трек из очереди"
+
+#: internal/ui/components/favourite_button/favourite_button.go:51
+#: internal/ui/components/favourite_button/favourite_button.go:86
+#: internal/ui/components/sidebar/player/component_action_row.go:121
+#: internal/ui/components/sidebar/player/component_action_row.go:142
+msgid "Remove from Collection"
+msgstr "Удалить из коллекции"
+
+#: internal/features/scrobbling/lastfm.go:55
+msgid "Reopen Browser"
+msgstr "Повторно открыть браузер"
+
+#: internal/ui/components/sidebar/player/component_controls.go:84
+msgid "Repeat Queue"
+msgstr "Повторять очередь"
+
+#: internal/ui/components/sidebar/player/component_controls.go:88
+msgid "Repeat Track"
+msgstr "Повторять трек"
+
+#: internal/ui/window_preferences.go:67
+msgid "Resources Base URL"
+msgstr "Базовый URL ресурсов"
+
+#: internal/ui/components/linking/linking.go:63
+msgid "Scan this QR code to sign into your TIDAL account"
+msgstr "Отсканируйте этот QR-код, чтобы войти в учётную запись TIDAL"
+
+#: internal/ui/window_preferences.go:295
+msgid "Scrobbling"
+msgstr "Скробблинг"
+
+#: internal/ui/components/horizontal_list/horizontal_list.go:73
+msgid "Scroll to the Left"
+msgstr "Прокрутить влево"
+
+#: internal/ui/components/horizontal_list/horizontal_list.go:58
+msgid "Scroll to the Right"
+msgstr "Прокрутить вправо"
+
+#: internal/ui/routes/search.go:26
+#: internal/ui/routes/search/albums.go:32
+#: internal/ui/routes/search/artists.go:32
+#: internal/ui/routes/search/playlists.go:32
+#: internal/ui/routes/search/search.go:12
+#: internal/ui/routes/search/tracks.go:38
+#: internal/ui/window_shortcuts.go:20
+#: internal/ui/window_sidebar.go:54
+msgid "Search"
+msgstr "Поиск"
+
+#: internal/secrets/service_linux.go:46
+msgid "Secret Service Error"
+msgstr "Ошибка секретной службы"
+
+#: internal/secrets/service_linux.go:39
+msgid "Secret Service Issue"
+msgstr "Проблема с секретной службой"
+
+#: internal/secrets/service_linux.go:31
+msgid "Secret Service Unavailable"
+msgstr "Секретная служба недоступна"
+
+#: internal/ui/window_sidebar.go:32
+msgid "Set as Default Page"
+msgstr "Установить как страницу по умолчанию"
+
+#: internal/ui/window_actions.go:338
+msgid "Set current page as default"
+msgstr "Установить текущую страницу по умолчанию"
+
+#: internal/ui/window_preferences.go:91
+msgid "Set the same volume for all tracks"
+msgstr "Установить одинаковую громкость для всех треков"
+
+#: internal/ui/components/tracklist_header/component_controls.go:13
+msgid "Shuffle Album"
+msgstr "Перемешать альбом"
+
+#: internal/ui/window_shortcuts.go:13
+msgid "Side Pane"
+msgstr "Боковая панель"
+
+#: internal/ui/components/linking/linking.go:63
+msgid "Sign In"
+msgstr "Войти"
+
+#: internal/ui/components/auth_required.go:17
+#: internal/ui/window_sidebar.go:31
+#: internal/ui/window_sidebar.go:43
+msgid "Sign In…"
+msgstr "Войти…"
+
+#: internal/ui/window_sidebar.go:41
+msgid "Sign Out"
+msgstr "Выйти"
+
+#: internal/ui/window_actions.go:308
+msgid "Sign in failed or aborted"
+msgstr "Вход не выполнен или прерван"
+
+#: internal/ui/window_actions.go:317
+msgid "Signed in as %s"
+msgstr "Выполнен вход как %s"
+
+#: internal/ui/window_actions.go:327
+msgid "Signed out"
+msgstr "Выход выполнен"
+
+#: internal/ui/routes/feed.go:151
+msgid "Single by %s"
+msgstr "Сингл исполнителя %s"
+
+#: internal/ui/routes/search/search.go:13
+msgid "Start typing in the search bar to search for songs, artists, albums or playlists"
+msgstr ""
+"Начните вводить текст в строке поиска, чтобы найти песни, исполнителей, "
+"альбомы или плейлисты"
+
+#: internal/ui/components/sidebar/lyrics/lyrics_view.go:63
+msgid "Sync with Track"
+msgstr "Синхронизировать с треком"
+
+#: internal/ui/window_preferences.go:75
+msgid "TIDAL Settings"
+msgstr "Настройки TIDAL"
+
+#: internal/ui/window_preferences.go:76
+msgid "TIDAL-specific settings for advanced users"
+msgstr "Специальные настройки TIDAL для опытных пользователей"
+
+#: internal/secrets/service_darwin.go:26
+msgid ""
+"The macOS Keychain is not available or accessible.\n"
+"\n"
+"SDAT will not be able to store any authentication-related data and you will not be able to sign in.\n"
+"\n"
+"Please ensure your keychain is unlocked and accessible."
+msgstr ""
+"Связка ключей macOS недоступна или к ней нет доступа.\n"
+"\n"
+"SDAT не сможет сохранять данные, связанные с аутентификацией, и вы не "
+"сможете войти в систему.\n"
+"\n"
+"Убедитесь, что связка ключей разблокирована и доступна."
+
+#: internal/router/handler_notfound.go:13
+msgid "The requested deeplink did not have any available handlers."
+msgstr "Для запрошенной глубокой ссылки не найдено доступных обработчиков."
+
+#: internal/ui/routes/feed.go:83
+msgid "This Month"
+msgstr "Этот месяц"
+
+#: internal/ui/routes/feed.go:79
+msgid "This Week"
+msgstr "Эта неделя"
+
+#: internal/ui/components/tracklist/tracklist.go:123
+msgid "This track is not available for streaming"
+msgstr "Этот трек недоступен для потокового воспроизведения"
+
+#: internal/ui/routes/feed.go:77
+msgid "Today"
+msgstr "Сегодня"
+
+#: internal/ui/window_content.go:44
+msgid "Toggle Sidebar"
+msgstr "Переключить боковую панель"
+
+#: internal/settings/playback.go:24
+msgid "Track"
+msgstr "Трек"
+
+#: internal/player/playback.go:43
+#: internal/player/player_internal.go:113
+msgid "Track not available for streaming, skipping to next track"
+msgstr ""
+"Трек недоступен для потокового воспроизведения, переход к следующему треку"
+
+#: internal/ui/routes/my-collection.go:81
+#: internal/ui/routes/search/top.go:46
+msgid "Tracks"
+msgstr "Треки"
+
+#: internal/router/handler_error.go:13
+msgid ""
+"Unfortunately an error occurred while loading this view. Please try again later. If the error persists, please open an issue!\n"
+"\n"
+"Error Message: "
+msgstr ""
+"К сожалению, при загрузке этого представления произошла ошибка. Повторите "
+"попытку позже. Если ошибка сохраняется, создайте сообщение об ошибке!\n"
+"\n"
+"Сообщение об ошибке: "
+
+#: internal/ui/routes/feed.go:157
+msgid "Unknown album type"
+msgstr "Неизвестный тип альбома"
+
+#: internal/ui/routes/feed.go:221
+msgid "Unsupported activity"
+msgstr "Неподдерживаемая активность"
+
+#: internal/ui/components/horizontal_list/horizontal_list.go:37
+#: internal/ui/components/row_title.go:32
+msgid "View All"
+msgstr "Показать всё"
+
+#: internal/ui/components/sidebar/player/component_action_row.go:190
+msgid "Volume"
+msgstr "Громкость"
+
+#: internal/ui/window_preferences.go:173
+#: internal/ui/window_preferences.go:199
+msgid "You are currently not logged in to Last.fm"
+msgstr "В настоящее время вы не вошли в Last.fm"
+
+#: internal/ui/window_preferences.go:187
+msgid "You are logged in to Last.fm"
+msgstr "Вы вошли в Last.fm"
+
+#: internal/ui/window_preferences.go:190
+msgid "You are logged in to Last.fm as %s"
+msgstr "Вы вошли в Last.fm как %s"
+
+#: internal/ui/components/linking/linking.go:29
+msgid "You can also open the linking page using the button below"
+msgstr "Также можно открыть страницу связывания с помощью кнопки ниже"
+
+#: internal/secrets/service_linux.go:40
+msgid ""
+"Your secret service provider was found, but refused to interact with SDAT.\n"
+"\n"
+"This could because you cancelled a prompt or, if you are using a Flatpak, the provider not implementing the XDG Secret Portal service.\n"
+"\n"
+"SDAT will not be able to store any authentication-related data and you will not be able to sign in."
+msgstr ""
+"Поставщик секретной службы найден, но отказался взаимодействовать с "
+"SDAT.\n"
+"\n"
+"Это могло произойти из-за отмены запроса или, если вы используете Flatpak, "
+"из-за того, что поставщик не реализует службу портала секретов XDG.\n"
+"\n"
+"SDAT не сможет сохранять данные, связанные с аутентификацией, и вы не "
+"сможете войти в систему."
+
+#: internal/ui/window_about.go:132
+msgid "translator-credits"
+msgstr "Сведения о переводчиках"

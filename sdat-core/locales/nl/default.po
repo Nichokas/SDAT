@@ -1,0 +1,989 @@
+# SOME DESCRIPTIVE TITLE.
+# Copyright (C) YEAR THE PACKAGE'S COPYRIGHT HOLDER
+# This file is distributed under the same license as the PACKAGE package.
+# FIRST AUTHOR <EMAIL@ADDRESS>, YEAR.
+#
+msgid ""
+msgstr ""
+"Project-Id-Version: v1.4.2-21-g67c07b4\n"
+"Report-Msgid-Bugs-To: \n"
+"POT-Creation-Date: 2026-08-08 22:44+0200\n"
+"PO-Revision-Date: 2026-10-24 20:27+0000\n"
+"Last-Translator: Sietse <sietse@noreply.codeberg.org>\n"
+"Language-Team: Dutch <https://translate.codeberg.org/projects/tonearm/"
+"tonearm/nl/>\n"
+"Language: nl\n"
+"MIME-Version: 1.0\n"
+"Content-Type: text/plain; charset=UTF-8\n"
+"Content-Transfer-Encoding: 8bit\n"
+"Plural-Forms: nplurals=2; plural=n != 1;\n"
+"X-Generator: Weblate 2026.10.1\n"
+
+#: internal/ui/components/tracklist_header/tracklist_header_artist.go:25
+msgid "%d Fan"
+msgid_plural "%d Fans"
+msgstr[0] ""
+msgstr[1] ""
+
+#: internal/ui/components/media_card/playlist.go:20
+#: internal/ui/components/shortcut_list/playlist.go:14
+msgid "%d Track"
+msgid_plural "%d Tracks"
+msgstr[0] "%d Nummer"
+msgstr[1] "%d Nummers"
+
+#: internal/ui/components/tracklist_header/tracklist_header_album.go:52
+msgid "%d Track (%s)"
+msgid_plural "%d Tracks (%s)"
+msgstr[0] "%d Nummer (%s)"
+msgstr[1] "%d Nummers (%s)"
+
+#: internal/ui/routes/feed.go:145
+msgid "%s and %s"
+msgstr "%s en %s"
+
+#: internal/ui/window_preferences.go:52
+msgid "API Base URL"
+msgstr ""
+
+#: internal/ui/window_sidebar.go:35
+msgid "About SDAT"
+msgstr "Over SDAT"
+
+#: internal/ui/components/tracklist_header/tracklist_header_album.go:57
+msgid "Add Album to Queue"
+msgstr "Voeg Album toe aan Wachtrij"
+
+#: internal/ui/components/tracklist_header/tracklist_header_collection.go:30
+#: internal/ui/routes/my_collection/tracks.go:52
+msgid "Add My Tracks to Queue"
+msgstr "Voeg Mijn Nummers toe aan Wachtrij"
+
+#: internal/ui/components/tracklist_header/tracklist_header_playlist.go:47
+msgid "Add Playlist to Queue"
+msgstr "Voeg Afspeellijst toe aan Wachtrij"
+
+#: internal/ui/components/tracklist_header/tracklist_header_artist.go:30
+msgid "Add Top Tracks to Queue"
+msgstr "Voeg Top Nummers toe aan Wachtrij"
+
+#: internal/ui/components/favourite_button/favourite_button.go:55
+#: internal/ui/components/favourite_button/favourite_button.go:90
+#: internal/ui/components/sidebar/player/component_action_row.go:125
+#: internal/ui/components/sidebar/player/component_action_row.go:146
+msgid "Add to Collection"
+msgstr "Voeg toe aan Verzameling"
+
+#: internal/ui/components/tracklist/column_controls.go:59
+msgid "Add to Queue"
+msgstr "Voeg toe aan Wachtrij"
+
+#: internal/settings/playback.go:23
+#: internal/ui/routes/album.go:30
+#: internal/ui/routes/album.go:35
+#: internal/ui/routes/album.go:40
+msgid "Album"
+msgstr "Album"
+
+#: internal/ui/routes/feed.go:153
+msgid "Album by %s"
+msgstr "Album van %s"
+
+#: internal/ui/routes/my-collection.go:52
+#: internal/ui/routes/search/top.go:31
+msgid "Albums"
+msgstr ""
+
+#: internal/ui/window_preferences.go:23
+msgid "Allow Background Activity"
+msgstr "Sta Achtergrond Activiteit toe"
+
+#: internal/ui/window_preferences.go:111
+msgid "Allow Media Card Images"
+msgstr "Sta Media Card Afbeeldingen toe"
+
+#: internal/ui/window_preferences.go:117
+msgid "Allow Shortcut Images"
+msgstr ""
+
+#: internal/ui/window_preferences.go:112
+msgid "Allow SDAT to load images for media card buttons"
+msgstr ""
+
+#: internal/ui/window_preferences.go:118
+msgid "Allow SDAT to load images for shortcut buttons"
+msgstr ""
+
+#: internal/ui/window_preferences.go:124
+msgid "Allow SDAT to load images for tracklists with the cover column"
+msgstr ""
+
+#: internal/ui/window_preferences.go:130
+msgid "Allow SDAT to retain recently loaded images in memory to improve performance and reduce network traffic (estimated 50 MiB limit)"
+msgstr ""
+
+#: internal/ui/window_preferences.go:24
+msgid "Allow SDAT to run in the background by hiding the player window instead of quitting the application"
+msgstr ""
+
+#: internal/ui/window_preferences.go:167
+msgid "Allow SDAT to send scrobbling data to Last.fm"
+msgstr ""
+
+#: internal/ui/window_preferences.go:147
+msgid "Allow SDAT to send scrobbling data to ListenBrainz"
+msgstr ""
+
+#: internal/ui/window_preferences.go:85
+msgid "Allow SDAT to start a mix with the current playing song when you're at the end of an album/queue"
+msgstr ""
+
+#: internal/ui/window_preferences.go:123
+msgid "Allow Tracklist Images"
+msgstr ""
+
+#: internal/ui/components/sidebar/player/component_action_row.go:227
+msgid "An error occurred while fetching the track mix"
+msgstr "Er is een fout gebeurt tijdens het ophalen van de nummer mix"
+
+#: internal/ui/window_preferences.go:265
+msgid "An error occurred while logging in to Last.fm"
+msgstr "Er is een fout gebeurt tijdens het inloggen op Last.fm"
+
+#: internal/ui/window_preferences.go:240
+msgid "An error occurred while logging out of Last.fm"
+msgstr "Er is een fout gebeurt tijdens het uitloggen op Last.fm"
+
+#: internal/ui/routes/album.go:67
+#: internal/ui/routes/album.go:74
+msgid "An error occurred while playing the album"
+msgstr "Er is een fout gebeurt tijdens het afspelen van het album"
+
+#: internal/ui/routes/playlist.go:68
+#: internal/ui/routes/playlist.go:75
+msgid "An error occurred while playing the playlist"
+msgstr "Er is een fout gebeurt tijdens het afspelen van de Afspeellijst"
+
+#: internal/ui/routes/artist.go:55
+#: internal/ui/routes/artist.go:62
+msgid "An error occurred while playing the top tracks"
+msgstr "Er is een fout gebeurt tijdens het afspelen van de top nummers"
+
+#: internal/ui/routes/album.go:47
+#: internal/ui/routes/playlist.go:52
+msgid "An error occurred while playing the track"
+msgstr "Er is een fout gebeurt tijdens het afspelen van het nummer"
+
+#: internal/ui/routes/my_collection/tracks.go:65
+#: internal/ui/routes/my_collection/tracks.go:71
+msgid "An error occurred while playing the tracks"
+msgstr "Er is een fout gebeurt tijdens het afspelen van de nummers"
+
+#: internal/ui/routes/my_collection/tracks.go:79
+#: internal/ui/routes/my_collection/tracks.go:85
+msgid "An error occurred while shuffling the tracks"
+msgstr "Er is een fout gebeurt tijdens het husselen van de nummers"
+
+#: internal/secrets/service_linux.go:47
+msgid ""
+"An unknown error occurred when checking for a secret service provider.\n"
+"\n"
+"Signing in may or may not work. Please see the raw error message for more details:\n"
+"\n"
+"%s"
+msgstr ""
+"Een onbekende fout gebeurde tijdens het checken van een secret service "
+"provider.\n"
+"\n"
+"Inloggen werkt misschien of misschien not. Zie de onbewerkte foutmelding "
+"voor meer details:\n"
+"\n"
+"%s"
+
+#: internal/ui/routes/artist.go:29
+#: internal/ui/routes/artist.go:34
+#: internal/ui/routes/artist.go:40
+#: internal/ui/routes/artist.go:49
+msgid "Artist"
+msgstr "Artiest"
+
+#: internal/ui/routes/my-collection.go:47
+#: internal/ui/routes/search/top.go:17
+msgid "Artists"
+msgstr "Artiesten"
+
+#: internal/ui/window_preferences.go:57
+msgid "Auth Base URL"
+msgstr ""
+
+#: internal/ui/components/auth_required.go:13
+msgid "Authentication Required"
+msgstr "Authentificatie Vereist"
+
+#: internal/settings/playback.go:22
+msgid "Auto"
+msgstr ""
+
+#: internal/ui/window_shortcuts.go:19
+msgid "Back"
+msgstr "Terug"
+
+#: internal/ui/window_preferences.go:29
+msgid "Background Activity"
+msgstr "Achtergrond Activiteit"
+
+#: internal/ui/window_preferences.go:72
+msgid "Base URLs"
+msgstr ""
+
+#: internal/ui/window_shortcuts.go:17
+msgid "Basic Shortcuts"
+msgstr "Simpele Snelkoppelingen"
+
+#: internal/ui/window_preferences.go:129
+msgid "Cache Images"
+msgstr "Cache Afbeeldingen"
+
+#: internal/features/scrobbling/lastfm.go:65
+msgid "Cancel"
+msgstr "Annuleren"
+
+#: internal/ui/components/linking/linking.go:86
+msgid "Cancel Login"
+msgstr "Annuleer Inlog"
+
+#: internal/ui/window_preferences.go:97
+msgid "Choose whether SDAT should prefer album replay gain, track replay gain or decide automatically"
+msgstr ""
+"Kies of SDAT voorkeur moet geven aan album replay gain, nummer replay "
+"gain, of automatisch moet kiezen"
+
+#: internal/ui/window_shortcuts.go:11
+msgid "Close"
+msgstr "Sluiten"
+
+#: internal/ui/window_content.go:25
+msgid "Collection"
+msgstr "Verzameling"
+
+#: internal/ui/window_preferences.go:294
+msgid "Configure SDAT to send scrobbling data to Last.fm"
+msgstr "Configureer SDAT om scrobbling data naar Last.fm te sturen"
+
+#: internal/ui/window_preferences.go:163
+msgid "Configure SDAT to send scrobbling data to ListenBrainz"
+msgstr "Configureer SDAT om scrobbling data naar ListenBrainz te sturen"
+
+#: internal/ui/window_preferences.go:73
+msgid "Configure the base URLs for TIDAL"
+msgstr "Configureer de base URLs voor TIDAL"
+
+#: internal/ui/window_preferences.go:134
+msgid "Configure the behaviour of SDAT regarding images"
+msgstr "Configureer SDAT's gedrag met relatie tot afbeeldingen"
+
+#: internal/ui/window_preferences.go:103
+msgid "Configure the behaviour of SDAT regarding playback"
+msgstr "Configureer SDAT's gedrag met relatie tot playback"
+
+#: internal/ui/window_preferences.go:48
+msgid "Configure the behaviour of SDAT when navigating between pages"
+msgstr "Configureer SDAT's gedrag met relatie tot navigatie tussen pagina's"
+
+#: internal/ui/window_preferences.go:30
+msgid "Configure the behaviour of SDAT when running in the background"
+msgstr "Configureer SDAT's gedrag met relatie tot achtergrond activiteit"
+
+#: internal/ui/window_popups.go:28
+msgid "Continue"
+msgstr "Volgende"
+
+#: internal/features/scrobbling/lastfm.go:42
+msgid "Continue the authentication process in your browser."
+msgstr "Ga verder met de authentificatie in uw browser."
+
+#: internal/ui/components/tracklist_header/component_secondary_controls.go:25
+#, fuzzy
+msgid "Copied URL to clipboard"
+msgstr "URL gekopieerd naar klembord"
+
+#: internal/ui/components/sidebar/player/component_action_row.go:244
+msgid "Copied track URL to clipboard"
+msgstr "Nummer's URL gekopieerd naar klembord"
+
+#: internal/ui/components/sidebar/player/component_action_row.go:233
+msgid "Copy Track URL"
+msgstr "Kopiëer nummer's URL"
+
+#: internal/ui/components/tracklist_header/component_secondary_controls.go:15
+msgid "Copy URL"
+msgstr "Kopiëer URL"
+
+#: internal/ui/window_preferences.go:33
+msgid "Default Page"
+msgstr "Standaard Pagina"
+
+#: internal/ui/components/sidebar/player/component_controls.go:92
+msgid "Disable Repeat"
+msgstr "Zet Herhalen uit"
+
+#: internal/ui/components/sidebar/player/component_controls.go:102
+msgid "Disable Shuffle"
+msgstr "Zet husselen uit"
+
+#: internal/ui/window_popups.go:21
+#, fuzzy
+msgid "Don't show again"
+msgstr "Niet meer tonen"
+
+#: internal/ui/routes/feed.go:155
+msgid "EP by %s"
+msgstr "EP van %s"
+
+#: internal/ui/window_preferences.go:84
+msgid "Enable Autoplay"
+msgstr "Zet Autoplay aan"
+
+#: internal/ui/window_preferences.go:166
+msgid "Enable Last.fm"
+msgstr "Zet Last.fm aan"
+
+#: internal/ui/window_preferences.go:146
+msgid "Enable ListenBrainz"
+msgstr "Zet ListenBrainz aan"
+
+#: internal/ui/components/sidebar/player/component_controls.go:105
+msgid "Enable Shuffle"
+msgstr "Zet Husselen aan"
+
+#: internal/ui/components/sidebar/lyrics/lyrics.go:51
+msgid "Error Fetching Lyrics"
+msgstr "Fout tijdens het ophalen van de Songtekst"
+
+#: internal/ui/routes/my-collection.go:43
+msgid "Error loading collection"
+msgstr "Fout bij laden verzameling"
+
+#: internal/ui/routes/explore.go:28
+#: internal/ui/window_content.go:20
+msgid "Explore"
+msgstr "Ontdek"
+
+#: internal/ui/components/shortcut_list/deeplink.go:17
+msgid "External Link"
+msgstr "Externe Link"
+
+#: internal/ui/routes/feed.go:99
+#: internal/ui/routes/feed.go:107
+#: internal/ui/routes/feed.go:192
+#: internal/ui/routes/feed.go:247
+#: internal/ui/window_sidebar.go:68
+msgid "Feed"
+msgstr ""
+
+#: internal/ui/routes/search.go:33
+msgid "For example, Fox Stevenson"
+msgstr "Bijvoorbeeld, Frans Duijts"
+
+#: internal/ui/window_preferences.go:77
+#, fuzzy
+msgid "General"
+msgstr "Algemeen"
+
+#: internal/ui/components/sidebar/player/component_track_timeline.go:144
+msgid "High"
+msgstr ""
+
+#: internal/ui/window_preferences.go:41
+msgid "History Length"
+msgstr "Geschiedenis Lengte"
+
+#: internal/ui/routes/home.go:23
+#: internal/ui/routes/home.go:32
+#: internal/ui/window_content.go:15
+#, fuzzy
+msgid "Home"
+msgstr "Overzicht"
+
+#: internal/ui/window_preferences.go:134
+#, fuzzy
+msgid "Images"
+msgstr "Afbeeldingen"
+
+#: internal/router/handler_error.go:10
+#: internal/router/handler_error.go:12
+msgid "Internal Error"
+msgstr "Interne foutmelding"
+
+#: internal/ui/window_shortcuts.go:15
+#: internal/ui/window_sidebar.go:33
+#, fuzzy
+msgid "Keyboard Shortcuts"
+msgstr "Sneltoetsen tonen"
+
+#: internal/secrets/service_darwin.go:25
+msgid "Keychain Unavailable"
+msgstr "Keychain niet beschikbaar"
+
+#: internal/ui/routes/feed.go:85
+msgid "Last Month"
+msgstr "Afgelopen maand"
+
+#: internal/ui/routes/feed.go:81
+msgid "Last Week"
+msgstr "Afgelopen week"
+
+#: internal/ui/window_preferences.go:152
+msgid "ListenBrainz API Token"
+msgstr ""
+
+#: internal/ui/window_preferences.go:157
+msgid "ListenBrainz API URL"
+msgstr ""
+
+#: internal/ui/components/sidebar/lyrics/lyrics.go:53
+msgid "Loading Lyrics"
+msgstr "Songtekst aan het laden"
+
+#: internal/ui/window_preferences.go:172
+#: internal/ui/window_preferences.go:198
+msgid "Log In to Last.fm…"
+msgstr "Log in op Last.fm…"
+
+#: internal/ui/window_preferences.go:183
+msgid "Log Out of Last.fm"
+msgstr "Log uit op Last.fm"
+
+#: internal/ui/window_preferences.go:281
+msgid "Logged in to Last.fm as %s"
+msgstr "Ingelogd op Last.fm als %s"
+
+#: internal/ui/window_preferences.go:251
+msgid "Logged out of Last.fm"
+msgstr "Uitgelogd op Last.fm"
+
+#: internal/features/scrobbling/lastfm.go:41
+msgid "Logging in to Last.fm"
+msgstr "In aan het loggen op Last.fm"
+
+#: internal/ui/components/sidebar/player/component_track_timeline.go:141
+msgid "Low (320 kbps)"
+msgstr ""
+
+#: internal/ui/components/sidebar/player/component_track_timeline.go:138
+msgid "Low (96 kbps)"
+msgstr ""
+
+#: internal/ui/window_sidebar.go:76
+msgid "Lyrics"
+msgstr "Songtekst"
+
+#: internal/ui/window_shortcuts.go:14
+#: internal/ui/window_sidebar.go:60
+msgid "Main Menu"
+msgstr "Hoofdmenu"
+
+#: internal/ui/components/sidebar/player/component_track_timeline.go:147
+msgid "Max"
+msgstr ""
+
+#: internal/ui/window_preferences.go:42
+#, fuzzy
+msgid "Maximum history length before dropping old entries"
+msgstr "Maxium geschiedenis lengte voordat oude vermeldingen worden verwijderd"
+
+#: internal/ui/components/dynamic_v1.go:157
+msgid "More"
+msgstr "Meer"
+
+#: internal/ui/components/tracklist/column_controls.go:67
+#: internal/ui/components/tracklist_header/component_secondary_controls.go:28
+msgid "More…"
+msgstr "Meer…"
+
+#: internal/ui/routes/my_collection/albums.go:37
+msgid "My Albums"
+msgstr "Mijn Albums"
+
+#: internal/ui/routes/my_collection/artists.go:37
+msgid "My Artists"
+msgstr "Mijn Artiesten"
+
+#: internal/ui/components/tracklist_header/tracklist_header_collection.go:25
+#: internal/ui/routes/my-collection.go:34
+#: internal/ui/routes/my-collection.go:42
+#: internal/ui/routes/my-collection.go:72
+#: internal/ui/routes/my_collection/albums.go:23
+#: internal/ui/routes/my_collection/artists.go:23
+#: internal/ui/routes/my_collection/playlists.go:23
+#: internal/ui/routes/my_collection/tracks.go:32
+msgid "My Collection"
+msgstr "Mijn Verzameling"
+
+#: internal/ui/routes/my_collection/playlists.go:37
+msgid "My Playlists"
+msgstr "Mijn Afspeellijsten"
+
+#: internal/services/tidal/openapi/collection.go:19
+#: internal/ui/routes/my_collection/tracks.go:57
+msgid "My Tracks"
+msgstr "Mijn Nummers"
+
+#: internal/ui/window_content.go:49
+msgid "Navigate Back"
+msgstr "Terug"
+
+#: internal/ui/components/tracklist/column_controls.go:36
+msgid "Navigate to %s"
+msgstr "Ga naar %s"
+
+#: internal/ui/components/sidebar/player/component_action_row.go:196
+#: internal/ui/components/tracklist/column_controls.go:28
+msgid "Navigate to Album"
+msgstr "Ga naar Album"
+
+#: internal/ui/components/sidebar/player/component_action_row.go:28
+#: internal/ui/components/sidebar/player/component_action_row.go:33
+#: internal/ui/components/tracklist/column_controls.go:41
+#: internal/ui/components/tracklist/column_controls.go:44
+#: internal/ui/components/tracklist_header/tracklist_header_album.go:31
+#: internal/ui/components/tracklist_header/tracklist_header_album.go:38
+msgid "Navigate to Artist"
+msgstr "Ga naar Artiest"
+
+#: internal/ui/window_content.go:27
+msgid "Navigate to Collection"
+msgstr "Ga na Verzameling"
+
+#: internal/ui/window_content.go:22
+msgid "Navigate to Explore"
+msgstr "Ga naar Ontdek"
+
+#: internal/ui/window_content.go:17
+msgid "Navigate to Home"
+msgstr "Ga naar Startpagina"
+
+#: internal/ui/components/sidebar/player/component_action_row.go:210
+msgid "Navigate to Track Mix"
+msgstr "Ga naar Nummer Mix"
+
+#: internal/ui/window_shortcuts.go:21
+msgid "Navigation"
+msgstr "Navigatie"
+
+#: internal/ui/window_preferences.go:47
+msgid "Navigation Behaviour"
+msgstr "Navigatie Gedrag"
+
+#: internal/ui/components/sidebar/miniplayer.go:125
+#: internal/ui/components/sidebar/player/component_controls.go:133
+msgid "Next"
+msgstr "Volgende"
+
+#: internal/ui/components/sidebar/player/component_track_info.go:25
+msgid "No Artist"
+msgstr "Geen Artiest"
+
+#: internal/ui/components/sidebar/lyrics/lyrics.go:55
+msgid "No Lyrics Available"
+msgstr "Geen Songtekst Beschikbaar"
+
+#: internal/ui/components/sidebar/lyrics/lyrics.go:49
+msgid "No Song Currently Playing"
+msgstr "Geen Nummer aan het spelen"
+
+#: internal/ui/components/sidebar/player/component_track_info.go:24
+msgid "No Track"
+msgstr "Geen Nummer"
+
+#: internal/ui/components/sidebar/queue/queue.go:34
+#: internal/ui/components/sidebar/queue/queue.go:44
+msgid "No Tracks in Queue"
+msgstr "Geen Nummers in Wachtrij"
+
+#: internal/player/player.go:265
+#: internal/ui/components/sidebar/player/component_action_row.go:224
+msgid "No mix found for the current track"
+msgstr "Geen mix gevonden voor het huidige nummer"
+
+#: internal/secrets/service_linux.go:32
+msgid ""
+"No secret service provider is available.\n"
+"\n"
+"SDAT will not be able to store any authentication-related data and you will not be able to sign in.\n"
+"\n"
+"Please install a secret service provider such as GNOME Keyring or KDE Wallet."
+msgstr ""
+"Er is geen secret service provider beschikbaar.\n"
+"\n"
+"SDAT zal geen authentificatie-gerelateerde data kunnen opslaan, en u zal "
+"niet kunnen inloggen.\n"
+"\n"
+"Installeer gelieve een secret service provider GNOME Keyring of KDE Wallet."
+
+#: internal/ui/window_preferences.go:90
+msgid "Normalize Volume"
+msgstr "Normalizeer Volume"
+
+#: internal/router/handler_notfound.go:10
+msgid "Not Found"
+msgstr "Niet Gevonden"
+
+#: internal/router/handler_notfound.go:12
+msgid "Not found"
+msgstr "Niet Gevonden"
+
+#: internal/ui/routes/feed.go:87
+msgid "Older"
+msgstr "Ouder"
+
+#: internal/ui/components/linking/linking.go:79
+msgid "Open TIDAL Page"
+msgstr "Open TIDAL Pagina"
+
+#: internal/ui/window_preferences.go:62
+msgid "OpenAPI Base URL"
+msgstr ""
+
+#: internal/ui/components/sidebar/player/component_controls.go:46
+msgid "Pause"
+msgstr "Pauzeer"
+
+#: internal/ui/window_preferences.go:135
+msgid "Performance"
+msgstr "Prestaties"
+
+#: internal/ui/components/tracklist_header/tracklist_header_playlist.go:39
+msgid "Personal Mix"
+msgstr "Persoonlijke Mix"
+
+#: internal/ui/components/sidebar/player/component_controls.go:49
+msgid "Play"
+msgstr "Hervat"
+
+#: internal/ui/components/sidebar/miniplayer.go:101
+msgid "Play / Pause"
+msgstr "Hervat / Pauzeer"
+
+#: internal/ui/components/tracklist_header/component_controls.go:21
+msgid "Play Album"
+msgstr "Speel Album af"
+
+#: internal/ui/window_preferences.go:103
+#: internal/ui/window_preferences.go:104
+msgid "Playback"
+msgstr ""
+
+#: internal/ui/components/sidebar/player/component_track_timeline.go:66
+msgid "Playback quality saved. Changes will be applied on next track change"
+msgstr ""
+"Playback kwaliteit opgeslagen. Wijzigingen worden volgend nummer toegepast"
+
+#: internal/ui/window_sidebar.go:75
+msgid "Player"
+msgstr "Speler"
+
+#: internal/ui/components/sidebar/player/component_playing_from.go:63
+msgid "Playing From"
+msgstr "Speelt Vanaf"
+
+#: internal/ui/routes/playlist.go:35
+#: internal/ui/routes/playlist.go:40
+#: internal/ui/routes/playlist.go:45
+msgid "Playlist"
+msgstr "Afspeellijst"
+
+#: internal/ui/routes/my-collection.go:57
+#: internal/ui/routes/search/top.go:36
+msgid "Playlists"
+msgstr "Afspeellijsten"
+
+#: internal/ui/routes/my-collection.go:35
+#: internal/ui/routes/my_collection/albums.go:24
+#: internal/ui/routes/my_collection/artists.go:24
+#: internal/ui/routes/my_collection/playlists.go:24
+#: internal/ui/routes/my_collection/tracks.go:33
+msgid "Please sign in to view your collection"
+msgstr "Gelieve in te loggen om uw verzameling te bekijken"
+
+#: internal/ui/routes/feed.go:100
+msgid "Please sign in to view your feed"
+msgstr "Gelieve in te loggen om uw feed te bekijken"
+
+#: internal/ui/window_shortcuts.go:16
+#: internal/ui/window_sidebar.go:34
+msgid "Preferences"
+msgstr "Voorkeuren"
+
+#: internal/ui/window_preferences.go:96
+msgid "Preferred Replay Gain"
+msgstr "Voorgekeurde Replay Gain"
+
+#: internal/ui/components/sidebar/player/component_controls.go:119
+msgid "Previous"
+msgstr "Vorige"
+
+#: internal/ui/window_sidebar.go:77
+msgid "Queue"
+msgstr "Wachtrij"
+
+#: internal/ui/window_shortcuts.go:12
+#: internal/ui/window_sidebar.go:36
+msgid "Quit"
+msgstr "Sluit"
+
+#: internal/ui/components/sidebar/queue/tracklist.go:50
+msgid "Remove Track from Queue"
+msgstr "Verwijder Nummer uit Wachtrij"
+
+#: internal/ui/components/favourite_button/favourite_button.go:51
+#: internal/ui/components/favourite_button/favourite_button.go:86
+#: internal/ui/components/sidebar/player/component_action_row.go:121
+#: internal/ui/components/sidebar/player/component_action_row.go:142
+msgid "Remove from Collection"
+msgstr "Verwijder uit Verzameling"
+
+#: internal/features/scrobbling/lastfm.go:55
+msgid "Reopen Browser"
+msgstr "Heropen Browser"
+
+#: internal/ui/components/sidebar/player/component_controls.go:84
+msgid "Repeat Queue"
+msgstr "Herhaal Wachtrij"
+
+#: internal/ui/components/sidebar/player/component_controls.go:88
+msgid "Repeat Track"
+msgstr "Herhaal Nummer"
+
+#: internal/ui/window_preferences.go:67
+msgid "Resources Base URL"
+msgstr "Bronnen Base URL"
+
+#: internal/ui/components/linking/linking.go:63
+msgid "Scan this QR code to sign into your TIDAL account"
+msgstr "Scan deze QR code om in te loggen tot uw TIDAL account"
+
+#: internal/ui/window_preferences.go:295
+msgid "Scrobbling"
+msgstr ""
+
+#: internal/ui/components/horizontal_list/horizontal_list.go:73
+msgid "Scroll to the Left"
+msgstr "Scroll naar links"
+
+#: internal/ui/components/horizontal_list/horizontal_list.go:58
+msgid "Scroll to the Right"
+msgstr "Scroll naar rechts"
+
+#: internal/ui/routes/search.go:26
+#: internal/ui/routes/search/albums.go:32
+#: internal/ui/routes/search/artists.go:32
+#: internal/ui/routes/search/playlists.go:32
+#: internal/ui/routes/search/search.go:12
+#: internal/ui/routes/search/tracks.go:38
+#: internal/ui/window_shortcuts.go:20
+#: internal/ui/window_sidebar.go:54
+msgid "Search"
+msgstr "Zoek"
+
+#: internal/secrets/service_linux.go:46
+msgid "Secret Service Error"
+msgstr "Secret Service Foutmelding"
+
+#: internal/secrets/service_linux.go:39
+msgid "Secret Service Issue"
+msgstr "Secret Service Fout"
+
+#: internal/secrets/service_linux.go:31
+msgid "Secret Service Unavailable"
+msgstr "Secret Service Onbeschikbaar"
+
+#: internal/ui/window_sidebar.go:32
+msgid "Set as Default Page"
+msgstr "Stel in als Standaard Pagina"
+
+#: internal/ui/window_actions.go:338
+msgid "Set current page as default"
+msgstr "Stel huidige pagina in als standaard"
+
+#: internal/ui/window_preferences.go:91
+msgid "Set the same volume for all tracks"
+msgstr "Zet het volume gelijk voor alle nummers"
+
+#: internal/ui/components/tracklist_header/component_controls.go:13
+msgid "Shuffle Album"
+msgstr "Hussel Album"
+
+#: internal/ui/window_shortcuts.go:13
+msgid "Side Pane"
+msgstr "Zijpaneel"
+
+#: internal/ui/components/linking/linking.go:63
+msgid "Sign In"
+msgstr "Log in"
+
+#: internal/ui/components/auth_required.go:17
+#: internal/ui/window_sidebar.go:31
+#: internal/ui/window_sidebar.go:43
+msgid "Sign In…"
+msgstr "Log in…"
+
+#: internal/ui/window_sidebar.go:41
+msgid "Sign Out"
+msgstr "Log uit"
+
+#: internal/ui/window_actions.go:308
+msgid "Sign in failed or aborted"
+msgstr "Inloggen gefaald of afgebroken"
+
+#: internal/ui/window_actions.go:317
+msgid "Signed in as %s"
+msgstr "Ingelogd als %s"
+
+#: internal/ui/window_actions.go:327
+msgid "Signed out"
+msgstr "Uitgelogd"
+
+#: internal/ui/routes/feed.go:151
+msgid "Single by %s"
+msgstr "Single van %s"
+
+#: internal/ui/routes/search/search.go:13
+msgid "Start typing in the search bar to search for songs, artists, albums or playlists"
+msgstr ""
+"Begin te typen in de zoekbalk om te zoeken naar nummers, artiesten, albums, "
+"of afspeellijsten"
+
+#: internal/ui/components/sidebar/lyrics/lyrics_view.go:63
+msgid "Sync with Track"
+msgstr "Synchroniseer met Nummer"
+
+#: internal/ui/window_preferences.go:75
+msgid "TIDAL Settings"
+msgstr "TIDAL Voorkeuren"
+
+#: internal/ui/window_preferences.go:76
+msgid "TIDAL-specific settings for advanced users"
+msgstr "TIDAL-specifieke voorkeuren voor geavanceerde gebruikers"
+
+#: internal/secrets/service_darwin.go:26
+msgid ""
+"The macOS Keychain is not available or accessible.\n"
+"\n"
+"SDAT will not be able to store any authentication-related data and you will not be able to sign in.\n"
+"\n"
+"Please ensure your keychain is unlocked and accessible."
+msgstr ""
+"De macOS Keychain is niet beschikbaar of toegankelijk.\n"
+"\n"
+"SDAT zal geen authentificatie-gerelateerde data kunnen opslaan, en u zal "
+"niet kunnen inloggen.\n"
+"\n"
+"Gelieve te controleren dat uw keychain ontgrendeld en toegangelijk is."
+
+#: internal/router/handler_notfound.go:13
+#, fuzzy
+msgid "The requested deeplink did not have any available handlers."
+msgstr "De gevraagde deeplink had geen beschikbare handlers."
+
+#: internal/ui/routes/feed.go:83
+msgid "This Month"
+msgstr "Deze Maand"
+
+#: internal/ui/routes/feed.go:79
+msgid "This Week"
+msgstr "Deze Week"
+
+#: internal/ui/components/tracklist/tracklist.go:123
+msgid "This track is not available for streaming"
+msgstr "Dit nummer is niet beschikbaar voor streaming"
+
+#: internal/ui/routes/feed.go:77
+msgid "Today"
+msgstr "Vandaag"
+
+#: internal/ui/window_content.go:44
+#, fuzzy
+msgid "Toggle Sidebar"
+msgstr "Zijbalk wel-/niet-laten zien"
+
+#: internal/settings/playback.go:24
+msgid "Track"
+msgstr "Nummer"
+
+#: internal/player/playback.go:43
+#: internal/player/player_internal.go:113
+msgid "Track not available for streaming, skipping to next track"
+msgstr "Nummer niet beschikbaar voor streaming, slaat over"
+
+#: internal/ui/routes/my-collection.go:81
+#: internal/ui/routes/search/top.go:46
+msgid "Tracks"
+msgstr "Nummers"
+
+#: internal/router/handler_error.go:13
+msgid ""
+"Unfortunately an error occurred while loading this view. Please try again later. If the error persists, please open an issue!\n"
+"\n"
+"Error Message: "
+msgstr ""
+"Helaas gebeurde een fout tijdens het laden van dit paneel. Probeer later "
+"opnieuw. Als de fout herhaalt, open alstublieft een issue!\n"
+"\n"
+"Foutmelding: "
+
+#: internal/ui/routes/feed.go:157
+msgid "Unknown album type"
+msgstr "Onbekend album type"
+
+#: internal/ui/routes/feed.go:221
+msgid "Unsupported activity"
+msgstr "Niet ondersteunde activiteit"
+
+#: internal/ui/components/horizontal_list/horizontal_list.go:37
+#: internal/ui/components/row_title.go:32
+msgid "View All"
+msgstr "Zie alle"
+
+#: internal/ui/components/sidebar/player/component_action_row.go:190
+msgid "Volume"
+msgstr ""
+
+#: internal/ui/window_preferences.go:173
+#: internal/ui/window_preferences.go:199
+msgid "You are currently not logged in to Last.fm"
+msgstr "U bent niet huidig ingelogd op Last.fm"
+
+#: internal/ui/window_preferences.go:187
+msgid "You are logged in to Last.fm"
+msgstr "U bent ingelogd op Last.fm"
+
+#: internal/ui/window_preferences.go:190
+msgid "You are logged in to Last.fm as %s"
+msgstr "U bent ingelogd op Last.fm als %s"
+
+#: internal/ui/components/linking/linking.go:29
+msgid "You can also open the linking page using the button below"
+msgstr "U kunt ook de link-pagina openen via de knop hieronder"
+
+#: internal/secrets/service_linux.go:40
+msgid ""
+"Your secret service provider was found, but refused to interact with SDAT.\n"
+"\n"
+"This could because you cancelled a prompt or, if you are using a Flatpak, the provider not implementing the XDG Secret Portal service.\n"
+"\n"
+"SDAT will not be able to store any authentication-related data and you will not be able to sign in."
+msgstr ""
+"Uw secret service provider was gevonden, maar weigerde te communiceren met "
+"SDAT.\n"
+"\n"
+"Dit kan gebeuren doordat u een pop-up annuleerde, of als u een Flatpak "
+"gebruikt, de provider niet het XDG Secret Portal service protocol "
+"implementeerd.\n"
+"\n"
+"SDAT zal geen authentificatie-gerelateerde data kunnen opslaan, en u zal "
+"niet kunnen inloggen."
+
+#: internal/ui/window_about.go:132
+msgid "translator-credits"
+msgstr "vertaal-credits"
