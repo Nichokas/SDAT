@@ -77,11 +77,18 @@ pub fn complete_play_next(ticket: PlayNextTicket, tracks: Vec<Track>) {
         return;
     }
     let batches = PLAY_NEXT_ORDER.with(|s| s.borrow_mut().complete(ticket.seq, tracks));
+    let mut queued = false;
     for b in batches {
         if b.is_empty() || crate::live::user_enqueue(b.iter().map(|t| t.id().to_string()).collect()) {
             continue;
         }
-        play_tracklist_next(b);
+        insert_tracklist_next(b);
+        queued = true;
+    }
+    // Start playback once after all ready batches are queued: `next()` only
+    // queues the start, so calling it per batch would pop (and lose) tracks.
+    if queued && playback_state_changed().get().status == PlaybackStatus::Stopped {
+        next();
     }
 }
 
@@ -340,8 +347,8 @@ pub async fn add_track_to_user_queue(track_id: &str) -> Result<()> {
 }
 
 /// Queues `tracks`, in order, right after the current one (and after any
-/// earlier "play next" tracks). Starts playback if nothing is playing.
-fn play_tracklist_next(tracks: Vec<Track>) {
+/// earlier "play next" tracks). The caller starts playback if needed.
+fn insert_tracklist_next(tracks: Vec<Track>) {
     if tracks.is_empty() {
         return;
     }
@@ -361,9 +368,6 @@ fn play_tracklist_next(tracks: Vec<Track>) {
     let pinned = play_next::insert(&mut entries, pinned, floor, tracks);
     user_queue().set(entries);
     update_pinned(|_| pinned);
-    if playback_state_changed().get().status == PlaybackStatus::Stopped {
-        next();
-    }
 }
 
 pub fn add_tracklist_to_user_queue(tracks: Vec<Track>) {
