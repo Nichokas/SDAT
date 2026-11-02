@@ -1,3 +1,7 @@
 /target/
 .DS_Store
 .netrc
+
+# Built by scripts/build-rust-android.sh
+/sdat-android/app/src/main/jniLibs/
+/sdat-android/app/build/
