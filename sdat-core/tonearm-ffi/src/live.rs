@@ -4,7 +4,7 @@ use std::sync::Arc;
 
 use tonearm_core::live::drift::Correction;
 use tonearm_core::live::net::{self, LiveEvent, LiveListener, NetConfig};
-use tonearm_core::live::proto::{EndReason, RejectReason};
+use tonearm_core::live::proto::{EndReason, GuestCommand, RejectReason};
 use tonearm_core::live::session::GuestEvent;
 
 use crate::FfiError;
@@ -29,6 +29,35 @@ pub enum LiveEnd {
     Full,
 }
 
+/// Playback request from a guest (host side) or to the host (guest side).
+#[derive(Debug, Clone, PartialEq, Eq, uniffi::Enum)]
+pub enum LiveCommand {
+    Play,
+    Pause,
+    Next,
+    /// Append these TIDAL track ids to the shared queue (max 50, digits only).
+    Enqueue { track_ids: Vec<String> },
+}
+
+fn command_of(c: GuestCommand) -> Option<LiveCommand> {
+    Some(match c {
+        GuestCommand::Play => LiveCommand::Play,
+        GuestCommand::Pause => LiveCommand::Pause,
+        GuestCommand::Next => LiveCommand::Next,
+        GuestCommand::Enqueue { track_ids } => LiveCommand::Enqueue { track_ids },
+        GuestCommand::Unknown => return None,
+    })
+}
+
+fn to_core(c: LiveCommand) -> GuestCommand {
+    match c {
+        LiveCommand::Play => GuestCommand::Play,
+        LiveCommand::Pause => GuestCommand::Pause,
+        LiveCommand::Next => GuestCommand::Next,
+        LiveCommand::Enqueue { track_ids } => GuestCommand::Enqueue { track_ids },
+    }
+}
+
 #[derive(Debug, Clone, uniffi::Enum)]
 pub enum LiveUpdate {
     Guests { guests: Vec<LiveGuestInfo> },
@@ -43,6 +72,25 @@ pub enum LiveUpdate {
 #[uniffi::export(with_foreign)]
 pub trait LiveObserver: Send + Sync {
     fn on_update(&self, update: LiveUpdate);
+}
+
+/// Guest playback control, kept apart from [`LiveObserver`] so adding it
+/// does not change [`LiveUpdate`]. Implemented in Swift; called from a
+/// background thread. Install it with `set_control_observer`.
+#[uniffi::export(with_foreign)]
+pub trait LiveControlObserver: Send + Sync {
+    /// Guest: the host allowed (`true`) or forbade guest playback control.
+    fn on_control_changed(&self, allowed: bool);
+    /// Host: a guest asked for a playback change. Permission, validation
+    /// and rate limits are already checked; apply it through the normal
+    /// player path, which then updates every guest.
+    fn on_guest_command(&self, peer: String, name: String, command: LiveCommand);
+}
+
+type ControlSlot = Arc<std::sync::Mutex<Option<Arc<dyn LiveControlObserver>>>>;
+
+fn control(slot: &ControlSlot) -> Option<Arc<dyn LiveControlObserver>> {
+    slot.lock().unwrap_or_else(std::sync::PoisonError::into_inner).clone()
 }
 
 #[derive(Debug, Clone, uniffi::Record)]
@@ -60,7 +108,7 @@ fn cfg(c: Option<LiveRelayConfig>) -> NetConfig {
     }
 }
 
-struct Bridge(Arc<dyn LiveObserver>);
+struct Bridge(Arc<dyn LiveObserver>, ControlSlot);
 
 fn end_of(r: EndReason) -> LiveEnd {
     match r {
@@ -81,6 +129,18 @@ fn reject_of(r: RejectReason) -> LiveEnd {
 impl LiveListener for Bridge {
     fn on_event(&self, ev: LiveEvent) {
         let u = match ev {
+            LiveEvent::Command(c) => {
+                if let (Some(o), Some(command)) = (control(&self.1), command_of(c.cmd)) {
+                    o.on_guest_command(c.peer, c.name, command);
+                }
+                return;
+            }
+            LiveEvent::Guest(GuestEvent::ControlChanged(allowed)) => {
+                if let Some(o) = control(&self.1) {
+                    o.on_control_changed(allowed);
+                }
+                return;
+            }
             LiveEvent::Guests(g) => LiveUpdate::Guests { guests: g.into_iter().map(|g| LiveGuestInfo { peer: g.peer, name: g.name }).collect() },
             LiveEvent::Reconnecting => LiveUpdate::Reconnecting,
             LiveEvent::Guest(GuestEvent::Joined { host_name }) => LiveUpdate::Joined { host_name },
@@ -98,8 +158,14 @@ fn err(e: net::NetError) -> FfiError {
 }
 
 /// A session this device hosts.
-#[derive(Debug, uniffi::Object)]
-pub struct LiveHost(net::LiveHost);
+#[derive(uniffi::Object)]
+pub struct LiveHost(net::LiveHost, ControlSlot);
+
+impl std::fmt::Debug for LiveHost {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_tuple("LiveHost").field(&self.0).finish_non_exhaustive()
+    }
+}
 
 #[uniffi::export]
 impl LiveHost {
@@ -107,8 +173,10 @@ impl LiveHost {
     #[uniffi::constructor]
     pub async fn start(name: String, relays: Option<LiveRelayConfig>, observer: Arc<dyn LiveObserver>) -> Result<Arc<Self>, FfiError> {
         let c = cfg(relays);
-        let h = blocking::unblock(move || net::LiveHost::start(name, &c, Arc::new(Bridge(observer)))).await.map_err(err)?;
-        Ok(Arc::new(Self(h)))
+        let slot = ControlSlot::default();
+        let bridge = Arc::new(Bridge(observer, slot.clone()));
+        let h = blocking::unblock(move || net::LiveHost::start(name, &c, bridge)).await.map_err(err)?;
+        Ok(Arc::new(Self(h, slot)))
     }
     /// `sdat://join/...`, for the QR code.
     pub fn invite_url(&self) -> String {
@@ -124,6 +192,17 @@ impl LiveHost {
     /// Call on play, pause, seek and track change.
     pub fn set_playback(&self, item_id: Option<String>, track_id: Option<String>, position_ms: i64, playing: bool) {
         self.0.set_playback(item_id, track_id, position_ms, playing);
+    }
+    /// Receives guest commands (dropped while none is installed).
+    pub fn set_control_observer(&self, observer: Option<Arc<dyn LiveControlObserver>>) {
+        *self.1.lock().unwrap_or_else(std::sync::PoisonError::into_inner) = observer;
+    }
+    /// Lets guests play/pause, skip and add tracks (off by default).
+    pub fn set_guest_control(&self, allowed: bool) {
+        self.0.set_guest_control(allowed);
+    }
+    pub fn guest_control(&self) -> bool {
+        self.0.guest_control()
     }
     pub fn end(&self) {
         self.0.end();
@@ -152,16 +231,23 @@ pub enum LiveCorrection {
 }
 
 /// A session this device joined.
-#[derive(Debug, uniffi::Object)]
-pub struct LiveGuest(net::LiveGuest);
+#[derive(uniffi::Object)]
+pub struct LiveGuest(net::LiveGuest, ControlSlot);
+
+impl std::fmt::Debug for LiveGuest {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_tuple("LiveGuest").field(&self.0).finish_non_exhaustive()
+    }
+}
 
 #[uniffi::export]
 impl LiveGuest {
     /// Starts joining from an `sdat://join/...` link or QR content.
     #[uniffi::constructor]
     pub fn join(invite: String, name: String, relays: Option<LiveRelayConfig>, observer: Arc<dyn LiveObserver>) -> Result<Arc<Self>, FfiError> {
-        let g = net::LiveGuest::join(&invite, name, &cfg(relays), Arc::new(Bridge(observer))).map_err(err)?;
-        Ok(Arc::new(Self(g)))
+        let slot = ControlSlot::default();
+        let g = net::LiveGuest::join(&invite, name, &cfg(relays), Arc::new(Bridge(observer, slot.clone()))).map_err(err)?;
+        Ok(Arc::new(Self(g, slot)))
     }
     pub fn host_name(&self) -> String {
         self.0.host_name()
@@ -191,8 +277,34 @@ impl LiveGuest {
     pub fn set_seek_only(&self, on: bool) {
         self.0.set_seek_only(on);
     }
+    /// Hears when the host allows or forbids guest control. Read
+    /// [`Self::guest_control`] after installing it for the current value.
+    pub fn set_control_observer(&self, observer: Option<Arc<dyn LiveControlObserver>>) {
+        *self.1.lock().unwrap_or_else(std::sync::PoisonError::into_inner) = observer;
+    }
+    /// Whether the host allows our playback commands (lock controls otherwise).
+    pub fn guest_control(&self) -> bool {
+        self.0.guest_control()
+    }
+    /// Asks the host for a playback change; `false` if it was not sent.
+    pub fn send_command(&self, command: LiveCommand) -> bool {
+        self.0.send_command(to_core(command))
+    }
     pub fn leave(&self) {
         self.0.leave();
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn commands_map_both_ways() {
+        for c in [LiveCommand::Play, LiveCommand::Pause, LiveCommand::Next, LiveCommand::Enqueue { track_ids: vec!["1".into()] }] {
+            assert_eq!(command_of(to_core(c.clone())), Some(c));
+        }
+        assert_eq!(command_of(GuestCommand::Unknown), None);
     }
 }
 

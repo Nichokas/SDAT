@@ -18,9 +18,9 @@ use tokio::runtime::Runtime;
 use tokio::sync::mpsc;
 
 use super::drift::Correction;
-use super::proto::{self, EndReason, Msg, RejectReason};
+use super::proto::{self, EndReason, GuestCommand, Msg, RejectReason};
 use super::queue::{OpKind, QueueItem};
-use super::session::{GuestEvent, GuestInfo, GuestPhase, GuestSession, HostSession, Target, To};
+use super::session::{GuestEvent, GuestInfo, GuestPhase, GuestSession, HostCommand, HostSession, Target, To};
 use super::ticket::Ticket;
 use super::{ALPN, PROTO_VERSION, mono_now_ns, new_id};
 
@@ -168,6 +168,9 @@ pub enum LiveEvent {
     Guest(GuestEvent),
     /// Guest: connection dropped, retrying.
     Reconnecting,
+    /// Host: a guest asked for a playback change (only while guest control
+    /// is allowed). Apply it through the normal player path.
+    Command(HostCommand),
 }
 
 pub trait LiveListener: Send + Sync {
@@ -322,6 +325,17 @@ impl LiveHost {
         route(&self.peers, outs);
     }
 
+    /// Allows or forbids guest playback commands (off by default).
+    pub fn set_guest_control(&self, allowed: bool) {
+        let mut s = self.state.lock().unwrap_or_else(PoisonError::into_inner);
+        let outs = s.set_guest_control(allowed);
+        route(&self.peers, outs);
+    }
+
+    pub fn guest_control(&self) -> bool {
+        self.state.lock().unwrap_or_else(PoisonError::into_inner).guest_control()
+    }
+
     /// Replaces the shared queue; returns the entry ids given to each track.
     pub fn replace_queue(&self, track_ids: Vec<String>) -> Result<Vec<String>, NetError> {
         let items: Vec<QueueItem> = track_ids.into_iter().take(super::MAX_QUEUE).map(|track_id| QueueItem { item_id: new_id(), track_id }).collect();
@@ -400,8 +414,12 @@ async fn serve_guest(conn: Connection, state: Arc<Mutex<HostSession>>, peers: Pe
                 peers.lock().unwrap_or_else(PoisonError::into_inner).insert(peer.clone(), (token, tx.clone()));
             }
             route_from(&peers, outs, Some((&peer, &tx)));
-            guests
+            (guests, s.take_commands())
         };
+        let (guests, cmds) = guests;
+        for c in cmds {
+            listener.on_event(LiveEvent::Command(c));
+        }
         if guests.len() != known {
             known = guests.len();
             listener.on_event(LiveEvent::Guests(guests));
@@ -534,6 +552,19 @@ impl LiveGuest {
 
     pub fn set_seek_only(&self, on: bool) {
         self.state.lock().unwrap_or_else(PoisonError::into_inner).set_seek_only(on);
+    }
+
+    /// Whether the host allows our playback commands.
+    pub fn guest_control(&self) -> bool {
+        self.state.lock().unwrap_or_else(PoisonError::into_inner).guest_control()
+    }
+
+    /// Asks the host for a playback change. `false` when it was not sent
+    /// (not connected, not allowed, malformed, or over the per-guest budget,
+    /// which also bounds the outgoing queue).
+    pub fn send_command(&self, cmd: GuestCommand) -> bool {
+        let Some(m) = self.state.lock().unwrap_or_else(PoisonError::into_inner).command(cmd, mono_now_ns()) else { return false };
+        self.tx.lock().unwrap_or_else(PoisonError::into_inner).as_ref().is_some_and(|tx| tx.send(m).is_ok())
     }
 
     pub fn reject_reason(&self) -> Option<RejectReason> {
