@@ -307,8 +307,8 @@ async fn on_eos_stopped() {
     let mix = fetch_radio(id).await;
     AUTOPLAY_PENDING.with(|a| a.set(false));
     // The user acted while the mix was loading (picked a list or track, or
-    // queued Next/Stop behind this handler): their request wins, leave it be.
-    if LIST_GENERATION.with(Cell::get) != list_generation || with(|p| p.machine.has_queued_triggers()).unwrap_or(false) {
+    // queued a track start or Stop behind this handler): their request wins.
+    if LIST_GENERATION.with(Cell::get) != list_generation || with(|p| p.machine.has_queued_start_or_stop()).unwrap_or(false) {
         return;
     }
     // Tracks queued while the mix was loading win over autoplay.
