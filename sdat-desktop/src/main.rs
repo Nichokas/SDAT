@@ -34,7 +34,7 @@ pub(crate) fn register_resources() {
 /// Falls back to the schema compiled at build time when it is not installed.
 ///
 /// This must run before anything touches `gio::SettingsSchemaSource::default()`:
-/// GLib reads `GSETTINGS_SCHEMA_DIR` once, when the default source is first built.
+/// `GLib` reads `GSETTINGS_SCHEMA_DIR` once, when the default source is first built.
 /// `GSETTINGS_SCHEMA_DIR` is searched in addition to the installed schemas, and the
 /// build-time directory only exists on the machine that built the binary, so packaged
 /// installs are unaffected.
