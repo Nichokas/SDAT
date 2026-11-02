@@ -360,6 +360,8 @@ const RETRY_FAILED: Duration = Duration::from_secs(15);
 /// A started load that has not reached the player after this long is
 /// treated as failed.
 const LOAD_TIMEOUT: Duration = Duration::from_secs(20);
+/// The same while the player reports it is still fetching a stream.
+const LOAD_TIMEOUT_STREAMING: Duration = Duration::from_mins(1);
 
 /// Guest: which host tracks are being loaded or failed recently, so a tick
 /// never starts a second load of the same track and an unavailable track is
@@ -375,11 +377,19 @@ pub struct LoadGate {
 
 impl LoadGate {
     /// Whether a load of `track` should start now.
+    #[cfg(test)]
     pub fn begin(&mut self, track: &str, now: Instant) -> bool {
+        self.begin_while(track, now, false)
+    }
+    /// Like [`Self::begin`]; `player_loading`: the player is fetching a
+    /// stream, so our own pending load gets [`LOAD_TIMEOUT_STREAMING`]
+    /// before it counts as failed (a stuck stream still times out).
+    pub fn begin_while(&mut self, track: &str, now: Instant, player_loading: bool) -> bool {
         if let Some((t, at)) = &self.pending
             && t == track
         {
-            if now.duration_since(*at) < LOAD_TIMEOUT {
+            let limit = if player_loading { LOAD_TIMEOUT_STREAMING } else { LOAD_TIMEOUT };
+            if now.duration_since(*at) < limit {
                 return false;
             }
             // The metadata loaded but the player never got the track (e.g.
@@ -484,13 +494,9 @@ fn guest_tick() {
         return;
     };
     if player::current_track_id().as_deref() != Some(track.as_str()) {
-        // The player is still fetching a stream: don't time that load out.
-        if ps.loading {
-            return;
-        }
         let started = LOADS.with(|l| {
             let mut l = l.borrow_mut();
-            l.begin(&track, Instant::now()).then(|| l.attempt())
+            l.begin_while(&track, Instant::now(), ps.loading).then(|| l.attempt())
         });
         if let Some(attempt) = started {
             load_host_track(track, attempt);
@@ -597,6 +603,18 @@ mod tests {
         assert!(g.begin("1", now + LOAD_TIMEOUT + RETRY_FAILED));
         assert!(!g.is_current("1", first), "the retry owns the track now");
         assert!(g.is_current("1", g.attempt()));
+    }
+
+    #[test]
+    fn streaming_load_gets_longer_but_still_times_out() {
+        let now = Instant::now();
+        let mut g = LoadGate::default();
+        assert!(g.begin("1", now));
+        assert!(!g.begin_while("1", now + LOAD_TIMEOUT, true));
+        assert!(g.is_loading(), "a stream still loading is not timed out at LOAD_TIMEOUT");
+        assert!(!g.begin_while("1", now + LOAD_TIMEOUT_STREAMING, true));
+        assert!(!g.is_loading(), "a stuck stream eventually counts as failed");
+        assert!(g.begin_while("2", now, true), "another track is never blocked by the player loading");
     }
 
     #[test]
