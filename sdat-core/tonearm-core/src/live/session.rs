@@ -449,6 +449,14 @@ impl HostSession {
                 // The whole batch landed at the cap and pushed old entries
                 // out of view: bind the visible part, keep the rest pending.
                 let vis = batch.len().min(ids.len() - first);
+                for j in first..first + vis {
+                    // Same swap as below: an inserted copy that took an old
+                    // id gives it back to the later copy that got a fresh one.
+                    let fresh = if ids[j].1 { None } else { (j + 1..ids.len()).find(|&k| ids[k].1 && track_ids[k] == track_ids[j]) };
+                    if let Some(k) = fresh {
+                        ids.swap(j, k);
+                    }
+                }
                 run.extend(ids[first..first + vis].iter().map(|(i, _)| i.clone()));
                 beyond_cap = batch[vis..].to_vec();
             }
@@ -1616,6 +1624,21 @@ mod tests {
         let mut h = exact_host(&[("a", "p"), ("b", "q")], "a");
         assert_eq!(h.play_next_offset(&ids(&["x"])), 0);
         h.replace_queue(vec![String::new()]).expect_err("invalid track");
+        assert_eq!(h.play_next_offset(&ids(&["y"])), 1);
+    }
+
+    #[test]
+    fn capped_duplicate_insert_keeps_the_original_id() {
+        let mut full: Vec<String> = vec!["p".into(), "x".into()];
+        full.extend((0..super::super::MAX_QUEUE - 2).map(|n| format!("o{n}")));
+        let refs: Vec<&str> = full.iter().map(String::as_str).collect();
+        let (mut h, _) = host_with(&refs, 0);
+        let original = h.queue.queue().items[1].item_id.clone();
+        let mut q = full.clone();
+        insert_next(&mut h, &mut q, 0, &["x"]);
+        let items = &h.queue.queue().items;
+        assert_eq!(items[2].item_id, original);
+        assert_ne!(items[1].item_id, original);
         assert_eq!(h.play_next_offset(&ids(&["y"])), 1);
     }
 
