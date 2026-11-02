@@ -120,7 +120,7 @@ struct PlayNextRun {
     /// Entry ids of inserted tracks, in insertion order.
     items: Vec<String>,
     /// Track ids handed out and not yet seen in a queue update, in order
-    /// (at most [`super::MAX_QUEUE`]).
+    /// (at most [`MAX_APP_QUEUE`]).
     pending: Vec<String>,
     /// Handed-out tracks past `pending`'s bound: they only count for offsets.
     hidden: usize,
@@ -134,9 +134,9 @@ impl PlayNextRun {
     /// Keeps `pending` bounded; the overflow is only counted.
     fn set_pending(&mut self, pending: Vec<String>) {
         self.pending = pending;
-        if self.pending.len() > super::MAX_QUEUE {
-            self.hidden += self.pending.len() - super::MAX_QUEUE;
-            self.pending.truncate(super::MAX_QUEUE);
+        if self.pending.len() > MAX_APP_QUEUE {
+            self.hidden += self.pending.len() - MAX_APP_QUEUE;
+            self.pending.truncate(MAX_APP_QUEUE);
         }
     }
 
@@ -169,12 +169,13 @@ fn stable_ids(old: &[QueueItem], new: &[String], prefer_drop: &[String], playing
     let weights: Vec<u32> = old
         .iter()
         .map(|i| {
-            1024 + if Some(i.item_id.as_str()) == playing {
-                4
-            } else if drop.contains(i.item_id.as_str()) {
-                2
+            // A match (2048) outweighs every tie-break together; keeping the
+            // playing entry (1024) outweighs all non-run bonuses (1 each,
+            // at most 500).
+            2048 + if Some(i.item_id.as_str()) == playing {
+                1024
             } else {
-                3
+                u32::from(!drop.contains(i.item_id.as_str()))
             }
         })
         .collect();
@@ -386,6 +387,9 @@ impl HostSession {
         let shared = entries.iter().take(super::MAX_QUEUE).cloned().collect();
         let out = self.apply_shared(OpKind::Replace { items: shared })?;
         self.run.items = run;
+        // The whole queue is known here: uncounted overflow cannot be told
+        // apart from dropped requests any more, so it is retired.
+        self.run.hidden = 0;
         self.run.set_pending(rest);
         self.app_queue = Some(entries);
         Ok(out)
@@ -1569,13 +1573,29 @@ mod tests {
     }
 
     #[test]
+    fn playing_entry_outweighs_run_tie_breaks() {
+        let (mut h, e) = host_with(&["a", "b", "c", "d", "a", "b", "c", "d"], 4);
+        h.run.items = e[5..].to_vec();
+        let (_, kept) = h.replace_queue(ids(&["a", "b", "c", "d"])).expect("replace");
+        assert!(kept.contains(&e[4]));
+    }
+
+    #[test]
+    fn exact_updates_retire_overflow() {
+        let mut h = exact_host(&[("a", "p")], "a");
+        h.run.hidden = 10;
+        h.replace_queue_entries(entries(&[("a", "p")])).expect("replace");
+        assert_eq!(h.play_next_offset(&ids(&["x"])), 0);
+    }
+
+    #[test]
     fn pending_requests_stay_bounded() {
         let (mut h, _) = host_with(&["p"], 0);
-        let n = super::super::MAX_QUEUE + 10;
+        let n = MAX_APP_QUEUE + 10;
         for k in 0..n {
             assert_eq!(h.play_next_offset(&ids(&["x"])), k);
         }
-        assert_eq!(h.run.pending.len(), super::super::MAX_QUEUE);
+        assert_eq!(h.run.pending.len(), MAX_APP_QUEUE);
         assert_eq!(h.play_next_offset(&ids(&["y"])), n);
     }
 
