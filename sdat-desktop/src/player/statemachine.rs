@@ -273,6 +273,8 @@ pub struct Machine {
     state: Cell<State>,
     queue: RefCell<VecDeque<Trigger>>,
     running: Cell<bool>,
+    /// Whether the trigger being handled right now starts a track.
+    handling_start: Cell<bool>,
     playbin: Rc<dyn Playbin>,
     gapless_manifest: RefCell<Option<TrackManifest>>,
     retry_position: Cell<Duration>,
@@ -285,6 +287,7 @@ impl Machine {
             state: Cell::new(State::Stopped),
             queue: RefCell::new(VecDeque::new()),
             running: Cell::new(false),
+            handling_start: Cell::new(false),
             playbin,
             gapless_manifest: RefCell::new(None),
             retry_position: Cell::new(Duration::ZERO),
@@ -299,10 +302,13 @@ impl Machine {
         self.state.get() == State::PlayingGapless
     }
 
-    /// Whether the machine is stopped with no trigger queued or running, so
-    /// nothing is about to start playback.
-    pub fn idle_stopped(&self) -> bool {
-        self.state.get() == State::Stopped && !self.running.get()
+    /// Whether the machine is stopped and no track start is queued or being
+    /// handled, so nothing is about to start playback.
+    pub fn stopped_without_pending_start(&self) -> bool {
+        let is_start = |t: &Trigger| matches!(t, Trigger::PlayTrack(..) | Trigger::PlayTrackId(..));
+        self.state.get() == State::Stopped
+            && !self.handling_start.get()
+            && !self.queue.borrow().iter().any(is_start)
     }
 
     /// Queues a trigger; transitions run in order on the main loop.
@@ -316,7 +322,9 @@ impl Machine {
             loop {
                 let next = this.queue.borrow_mut().pop_front();
                 let Some(t) = next else { break };
+                this.handling_start.set(matches!(t, Trigger::PlayTrack(..) | Trigger::PlayTrackId(..)));
                 this.handle(t).await;
+                this.handling_start.set(false);
             }
             this.running.set(false);
         });

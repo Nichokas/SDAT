@@ -91,7 +91,7 @@ pub fn complete_play_next(ticket: PlayNextTicket, tracks: Vec<Track>) {
     // Start playback once, and only if no start is already queued or in
     // flight: `next()` only queues the start, so a second call before the
     // first track plays would pop (and lose) another track.
-    if queued && with(|p| p.machine.idle_stopped()).unwrap_or(false) {
+    if queued && with(|p| p.machine.stopped_without_pending_start()).unwrap_or(false) {
         next();
     }
 }
@@ -520,7 +520,12 @@ pub fn set_shuffle(shuffle: bool, current_track_id: &str) {
     if let Some(id) = GAPLESS_MOVED.with(|m| m.borrow().clone())
         && let Some(i) = base_queue().entries().with(|e| e.iter().position(|t| t.id() == id))
     {
-        let _ = base_queue().remove_at(i);
+        // Only the upcoming copy: `remove_at` would also drop it from the
+        // durable source, losing it for later shuffles and queue repeat.
+        base_queue().entries().notify(|mut v| {
+            v.remove(i);
+            v
+        });
     }
     shuffle_state_changed().set(shuffle);
 }
