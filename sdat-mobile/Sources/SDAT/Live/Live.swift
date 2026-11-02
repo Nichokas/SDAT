@@ -201,6 +201,8 @@ final class Live {
         case .play: if !player.isPlaying { player.toggle() }
         case .pause: if player.isPlaying { player.toggle() }
         case .next: player.next()
+        // hostTick republishes on the next tick (0.5 s): the jump is sent at once.
+        case .seek(let ms): player.seek(to: Double(max(ms, 0)) / 1000)
         case .enqueue(let ids):
             hostEnqueue += ids.map { (enqueueEpoch, $0) }
             pumpHostEnqueue()
@@ -278,7 +280,17 @@ final class Live {
     func userPause() { if !route(.pause) { if player.isPlaying { player.toggle() } } }
     func userNext() { if !route(.next) { player.next() } }
 
-    /// Previous track and seeking: guests always follow the host.
+    /// Seeking. Guests with control ask the host, which moves everyone at
+    /// once; returns `false` when the caller should seek locally.
+    func userSeek(_ secs: Double) -> Bool {
+        if let guest, guestControl, !guest.hostSupportsSeek() {
+            Chrome.shared.flash("The host's app is too old to seek for everyone")
+            return true
+        }
+        return route(.seek(positionMs: Int64(max(secs, 0) * 1000)))
+    }
+
+    /// Previous track: guests always follow the host.
     func guestRefuses() -> Bool {
         guard guest != nil else { return false }
         refuse()

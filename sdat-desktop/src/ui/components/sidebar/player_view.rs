@@ -376,6 +376,18 @@ fn quality_entry(q: TrackQuality, css: &str, title: &str, details: &str, popover
     b
 }
 
+/// Guest scrub: quiet time before the last dragged position is sent.
+const SCRUB_DEBOUNCE: std::time::Duration = std::time::Duration::from_millis(250);
+
+/// Position, (session, host track) it is for, and the pending timer.
+type PendingScrub = (std::time::Duration, Option<(u64, String)>, glib::SourceId);
+
+thread_local! {
+    /// Guest scrub waiting to be sent: position, the session and host track it is for,
+    /// and its pending timer.
+    static SCRUB: std::cell::RefCell<Option<PendingScrub>> = const { std::cell::RefCell::new(None) };
+}
+
 fn track_timeline() -> gtk::Overlay {
     let scale = gtk::Scale::with_range(gtk::Orientation::Horizontal, 0.0, 100.0, 1.0);
     scale.set_increments(1.0, 1.0);
@@ -383,8 +395,27 @@ fn track_timeline() -> gtk::Overlay {
     let scale = scale.hexp(true).background("transparent").hpadding(0);
     on_state(is_controllable(), &scale, |s, v| s.set_sensitive(*v));
     scale.connect_change_value(|_, _, f| {
-        // Guests follow the host's position; a local scrub is refused.
-        if crate::live::guest_refuses() {
+        // Guests with control ask the host to seek everyone; otherwise
+        // refused. A drag emits many values: send only the last one, once
+        // the scrubber has been still for a moment (the command budget is
+        // small and every host seek flushes its pipeline).
+        if crate::live::is_guest() {
+            let d = player::playback_state_changed().get().duration;
+            SCRUB.with(|s| {
+                if let Some((_, _, id)) = s.borrow_mut().take() {
+                    id.remove();
+                }
+                let id = glib::timeout_add_local_once(SCRUB_DEBOUNCE, || {
+                    // Dropped if the session or the host's track changed meanwhile.
+                    if let Some((to, track, _)) = SCRUB.with(|s| s.borrow_mut().take())
+                        && track.is_some()
+                        && crate::live::host_track() == track
+                    {
+                        crate::live::user_seek(to);
+                    }
+                });
+                *s.borrow_mut() = Some((d.mul_f64((f / 100.0).clamp(0.0, 1.0)), crate::live::host_track(), id));
+            });
             return glib::Propagation::Stop;
         }
         player::seek_to_percent(f);

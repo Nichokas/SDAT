@@ -5,7 +5,7 @@ use std::collections::BTreeMap;
 
 use super::clock::{ClockSync, Sample};
 use super::drift::{Correction, DriftController, HOST_JUMP_MS};
-use super::proto::{Anchor, EndReason, FEATURE_PLAY_NEXT, GuestCommand, Msg, RejectReason};
+use super::proto::{Anchor, EndReason, FEATURE_PLAY_NEXT, FEATURE_SEEK, GuestCommand, Msg, RejectReason};
 use super::queue::{Accepted, GuestApply, GuestQueue, HostQueue, Op, OpKind, QueueError, QueueItem};
 use super::{HEARTBEAT_NS, HOST_TIMEOUT_NS, PROTO_VERSION, new_id};
 
@@ -60,6 +60,9 @@ pub struct HostCommand {
     pub next: bool,
 }
 
+/// Longest position a guest may ask to seek to (24 h).
+pub const MAX_SEEK_MS: i64 = 24 * 3_600_000;
+
 /// Whether `cmd` is well formed: known, and for `Enqueue` 1..=[`MAX_ENQUEUE`]
 /// TIDAL track ids (ASCII digits, at most [`MAX_TRACK_ID_LEN`]).
 pub fn valid_command(cmd: &GuestCommand) -> bool {
@@ -70,6 +73,7 @@ pub fn valid_command(cmd: &GuestCommand) -> bool {
                 && track_ids.len() <= MAX_ENQUEUE
                 && track_ids.iter().all(|t| !t.is_empty() && t.len() <= MAX_TRACK_ID_LEN && t.bytes().all(|b| b.is_ascii_digit()))
         }
+        GuestCommand::Seek { position_ms } => (0..=MAX_SEEK_MS).contains(position_ms),
         GuestCommand::Unknown => false,
     }
 }
@@ -293,7 +297,11 @@ impl HostSession {
     }
 
     fn features(&self) -> Vec<String> {
-        if self.play_next { vec![FEATURE_PLAY_NEXT.to_owned()] } else { Vec::new() }
+        let mut f = vec![FEATURE_SEEK.to_owned()];
+        if self.play_next {
+            f.push(FEATURE_PLAY_NEXT.to_owned());
+        }
+        f
     }
 
     /// Where to insert play-next `track_ids`: this many entries after the
@@ -715,6 +723,7 @@ pub const GAP_TIMEOUT_NS: i64 = 2_000_000_000;
 pub const RESYNC_MIN_NS: i64 = 500_000_000;
 
 #[derive(Debug)]
+#[allow(clippy::struct_excessive_bools, reason = "independent host capability and state flags")]
 pub struct GuestSession {
     secret: String,
     name: String,
@@ -741,6 +750,8 @@ pub struct GuestSession {
     cmd_times: std::collections::VecDeque<i64>,
     /// The host advertised [`FEATURE_PLAY_NEXT`].
     host_play_next: bool,
+    /// The host advertised [`FEATURE_SEEK`].
+    host_seek: bool,
 }
 
 impl GuestSession {
@@ -765,6 +776,7 @@ impl GuestSession {
             guest_control: false,
             cmd_times: std::collections::VecDeque::new(),
             host_play_next: false,
+            host_seek: false,
         }
     }
 
@@ -810,6 +822,11 @@ impl GuestSession {
     /// When `false`, [`Self::play_next`] falls back to appending.
     pub fn host_supports_play_next(&self) -> bool {
         self.host_play_next
+    }
+
+    /// Whether the host applies guest seeks ([`FEATURE_SEEK`]).
+    pub fn host_supports_seek(&self) -> bool {
+        self.host_seek
     }
 
     /// Play Next request for `track_ids`, with the same checks as
@@ -945,6 +962,7 @@ impl GuestSession {
                 }
                 self.set_control(guest_control, &mut ev);
                 self.host_play_next = features.iter().any(|f| f == FEATURE_PLAY_NEXT);
+                self.host_seek = features.iter().any(|f| f == FEATURE_SEEK);
                 if first {
                     ev.insert(0, GuestEvent::Joined { host_name });
                 }
@@ -991,7 +1009,10 @@ impl GuestSession {
             }
             Msg::End { reason } => ev.extend(self.ended(reason)),
             Msg::Control { guest_control } => self.set_control(guest_control, &mut ev),
-            Msg::Features { features } => self.host_play_next = features.iter().any(|f| f == FEATURE_PLAY_NEXT),
+            Msg::Features { features } => {
+                self.host_play_next = features.iter().any(|f| f == FEATURE_PLAY_NEXT);
+                self.host_seek = features.iter().any(|f| f == FEATURE_SEEK);
+            }
             Msg::Heartbeat { .. } | Msg::Hello { .. } | Msg::Ping { .. } | Msg::Resync { .. } | Msg::Command { .. } | Msg::Bye | Msg::Unknown => {}
         }
         (out, ev)
@@ -1841,6 +1862,8 @@ mod tests {
             GuestCommand::Enqueue { track_ids: vec!["\"\n".into()] },
             GuestCommand::Enqueue { track_ids: vec!["1".repeat(MAX_TRACK_ID_LEN + 1)] },
             GuestCommand::Enqueue { track_ids: vec!["1".into(); MAX_ENQUEUE + 1] },
+            GuestCommand::Seek { position_ms: -1 },
+            GuestCommand::Seek { position_ms: MAX_SEEK_MS + 1 },
         ];
         for (i, c) in bad.into_iter().enumerate() {
             h.on_message("g", Msg::Command { cmd: c, next: false }, i as i64 * CMD_WINDOW_NS);
@@ -1948,6 +1971,27 @@ mod tests {
         w.deliver(o, 60 * S);
         // The guest still plays the old entry at 57 s: seek now, no settle.
         assert_eq!(w.guest.correction(local(60 * S), 0, 57_000), Correction::Seek(0));
+    }
+
+    #[test]
+    fn hosts_advertise_seek() {
+        let mut w = World::new(0, 10 * MS);
+        w.join(0);
+        assert!(w.guest.host_supports_seek());
+        // An older host's Welcome has no features: seeking is unsupported.
+        w.guest.on_message(Msg::Features { features: vec![] }, S);
+        assert!(!w.guest.host_supports_seek());
+    }
+
+    #[test]
+    fn small_host_seek_is_followed_at_once() {
+        let (mut w, local) = following("i");
+        assert_eq!(w.guest.correction(local(13 * S), 0, 10_000), Correction::None); // settle starts
+        // Host seeks 2 s ahead (below the drift tolerance) inside the settle
+        // window: the guest follows right away instead of waiting.
+        let o = w.host.set_playback(Some("i".into()), Some("t".into()), 13_000, true, 14 * S);
+        w.deliver(o, 14 * S);
+        assert_eq!(w.guest.correction(local(14 * S), 0, 11_000), Correction::Seek(13_000));
     }
 
     #[test]

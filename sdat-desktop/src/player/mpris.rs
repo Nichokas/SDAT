@@ -426,11 +426,15 @@ fn handle(cmd: Cmd) {
         Cmd::PlayPause => crate::live::user_play_pause(),
         Cmd::Play => crate::live::user_play(),
         // Guests never take these; the refusal is shown as a toast.
-        Cmd::Previous | Cmd::Stop | Cmd::Seek(_) | Cmd::SetPosition(_) if crate::live::guest_refuses() => {}
+        // Relative to the host's position. Absolute SetPosition is refused for
+        // guests: its track id is not checked, so a late one could move
+        // everyone on the next song.
+        Cmd::Seek(off) if crate::live::user_seek_by(off / 1000) => {}
+        Cmd::Previous | Cmd::Stop | Cmd::SetPosition(_) if crate::live::guest_refuses() => {}
         Cmd::Previous => previous(),
         Cmd::Stop => super::stop(),
         Cmd::Seek(off) => {
-            let pos = playback_state_changed().get().position.as_micros() as i64 + off;
+            let pos = (playback_state_changed().get().position.as_micros() as i64).saturating_add(off);
             seek_to_position(Duration::from_micros(pos.max(0) as u64), false);
         }
         Cmd::SetPosition(p) => seek_to_position(Duration::from_micros(p.max(0) as u64), false),

@@ -102,11 +102,11 @@ private struct NowPlayingPage: View {
                 ) { editing in
                     if !editing, let s = scrub {
                         scrub = nil
-                        // Guests follow the host's position.
-                        if !Live.shared.guestRefuses() { player.seek(to: s) }
+                        // Guests with control ask the host to seek everyone.
+                        if !Live.shared.userSeek(s) { player.seek(to: s) }
                     }
                 }
-                .disabled(Live.shared.isGuest)
+                .disabled(Live.shared.isGuest && !Live.shared.guestControl)
                 .tint(.white)
                 HStack {
                     Text(Fmt.time(scrub ?? player.position))
