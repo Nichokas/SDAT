@@ -218,6 +218,8 @@ pub fn join(url: &str) {
     phase().set(Phase::Joining);
     match LiveGuest::join(url, display_name(), &NetConfig::default(), listener(generation)) {
         Ok(g) => {
+            // Local "play next" requests made before joining must not reach the host.
+            player::invalidate_play_next();
             SESSION.with(|s| *s.borrow_mut() = Some(Session::Guest(Arc::new(g))));
             install_hooks();
             start_guest_tick(generation);

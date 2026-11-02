@@ -100,12 +100,33 @@ pub fn complete_play_next(ticket: PlayNextTicket, tracks: Vec<Track>) {
     // Start playback once, and only if no start is already queued or in
     // flight: `next()` only queues the start, so a second call before the
     // first track plays would pop (and lose) another track.
-    if queued
-        && !AUTOPLAY_PENDING.with(Cell::get)
-        && with(|p| p.machine.stopped_without_pending_start()).unwrap_or(false)
-    {
+    if queued {
+        start_if_idle();
+    }
+}
+
+/// Starts the next queued track if the player is stopped and nothing is about
+/// to start it (a queued/in-flight start or a loading autoplay mix). `next()`
+/// only queues the start, so a second call would pop (and lose) a track.
+fn start_if_idle() {
+    if !AUTOPLAY_PENDING.with(Cell::get) && with(|p| p.machine.stopped_without_pending_start()).unwrap_or(false) {
         next();
     }
+}
+
+/// Fetches the radio mix for a track: its playlist info and all its tracks.
+async fn fetch_radio(track_id: String) -> Result<(tonearm_core::model::PlaylistInfo, Vec<Track>)> {
+    let radio = api::run(move || service::get_track_radio(&track_id))
+        .await
+        .inspect_err(|e| log::error!("failed to retrieve mix: {e}"))?;
+    let Some(mix) = radio else {
+        toasts().notify(&tr("No mix found for the current track"));
+        anyhow::bail!("no mix found for the current track");
+    };
+    let id = mix.id.clone();
+    let info = api::run(move || service::get_playlist_info(&id)).await?;
+    let tracks = crate::cache::all_tracks(crate::cache::Job::Playlist(mix.id)).await?;
+    Ok((info, tracks))
 }
 
 /// Keeps the "play next" region in step with a drag in the user queue.
@@ -279,22 +300,23 @@ async fn on_eos_stopped() {
         stop();
         return;
     };
+    // Fetch the whole mix before touching the queues; "play next" requests
+    // that land meanwhile are queued but not started (see `complete_play_next`).
     AUTOPLAY_PENDING.with(|a| a.set(true));
-    let radio = api::run(move || service::get_track_radio(&id)).await.inspect_err(|e| log::error!("failed to retrieve mix: {e}"));
+    let mix = fetch_radio(id).await;
     AUTOPLAY_PENDING.with(|a| a.set(false));
-    // "Play next" tracks queued while the mix was loading win over autoplay.
+    // Tracks queued while the mix was loading win over autoplay.
     if !user_queue().is_empty() {
-        next();
+        start_if_idle();
         return;
     }
-    let result = match radio {
-        Ok(Some(mix)) => play_playlist(&mix.id, false, 1).await,
-        Ok(None) => {
-            toasts().notify(&tr("No mix found for the current track"));
-            Err(anyhow::anyhow!("no mix found for the current track"))
-        }
-        Err(e) => Err(e),
-    };
+    let result = mix.and_then(|(info, tracks)| {
+        clear_queues();
+        stop();
+        play_tracks(tracks, false, 1)?;
+        source_changed().set(Some(PlaybackSource::Playlist(info)));
+        Ok(())
+    });
     if let Err(e) = result {
         log::info!("failed to play track radio: {e:#}");
         stop();
@@ -326,7 +348,13 @@ fn get_next_track_from_queue(peek: bool) -> Option<Track> {
     if t.is_some() {
         if !peek {
             update_pinned(|p| play_next::after_remove(p, 0));
-            GAPLESS_MOVED.with(|m| m.borrow_mut().take());
+            // Forget the moved gapless entry only once that entry is consumed.
+            GAPLESS_MOVED.with(|m| {
+                let mut m = m.borrow_mut();
+                if t.as_ref().is_some_and(|t| m.as_deref() == Some(t.id())) {
+                    m.take();
+                }
+            });
         }
         return t;
     }
