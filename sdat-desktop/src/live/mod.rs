@@ -367,6 +367,9 @@ const LOAD_TIMEOUT: Duration = Duration::from_secs(20);
 #[derive(Debug, Default)]
 pub struct LoadGate {
     pending: Option<(String, Instant)>,
+    /// Bumped by every started load; a result belongs to the current
+    /// attempt only if it still carries this number.
+    attempt: u64,
     failed: Option<(String, Instant)>,
 }
 
@@ -392,7 +395,17 @@ impl LoadGate {
             return false;
         }
         self.pending = Some((track.to_string(), now));
+        self.attempt += 1;
         true
+    }
+    /// The number of the load started by the last successful [`Self::begin`].
+    pub fn attempt(&self) -> u64 {
+        self.attempt
+    }
+    /// Whether `attempt` is still the pending load of `track`: late or
+    /// superseded results must not start playback.
+    pub fn is_current(&self, track: &str, attempt: u64) -> bool {
+        self.attempt == attempt && self.pending.as_ref().is_some_and(|(t, _)| t == track)
     }
     /// Whether a host track load is in flight.
     pub fn is_loading(&self) -> bool {
@@ -423,13 +436,16 @@ impl LoadGate {
 
 /// Fetches the host's track with the guest's own TIDAL session, then plays it
 /// only if the same session still wants it, honouring the host's pause.
-fn load_host_track(track: String) {
+fn load_host_track(track: String, attempt: u64) {
     let generation = current_generation();
     glib::spawn_future_local(async move {
         let id = track.clone();
         let r = crate::api::run(move || crate::service::get_track(&id)).await;
         if generation != current_generation() {
             return; // session ended or changed meanwhile; teardown reset the gate
+        }
+        if !LOADS.with(|l| l.borrow().is_current(&track, attempt)) {
+            return; // timed out and retried, or superseded: a newer attempt owns it
         }
         let latency = i64::from(output_delay_ms());
         let want = guest().and_then(|g| g.target(latency));
@@ -468,8 +484,16 @@ fn guest_tick() {
         return;
     };
     if player::current_track_id().as_deref() != Some(track.as_str()) {
-        if LOADS.with(|l| l.borrow_mut().begin(&track, Instant::now())) {
-            load_host_track(track);
+        // The player is still fetching a stream: don't time that load out.
+        if ps.loading {
+            return;
+        }
+        let started = LOADS.with(|l| {
+            let mut l = l.borrow_mut();
+            l.begin(&track, Instant::now()).then(|| l.attempt())
+        });
+        if let Some(attempt) = started {
+            load_host_track(track, attempt);
         }
         return;
     }
@@ -559,6 +583,20 @@ mod tests {
         assert!(!g.begin("1", now + LOAD_TIMEOUT), "timed out: backs off first");
         assert!(!g.is_loading());
         assert!(g.begin("1", now + LOAD_TIMEOUT + RETRY_FAILED), "then retried");
+    }
+
+    #[test]
+    fn late_result_of_a_timed_out_attempt_is_rejected() {
+        let now = Instant::now();
+        let mut g = LoadGate::default();
+        assert!(g.begin("1", now));
+        let first = g.attempt();
+        assert!(g.is_current("1", first));
+        assert!(!g.begin("1", now + LOAD_TIMEOUT));
+        assert!(!g.is_current("1", first), "timed out");
+        assert!(g.begin("1", now + LOAD_TIMEOUT + RETRY_FAILED));
+        assert!(!g.is_current("1", first), "the retry owns the track now");
+        assert!(g.is_current("1", g.attempt()));
     }
 
     #[test]
