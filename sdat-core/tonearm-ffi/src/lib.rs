@@ -27,35 +27,36 @@ use tonearm_core::CoreError;
 uniffi::setup_scaffolding!();
 
 /// Error returned by every fallible exported function.
+/// No field is named `message`: it would clash with `Throwable.message` in the Kotlin bindings.
 #[derive(Debug, thiserror::Error, uniffi::Error)]
 pub enum FfiError {
     /// No TIDAL session: show the login screen.
     #[error("not logged in")]
     NotSignedIn,
-    #[error("network: {message}")]
-    Network { message: String },
-    #[error("HTTP {status}: {message}")]
-    Http { status: u16, message: String },
-    #[error("decode: {message}")]
-    Decode { message: String },
-    #[error("Last.fm error {code}: {message}")]
-    LastFm { code: i64, message: String },
+    #[error("network: {detail}")]
+    Network { detail: String },
+    #[error("HTTP {status}: {detail}")]
+    Http { status: u16, detail: String },
+    #[error("decode: {detail}")]
+    Decode { detail: String },
+    #[error("Last.fm error {code}: {detail}")]
+    LastFm { code: i64, detail: String },
     #[error("cancelled")]
     Cancelled,
-    #[error("{message}")]
-    Other { message: String },
+    #[error("{detail}")]
+    Other { detail: String },
 }
 
 impl From<CoreError> for FfiError {
     fn from(e: CoreError) -> Self {
         match e {
             CoreError::NotSignedIn => Self::NotSignedIn,
-            CoreError::Network(message) => Self::Network { message },
-            CoreError::Http { status, message } => Self::Http { status, message },
-            CoreError::Decode(message) => Self::Decode { message },
-            CoreError::LastFm { code, message } => Self::LastFm { code, message },
+            CoreError::Network(detail) => Self::Network { detail },
+            CoreError::Http { status, message: detail } => Self::Http { status, detail },
+            CoreError::Decode(detail) => Self::Decode { detail },
+            CoreError::LastFm { code, message: detail } => Self::LastFm { code, detail },
             CoreError::Cancelled(_) => Self::Cancelled,
-            CoreError::Io(message) | CoreError::Other(message) => Self::Other { message },
+            CoreError::Io(detail) | CoreError::Other(detail) => Self::Other { detail },
         }
     }
 }
