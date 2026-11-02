@@ -1,5 +1,5 @@
 name: Feature Request
-description: If you have an idea for a new feature or other improvements, you can help us improve Tonearm by submitting a feature request.
+description: If you have an idea for a new feature or other improvements, you can help us improve SDAT by submitting a feature request.
 title: "[Enhancement]: "
 labels: ["enhancement", "triage"]
 body:
@@ -7,14 +7,14 @@ body:
     attributes:
       value: |
         ## Thank you for taking your time to submit a feature request
-        We prepared this issue template to help you submit your feature request in a form that helps us better understand how Tonearm
+        We prepared this issue template to help you submit your feature request in a form that helps us better understand how SDAT
         could be improved.
   
   - type: textarea
     id: feature-description
     attributes:
       label: Your idea
-      description: Describe the kind of feature or improvement you would like to see in Tonearm
+      description: Describe the kind of feature or improvement you would like to see in SDAT
       placeholder: ""
     validations:
       required: true
@@ -30,21 +30,21 @@ body:
     id: severity
     attributes:
       label: Impact on usability
-      description: "How badly does the lack of this feature affect day to day use of Tonearm?"
+      description: "How badly does the lack of this feature affect day to day use of SDAT?"
       options:
-        - Tonearm is unusable
-        - Tonearm is barely usable
-        - Tonearm is mostly useable
-        - Tonearm is useable
+        - SDAT is unusable
+        - SDAT is barely usable
+        - SDAT is mostly useable
+        - SDAT is useable
     validations:
       required: true
   
   - type: input
-    id: tonearm-version
+    id: sdat-version
     attributes:
-      label: Tonearm Version
-      description: What version of Tonearm were you using?
-      placeholder: "Hint: You can copy the version by opening to Tonearm's about page and clicking the version under the icon."
+      label: SDAT Version
+      description: What version of SDAT were you using?
+      placeholder: "Hint: You can copy the version by opening to SDAT's about page and clicking the version under the icon."
     validations:
       required: true
   
@@ -52,7 +52,7 @@ body:
     id: packaging
     attributes:
       label: Package Manager / Packaging Method
-      description: "How did you install Tonearm? What packaging method did you use?"
+      description: "How did you install SDAT? What packaging method did you use?"
       options:
         - AUR
         - Flatpak

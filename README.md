@@ -19,8 +19,8 @@ sdat-mobile/scripts/build-rust.sh           # iOS static lib + Swift bindings, t
 
 ## Releases
 
-- `vX.Y.Z` tags: iOS. The unsigned `.ipa` is attached to the release and `feather/source.json` is updated.
-- `desktop-vX.Y.Z` tags (from 1.2.0): desktop. Fedora spec bump, vendor archive and COPR rebuild.
+- `vX.Y.Z` tags: iOS. The unsigned `.ipa` is attached to the release, and a PR is opened to update `feather/source.json`.
+- `desktop-vX.Y.Z` tags (from 1.2.0): desktop. Fedora spec bump, vendor archive and COPR rebuild. The spec already ships 1.2.0, so `desktop-v1.2.0` only publishes the release and vendor archive; the first COPR build is triggered by hand and the automatic spec bump starts with the next version.
 
 ## History and licence
 

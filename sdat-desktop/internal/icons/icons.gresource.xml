@@ -1,7 +1,7 @@
 <?xml version='1.0' encoding='utf-8' ?>
 <gresources>
   <gresource prefix="/dev/dergs/Tonearm/icons/scalable/apps/">
-    <file alias="logo.svg">hicolor/scalable/apps/dev.dergs.Tonearm.svg</file>
+    <file alias="logo.svg">hicolor/scalable/apps/com.nichokas.SDAT.Desktop.svg</file>
   </gresource>
   <gresource prefix="/dev/dergs/Tonearm/icons/scalable/actions/">
   <file alias="arrow-circular-top-right-symbolic.svg">scalable/actions/arrow-circular-top-right-symbolic.svg</file>
@@ -52,6 +52,6 @@
     <file alias="missing-album.png">hicolor/512x512/state/missing-album.png</file>
   </gresource>
   <gresource prefix="/dev/dergs/Tonearm/icons/symbolic/apps/">
-    <file alias="logo-symbolic.svg">hicolor/symbolic/apps/dev.dergs.Tonearm-symbolic.svg</file>
+    <file alias="logo-symbolic.svg">hicolor/symbolic/apps/com.nichokas.SDAT.Desktop-symbolic.svg</file>
   </gresource>
 </gresources>

@@ -61,6 +61,7 @@ pub fn initialize(tokens: Arc<dyn TokenStore>, config: Arc<dyn AppConfig>) {
 #[uniffi::export]
 pub fn session_changed() {
     api::reset_user_token();
+    api::reset_country_code();
     for c in [&state::ALBUMS, &state::ARTISTS, &state::MIXES, &state::PLAYLISTS, &state::TRACKS] {
         c.bust();
     }
@@ -101,6 +102,9 @@ impl DeviceLogin {
     pub async fn wait(&self) -> Result<LoginTokens, FfiError> {
         let (code, interval, c) = (self.device_code.clone(), self.interval, Arc::clone(&self.cancelled));
         let r = run(move || api::poll_device_linking_status(&code, interval, &|| c.load(Ordering::SeqCst))).await?;
+        if self.cancelled.load(Ordering::SeqCst) {
+            return Err(FfiError::Cancelled);
+        }
         let user_id = if r.user_id != 0 { r.user_id } else { r.user.id };
         Ok(LoginTokens { refresh_token: r.refresh_token, user_id: user_id.to_string() })
     }
@@ -113,7 +117,8 @@ impl DeviceLogin {
 #[uniffi::export]
 pub async fn start_device_login() -> Result<Arc<DeviceLogin>, FfiError> {
     let d = run(api::request_device_linking_challenge).await?;
-    let verification_url = if d.verification_uri_complete.starts_with("http") { d.verification_uri_complete } else { format!("https://{}", d.verification_uri_complete) };
+    let uri = if d.verification_uri_complete.is_empty() { d.verification_uri } else { d.verification_uri_complete };
+    let verification_url = if uri.starts_with("http") { uri } else { format!("https://{}", uri) };
     Ok(Arc::new(DeviceLogin {
         device_code: d.device_code,
         interval: d.interval,

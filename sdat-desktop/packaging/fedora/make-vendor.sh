@@ -8,7 +8,7 @@ OUTDIR="$(realpath -m "${2:-.}")"
 REPO="${GITHUB_REPOSITORY:-Nichokas/SDAT}"
 mkdir -p "$OUTDIR"
 work="$(mktemp -d)"; trap 'rm -rf "$work"' EXIT
-curl -fsSL "https://github.com/${REPO}/archive/desktop-v${VERSION}/SDAT-desktop-v${VERSION}.tar.gz" | tar -xz -C "$work"
+curl -fsSL "https://github.com/${REPO}/archive/refs/tags/desktop-v${VERSION}.tar.gz" | tar -xz -C "$work"
 cd "$work"/*/
 cargo vendor --locked --versioned-dirs vendor >/dev/null
 out="$OUTDIR/sdat-desktop-${VERSION}-vendor.tar.xz"
