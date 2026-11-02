@@ -162,7 +162,12 @@ impl HostSession {
     }
 
     /// Records a command attempt; `false` when `peer` is over its budget.
+    /// The budget outlives `Bye` and reconnects, so leaving and rejoining
+    /// does not refill it; idle entries are pruned to bound the map.
     fn within_budget(&mut self, peer: &str, now_ns: i64) -> bool {
+        if self.cmd_times.len() > 4 * MAX_GUESTS {
+            self.cmd_times.retain(|_, t| t.back().is_some_and(|last| now_ns - last < CMD_WINDOW_NS));
+        }
         let times = self.cmd_times.entry(peer.to_owned()).or_default();
         while times.front().is_some_and(|t| now_ns - t >= CMD_WINDOW_NS) {
             times.pop_front();
@@ -240,7 +245,6 @@ impl HostSession {
             Msg::Bye => {
                 self.guests.remove(peer);
                 self.last_resync_ns.remove(peer);
-                self.cmd_times.remove(peer);
                 Vec::new()
             }
             // Guests cannot send host messages.
@@ -251,7 +255,6 @@ impl HostSession {
     pub fn peer_disconnected(&mut self, peer: &str) {
         self.guests.remove(peer);
         self.last_resync_ns.remove(peer);
-        self.cmd_times.remove(peer);
     }
 
     /// Host player state changed (play, pause, seek, new track). Coalesced
@@ -370,6 +373,9 @@ pub struct GuestSession {
     need_snapshot: bool,
     /// Whether the host currently accepts our playback commands.
     guest_control: bool,
+    /// Our recent command times: the same budget as the host's, so honest
+    /// commands are never dropped there and the outgoing queue stays small.
+    cmd_times: std::collections::VecDeque<i64>,
 }
 
 impl GuestSession {
@@ -392,6 +398,7 @@ impl GuestSession {
             resync_sent_ns: None,
             need_snapshot: false,
             guest_control: false,
+            cmd_times: std::collections::VecDeque::new(),
         }
     }
 
@@ -417,9 +424,20 @@ impl GuestSession {
     }
 
     /// The message for a playback request, or `None` when it cannot be sent
-    /// (not joined, control not allowed, or malformed).
-    pub fn command(&self, cmd: GuestCommand) -> Option<Msg> {
-        (self.phase == GuestPhase::Joined && self.guest_control && valid_command(&cmd)).then_some(Msg::Command { cmd })
+    /// (not joined, control not allowed, malformed, or over the budget of
+    /// [`CMD_BURST`] per [`CMD_WINDOW_NS`]).
+    pub fn command(&mut self, cmd: GuestCommand, now_ns: i64) -> Option<Msg> {
+        if self.phase != GuestPhase::Joined || !self.guest_control || !valid_command(&cmd) {
+            return None;
+        }
+        while self.cmd_times.front().is_some_and(|t| now_ns - t >= CMD_WINDOW_NS) {
+            self.cmd_times.pop_front();
+        }
+        if self.cmd_times.len() >= CMD_BURST {
+            return None;
+        }
+        self.cmd_times.push_back(now_ns);
+        Some(Msg::Command { cmd })
     }
 
     fn set_control(&mut self, allowed: bool, ev: &mut Vec<GuestEvent>) {
@@ -940,7 +958,7 @@ mod tests {
         let mut w = World::new(0, MS);
         w.join(0);
         assert!(!w.guest.guest_control());
-        assert_eq!(w.guest.command(GuestCommand::Pause), None, "locked by default");
+        assert_eq!(w.guest.command(GuestCommand::Pause, S), None, "locked by default");
         // A guest sending anyway is ignored and told it is locked.
         let r = w.host.on_message("g", Msg::Command { cmd: GuestCommand::Next }, S);
         assert_eq!(r, vec![to("g", Msg::Control { guest_control: false })]);
@@ -949,7 +967,7 @@ mod tests {
         let o = w.host.set_guest_control(true);
         w.deliver(o, 2 * S);
         assert!(w.events.contains(&GuestEvent::ControlChanged(true)));
-        let m = w.guest.command(GuestCommand::Enqueue { track_ids: vec!["123".into()] }).unwrap();
+        let m = w.guest.command(GuestCommand::Enqueue { track_ids: vec!["123".into()] }, 3 * S).unwrap();
         w.send_guest(vec![m], 3 * S);
         let cmds = w.host.take_commands();
         assert_eq!(cmds, vec![HostCommand { peer: "g".into(), name: "Guest".into(), cmd: GuestCommand::Enqueue { track_ids: vec!["123".into()] } }]);
@@ -994,6 +1012,35 @@ mod tests {
         assert!(h.take_commands().is_empty());
         h.on_message("g", Msg::Command { cmd: GuestCommand::Enqueue { track_ids: vec!["1".into(); MAX_ENQUEUE] } }, 100 * S);
         assert_eq!(h.take_commands().len(), 1);
+    }
+
+    #[test]
+    fn rejoining_does_not_refill_the_budget() {
+        let mut h = HostSession::new("H".into(), 0);
+        let secret = h.secret.clone();
+        let hello = |s: &str| Msg::Hello { proto: PROTO_VERSION, secret: s.into(), name: "G".into() };
+        h.on_message("g", hello(&secret), 0);
+        h.set_guest_control(true);
+        for i in 0..CMD_BURST as i64 {
+            h.on_message("g", Msg::Command { cmd: GuestCommand::Next }, S + i * MS);
+        }
+        h.on_message("g", Msg::Bye, S + 10 * MS);
+        h.on_message("g", hello(&secret), S + RESYNC_MIN_NS + 20 * MS);
+        h.on_message("g", Msg::Command { cmd: GuestCommand::Next }, S + RESYNC_MIN_NS + 30 * MS);
+        h.peer_disconnected("g");
+        h.on_message("g", hello(&secret), S + 2 * RESYNC_MIN_NS + 40 * MS);
+        h.on_message("g", Msg::Command { cmd: GuestCommand::Next }, S + 2 * RESYNC_MIN_NS + 50 * MS);
+        assert_eq!(h.take_commands().len(), CMD_BURST);
+    }
+
+    #[test]
+    fn guest_limits_its_own_commands() {
+        let mut w = World::new(0, MS);
+        w.host.set_guest_control(true);
+        w.join(0);
+        let sent = (0..100).filter(|i| w.guest.command(GuestCommand::Next, S + i * MS).is_some()).count();
+        assert_eq!(sent, CMD_BURST);
+        assert!(w.guest.command(GuestCommand::Next, S + CMD_WINDOW_NS).is_some());
     }
 
     #[test]

@@ -560,9 +560,10 @@ impl LiveGuest {
     }
 
     /// Asks the host for a playback change. `false` when it was not sent
-    /// (not connected, not allowed, or malformed).
+    /// (not connected, not allowed, malformed, or over the per-guest budget,
+    /// which also bounds the outgoing queue).
     pub fn send_command(&self, cmd: GuestCommand) -> bool {
-        let Some(m) = self.state.lock().unwrap_or_else(PoisonError::into_inner).command(cmd) else { return false };
+        let Some(m) = self.state.lock().unwrap_or_else(PoisonError::into_inner).command(cmd, mono_now_ns()) else { return false };
         self.tx.lock().unwrap_or_else(PoisonError::into_inner).as_ref().is_some_and(|tx| tx.send(m).is_ok())
     }
 
