@@ -1328,6 +1328,654 @@ public func FfiConverterTypeDeviceLogin_lower(_ value: DeviceLogin) -> UInt64 {
 
 
 /**
+ * A session this device joined.
+ */
+public protocol LiveGuestProtocol: AnyObject, Sendable {
+    
+    /**
+     * Drift correction for a player at `actual_ms` on the target track.
+     */
+    func correction(latencyMs: Int64, actualMs: Int64)  -> LiveCorrection
+    
+    func hostName()  -> String
+    
+    func leave() 
+    
+    /**
+     * Shared queue in order; `item_id` matches [`LiveTarget::item_id`], so
+     * repeated tracks can be told apart.
+     */
+    func queue()  -> [LiveQueueEntry]
+    
+    /**
+     * Shared queue as track ids, in order.
+     */
+    func queueTrackIds()  -> [String]
+    
+    /**
+     * Low power mode: no rate nudging, seeks only.
+     */
+    func setSeekOnly(on: Bool) 
+    
+    /**
+     * Where the player should be now; `None` until synced.
+     */
+    func target(latencyMs: Int64)  -> LiveTarget?
+    
+}
+/**
+ * A session this device joined.
+ */
+open class LiveGuest: LiveGuestProtocol, @unchecked Sendable {
+    fileprivate let handle: UInt64
+
+    /// Used to instantiate a [FFIObject] without an actual handle, for fakes in tests, mostly.
+#if swift(>=5.8)
+    @_documentation(visibility: private)
+#endif
+    public struct NoHandle {
+        public init() {}
+    }
+
+    // TODO: We'd like this to be `private` but for Swifty reasons,
+    // we can't implement `FfiConverter` without making this `required` and we can't
+    // make it `required` without making it `public`.
+#if swift(>=5.8)
+    @_documentation(visibility: private)
+#endif
+    required public init(unsafeFromHandle handle: UInt64) {
+        self.handle = handle
+    }
+
+    // This constructor can be used to instantiate a fake object.
+    // - Parameter noHandle: Placeholder value so we can have a constructor separate from the default empty one that may be implemented for classes extending [FFIObject].
+    //
+    // - Warning:
+    //     Any object instantiated with this constructor cannot be passed to an actual Rust-backed object. Since there isn't a backing handle the FFI lower functions will crash.
+#if swift(>=5.8)
+    @_documentation(visibility: private)
+#endif
+    public init(noHandle: NoHandle) {
+        self.handle = 0
+    }
+
+#if swift(>=5.8)
+    @_documentation(visibility: private)
+#endif
+    public func uniffiCloneHandle() -> UInt64 {
+        return try! rustCall { uniffi_tonearm_ffi_fn_clone_liveguest(self.handle, $0) }
+    }
+    // No primary constructor declared for this class.
+
+    deinit {
+        if handle == 0 {
+            // Mock objects have handle=0 don't try to free them
+            return
+        }
+
+        try! rustCall { uniffi_tonearm_ffi_fn_free_liveguest(handle, $0) }
+    }
+
+    
+    /**
+     * Starts joining from an `sdat://join/...` link or QR content.
+     */
+public static func join(invite: String, name: String, relays: LiveRelayConfig?, observer: LiveObserver)throws  -> LiveGuest  {
+    return try  FfiConverterTypeLiveGuest_lift(try rustCallWithError(FfiConverterTypeFfiError_lift) {
+        uniffiCallStatus in
+    uniffi_tonearm_ffi_fn_constructor_liveguest_join(
+        FfiConverterString.lower(invite),
+        FfiConverterString.lower(name),
+        FfiConverterOptionTypeLiveRelayConfig.lower(relays),
+        FfiConverterTypeLiveObserver_lower(observer),uniffiCallStatus
+    )
+})
+}
+    
+
+    
+    /**
+     * Drift correction for a player at `actual_ms` on the target track.
+     */
+open func correction(latencyMs: Int64, actualMs: Int64) -> LiveCorrection  {
+    return try!  FfiConverterTypeLiveCorrection_lift(try! rustCall() {
+        uniffiCallStatus in
+    uniffi_tonearm_ffi_fn_method_liveguest_correction(
+            self.uniffiCloneHandle(),
+        FfiConverterInt64.lower(latencyMs),
+        FfiConverterInt64.lower(actualMs),uniffiCallStatus
+    )
+})
+}
+    
+open func hostName() -> String  {
+    return try!  FfiConverterString.lift(try! rustCall() {
+        uniffiCallStatus in
+    uniffi_tonearm_ffi_fn_method_liveguest_host_name(
+            self.uniffiCloneHandle(),uniffiCallStatus
+    )
+})
+}
+    
+open func leave()  {try! rustCall() {
+        uniffiCallStatus in
+    uniffi_tonearm_ffi_fn_method_liveguest_leave(
+            self.uniffiCloneHandle(),uniffiCallStatus
+    )
+}
+}
+    
+    /**
+     * Shared queue in order; `item_id` matches [`LiveTarget::item_id`], so
+     * repeated tracks can be told apart.
+     */
+open func queue() -> [LiveQueueEntry]  {
+    return try!  FfiConverterSequenceTypeLiveQueueEntry.lift(try! rustCall() {
+        uniffiCallStatus in
+    uniffi_tonearm_ffi_fn_method_liveguest_queue(
+            self.uniffiCloneHandle(),uniffiCallStatus
+    )
+})
+}
+    
+    /**
+     * Shared queue as track ids, in order.
+     */
+open func queueTrackIds() -> [String]  {
+    return try!  FfiConverterSequenceString.lift(try! rustCall() {
+        uniffiCallStatus in
+    uniffi_tonearm_ffi_fn_method_liveguest_queue_track_ids(
+            self.uniffiCloneHandle(),uniffiCallStatus
+    )
+})
+}
+    
+    /**
+     * Low power mode: no rate nudging, seeks only.
+     */
+open func setSeekOnly(on: Bool)  {try! rustCall() {
+        uniffiCallStatus in
+    uniffi_tonearm_ffi_fn_method_liveguest_set_seek_only(
+            self.uniffiCloneHandle(),
+        FfiConverterBool.lower(on),uniffiCallStatus
+    )
+}
+}
+    
+    /**
+     * Where the player should be now; `None` until synced.
+     */
+open func target(latencyMs: Int64) -> LiveTarget?  {
+    return try!  FfiConverterOptionTypeLiveTarget.lift(try! rustCall() {
+        uniffiCallStatus in
+    uniffi_tonearm_ffi_fn_method_liveguest_target(
+            self.uniffiCloneHandle(),
+        FfiConverterInt64.lower(latencyMs),uniffiCallStatus
+    )
+})
+}
+    
+
+    
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeLiveGuest: FfiConverter {
+    typealias FfiType = UInt64
+    typealias SwiftType = LiveGuest
+
+    public static func lift(_ handle: UInt64) throws -> LiveGuest {
+        return LiveGuest(unsafeFromHandle: handle)
+    }
+
+    public static func lower(_ value: LiveGuest) -> UInt64 {
+        return value.uniffiCloneHandle()
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> LiveGuest {
+        let handle: UInt64 = try readInt(&buf)
+        return try lift(handle)
+    }
+
+    public static func write(_ value: LiveGuest, into buf: inout [UInt8]) {
+        writeInt(&buf, lower(value))
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeLiveGuest_lift(_ handle: UInt64) throws -> LiveGuest {
+    return try FfiConverterTypeLiveGuest.lift(handle)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeLiveGuest_lower(_ value: LiveGuest) -> UInt64 {
+    return FfiConverterTypeLiveGuest.lower(value)
+}
+
+
+
+
+
+
+/**
+ * A session this device hosts.
+ */
+public protocol LiveHostProtocol: AnyObject, Sendable {
+    
+    func end() 
+    
+    func guests()  -> [LiveGuestInfo]
+    
+    /**
+     * `sdat://join/...`, for the QR code.
+     */
+    func inviteUrl()  -> String
+    
+    /**
+     * Call on play, pause, seek and track change.
+     */
+    func setPlayback(itemId: String?, trackId: String?, positionMs: Int64, playing: Bool) 
+    
+    /**
+     * Replaces the shared queue (max 500); returns one entry id per track.
+     */
+    func setQueue(trackIds: [String]) throws  -> [String]
+    
+}
+/**
+ * A session this device hosts.
+ */
+open class LiveHost: LiveHostProtocol, @unchecked Sendable {
+    fileprivate let handle: UInt64
+
+    /// Used to instantiate a [FFIObject] without an actual handle, for fakes in tests, mostly.
+#if swift(>=5.8)
+    @_documentation(visibility: private)
+#endif
+    public struct NoHandle {
+        public init() {}
+    }
+
+    // TODO: We'd like this to be `private` but for Swifty reasons,
+    // we can't implement `FfiConverter` without making this `required` and we can't
+    // make it `required` without making it `public`.
+#if swift(>=5.8)
+    @_documentation(visibility: private)
+#endif
+    required public init(unsafeFromHandle handle: UInt64) {
+        self.handle = handle
+    }
+
+    // This constructor can be used to instantiate a fake object.
+    // - Parameter noHandle: Placeholder value so we can have a constructor separate from the default empty one that may be implemented for classes extending [FFIObject].
+    //
+    // - Warning:
+    //     Any object instantiated with this constructor cannot be passed to an actual Rust-backed object. Since there isn't a backing handle the FFI lower functions will crash.
+#if swift(>=5.8)
+    @_documentation(visibility: private)
+#endif
+    public init(noHandle: NoHandle) {
+        self.handle = 0
+    }
+
+#if swift(>=5.8)
+    @_documentation(visibility: private)
+#endif
+    public func uniffiCloneHandle() -> UInt64 {
+        return try! rustCall { uniffi_tonearm_ffi_fn_clone_livehost(self.handle, $0) }
+    }
+    // No primary constructor declared for this class.
+
+    deinit {
+        if handle == 0 {
+            // Mock objects have handle=0 don't try to free them
+            return
+        }
+
+        try! rustCall { uniffi_tonearm_ffi_fn_free_livehost(handle, $0) }
+    }
+
+    
+    /**
+     * Opens a session (blocks up to ~5 s while the endpoint goes online).
+     */
+public static func start(name: String, relays: LiveRelayConfig?, observer: LiveObserver)async throws  -> LiveHost  {
+    return
+        try  await uniffiRustCallAsync(
+            rustFutureFunc: {
+                uniffi_tonearm_ffi_fn_constructor_livehost_start(FfiConverterString.lower(name),FfiConverterOptionTypeLiveRelayConfig.lower(relays),FfiConverterTypeLiveObserver_lower(observer)
+                )
+            },
+            pollFunc: ffi_tonearm_ffi_rust_future_poll_u64,
+            completeFunc: ffi_tonearm_ffi_rust_future_complete_u64,
+            freeFunc: ffi_tonearm_ffi_rust_future_free_u64,
+            liftFunc: FfiConverterTypeLiveHost_lift,
+            errorHandler: FfiConverterTypeFfiError_lift
+        )
+}
+    
+
+    
+open func end()  {try! rustCall() {
+        uniffiCallStatus in
+    uniffi_tonearm_ffi_fn_method_livehost_end(
+            self.uniffiCloneHandle(),uniffiCallStatus
+    )
+}
+}
+    
+open func guests() -> [LiveGuestInfo]  {
+    return try!  FfiConverterSequenceTypeLiveGuestInfo.lift(try! rustCall() {
+        uniffiCallStatus in
+    uniffi_tonearm_ffi_fn_method_livehost_guests(
+            self.uniffiCloneHandle(),uniffiCallStatus
+    )
+})
+}
+    
+    /**
+     * `sdat://join/...`, for the QR code.
+     */
+open func inviteUrl() -> String  {
+    return try!  FfiConverterString.lift(try! rustCall() {
+        uniffiCallStatus in
+    uniffi_tonearm_ffi_fn_method_livehost_invite_url(
+            self.uniffiCloneHandle(),uniffiCallStatus
+    )
+})
+}
+    
+    /**
+     * Call on play, pause, seek and track change.
+     */
+open func setPlayback(itemId: String?, trackId: String?, positionMs: Int64, playing: Bool)  {try! rustCall() {
+        uniffiCallStatus in
+    uniffi_tonearm_ffi_fn_method_livehost_set_playback(
+            self.uniffiCloneHandle(),
+        FfiConverterOptionString.lower(itemId),
+        FfiConverterOptionString.lower(trackId),
+        FfiConverterInt64.lower(positionMs),
+        FfiConverterBool.lower(playing),uniffiCallStatus
+    )
+}
+}
+    
+    /**
+     * Replaces the shared queue (max 500); returns one entry id per track.
+     */
+open func setQueue(trackIds: [String])throws  -> [String]  {
+    return try  FfiConverterSequenceString.lift(try rustCallWithError(FfiConverterTypeFfiError_lift) {
+        uniffiCallStatus in
+    uniffi_tonearm_ffi_fn_method_livehost_set_queue(
+            self.uniffiCloneHandle(),
+        FfiConverterSequenceString.lower(trackIds),uniffiCallStatus
+    )
+})
+}
+    
+
+    
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeLiveHost: FfiConverter {
+    typealias FfiType = UInt64
+    typealias SwiftType = LiveHost
+
+    public static func lift(_ handle: UInt64) throws -> LiveHost {
+        return LiveHost(unsafeFromHandle: handle)
+    }
+
+    public static func lower(_ value: LiveHost) -> UInt64 {
+        return value.uniffiCloneHandle()
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> LiveHost {
+        let handle: UInt64 = try readInt(&buf)
+        return try lift(handle)
+    }
+
+    public static func write(_ value: LiveHost, into buf: inout [UInt8]) {
+        writeInt(&buf, lower(value))
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeLiveHost_lift(_ handle: UInt64) throws -> LiveHost {
+    return try FfiConverterTypeLiveHost.lift(handle)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeLiveHost_lower(_ value: LiveHost) -> UInt64 {
+    return FfiConverterTypeLiveHost.lower(value)
+}
+
+
+
+
+
+
+/**
+ * Implemented in Swift; called from a background thread.
+ */
+public protocol LiveObserver: AnyObject, Sendable {
+    
+    func onUpdate(update: LiveUpdate) 
+    
+}
+/**
+ * Implemented in Swift; called from a background thread.
+ */
+open class LiveObserverImpl: LiveObserver, @unchecked Sendable {
+    fileprivate let handle: UInt64
+
+    /// Used to instantiate a [FFIObject] without an actual handle, for fakes in tests, mostly.
+#if swift(>=5.8)
+    @_documentation(visibility: private)
+#endif
+    public struct NoHandle {
+        public init() {}
+    }
+
+    // TODO: We'd like this to be `private` but for Swifty reasons,
+    // we can't implement `FfiConverter` without making this `required` and we can't
+    // make it `required` without making it `public`.
+#if swift(>=5.8)
+    @_documentation(visibility: private)
+#endif
+    required public init(unsafeFromHandle handle: UInt64) {
+        self.handle = handle
+    }
+
+    // This constructor can be used to instantiate a fake object.
+    // - Parameter noHandle: Placeholder value so we can have a constructor separate from the default empty one that may be implemented for classes extending [FFIObject].
+    //
+    // - Warning:
+    //     Any object instantiated with this constructor cannot be passed to an actual Rust-backed object. Since there isn't a backing handle the FFI lower functions will crash.
+#if swift(>=5.8)
+    @_documentation(visibility: private)
+#endif
+    public init(noHandle: NoHandle) {
+        self.handle = 0
+    }
+
+#if swift(>=5.8)
+    @_documentation(visibility: private)
+#endif
+    public func uniffiCloneHandle() -> UInt64 {
+        return try! rustCall { uniffi_tonearm_ffi_fn_clone_liveobserver(self.handle, $0) }
+    }
+    // No primary constructor declared for this class.
+
+    deinit {
+        if handle == 0 {
+            // Mock objects have handle=0 don't try to free them
+            return
+        }
+
+        try! rustCall { uniffi_tonearm_ffi_fn_free_liveobserver(handle, $0) }
+    }
+
+    
+
+    
+open func onUpdate(update: LiveUpdate)  {try! rustCall() {
+        uniffiCallStatus in
+    uniffi_tonearm_ffi_fn_method_liveobserver_on_update(
+            self.uniffiCloneHandle(),
+        FfiConverterTypeLiveUpdate_lower(update),uniffiCallStatus
+    )
+}
+}
+    
+
+    
+}
+
+
+
+// Put the implementation in a struct so we don't pollute the top-level namespace
+fileprivate struct UniffiCallbackInterfaceLiveObserver {
+
+    // Create the VTable using a series of closures.
+    // Swift automatically converts these into C callback functions.
+    //
+    // Store the vtable directly.
+    static let vtable: UniffiVTableCallbackInterfaceLiveObserver = UniffiVTableCallbackInterfaceLiveObserver(
+        uniffiFree: { (uniffiHandle: UInt64) -> () in
+            do {
+                try FfiConverterTypeLiveObserver.handleMap.remove(handle: uniffiHandle)
+            } catch {
+                print("Uniffi callback interface LiveObserver: handle missing in uniffiFree")
+            }
+        },
+        uniffiClone: { (uniffiHandle: UInt64) -> UInt64 in
+            do {
+                return try FfiConverterTypeLiveObserver.handleMap.clone(handle: uniffiHandle)
+            } catch {
+                fatalError("Uniffi callback interface LiveObserver: handle missing in uniffiClone")
+            }
+        },
+        onUpdate: { (
+            uniffiHandle: UInt64,
+            update: RustBuffer,
+            uniffiOutReturn: UnsafeMutableRawPointer,
+            uniffiCallStatus: UnsafeMutablePointer<RustCallStatus>
+        ) in
+            let makeCall = {
+                () throws -> () in
+                guard let uniffiObj = try? FfiConverterTypeLiveObserver.handleMap.get(handle: uniffiHandle) else {
+                    throw UniffiInternalError.unexpectedStaleHandle
+                }
+                return uniffiObj.onUpdate(
+                     update: try FfiConverterTypeLiveUpdate_lift(update)
+                )
+            }
+
+            
+            let writeReturn = { () }
+            uniffiTraitInterfaceCall(
+                callStatus: uniffiCallStatus,
+                makeCall: makeCall,
+                writeReturn: writeReturn
+            )
+        }
+    )
+
+    // Rust stores this pointer for future callback invocations, so it must live
+    // for the process lifetime (not just for the init function call).
+    //
+    // `nonisolated(unsafe)` is needed under Swift 6 strict concurrency.
+    // This is safe because the pointee is initialized once during static init
+    // and never mutated by either side of the FFI.  Its fields are C function pointers.
+    nonisolated(unsafe) static let vtablePtr: UnsafePointer<UniffiVTableCallbackInterfaceLiveObserver> = {
+        let ptr = UnsafeMutablePointer<UniffiVTableCallbackInterfaceLiveObserver>.allocate(capacity: 1)
+        ptr.initialize(to: vtable)
+        return UnsafePointer(ptr)
+    }()
+}
+
+private func uniffiCallbackInitLiveObserver() {
+    uniffi_tonearm_ffi_fn_init_callback_vtable_liveobserver(UniffiCallbackInterfaceLiveObserver.vtablePtr)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeLiveObserver: FfiConverter {
+    fileprivate static let handleMap = UniffiHandleMap<LiveObserver>()
+
+    typealias FfiType = UInt64
+    typealias SwiftType = LiveObserver
+
+    public static func lift(_ handle: UInt64) throws -> LiveObserver {
+        if ((handle & 1) == 0) {
+            // Rust-generated handle, construct a new class that uses the handle to implement the
+            // interface
+            return LiveObserverImpl(unsafeFromHandle: handle)
+        } else {
+            // Swift-generated handle, get the object from the handle map
+            return try handleMap.remove(handle: handle)
+        }
+    }
+
+    public static func lower(_ value: LiveObserver) -> UInt64 {
+         if let rustImpl = value as? LiveObserverImpl {
+             // Rust-implemented object.  Clone the handle and return it
+            return rustImpl.uniffiCloneHandle()
+         } else {
+            // Swift object, generate a new vtable handle and return that.
+            return handleMap.insert(obj: value)
+         }
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> LiveObserver {
+        let handle: UInt64 = try readInt(&buf)
+        return try lift(handle)
+    }
+
+    public static func write(_ value: LiveObserver, into buf: inout [UInt8]) {
+        writeInt(&buf, lower(value))
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeLiveObserver_lift(_ handle: UInt64) throws -> LiveObserver {
+    return try FfiConverterTypeLiveObserver.lift(handle)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeLiveObserver_lower(_ value: LiveObserver) -> UInt64 {
+    return FfiConverterTypeLiveObserver.lower(value)
+}
+
+
+
+
+
+
+/**
  * Pages of playlists.
  */
 public protocol PlaylistPagerProtocol: AnyObject, Sendable {
@@ -2609,6 +3257,236 @@ public func FfiConverterTypeLastFmAuth_lower(_ value: LastFmAuth) -> RustBuffer 
 }
 
 
+public struct LiveGuestInfo: Equatable, Hashable {
+    public var peer: String
+    public var name: String
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(peer: String, name: String) {
+        self.peer = peer
+        self.name = name
+    }
+
+    
+
+    
+}
+
+#if compiler(>=6)
+extension LiveGuestInfo: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeLiveGuestInfo: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> LiveGuestInfo {
+        return
+            try LiveGuestInfo(
+                peer: FfiConverterString.read(from: &buf), 
+                name: FfiConverterString.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: LiveGuestInfo, into buf: inout [UInt8]) {
+        FfiConverterString.write(value.peer, into: &buf)
+        FfiConverterString.write(value.name, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeLiveGuestInfo_lift(_ buf: RustBuffer) throws -> LiveGuestInfo {
+    return try FfiConverterTypeLiveGuestInfo.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeLiveGuestInfo_lower(_ value: LiveGuestInfo) -> RustBuffer {
+    return FfiConverterTypeLiveGuestInfo.lower(value)
+}
+
+
+public struct LiveQueueEntry: Equatable, Hashable {
+    public var itemId: String
+    public var trackId: String
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(itemId: String, trackId: String) {
+        self.itemId = itemId
+        self.trackId = trackId
+    }
+
+    
+
+    
+}
+
+#if compiler(>=6)
+extension LiveQueueEntry: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeLiveQueueEntry: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> LiveQueueEntry {
+        return
+            try LiveQueueEntry(
+                itemId: FfiConverterString.read(from: &buf), 
+                trackId: FfiConverterString.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: LiveQueueEntry, into buf: inout [UInt8]) {
+        FfiConverterString.write(value.itemId, into: &buf)
+        FfiConverterString.write(value.trackId, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeLiveQueueEntry_lift(_ buf: RustBuffer) throws -> LiveQueueEntry {
+    return try FfiConverterTypeLiveQueueEntry.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeLiveQueueEntry_lower(_ value: LiveQueueEntry) -> RustBuffer {
+    return FfiConverterTypeLiveQueueEntry.lower(value)
+}
+
+
+public struct LiveRelayConfig: Equatable, Hashable {
+    /**
+     * Preferred relay URLs; empty uses the built-in default.
+     */
+    public var relays: [String]
+    public var n0Fallback: Bool
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(
+        /**
+         * Preferred relay URLs; empty uses the built-in default.
+         */relays: [String], n0Fallback: Bool) {
+        self.relays = relays
+        self.n0Fallback = n0Fallback
+    }
+
+    
+
+    
+}
+
+#if compiler(>=6)
+extension LiveRelayConfig: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeLiveRelayConfig: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> LiveRelayConfig {
+        return
+            try LiveRelayConfig(
+                relays: FfiConverterSequenceString.read(from: &buf), 
+                n0Fallback: FfiConverterBool.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: LiveRelayConfig, into buf: inout [UInt8]) {
+        FfiConverterSequenceString.write(value.relays, into: &buf)
+        FfiConverterBool.write(value.n0Fallback, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeLiveRelayConfig_lift(_ buf: RustBuffer) throws -> LiveRelayConfig {
+    return try FfiConverterTypeLiveRelayConfig.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeLiveRelayConfig_lower(_ value: LiveRelayConfig) -> RustBuffer {
+    return FfiConverterTypeLiveRelayConfig.lower(value)
+}
+
+
+public struct LiveTarget: Equatable, Hashable {
+    public var itemId: String?
+    public var trackId: String?
+    public var positionMs: Int64
+    public var playing: Bool
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(itemId: String?, trackId: String?, positionMs: Int64, playing: Bool) {
+        self.itemId = itemId
+        self.trackId = trackId
+        self.positionMs = positionMs
+        self.playing = playing
+    }
+
+    
+
+    
+}
+
+#if compiler(>=6)
+extension LiveTarget: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeLiveTarget: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> LiveTarget {
+        return
+            try LiveTarget(
+                itemId: FfiConverterOptionString.read(from: &buf), 
+                trackId: FfiConverterOptionString.read(from: &buf), 
+                positionMs: FfiConverterInt64.read(from: &buf), 
+                playing: FfiConverterBool.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: LiveTarget, into buf: inout [UInt8]) {
+        FfiConverterOptionString.write(value.itemId, into: &buf)
+        FfiConverterOptionString.write(value.trackId, into: &buf)
+        FfiConverterInt64.write(value.positionMs, into: &buf)
+        FfiConverterBool.write(value.playing, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeLiveTarget_lift(_ buf: RustBuffer) throws -> LiveTarget {
+    return try FfiConverterTypeLiveTarget.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeLiveTarget_lower(_ value: LiveTarget) -> RustBuffer {
+    return FfiConverterTypeLiveTarget.lower(value)
+}
+
+
 /**
  * Tokens to store in the Keychain after a successful login.
  */
@@ -3589,6 +4467,294 @@ public func FfiConverterTypeFfiError_lower(_ value: FfiError) -> RustBuffer {
 }
 
 
+
+public enum LiveCorrection: Equatable, Hashable {
+    
+    case none
+    case rate(rate: Double
+    )
+    case seek(positionMs: Int64
+    )
+
+
+
+
+
+}
+
+#if compiler(>=6)
+extension LiveCorrection: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeLiveCorrection: FfiConverterRustBuffer {
+    typealias SwiftType = LiveCorrection
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> LiveCorrection {
+        let variant: Int32 = try readInt(&buf)
+        switch variant {
+        
+        case 1: return .none
+        
+        case 2: return .rate(rate: try FfiConverterDouble.read(from: &buf)
+        )
+        
+        case 3: return .seek(positionMs: try FfiConverterInt64.read(from: &buf)
+        )
+        
+        default: throw UniffiInternalError.unexpectedEnumCase
+        }
+    }
+
+    public static func write(_ value: LiveCorrection, into buf: inout [UInt8]) {
+        switch value {
+        
+        
+        case .none:
+            writeInt(&buf, Int32(1))
+        
+        
+        case let .rate(rate):
+            writeInt(&buf, Int32(2))
+            FfiConverterDouble.write(rate, into: &buf)
+            
+        
+        case let .seek(positionMs):
+            writeInt(&buf, Int32(3))
+            FfiConverterInt64.write(positionMs, into: &buf)
+            
+        }
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeLiveCorrection_lift(_ buf: RustBuffer) throws -> LiveCorrection {
+    return try FfiConverterTypeLiveCorrection.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeLiveCorrection_lower(_ value: LiveCorrection) -> RustBuffer {
+    return FfiConverterTypeLiveCorrection.lower(value)
+}
+
+
+
+
+public enum LiveEnd: Equatable, Hashable {
+    
+    /**
+     * The host ended the session.
+     */
+    case hostEnded
+    /**
+     * Lost contact with the host.
+     */
+    case hostLost
+    case left
+    /**
+     * Host refused: wrong or old invitation.
+     */
+    case badInvite
+    /**
+     * Host runs another protocol version: update SDAT.
+     */
+    case incompatible
+    case full
+
+
+
+
+
+}
+
+#if compiler(>=6)
+extension LiveEnd: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeLiveEnd: FfiConverterRustBuffer {
+    typealias SwiftType = LiveEnd
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> LiveEnd {
+        let variant: Int32 = try readInt(&buf)
+        switch variant {
+        
+        case 1: return .hostEnded
+        
+        case 2: return .hostLost
+        
+        case 3: return .left
+        
+        case 4: return .badInvite
+        
+        case 5: return .incompatible
+        
+        case 6: return .full
+        
+        default: throw UniffiInternalError.unexpectedEnumCase
+        }
+    }
+
+    public static func write(_ value: LiveEnd, into buf: inout [UInt8]) {
+        switch value {
+        
+        
+        case .hostEnded:
+            writeInt(&buf, Int32(1))
+        
+        
+        case .hostLost:
+            writeInt(&buf, Int32(2))
+        
+        
+        case .left:
+            writeInt(&buf, Int32(3))
+        
+        
+        case .badInvite:
+            writeInt(&buf, Int32(4))
+        
+        
+        case .incompatible:
+            writeInt(&buf, Int32(5))
+        
+        
+        case .full:
+            writeInt(&buf, Int32(6))
+        
+        }
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeLiveEnd_lift(_ buf: RustBuffer) throws -> LiveEnd {
+    return try FfiConverterTypeLiveEnd.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeLiveEnd_lower(_ value: LiveEnd) -> RustBuffer {
+    return FfiConverterTypeLiveEnd.lower(value)
+}
+
+
+
+
+public enum LiveUpdate: Equatable, Hashable {
+    
+    case guests(guests: [LiveGuestInfo]
+    )
+    case joined(hostName: String
+    )
+    case queueChanged
+    case playbackChanged
+    case reconnecting
+    case ended(reason: LiveEnd
+    )
+
+
+
+
+
+}
+
+#if compiler(>=6)
+extension LiveUpdate: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeLiveUpdate: FfiConverterRustBuffer {
+    typealias SwiftType = LiveUpdate
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> LiveUpdate {
+        let variant: Int32 = try readInt(&buf)
+        switch variant {
+        
+        case 1: return .guests(guests: try FfiConverterSequenceTypeLiveGuestInfo.read(from: &buf)
+        )
+        
+        case 2: return .joined(hostName: try FfiConverterString.read(from: &buf)
+        )
+        
+        case 3: return .queueChanged
+        
+        case 4: return .playbackChanged
+        
+        case 5: return .reconnecting
+        
+        case 6: return .ended(reason: try FfiConverterTypeLiveEnd.read(from: &buf)
+        )
+        
+        default: throw UniffiInternalError.unexpectedEnumCase
+        }
+    }
+
+    public static func write(_ value: LiveUpdate, into buf: inout [UInt8]) {
+        switch value {
+        
+        
+        case let .guests(guests):
+            writeInt(&buf, Int32(1))
+            FfiConverterSequenceTypeLiveGuestInfo.write(guests, into: &buf)
+            
+        
+        case let .joined(hostName):
+            writeInt(&buf, Int32(2))
+            FfiConverterString.write(hostName, into: &buf)
+            
+        
+        case .queueChanged:
+            writeInt(&buf, Int32(3))
+        
+        
+        case .playbackChanged:
+            writeInt(&buf, Int32(4))
+        
+        
+        case .reconnecting:
+            writeInt(&buf, Int32(5))
+        
+        
+        case let .ended(reason):
+            writeInt(&buf, Int32(6))
+            FfiConverterTypeLiveEnd.write(reason, into: &buf)
+            
+        }
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeLiveUpdate_lift(_ buf: RustBuffer) throws -> LiveUpdate {
+    return try FfiConverterTypeLiveUpdate.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeLiveUpdate_lower(_ value: LiveUpdate) -> RustBuffer {
+    return FfiConverterTypeLiveUpdate.lower(value)
+}
+
+
+
 /**
  * Streaming quality tiers shown in the quality menu.
  */
@@ -3876,6 +5042,54 @@ fileprivate struct FfiConverterOptionTypeGain: FfiConverterRustBuffer {
 #if swift(>=5.8)
 @_documentation(visibility: private)
 #endif
+fileprivate struct FfiConverterOptionTypeLiveRelayConfig: FfiConverterRustBuffer {
+    typealias SwiftType = LiveRelayConfig?
+
+    public static func write(_ value: SwiftType, into buf: inout [UInt8]) {
+        guard let value = value else {
+            writeInt(&buf, Int8(0))
+            return
+        }
+        writeInt(&buf, Int8(1))
+        FfiConverterTypeLiveRelayConfig.write(value, into: &buf)
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> SwiftType {
+        switch try readInt(&buf) as Int8 {
+        case 0: return nil
+        case 1: return try FfiConverterTypeLiveRelayConfig.read(from: &buf)
+        default: throw UniffiInternalError.unexpectedOptionalTag
+        }
+    }
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+fileprivate struct FfiConverterOptionTypeLiveTarget: FfiConverterRustBuffer {
+    typealias SwiftType = LiveTarget?
+
+    public static func write(_ value: SwiftType, into buf: inout [UInt8]) {
+        guard let value = value else {
+            writeInt(&buf, Int8(0))
+            return
+        }
+        writeInt(&buf, Int8(1))
+        FfiConverterTypeLiveTarget.write(value, into: &buf)
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> SwiftType {
+        switch try readInt(&buf) as Int8 {
+        case 0: return nil
+        case 1: return try FfiConverterTypeLiveTarget.read(from: &buf)
+        default: throw UniffiInternalError.unexpectedOptionalTag
+        }
+    }
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
 fileprivate struct FfiConverterOptionTypeLyrics: FfiConverterRustBuffer {
     typealias SwiftType = Lyrics?
 
@@ -4088,6 +5302,56 @@ fileprivate struct FfiConverterSequenceTypeExploreSection: FfiConverterRustBuffe
         seq.reserveCapacity(Int(len))
         for _ in 0 ..< len {
             seq.append(try FfiConverterTypeExploreSection.read(from: &buf))
+        }
+        return seq
+    }
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+fileprivate struct FfiConverterSequenceTypeLiveGuestInfo: FfiConverterRustBuffer {
+    typealias SwiftType = [LiveGuestInfo]
+
+    public static func write(_ value: [LiveGuestInfo], into buf: inout [UInt8]) {
+        let len = Int32(value.count)
+        writeInt(&buf, len)
+        for item in value {
+            FfiConverterTypeLiveGuestInfo.write(item, into: &buf)
+        }
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> [LiveGuestInfo] {
+        let len: Int32 = try readInt(&buf)
+        var seq = [LiveGuestInfo]()
+        seq.reserveCapacity(Int(len))
+        for _ in 0 ..< len {
+            seq.append(try FfiConverterTypeLiveGuestInfo.read(from: &buf))
+        }
+        return seq
+    }
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+fileprivate struct FfiConverterSequenceTypeLiveQueueEntry: FfiConverterRustBuffer {
+    typealias SwiftType = [LiveQueueEntry]
+
+    public static func write(_ value: [LiveQueueEntry], into buf: inout [UInt8]) {
+        let len = Int32(value.count)
+        writeInt(&buf, len)
+        for item in value {
+            FfiConverterTypeLiveQueueEntry.write(item, into: &buf)
+        }
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> [LiveQueueEntry] {
+        let len: Int32 = try readInt(&buf)
+        var seq = [LiveQueueEntry]()
+        seq.reserveCapacity(Int(len))
+        for _ in 0 ..< len {
+            seq.append(try FfiConverterTypeLiveQueueEntry.read(from: &buf))
         }
         return seq
     }
@@ -4634,6 +5898,34 @@ public func setFavourite(kind: FavouriteKind, id: String, favourite: Bool)async 
             errorHandler: FfiConverterTypeFfiError_lift
         )
 }
+/**
+ * Validates an invitation without joining (QR scanner feedback).
+ */
+public func liveIsInvite(text: String) -> Bool  {
+    return try!  FfiConverterBool.lift(try! rustCall() {
+        uniffiCallStatus in
+    uniffi_tonearm_ffi_fn_func_live_is_invite(
+        FfiConverterString.lower(text),uniffiCallStatus
+    )
+})
+}
+/**
+ * One track by id (guests resolve the shared queue's ids with their own account).
+ */
+public func liveTrack(id: String)async throws  -> Track  {
+    return
+        try  await uniffiRustCallAsync(
+            rustFutureFunc: {
+                uniffi_tonearm_ffi_fn_func_live_track(FfiConverterString.lower(id)
+                )
+            },
+            pollFunc: ffi_tonearm_ffi_rust_future_poll_rust_buffer,
+            completeFunc: ffi_tonearm_ffi_rust_future_complete_rust_buffer,
+            freeFunc: ffi_tonearm_ffi_rust_future_free_rust_buffer,
+            liftFunc: FfiConverterTypeTrack_lift,
+            errorHandler: FfiConverterTypeFfiError_lift
+        )
+}
 public func lyrics(trackId: String)async throws  -> Lyrics?  {
     return
         try  await uniffiRustCallAsync(
@@ -4904,6 +6196,12 @@ private let initializationResult: InitializationResult = {
     if (uniffi_tonearm_ffi_checksum_func_set_favourite() != 31746) {
         return InitializationResult.apiChecksumMismatch
     }
+    if (uniffi_tonearm_ffi_checksum_func_live_is_invite() != 42431) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_tonearm_ffi_checksum_func_live_track() != 11805) {
+        return InitializationResult.apiChecksumMismatch
+    }
     if (uniffi_tonearm_ffi_checksum_func_lyrics() != 64374) {
         return InitializationResult.apiChecksumMismatch
     }
@@ -4976,7 +6274,52 @@ private let initializationResult: InitializationResult = {
     if (uniffi_tonearm_ffi_checksum_method_trackpager_next_page() != 39957) {
         return InitializationResult.apiChecksumMismatch
     }
+    if (uniffi_tonearm_ffi_checksum_method_liveguest_correction() != 34405) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_tonearm_ffi_checksum_method_liveguest_host_name() != 35764) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_tonearm_ffi_checksum_method_liveguest_leave() != 12374) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_tonearm_ffi_checksum_method_liveguest_queue() != 19799) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_tonearm_ffi_checksum_method_liveguest_queue_track_ids() != 33492) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_tonearm_ffi_checksum_method_liveguest_set_seek_only() != 32176) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_tonearm_ffi_checksum_method_liveguest_target() != 15389) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_tonearm_ffi_checksum_method_livehost_end() != 57801) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_tonearm_ffi_checksum_method_livehost_guests() != 14337) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_tonearm_ffi_checksum_method_livehost_invite_url() != 60222) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_tonearm_ffi_checksum_method_livehost_set_playback() != 50320) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_tonearm_ffi_checksum_method_livehost_set_queue() != 50067) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_tonearm_ffi_checksum_method_liveobserver_on_update() != 17186) {
+        return InitializationResult.apiChecksumMismatch
+    }
     if (uniffi_tonearm_ffi_checksum_method_shuffle_next_batch() != 12881) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_tonearm_ffi_checksum_constructor_liveguest_join() != 20177) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_tonearm_ffi_checksum_constructor_livehost_start() != 26700) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_tonearm_ffi_checksum_constructor_shuffle_new() != 5517) {
@@ -4984,6 +6327,7 @@ private let initializationResult: InitializationResult = {
     }
 
     uniffiCallbackInitAppConfig()
+    uniffiCallbackInitLiveObserver()
     uniffiCallbackInitTokenStore()
     return InitializationResult.ok
 }()
