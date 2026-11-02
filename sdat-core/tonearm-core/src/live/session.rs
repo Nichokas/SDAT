@@ -444,7 +444,16 @@ impl HostSession {
             let contiguous: Vec<String> = ids[start..].iter().take_while(|(i, _)| kept.contains(i.as_str())).map(|(i, _)| i.clone()).collect();
             run = contiguous;
             let first = start + run.len();
-            for (n, t) in self.run.pending.iter().enumerate() {
+            let batch = &self.run.pending;
+            let inferred = capped && !batch.is_empty() && shifted_by_insert(&old_tracks, &track_ids, first, batch);
+            if inferred {
+                // The whole batch landed at the cap and pushed old entries
+                // out of view: bind the visible part, keep the rest pending.
+                let vis = batch.len().min(ids.len() - first);
+                run.extend(ids[first..first + vis].iter().map(|(i, _)| i.clone()));
+                beyond_cap = batch[vis..].to_vec();
+            }
+            for (n, t) in batch.iter().enumerate().filter(|_| !inferred) {
                 let j = first + n;
                 if j >= ids.len() {
                     if capped {
@@ -462,16 +471,6 @@ impl HostSession {
                     let fresh = (j + 1..ids.len()).find(|&k| ids[k].1 && &track_ids[k] == t);
                     match fresh {
                         Some(k) => ids.swap(j, k),
-                        // The cap cut the old copies off the shared queue:
-                        // only when the rest is the old queue shifted by the
-                        // remaining batch (an unchanged refresh is not an
-                        // insertion). Bind the visible part, keep the rest.
-                        None if capped && shifted_by_insert(&old_tracks, &track_ids, j, &self.run.pending[n..]) => {
-                            let vis = (self.run.pending.len() - n).min(ids.len() - j);
-                            run.extend(ids[j..j + vis].iter().map(|(i, _)| i.clone()));
-                            beyond_cap = self.run.pending[n + vis..].to_vec();
-                            break;
-                        }
                         None => break,
                     }
                 }
@@ -1626,6 +1625,17 @@ mod tests {
         let mut q = full.clone();
         insert_next(&mut h, &mut q, 497, &["x", "y"]);
         assert_eq!(h.play_next_offset(&ids(&["z"])), 2);
+    }
+
+    #[test]
+    fn batch_at_the_cap_shifted_by_earlier_tracks_keeps_order() {
+        let mut full: Vec<String> = (0..495).map(|n| format!("f{n}")).collect();
+        full.extend(["p", "a", "x", "q", "r"].map(String::from));
+        let refs: Vec<&str> = full.iter().map(String::as_str).collect();
+        let (mut h, _) = host_with(&refs, 495);
+        let mut q = full.clone();
+        insert_next(&mut h, &mut q, 495, &["n", "x", "y"]);
+        assert_eq!(h.play_next_offset(&ids(&["z"])), 3);
     }
 
     #[test]
