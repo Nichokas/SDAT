@@ -10,8 +10,15 @@
 
 /// Errors up to this many milliseconds are left alone.
 pub const TOLERANCE_MS: i64 = 3_000;
-/// Kept for API compatibility: same as [`TOLERANCE_MS`].
-pub const SEEK_MS: i64 = TOLERANCE_MS;
+/// Precision for positioning a **paused** player.
+///
+/// Clients use it to decide whether a paused guest must be moved to the host
+/// position. A paused seek is inaudible, so it stays precise (300 ms, as
+/// before); it is not used while playing.
+pub const SEEK_MS: i64 = 300;
+/// A host anchor on the same track that moves the position by more than this
+/// (beyond normal progress) is a host seek, not drift.
+pub const HOST_JUMP_MS: i64 = 1_000;
 /// Minimum time between two corrective seeks.
 pub const MIN_INTERVAL_NS: i64 = 10_000_000_000;
 /// After a start, a reset or a corrective seek no correction is made for this
@@ -35,6 +42,9 @@ pub struct DriftController {
     /// Start of the current settle window; `None` until the first measurement
     /// after [`Self::new`] or [`Self::reset`].
     settle_from_ns: Option<i64>,
+    /// The host seeked (or moved to another entry of the same song): the
+    /// next decision follows it right away, ignoring settle and spacing.
+    host_jump: bool,
     /// Kept for API compatibility; has no effect (every correction is a seek).
     pub seek_only: bool,
 }
@@ -48,19 +58,34 @@ impl DriftController {
     /// `actual_ms`: where the local player is; `now_ns`: local monotonic time.
     /// Call it only while the local player is actually playing.
     pub fn decide(&mut self, expected_ms: i64, actual_ms: i64, now_ns: i64) -> Correction {
+        let abs = (expected_ms - actual_ms).abs();
+        if std::mem::take(&mut self.host_jump) && abs > TOLERANCE_MS {
+            return self.seek(expected_ms, now_ns);
+        }
         let from = *self.settle_from_ns.get_or_insert(now_ns);
         if now_ns - from < SETTLE_NS {
             return Correction::None;
         }
-        if (expected_ms - actual_ms).abs() <= TOLERANCE_MS {
+        if abs <= TOLERANCE_MS {
             return Correction::None;
         }
         if self.last_seek_ns.is_some_and(|t| now_ns - t < MIN_INTERVAL_NS) {
             return Correction::None;
         }
+        self.seek(expected_ms, now_ns)
+    }
+
+    fn seek(&mut self, expected_ms: i64, now_ns: i64) -> Correction {
         self.last_seek_ns = Some(now_ns);
         self.settle_from_ns = Some(now_ns);
         Correction::Seek(expected_ms.max(0))
+    }
+
+    /// The host jumped on the same track (a seek, or the next queue entry is
+    /// the same song so the client keeps its player): honor it at once,
+    /// bypassing the settle window and seek spacing (it is not drift).
+    pub fn host_jumped(&mut self) {
+        self.host_jump = true;
     }
 
     /// New track, host seek/pause/resume or reconnect: start a fresh settle
@@ -69,6 +94,7 @@ impl DriftController {
     /// [`MIN_INTERVAL_NS`].
     pub fn reset(&mut self) {
         self.settle_from_ns = None;
+        self.host_jump = false;
     }
 }
 
@@ -141,6 +167,26 @@ mod tests {
         // Settled at 41 s but the last seek was at 35 s: wait for the spacing.
         assert_eq!(d.decide(1_000, 90_000, 41 * S), Correction::None);
         assert_eq!(d.decide(1_000, 90_000, 45 * S), Correction::Seek(1_000));
+    }
+
+    #[test]
+    fn host_jump_is_followed_at_once() {
+        let mut d = settled();
+        assert_eq!(d.decide(20_000, 0, 10 * S), Correction::Seek(20_000));
+        // Host seeks 1 s after our correction: no cooldown, no settle.
+        d.host_jumped();
+        assert_eq!(d.decide(90_000, 21_000, 11 * S), Correction::Seek(90_000));
+        // Our own corrections are still spaced afterwards.
+        assert_eq!(d.decide(99_000, 90_000, 17 * S), Correction::None);
+    }
+
+    #[test]
+    fn host_jump_within_tolerance_needs_nothing() {
+        let mut d = DriftController::new();
+        d.host_jumped();
+        assert_eq!(d.decide(12_000, 10_000, 0), Correction::None);
+        // The pending jump is consumed: settling applies as usual.
+        assert_eq!(d.decide(20_000, 10_000, S), Correction::None);
     }
 
     #[test]

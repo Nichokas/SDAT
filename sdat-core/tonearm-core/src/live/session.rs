@@ -4,7 +4,7 @@
 use std::collections::BTreeMap;
 
 use super::clock::{ClockSync, Sample};
-use super::drift::{Correction, DriftController};
+use super::drift::{Correction, DriftController, HOST_JUMP_MS};
 use super::proto::{Anchor, EndReason, FEATURE_PLAY_NEXT, GuestCommand, Msg, RejectReason};
 use super::queue::{Accepted, GuestApply, GuestQueue, HostQueue, Op, OpKind, QueueError, QueueItem};
 use super::{HEARTBEAT_NS, HOST_TIMEOUT_NS, PROTO_VERSION, new_id};
@@ -863,8 +863,16 @@ impl GuestSession {
     fn take_anchor(&mut self, a: Anchor) -> bool {
         let newer = self.anchor.as_ref().is_none_or(|cur| a.is_newer_than(cur));
         if newer {
-            if self.anchor.as_ref().is_none_or(|cur| cur.item_id != a.item_id || cur.track_id != a.track_id || !a.playing || !cur.playing) {
-                self.drift.reset();
+            match self.anchor.as_ref() {
+                // Same song, still playing: the client keeps its player, so a
+                // new entry of that song or a host seek is followed at once.
+                Some(cur) if cur.track_id.is_some() && cur.track_id == a.track_id && a.playing && cur.playing => {
+                    let moved = (a.position_ms - cur.position_at(a.host_mono_ns)).abs() > HOST_JUMP_MS;
+                    if cur.item_id != a.item_id || moved {
+                        self.drift.host_jumped();
+                    }
+                }
+                _ => self.drift.reset(),
             }
             self.anchor = Some(a);
         }
@@ -1897,6 +1905,52 @@ mod tests {
         w.deliver(o, 3 * S);
         assert_eq!(w.guest.target(60 * S, 300).unwrap().position_ms, 42_000);
         assert_eq!(w.guest.correction(60 * S, 0, 0), Correction::None);
+    }
+
+    /// Joined guest following "i"/"t" from host 0 ms at host 3 s, with the
+    /// local clock 7 s behind the host. Returns local time for host time `h`.
+    fn following(item: &str) -> (World, impl Fn(i64) -> i64) {
+        let mut w = World::new(7 * S, 10 * MS);
+        w.join(0);
+        for i in 1..12 {
+            w.guest_tick(i * 200 * MS);
+        }
+        let o = w.host.set_playback(Some(item.into()), Some("t".into()), 0, true, 3 * S);
+        w.deliver(o, 3 * S);
+        (w, |h| h - 7 * S)
+    }
+
+    #[test]
+    fn host_seek_on_same_track_is_followed_despite_cooldown() {
+        use crate::live::drift::SETTLE_NS;
+        let (mut w, local) = following("i");
+        assert_eq!(w.guest.correction(local(13 * S), 0, 0), Correction::None); // settle starts
+        let t = local(13 * S) + SETTLE_NS; // host at 15_000
+        assert_eq!(w.guest.correction(t, 0, 0), Correction::Seek(15_000));
+        // One second later the host seeks to 100 s on the same entry.
+        let o = w.host.set_playback(Some("i".into()), Some("t".into()), 100_000, true, 19 * S);
+        w.deliver(o, 19 * S);
+        assert_eq!(w.guest.correction(local(19 * S), 0, 16_000), Correction::Seek(100_000));
+    }
+
+    #[test]
+    fn same_song_next_entry_is_followed_at_once() {
+        let (mut w, local) = following("i");
+        // Host moves early to another entry of the same song, from 0.
+        let o = w.host.set_playback(Some("j".into()), Some("t".into()), 0, true, 60 * S);
+        w.deliver(o, 60 * S);
+        // The guest still plays the old entry at 57 s: seek now, no settle.
+        assert_eq!(w.guest.correction(local(60 * S), 0, 57_000), Correction::Seek(0));
+    }
+
+    #[test]
+    fn regular_anchor_is_not_a_host_jump() {
+        let (mut w, local) = following("i");
+        assert_eq!(w.guest.correction(local(13 * S), 0, 0), Correction::None); // settle starts
+        // Periodic anchor with normal progress: settle still applies.
+        let o = w.host.set_playback(Some("i".into()), Some("t".into()), 11_100, true, 14 * S);
+        w.deliver(o, 14 * S);
+        assert_eq!(w.guest.correction(local(15 * S), 0, 0), Correction::None);
     }
 
     #[test]
