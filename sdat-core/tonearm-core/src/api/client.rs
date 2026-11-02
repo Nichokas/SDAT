@@ -157,28 +157,39 @@ pub fn country_code() -> String {
     if let Some(c) = crate::country::preferred() {
         return c;
     }
-    let mut g = COUNTRY.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
-    g.get_or_insert_with(|| {
-        let r = session_country_code().or_else(|e| {
-            log::debug!("session country unavailable: {e:#}");
-            fetch_country_code()
-        });
-        match r {
-            Ok(c) => {
-                log::info!("Discovered country code countryCode={c}");
-                c
-            }
-            Err(e) => {
-                log::error!("Failed to fetch country code, defaulting to WW: {e}");
-                "WW".into()
-            }
+    let lock = || COUNTRY.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+    if let Some(c) = lock().clone() {
+        return c;
+    }
+    // The network lookup runs without holding COUNTRY, so `reset_country_code`
+    // (called on the UI thread at login/logout) never waits on HTTP.
+    let epoch = COUNTRY_GEN.load(std::sync::atomic::Ordering::SeqCst);
+    let c = match session_country_code().or_else(|e| {
+        log::debug!("session country unavailable: {e:#}");
+        fetch_country_code()
+    }) {
+        Ok(c) => {
+            log::info!("Discovered country code countryCode={c}");
+            c
         }
-    })
-    .clone()
+        Err(e) => {
+            log::error!("Failed to fetch country code, defaulting to WW: {e}");
+            "WW".into()
+        }
+    };
+    let mut g = lock();
+    if COUNTRY_GEN.load(std::sync::atomic::Ordering::SeqCst) == epoch {
+        g.get_or_insert(c).clone()
+    } else {
+        c
+    }
 }
+
+static COUNTRY_GEN: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
 
 /// Forgets the discovered country (e.g. after login/logout or a preference change).
 pub fn reset_country_code() {
+    COUNTRY_GEN.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
     *COUNTRY.lock().unwrap_or_else(std::sync::PoisonError::into_inner) = None;
 }
 

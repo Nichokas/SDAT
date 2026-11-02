@@ -118,7 +118,7 @@ impl DeviceLogin {
 pub async fn start_device_login() -> Result<Arc<DeviceLogin>, FfiError> {
     let d = run(api::request_device_linking_challenge).await?;
     let uri = if d.verification_uri_complete.is_empty() { d.verification_uri } else { d.verification_uri_complete };
-    let verification_url = if uri.starts_with("http") { uri } else { format!("https://{}", uri) };
+    let verification_url = if uri.starts_with("http") { uri } else { format!("https://{uri}") };
     Ok(Arc::new(DeviceLogin {
         device_code: d.device_code,
         interval: d.interval,
