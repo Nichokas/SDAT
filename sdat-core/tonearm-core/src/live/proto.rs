@@ -78,6 +78,14 @@ pub enum GuestCommand {
     Unknown,
 }
 
+/// Host capability: honours `next` on [`Msg::Command`] (guest Play Next).
+pub const FEATURE_PLAY_NEXT: &str = "play_next";
+
+#[expect(clippy::trivially_copy_pass_by_ref, reason = "serde skip_serializing_if signature")]
+fn is_false(b: &bool) -> bool {
+    !*b
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "t", rename_all = "snake_case")]
 pub enum Msg {
@@ -88,7 +96,15 @@ pub enum Msg {
     Resync { have: u64 },
     /// Playback request (ignored by hosts that do not allow guest control,
     /// and by older hosts, which decode it as [`Msg::Unknown`]).
-    Command { cmd: GuestCommand },
+    Command {
+        cmd: GuestCommand,
+        /// With [`GuestCommand::Enqueue`]: insert right after the playing
+        /// track (and after earlier play-next tracks) instead of appending.
+        /// Older hosts ignore the field and append, so it degrades safely.
+        /// Only sent to hosts advertising [`FEATURE_PLAY_NEXT`].
+        #[serde(default, skip_serializing_if = "is_false")]
+        next: bool,
+    },
     Bye,
     // host -> guest
     Welcome {
@@ -100,6 +116,10 @@ pub enum Msg {
         /// Whether guests may send [`Msg::Command`]. Absent from older hosts.
         #[serde(default)]
         guest_control: bool,
+        /// Optional capabilities of this host (e.g. [`FEATURE_PLAY_NEXT`]).
+        /// Absent from older hosts; unknown entries are ignored.
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        features: Vec<String>,
     },
     Reject { reason: RejectReason, proto: u32 },
     Pong { id: u64, t0: i64, t1: i64, t2: i64 },
@@ -111,6 +131,9 @@ pub enum Msg {
     End { reason: EndReason },
     /// The host changed whether guests may control playback.
     Control { guest_control: bool },
+    /// The host's capabilities changed (see `Welcome::features`). Older
+    /// guests decode it as [`Msg::Unknown`] and ignore it.
+    Features { features: Vec<String> },
     #[serde(other)]
     Unknown,
 }
@@ -188,11 +211,34 @@ mod tests {
         let Msg::Welcome { guest_control, .. } = decode(old.to_string().as_bytes()).unwrap() else { panic!() };
         assert!(!guest_control);
         // Commands round-trip; unknown commands do not break decoding.
-        let m = Msg::Command { cmd: GuestCommand::Enqueue { track_ids: vec!["1".into()] } };
+        let m = Msg::Command { cmd: GuestCommand::Enqueue { track_ids: vec!["1".into()] }, next: false };
         let f = encode(&m).unwrap();
         assert_eq!(decode(&f[4..]).unwrap(), m);
-        assert_eq!(decode(br#"{"t":"command","cmd":{"c":"shuffle"}}"#).unwrap(), Msg::Command { cmd: GuestCommand::Unknown });
+        assert_eq!(decode(br#"{"t":"command","cmd":{"c":"shuffle"}}"#).unwrap(), Msg::Command { cmd: GuestCommand::Unknown, next: false });
         assert_eq!(decode(br#"{"t":"control","guest_control":true}"#).unwrap(), Msg::Control { guest_control: true });
+    }
+
+    #[test]
+    fn play_next_round_trip_and_compat() {
+        #[derive(serde::Deserialize, Debug, PartialEq)]
+        #[serde(tag = "t", rename_all = "snake_case")]
+        enum OldMsg {
+            Command { cmd: GuestCommand },
+        }
+        let m = Msg::Command { cmd: GuestCommand::Enqueue { track_ids: vec!["1".into(), "2".into()] }, next: true };
+        let f = encode(&m).expect("test");
+        assert_eq!(decode(&f[4..]).expect("test"), m);
+        // Plain enqueue keeps the old wire shape, so older hosts see no change.
+        let plain = Msg::Command { cmd: GuestCommand::Enqueue { track_ids: vec!["1".into()] }, next: false };
+        assert_eq!(serde_json::to_value(&plain).expect("test"), serde_json::json!({"t":"command","cmd":{"c":"enqueue","track_ids":["1"]}}));
+        // A play-next decoded by an older host is just an enqueue (unknown field ignored).
+        let old: OldMsg = serde_json::from_slice(&f[4..]).expect("test");
+        assert_eq!(old, OldMsg::Command { cmd: GuestCommand::Enqueue { track_ids: vec!["1".into(), "2".into()] } });
+        // Features round-trip; older Welcomes have none.
+        let a = serde_json::to_value(anchor()).expect("test");
+        let w = serde_json::json!({"t":"welcome","proto":1,"session_id":"s","host_name":"h","snapshot":{"version":0,"items":[]},"anchor":a,"features":["play_next","later"]});
+        let Msg::Welcome { features, .. } = decode(w.to_string().as_bytes()).expect("test") else { panic!() };
+        assert_eq!(features, vec![FEATURE_PLAY_NEXT.to_owned(), "later".to_owned()]);
     }
 
     #[test]

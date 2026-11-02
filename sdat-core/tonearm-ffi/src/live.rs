@@ -87,6 +87,19 @@ pub trait LiveControlObserver: Send + Sync {
     fn on_guest_command(&self, peer: String, name: String, command: LiveCommand);
 }
 
+/// Host: guest Play Next, kept apart from [`LiveControlObserver`] so apps
+/// that do not handle it are unaffected (they keep getting `Enqueue`).
+/// Install it with `LiveHost::set_play_next_observer`.
+#[uniffi::export(with_foreign)]
+pub trait LivePlayNextObserver: Send + Sync {
+    /// A guest asked to play these tracks next (permission, validation and
+    /// rate limits already checked). Insert them at
+    /// `index_of_playing + 1 + LiveHost::play_next_offset(track_ids)`.
+    fn on_guest_play_next(&self, peer: String, name: String, track_ids: Vec<String>);
+}
+
+type PlayNextSlot = Arc<std::sync::Mutex<Option<Arc<dyn LivePlayNextObserver>>>>;
+
 type ControlSlot = Arc<std::sync::Mutex<Option<Arc<dyn LiveControlObserver>>>>;
 
 fn control(slot: &ControlSlot) -> Option<Arc<dyn LiveControlObserver>> {
@@ -108,7 +121,7 @@ fn cfg(c: Option<LiveRelayConfig>) -> NetConfig {
     }
 }
 
-struct Bridge(Arc<dyn LiveObserver>, ControlSlot);
+struct Bridge(Arc<dyn LiveObserver>, ControlSlot, PlayNextSlot);
 
 fn end_of(r: EndReason) -> LiveEnd {
     match r {
@@ -130,8 +143,15 @@ impl LiveListener for Bridge {
     fn on_event(&self, ev: LiveEvent) {
         let u = match ev {
             LiveEvent::Command(c) => {
-                if let (Some(o), Some(command)) = (control(&self.1), command_of(c.cmd)) {
-                    o.on_guest_command(c.peer, c.name, command);
+                let next = if c.next { self.2.lock().unwrap_or_else(std::sync::PoisonError::into_inner).clone() } else { None };
+                match (next, command_of(c.cmd)) {
+                    (Some(p), Some(LiveCommand::Enqueue { track_ids })) => p.on_guest_play_next(c.peer, c.name, track_ids),
+                    (_, Some(command)) => {
+                        if let Some(o) = control(&self.1) {
+                            o.on_guest_command(c.peer, c.name, command);
+                        }
+                    }
+                    (_, None) => {}
                 }
                 return;
             }
@@ -159,7 +179,7 @@ fn err(e: net::NetError) -> FfiError {
 
 /// A session this device hosts.
 #[derive(uniffi::Object)]
-pub struct LiveHost(net::LiveHost, ControlSlot);
+pub struct LiveHost(net::LiveHost, ControlSlot, PlayNextSlot);
 
 impl std::fmt::Debug for LiveHost {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -174,9 +194,10 @@ impl LiveHost {
     pub async fn start(name: String, relays: Option<LiveRelayConfig>, observer: Arc<dyn LiveObserver>) -> Result<Arc<Self>, FfiError> {
         let c = cfg(relays);
         let slot = ControlSlot::default();
-        let bridge = Arc::new(Bridge(observer, slot.clone()));
+        let next = PlayNextSlot::default();
+        let bridge = Arc::new(Bridge(observer, slot.clone(), Arc::clone(&next)));
         let h = blocking::unblock(move || net::LiveHost::start(name, &c, bridge)).await.map_err(err)?;
-        Ok(Arc::new(Self(h, slot)))
+        Ok(Arc::new(Self(h, slot, next)))
     }
     /// `sdat://join/...`, for the QR code.
     pub fn invite_url(&self) -> String {
@@ -188,6 +209,14 @@ impl LiveHost {
     /// Replaces the shared queue (max 500); returns one entry id per track.
     pub fn set_queue(&self, track_ids: Vec<String>) -> Result<Vec<String>, FfiError> {
         self.0.replace_queue(track_ids).map_err(err)
+    }
+    /// Replaces the shared queue from the app's whole queue with the app's
+    /// own stable entry ids (max 20000; the first 500 are shared). Prefer it
+    /// over `set_queue`: Play Next tracking is then exact. Pass the same
+    /// entry ids to `set_playback`.
+    pub fn set_queue_entries(&self, entries: Vec<LiveQueueEntry>) -> Result<(), FfiError> {
+        let items = entries.into_iter().map(|e| tonearm_core::live::queue::QueueItem { item_id: e.item_id, track_id: e.track_id }).collect();
+        self.0.replace_queue_entries(items).map_err(err)
     }
     /// Call on play, pause, seek and track change.
     pub fn set_playback(&self, item_id: Option<String>, track_id: Option<String>, position_ms: i64, playing: bool) {
@@ -203,6 +232,30 @@ impl LiveHost {
     }
     pub fn guest_control(&self) -> bool {
         self.0.guest_control()
+    }
+    /// Receives guest Play Next (off while none is installed: guests then
+    /// append). Guests already joined are told about the change.
+    pub fn set_play_next_observer(&self, observer: Option<Arc<dyn LivePlayNextObserver>>) {
+        // Under the slot lock, and the slot is filled before the host
+        // accepts Play Next (and emptied after it stops), so a request
+        // accepted as Play Next always finds the observer. Only a request
+        // already in flight while the app removes the observer is handed
+        // over as a plain enqueue, which is what the app now wants.
+        let mut slot = self.2.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        let on = observer.is_some();
+        if on {
+            *slot = observer;
+            self.0.set_play_next(true);
+        } else {
+            self.0.set_play_next(false);
+            *slot = None;
+        }
+    }
+    /// Offset after the playing entry at which to insert these guest Play
+    /// Next tracks; keeps several requests in order. Call `set_queue` after
+    /// each insertion so the next offset sees it.
+    pub fn play_next_offset(&self, track_ids: Vec<String>) -> u32 {
+        u32::try_from(self.0.play_next_offset(&track_ids)).unwrap_or(u32::MAX)
     }
     pub fn end(&self) {
         self.0.end();
@@ -246,7 +299,7 @@ impl LiveGuest {
     #[uniffi::constructor]
     pub fn join(invite: String, name: String, relays: Option<LiveRelayConfig>, observer: Arc<dyn LiveObserver>) -> Result<Arc<Self>, FfiError> {
         let slot = ControlSlot::default();
-        let g = net::LiveGuest::join(&invite, name, &cfg(relays), Arc::new(Bridge(observer, slot.clone()))).map_err(err)?;
+        let g = net::LiveGuest::join(&invite, name, &cfg(relays), Arc::new(Bridge(observer, slot.clone(), PlayNextSlot::default()))).map_err(err)?;
         Ok(Arc::new(Self(g, slot)))
     }
     pub fn host_name(&self) -> String {
@@ -290,6 +343,15 @@ impl LiveGuest {
     pub fn send_command(&self, command: LiveCommand) -> bool {
         self.0.send_command(to_core(command))
     }
+    /// Whether the host places our Play Next after the playing track
+    /// (otherwise `send_play_next` appends, like `Enqueue`).
+    pub fn host_supports_play_next(&self) -> bool {
+        self.0.host_supports_play_next()
+    }
+    /// Asks the host to play these tracks next; `false` if it was not sent.
+    pub fn send_play_next(&self, track_ids: Vec<String>) -> bool {
+        self.0.send_play_next(track_ids)
+    }
     pub fn leave(&self) {
         self.0.leave();
     }
@@ -305,6 +367,41 @@ mod tests {
             assert_eq!(command_of(to_core(c.clone())), Some(c));
         }
         assert_eq!(command_of(GuestCommand::Unknown), None);
+    }
+
+    #[derive(Default)]
+    struct Rec(std::sync::Mutex<Vec<String>>);
+    use tonearm_core::live::session::HostCommand;
+    impl LiveObserver for Rec {
+        fn on_update(&self, _: LiveUpdate) {}
+    }
+    impl LiveControlObserver for Rec {
+        fn on_control_changed(&self, _: bool) {}
+        fn on_guest_command(&self, _: String, _: String, command: LiveCommand) {
+            self.0.lock().unwrap_or_else(std::sync::PoisonError::into_inner).push(format!("cmd {command:?}"));
+        }
+    }
+    impl LivePlayNextObserver for Rec {
+        fn on_guest_play_next(&self, _: String, _: String, track_ids: Vec<String>) {
+            self.0.lock().unwrap_or_else(std::sync::PoisonError::into_inner).push(format!("next {track_ids:?}"));
+        }
+    }
+
+    #[test]
+    fn play_next_routing() {
+        // Qodo 4: a request accepted as Play Next reaches the Play Next
+        // observer, even with no control observer installed; without one
+        // (only while the app is removing it) it is a plain enqueue.
+        let rec = Arc::new(Rec::default());
+        let ev = |next| LiveEvent::Command(HostCommand { peer: "p".into(), name: "n".into(), cmd: GuestCommand::Enqueue { track_ids: vec!["1".into()] }, next });
+        let next_only = Bridge(Arc::clone(&rec) as Arc<dyn LiveObserver>, ControlSlot::default(), Arc::new(std::sync::Mutex::new(Some(Arc::clone(&rec) as Arc<dyn LivePlayNextObserver>))));
+        next_only.on_event(ev(true));
+        let control_only = Bridge(Arc::clone(&rec) as Arc<dyn LiveObserver>, Arc::new(std::sync::Mutex::new(Some(Arc::clone(&rec) as Arc<dyn LiveControlObserver>))), PlayNextSlot::default());
+        control_only.on_event(ev(true));
+        control_only.on_event(ev(false));
+        let got = rec.0.lock().unwrap_or_else(std::sync::PoisonError::into_inner).clone();
+        let enq = "cmd Enqueue { track_ids: [\"1\"] }".to_owned();
+        assert_eq!(got, vec!["next [\"1\"]".to_owned(), enq.clone(), enq]);
     }
 }
 

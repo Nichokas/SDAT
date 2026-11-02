@@ -19,10 +19,10 @@ use tokio::sync::mpsc;
 
 use super::drift::Correction;
 use super::proto::{self, EndReason, GuestCommand, Msg, RejectReason};
-use super::queue::{OpKind, QueueItem};
+use super::queue::QueueItem;
 use super::session::{GuestEvent, GuestInfo, GuestPhase, GuestSession, HostCommand, HostSession, Target, To};
 use super::ticket::Ticket;
-use super::{ALPN, PROTO_VERSION, mono_now_ns, new_id};
+use super::{ALPN, PROTO_VERSION, mono_now_ns};
 
 /// Relay of the SDAT project on iroh services (public URL, not a secret).
 pub const DEFAULT_RELAYS: &[&str] = &["https://efc2pr1s527pykb0a.euc1.relay.iroh-svc.com/"];
@@ -336,15 +336,35 @@ impl LiveHost {
         self.state.lock().unwrap_or_else(PoisonError::into_inner).guest_control()
     }
 
-    /// Replaces the shared queue; returns the entry ids given to each track.
-    pub fn replace_queue(&self, track_ids: Vec<String>) -> Result<Vec<String>, NetError> {
-        let items: Vec<QueueItem> = track_ids.into_iter().take(super::MAX_QUEUE).map(|track_id| QueueItem { item_id: new_id(), track_id }).collect();
-        let ids = items.iter().map(|i| i.item_id.clone()).collect();
+    /// Declares that the app applies guest Play Next (see
+    /// [`HostSession::set_play_next`]). Off by default.
+    pub fn set_play_next(&self, enabled: bool) {
         let mut s = self.state.lock().unwrap_or_else(PoisonError::into_inner);
-        let outs = s.queue_op(OpKind::Replace { items }).map_err(net)?;
+        let outs = s.set_play_next(enabled);
+        route(&self.peers, outs);
+    }
+
+    /// See [`HostSession::play_next_offset`].
+    pub fn play_next_offset(&self, track_ids: &[String]) -> usize {
+        self.state.lock().unwrap_or_else(PoisonError::into_inner).play_next_offset(track_ids)
+    }
+
+    /// Replaces the shared queue; returns the entry id of each track.
+    /// Entries that stay keep their id (see [`HostSession::replace_queue`]).
+    pub fn replace_queue(&self, track_ids: Vec<String>) -> Result<Vec<String>, NetError> {
+        let mut s = self.state.lock().unwrap_or_else(PoisonError::into_inner);
+        let (outs, ids) = s.replace_queue(track_ids).map_err(net)?;
         route(&self.peers, outs);
         drop(s);
         Ok(ids)
+    }
+
+    /// See [`HostSession::replace_queue_entries`].
+    pub fn replace_queue_entries(&self, entries: Vec<QueueItem>) -> Result<(), NetError> {
+        let mut s = self.state.lock().unwrap_or_else(PoisonError::into_inner);
+        let outs = s.replace_queue_entries(entries).map_err(net)?;
+        route(&self.peers, outs);
+        Ok(())
     }
 
     /// Ends the session for everyone.
@@ -564,6 +584,18 @@ impl LiveGuest {
     /// which also bounds the outgoing queue).
     pub fn send_command(&self, cmd: GuestCommand) -> bool {
         let Some(m) = self.state.lock().unwrap_or_else(PoisonError::into_inner).command(cmd, mono_now_ns()) else { return false };
+        self.tx.lock().unwrap_or_else(PoisonError::into_inner).as_ref().is_some_and(|tx| tx.send(m).is_ok())
+    }
+
+    /// Whether the host places our Play Next after the playing track; when
+    /// `false`, [`Self::send_play_next`] appends instead.
+    pub fn host_supports_play_next(&self) -> bool {
+        self.state.lock().unwrap_or_else(PoisonError::into_inner).host_supports_play_next()
+    }
+
+    /// Asks the host to play `track_ids` next; `false` if it was not sent.
+    pub fn send_play_next(&self, track_ids: Vec<String>) -> bool {
+        let Some(m) = self.state.lock().unwrap_or_else(PoisonError::into_inner).play_next(track_ids, mono_now_ns()) else { return false };
         self.tx.lock().unwrap_or_else(PoisonError::into_inner).as_ref().is_some_and(|tx| tx.send(m).is_ok())
     }
 
