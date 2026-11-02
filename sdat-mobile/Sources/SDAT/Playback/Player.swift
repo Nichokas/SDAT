@@ -625,8 +625,13 @@ final class Player {
         releaseTask?.cancel(); releaseTask = nil
         guard !isPlaying else { return }
         releaseTask = Task { [weak self] in
-            try? await Task.sleep(for: Self.idleRelease)
-            guard !Task.isCancelled, let self, !self.isPlaying, !self.loading, !Live.shared.active else { return }
+            // Re-check until idle: a Listen Together session or a load in progress may end later.
+            while !Task.isCancelled {
+                try? await Task.sleep(for: Self.idleRelease)
+                guard !Task.isCancelled, let self, !self.isPlaying else { return }
+                if !self.loading, !Live.shared.active { break }
+            }
+            guard !Task.isCancelled else { return }
             try? AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation)
         }
     }
