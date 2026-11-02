@@ -1,7 +1,6 @@
 name: Desktop COPR publish
 
-# Rebuild the desktop package on Fedora COPR (project still nichokas/tonearm-rs;
-# renaming the COPR project/package needs an explicit decision). Fired manually or by
+# Rebuild the sdat-desktop package on Fedora COPR (project nichokas/sdat). Fired manually or by
 # fedora-auto-update (repository_dispatch copr-rebuild).
 # Needs: secret COPR_WEBHOOK_TOKEN (COPR → Settings → Integrations),
 #        variable COPR_PROJECT_ID (numeric COPR project id).
@@ -27,4 +26,4 @@ jobs:
           [[ -n "${COPR_WEBHOOK_TOKEN}" ]] || { echo "::error::secret COPR_WEBHOOK_TOKEN is not set"; exit 1; }
           # Do not print the URL: it embeds the token.
           curl -fsS -o /dev/null -w "COPR webhook HTTP %{http_code}\n" -X POST \
-            "https://copr.fedorainfracloud.org/webhooks/custom/${COPR_PROJECT_ID}/${COPR_WEBHOOK_TOKEN}/tonearm-rs/"
+            "https://copr.fedorainfracloud.org/webhooks/custom/${COPR_PROJECT_ID}/${COPR_WEBHOOK_TOKEN}/sdat-desktop/"
