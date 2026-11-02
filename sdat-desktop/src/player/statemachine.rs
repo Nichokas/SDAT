@@ -142,6 +142,18 @@ pub fn on_paused(playbin: &dyn Playbin) -> Result<()> {
     Ok(())
 }
 
+/// A track that finished preparing while a pause was pending: paused and
+/// loaded, published as one state change.
+pub fn on_paused_started(playbin: &dyn Playbin) -> Result<()> {
+    playbin.set_state(gst::State::Paused)?;
+    playback_state_changed().notify(|mut s| {
+        s.status = PlaybackStatus::Paused;
+        s.loading = false;
+        s
+    });
+    Ok(())
+}
+
 pub fn on_preparing() {
     playback_state_changed().notify(|mut s| {
         s.loading = true;
@@ -367,9 +379,6 @@ impl Machine {
 
     async fn handle(self: &Rc<Self>, t: Trigger) {
         let from = self.state.get();
-        if matches!(t, Trigger::PlayTrack(..) | Trigger::PlayTrackId(..) | Trigger::Stop) {
-            self.pause_on_start.set(false);
-        }
         let Some(mut to) = self.target(&t) else {
             match t {
                 Trigger::Pause if from == State::Preparing => {
@@ -395,12 +404,13 @@ impl Machine {
             }
             return;
         };
-        if from == State::Preparing && to == State::Playing && self.pause_on_start.replace(false) {
+        // An accepted new start or stop drops a pause meant for the old one.
+        if matches!(to, State::Preparing | State::Stopped) {
+            self.pause_on_start.set(false);
+        }
+        let started_paused = from == State::Preparing && to == State::Playing && self.pause_on_start.replace(false);
+        if started_paused {
             to = State::Paused;
-            playback_state_changed().notify(|mut s| {
-                s.loading = false;
-                s
-            });
         }
         log::debug!("Transitioning source={from:?} destination={to:?} trigger={t:?}");
 
@@ -446,6 +456,7 @@ impl Machine {
                 }
                 r
             }
+            (State::Paused, _) if started_paused => on_paused_started(&*self.playbin),
             (State::Paused, _) => on_paused(&*self.playbin),
             (State::Preparing, t) => {
                 on_preparing();
