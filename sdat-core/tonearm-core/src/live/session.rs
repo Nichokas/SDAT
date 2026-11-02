@@ -864,17 +864,20 @@ impl GuestSession {
         let newer = self.anchor.as_ref().is_none_or(|cur| a.is_newer_than(cur));
         if newer {
             match self.anchor.as_ref() {
-                // Same entry, still playing: keep the drift state unless the
-                // host seeked, which is followed at once.
-                Some(cur) if cur.item_id == a.item_id && cur.track_id == a.track_id && a.playing && cur.playing => {
+                // Same song still playing (same entry, or another entry of it:
+                // clients keep their player, and desktop regenerates entry ids
+                // on queue edits): keep the drift state, unless the position
+                // really jumped (host seek, or the next entry of the same song
+                // starting over), which is followed at once.
+                Some(cur)
+                    if a.playing
+                        && cur.playing
+                        && cur.track_id == a.track_id
+                        && (cur.item_id == a.item_id || cur.track_id.is_some()) =>
+                {
                     if a.position_ms.abs_diff(cur.position_at(a.host_mono_ns)) > HOST_JUMP_MS.unsigned_abs() {
                         self.drift.host_jumped();
                     }
-                }
-                // Another entry of the same song: clients keep their player,
-                // so the new position is followed at once.
-                Some(cur) if cur.track_id.is_some() && cur.track_id == a.track_id && a.playing && cur.playing => {
-                    self.drift.host_jumped();
                 }
                 _ => self.drift.reset(),
             }
@@ -1972,6 +1975,16 @@ mod tests {
         }
         let t = 3 * S - 7 * S + SETTLE_NS; // host at 5_000
         assert_eq!(w.guest.correction(t, 0, 0), Correction::Seek(5_000));
+    }
+
+    #[test]
+    fn regenerated_entry_id_without_jump_keeps_settling() {
+        let (mut w, local) = following("i");
+        assert_eq!(w.guest.correction(local(13 * S), 0, 0), Correction::None); // settle starts
+        // Queue edit: same song, new entry id, normal progress.
+        let o = w.host.set_playback(Some("k".into()), Some("t".into()), 11_000, true, 14 * S);
+        w.deliver(o, 14 * S);
+        assert_eq!(w.guest.correction(local(15 * S), 0, 0), Correction::None);
     }
 
     #[test]

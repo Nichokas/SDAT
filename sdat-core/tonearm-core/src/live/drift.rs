@@ -85,6 +85,8 @@ impl DriftController {
     /// The host jumped on the same track (a seek, or the next queue entry is
     /// the same song so the client keeps its player): honor it at once,
     /// bypassing the settle window and seek spacing (it is not drift).
+    /// The tolerance still applies: a host seek that leaves the guest within
+    /// [`TOLERANCE_MS`] is accepted divergence, not worth an audible seek.
     pub fn host_jumped(&mut self) {
         self.host_jump = true;
     }
