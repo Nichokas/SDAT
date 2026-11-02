@@ -286,10 +286,13 @@ impl HostSession {
         let mut ids = stable_ids(&self.queue.queue().items, &track_ids, &self.run.items);
         let capped = ids.len() == super::MAX_QUEUE;
         // Bind handed-out tracks to the entries right after the playing one
-        // and the run. Pending requests are consumed by every replace (they
-        // either landed now or were dropped by the app); the run only changes
-        // once the queue accepted the replacement.
+        // and the run. Pending requests inside the shared queue are consumed
+        // by every replace (they landed now or the app dropped them); the run
+        // only changes once the queue accepted the replacement.
         let mut run = self.run.items.clone();
+        // Requests that would land past the cap stay pending: the app still
+        // has them, the shared queue just cannot show them.
+        let mut beyond_cap = Vec::new();
         // Nothing playing: Play Next goes to the front of the queue.
         let start = match &self.anchor.item_id {
             None => Some(0),
@@ -299,8 +302,14 @@ impl HostSession {
             while j < ids.len() && run.contains(&ids[j].0) {
                 j += 1;
             }
-            for t in &self.run.pending {
-                if j >= ids.len() || &track_ids[j] != t {
+            for (n, t) in self.run.pending.iter().enumerate() {
+                if j >= ids.len() {
+                    if capped {
+                        beyond_cap = self.run.pending[n..].to_vec();
+                    }
+                    break;
+                }
+                if &track_ids[j] != t {
                     break;
                 }
                 if !ids[j].1 {
@@ -318,11 +327,15 @@ impl HostSession {
                 run.push(ids[j].0.clone());
                 j += 1;
             }
+        } else if capped {
+            // The playing entry itself is past the cap.
+            beyond_cap = self.run.pending.clone();
         }
+        beyond_cap.truncate(super::MAX_QUEUE);
         let items: Vec<QueueItem> = ids.iter().zip(&track_ids).map(|((item_id, _), t)| QueueItem { item_id: item_id.clone(), track_id: t.clone() }).collect();
         let out = self.queue_op(OpKind::Replace { items })?;
         self.run.items = run;
-        self.run.pending.clear();
+        self.run.pending = beyond_cap;
         Ok((out, ids.into_iter().map(|(id, _)| id).collect()))
     }
 
@@ -1290,6 +1303,17 @@ mod tests {
         let (mut h, _) = host_with(&full, 0);
         let mut q = ids(&full);
         insert_next(&mut h, &mut q, 0, &["x"]);
+        assert_eq!(h.play_next_offset(&ids(&["y"])), 1);
+    }
+
+    #[test]
+    fn play_next_past_the_cap_keeps_order() {
+        let full: Vec<String> = (0..super::super::MAX_QUEUE).map(|n| format!("t{n}")).collect();
+        let refs: Vec<&str> = full.iter().map(String::as_str).collect();
+        let last = full.len() - 1;
+        let (mut h, _) = host_with(&refs, last);
+        let mut q = full.clone();
+        insert_next(&mut h, &mut q, last, &["x"]);
         assert_eq!(h.play_next_offset(&ids(&["y"])), 1);
     }
 
