@@ -379,16 +379,37 @@ fn queue_param(param: &str, next: bool) {
         let ticket = player::play_next_ticket();
         spawn_logged("play next", async move {
             let r = queue_target_tracks(kind, id).await;
-            player::complete_play_next(ticket, r.as_ref().map(Clone::clone).unwrap_or_default());
+            let tracks = r.as_ref().map(Clone::clone).unwrap_or_default();
+            // A Listen Together guest can't reorder the host's queue: like
+            // "add to queue", the request goes to the host as an enqueue.
+            let guest = !tracks.is_empty() && crate::live::user_enqueue(ids(&tracks));
+            player::complete_play_next(ticket, if guest { vec![] } else { tracks });
             r.map(drop)
         });
     } else if kind == "track" {
-        spawn_logged("queue track", async move { player::add_track_to_user_queue(&id).await });
+        queue_track(id);
     } else {
         spawn_logged("queue tracks", async move {
-            player::add_tracklist_to_user_queue(queue_target_tracks(kind, id).await?);
+            queue_tracks(queue_target_tracks(kind, id).await?);
             Ok(())
         });
+    }
+}
+
+fn ids(t: &[model::Track]) -> Vec<String> {
+    t.iter().map(|t| t.id().to_string()).collect()
+}
+
+/// Queues one track; a Listen Together guest asks the host instead.
+fn queue_track(id: String) {
+    if !crate::live::user_enqueue(vec![id.clone()]) {
+        spawn_logged("queue track", async move { player::add_track_to_user_queue(&id).await });
+    }
+}
+
+fn queue_tracks(t: Vec<model::Track>) {
+    if !crate::live::user_enqueue(ids(&t)) {
+        player::add_tracklist_to_user_queue(t);
     }
 }
 
@@ -495,7 +516,7 @@ fn install_actions(app: &adw::Application, window: &adw::ApplicationWindow) {
         }
     });
     window.add_action(&add);
-    window.add_action(&with_string("player.queue-track", |id| spawn_logged("queue track", async move { player::add_track_to_user_queue(&id).await })));
+    window.add_action(&with_string("player.queue-track", queue_track));
     window.add_action(&with_string("player.queue", |p| queue_param(&p, false)));
     window.add_action(&with_string("player.play-next-track", |id| queue_param(&format!("track/{id}"), true)));
     window.add_action(&with_string("player.play-next", |p| queue_param(&p, true)));
