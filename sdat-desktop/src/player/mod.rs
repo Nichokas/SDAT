@@ -54,6 +54,9 @@ thread_local! {
     static PLAY_NEXT_ORDER: std::cell::RefCell<play_next::Sequencer<Track>> = std::cell::RefCell::default();
     /// Bumped when the queues are replaced, so pending "play next" fetches are discarded.
     static PLAY_NEXT_GENERATION: Cell<u64> = const { Cell::new(0) };
+    /// Id of the gapless-prepared track moved from the base queue to the head
+    /// of the user queue by "play next", until that entry is consumed.
+    static GAPLESS_MOVED: std::cell::RefCell<Option<String>> = const { std::cell::RefCell::new(None) };
 }
 
 /// A reserved place in the "play next" order, tied to the queue it was taken for.
@@ -281,6 +284,7 @@ fn clear_queues() {
     update_pinned(|_| 0);
     PLAY_NEXT_GENERATION.with(|g| g.set(g.get() + 1));
     PLAY_NEXT_ORDER.with(|s| *s.borrow_mut() = play_next::Sequencer::default());
+    GAPLESS_MOVED.with(|m| m.borrow_mut().take());
     base_queue().clear();
 }
 
@@ -289,6 +293,7 @@ fn get_next_track_from_queue(peek: bool) -> Option<Track> {
     if t.is_some() {
         if !peek {
             update_pinned(|p| play_next::after_remove(p, 0));
+            GAPLESS_MOVED.with(|m| m.borrow_mut().take());
         }
         return t;
     }
@@ -361,6 +366,7 @@ fn insert_tracklist_next(tracks: Vec<Track>) {
         && user_queue().is_empty()
         && let Some(head) = base_queue().pop()
     {
+        GAPLESS_MOVED.with(|m| *m.borrow_mut() = Some(head.id().to_string()));
         user_queue().prepend(head);
     }
     let floor = usize::from(gapless && !user_queue().is_empty());
@@ -508,6 +514,13 @@ pub fn set_shuffle(shuffle: bool, current_track_id: &str) {
         base_queue().shuffle(current_track_id);
     } else {
         base_queue().restore(current_track_id);
+    }
+    // Rebuilding from the source brings back a gapless-prepared track that
+    // "play next" moved to the user queue; drop the base copy so it plays once.
+    if let Some(id) = GAPLESS_MOVED.with(|m| m.borrow().clone())
+        && let Some(i) = base_queue().entries().with(|e| e.iter().position(|t| t.id() == id))
+    {
+        let _ = base_queue().remove_at(i);
     }
     shuffle_state_changed().set(shuffle);
 }
