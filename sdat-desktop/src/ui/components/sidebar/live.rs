@@ -116,7 +116,17 @@ fn hosting(url: &str, guests: &[String]) -> Vec<gtk::Widget> {
     };
     let refs: Vec<&gtk::Widget> = rows.iter().collect();
     let end = button(&tr("End Session"), "destructive-action", live::end);
-    vec![qr_picture(url), scan.upcast(), link.upcast(), copy.upcast(), boxed(&refs).upcast(), end.upcast()]
+    vec![qr_picture(url), scan.upcast(), link.upcast(), copy.upcast(), boxed(&refs).upcast(), boxed(&[guest_control_row().upcast_ref()]).upcast(), end.upcast()]
+}
+
+/// Host toggle: guests may play/pause, skip and add tracks. Off by default.
+fn guest_control_row() -> adw::SwitchRow {
+    let row = adw::SwitchRow::new();
+    row.set_title(&tr("Allow guests to control playback"));
+    row.set_subtitle(&tr("Play, pause, skip and add songs to the queue"));
+    row.set_active(live::guest_control().get());
+    row.connect_active_notify(|r| live::set_allow_guest_control(r.is_active()));
+    row
 }
 
 fn content(p: &Phase) -> gtk::Widget {
@@ -133,7 +143,12 @@ fn content(p: &Phase) -> gtk::Widget {
         }
         Phase::Hosting { url, guests } => children.extend(hosting(url, guests)),
         Phase::Listening { .. } | Phase::Reconnecting { .. } => {
-            children.push(wrapped(&tr("The host controls playback. Music plays through your own TIDAL account.")).class("caption").upcast());
+            let note = if live::guest_control().get() {
+                tr("The host lets you play, pause, skip and add songs. Music plays through your own TIDAL account.")
+            } else {
+                tr("The host controls playback. Music plays through your own TIDAL account.")
+            };
+            children.push(wrapped(&note).class("caption").upcast());
             children.push(boxed(&[output_delay_row().upcast_ref()]).upcast());
             children.push(button(&tr("Leave Session"), "destructive-action", live::end).upcast());
         }
@@ -151,6 +166,14 @@ fn content(p: &Phase) -> gtk::Widget {
 pub fn new_button() -> gtk::MenuButton {
     let bin = adw::Bin::new();
     on_state(live::phase(), &bin, |b, p| b.set_child(Some(&content(p))));
+    // A guest's note follows the host's permission. The host's own switch
+    // already shows it, and rebuilding would interrupt its toggle.
+    crate::ui::dsl::on_state_lazy(live::guest_control(), &bin, |b, _| {
+        let p = live::phase().get();
+        if p.is_guest() {
+            b.set_child(Some(&content(&p)));
+        }
+    });
     let popover = gtk::Popover::new();
     popover.set_child(Some(&bin));
     let mb = gtk::MenuButton::new().class("flat").tooltip(&tr("Listen Together")).halign(gtk::Align::End);
