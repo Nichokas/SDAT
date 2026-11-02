@@ -9,6 +9,8 @@ struct SDATApp: App {
     @Environment(\.scenePhase) private var phase
 
     var body: some Scene {
+        // Read in body so Observation re-renders the scene when either flag changes.
+        let showLive = live.showSheet && !Chrome.shared.showPlayer
         WindowGroup {
             Group {
                 if session.signedIn {
@@ -32,7 +34,7 @@ struct SDATApp: App {
             .environment(Chrome.shared)
             // A root sheet can't present while the player sheet is up; PlayerSheet presents
             // LiveSheet itself then. Exactly one of the two bindings is true at a time.
-            .sheet(isPresented: Binding(get: { live.showSheet && !Chrome.shared.showPlayer },
+            .sheet(isPresented: Binding(get: { showLive },
                                         set: { if !$0 { live.showSheet = false } })) { LiveSheet() }
             .onOpenURL { url in if session.signedIn { live.open(url.absoluteString) } }
             .preferredColorScheme(.dark)
