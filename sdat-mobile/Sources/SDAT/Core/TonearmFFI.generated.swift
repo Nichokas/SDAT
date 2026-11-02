@@ -1328,6 +1328,271 @@ public func FfiConverterTypeDeviceLogin_lower(_ value: DeviceLogin) -> UInt64 {
 
 
 /**
+ * Guest playback control, kept apart from [`LiveObserver`] so adding it
+ * does not change [`LiveUpdate`]. Implemented in Swift; called from a
+ * background thread. Install it with `set_control_observer`.
+ */
+public protocol LiveControlObserver: AnyObject, Sendable {
+    
+    /**
+     * Guest: the host allowed (`true`) or forbade guest playback control.
+     */
+    func onControlChanged(allowed: Bool) 
+    
+    /**
+     * Host: a guest asked for a playback change. Permission, validation
+     * and rate limits are already checked; apply it through the normal
+     * player path, which then updates every guest.
+     */
+    func onGuestCommand(peer: String, name: String, command: LiveCommand) 
+    
+}
+/**
+ * Guest playback control, kept apart from [`LiveObserver`] so adding it
+ * does not change [`LiveUpdate`]. Implemented in Swift; called from a
+ * background thread. Install it with `set_control_observer`.
+ */
+open class LiveControlObserverImpl: LiveControlObserver, @unchecked Sendable {
+    fileprivate let handle: UInt64
+
+    /// Used to instantiate a [FFIObject] without an actual handle, for fakes in tests, mostly.
+#if swift(>=5.8)
+    @_documentation(visibility: private)
+#endif
+    public struct NoHandle {
+        public init() {}
+    }
+
+    // TODO: We'd like this to be `private` but for Swifty reasons,
+    // we can't implement `FfiConverter` without making this `required` and we can't
+    // make it `required` without making it `public`.
+#if swift(>=5.8)
+    @_documentation(visibility: private)
+#endif
+    required public init(unsafeFromHandle handle: UInt64) {
+        self.handle = handle
+    }
+
+    // This constructor can be used to instantiate a fake object.
+    // - Parameter noHandle: Placeholder value so we can have a constructor separate from the default empty one that may be implemented for classes extending [FFIObject].
+    //
+    // - Warning:
+    //     Any object instantiated with this constructor cannot be passed to an actual Rust-backed object. Since there isn't a backing handle the FFI lower functions will crash.
+#if swift(>=5.8)
+    @_documentation(visibility: private)
+#endif
+    public init(noHandle: NoHandle) {
+        self.handle = 0
+    }
+
+#if swift(>=5.8)
+    @_documentation(visibility: private)
+#endif
+    public func uniffiCloneHandle() -> UInt64 {
+        return try! rustCall { uniffi_tonearm_ffi_fn_clone_livecontrolobserver(self.handle, $0) }
+    }
+    // No primary constructor declared for this class.
+
+    deinit {
+        if handle == 0 {
+            // Mock objects have handle=0 don't try to free them
+            return
+        }
+
+        try! rustCall { uniffi_tonearm_ffi_fn_free_livecontrolobserver(handle, $0) }
+    }
+
+    
+
+    
+    /**
+     * Guest: the host allowed (`true`) or forbade guest playback control.
+     */
+open func onControlChanged(allowed: Bool)  {try! rustCall() {
+        uniffiCallStatus in
+    uniffi_tonearm_ffi_fn_method_livecontrolobserver_on_control_changed(
+            self.uniffiCloneHandle(),
+        FfiConverterBool.lower(allowed),uniffiCallStatus
+    )
+}
+}
+    
+    /**
+     * Host: a guest asked for a playback change. Permission, validation
+     * and rate limits are already checked; apply it through the normal
+     * player path, which then updates every guest.
+     */
+open func onGuestCommand(peer: String, name: String, command: LiveCommand)  {try! rustCall() {
+        uniffiCallStatus in
+    uniffi_tonearm_ffi_fn_method_livecontrolobserver_on_guest_command(
+            self.uniffiCloneHandle(),
+        FfiConverterString.lower(peer),
+        FfiConverterString.lower(name),
+        FfiConverterTypeLiveCommand_lower(command),uniffiCallStatus
+    )
+}
+}
+    
+
+    
+}
+
+
+
+// Put the implementation in a struct so we don't pollute the top-level namespace
+fileprivate struct UniffiCallbackInterfaceLiveControlObserver {
+
+    // Create the VTable using a series of closures.
+    // Swift automatically converts these into C callback functions.
+    //
+    // Store the vtable directly.
+    static let vtable: UniffiVTableCallbackInterfaceLiveControlObserver = UniffiVTableCallbackInterfaceLiveControlObserver(
+        uniffiFree: { (uniffiHandle: UInt64) -> () in
+            do {
+                try FfiConverterTypeLiveControlObserver.handleMap.remove(handle: uniffiHandle)
+            } catch {
+                print("Uniffi callback interface LiveControlObserver: handle missing in uniffiFree")
+            }
+        },
+        uniffiClone: { (uniffiHandle: UInt64) -> UInt64 in
+            do {
+                return try FfiConverterTypeLiveControlObserver.handleMap.clone(handle: uniffiHandle)
+            } catch {
+                fatalError("Uniffi callback interface LiveControlObserver: handle missing in uniffiClone")
+            }
+        },
+        onControlChanged: { (
+            uniffiHandle: UInt64,
+            allowed: Int8,
+            uniffiOutReturn: UnsafeMutableRawPointer,
+            uniffiCallStatus: UnsafeMutablePointer<RustCallStatus>
+        ) in
+            let makeCall = {
+                () throws -> () in
+                guard let uniffiObj = try? FfiConverterTypeLiveControlObserver.handleMap.get(handle: uniffiHandle) else {
+                    throw UniffiInternalError.unexpectedStaleHandle
+                }
+                return uniffiObj.onControlChanged(
+                     allowed: try FfiConverterBool.lift(allowed)
+                )
+            }
+
+            
+            let writeReturn = { () }
+            uniffiTraitInterfaceCall(
+                callStatus: uniffiCallStatus,
+                makeCall: makeCall,
+                writeReturn: writeReturn
+            )
+        },
+        onGuestCommand: { (
+            uniffiHandle: UInt64,
+            peer: RustBuffer,
+            name: RustBuffer,
+            command: RustBuffer,
+            uniffiOutReturn: UnsafeMutableRawPointer,
+            uniffiCallStatus: UnsafeMutablePointer<RustCallStatus>
+        ) in
+            let makeCall = {
+                () throws -> () in
+                guard let uniffiObj = try? FfiConverterTypeLiveControlObserver.handleMap.get(handle: uniffiHandle) else {
+                    throw UniffiInternalError.unexpectedStaleHandle
+                }
+                return uniffiObj.onGuestCommand(
+                     peer: try FfiConverterString.lift(peer),
+                     name: try FfiConverterString.lift(name),
+                     command: try FfiConverterTypeLiveCommand_lift(command)
+                )
+            }
+
+            
+            let writeReturn = { () }
+            uniffiTraitInterfaceCall(
+                callStatus: uniffiCallStatus,
+                makeCall: makeCall,
+                writeReturn: writeReturn
+            )
+        }
+    )
+
+    // Rust stores this pointer for future callback invocations, so it must live
+    // for the process lifetime (not just for the init function call).
+    //
+    // `nonisolated(unsafe)` is needed under Swift 6 strict concurrency.
+    // This is safe because the pointee is initialized once during static init
+    // and never mutated by either side of the FFI.  Its fields are C function pointers.
+    nonisolated(unsafe) static let vtablePtr: UnsafePointer<UniffiVTableCallbackInterfaceLiveControlObserver> = {
+        let ptr = UnsafeMutablePointer<UniffiVTableCallbackInterfaceLiveControlObserver>.allocate(capacity: 1)
+        ptr.initialize(to: vtable)
+        return UnsafePointer(ptr)
+    }()
+}
+
+private func uniffiCallbackInitLiveControlObserver() {
+    uniffi_tonearm_ffi_fn_init_callback_vtable_livecontrolobserver(UniffiCallbackInterfaceLiveControlObserver.vtablePtr)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeLiveControlObserver: FfiConverter {
+    fileprivate static let handleMap = UniffiHandleMap<LiveControlObserver>()
+
+    typealias FfiType = UInt64
+    typealias SwiftType = LiveControlObserver
+
+    public static func lift(_ handle: UInt64) throws -> LiveControlObserver {
+        if ((handle & 1) == 0) {
+            // Rust-generated handle, construct a new class that uses the handle to implement the
+            // interface
+            return LiveControlObserverImpl(unsafeFromHandle: handle)
+        } else {
+            // Swift-generated handle, get the object from the handle map
+            return try handleMap.remove(handle: handle)
+        }
+    }
+
+    public static func lower(_ value: LiveControlObserver) -> UInt64 {
+         if let rustImpl = value as? LiveControlObserverImpl {
+             // Rust-implemented object.  Clone the handle and return it
+            return rustImpl.uniffiCloneHandle()
+         } else {
+            // Swift object, generate a new vtable handle and return that.
+            return handleMap.insert(obj: value)
+         }
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> LiveControlObserver {
+        let handle: UInt64 = try readInt(&buf)
+        return try lift(handle)
+    }
+
+    public static func write(_ value: LiveControlObserver, into buf: inout [UInt8]) {
+        writeInt(&buf, lower(value))
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeLiveControlObserver_lift(_ handle: UInt64) throws -> LiveControlObserver {
+    return try FfiConverterTypeLiveControlObserver.lift(handle)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeLiveControlObserver_lower(_ value: LiveControlObserver) -> UInt64 {
+    return FfiConverterTypeLiveControlObserver.lower(value)
+}
+
+
+
+
+
+
+/**
  * A session this device joined.
  */
 public protocol LiveGuestProtocol: AnyObject, Sendable {
@@ -1336,6 +1601,11 @@ public protocol LiveGuestProtocol: AnyObject, Sendable {
      * Drift correction for a player at `actual_ms` on the target track.
      */
     func correction(latencyMs: Int64, actualMs: Int64)  -> LiveCorrection
+    
+    /**
+     * Whether the host allows our playback commands (lock controls otherwise).
+     */
+    func guestControl()  -> Bool
     
     func hostName()  -> String
     
@@ -1351,6 +1621,17 @@ public protocol LiveGuestProtocol: AnyObject, Sendable {
      * Shared queue as track ids, in order.
      */
     func queueTrackIds()  -> [String]
+    
+    /**
+     * Asks the host for a playback change; `false` if it was not sent.
+     */
+    func sendCommand(command: LiveCommand)  -> Bool
+    
+    /**
+     * Hears when the host allows or forbids guest control. Read
+     * [`Self::guest_control`] after installing it for the current value.
+     */
+    func setControlObserver(observer: LiveControlObserver?) 
     
     /**
      * Low power mode: no rate nudging, seeks only.
@@ -1448,6 +1729,18 @@ open func correction(latencyMs: Int64, actualMs: Int64) -> LiveCorrection  {
 })
 }
     
+    /**
+     * Whether the host allows our playback commands (lock controls otherwise).
+     */
+open func guestControl() -> Bool  {
+    return try!  FfiConverterBool.lift(try! rustCall() {
+        uniffiCallStatus in
+    uniffi_tonearm_ffi_fn_method_liveguest_guest_control(
+            self.uniffiCloneHandle(),uniffiCallStatus
+    )
+})
+}
+    
 open func hostName() -> String  {
     return try!  FfiConverterString.lift(try! rustCall() {
         uniffiCallStatus in
@@ -1488,6 +1781,32 @@ open func queueTrackIds() -> [String]  {
             self.uniffiCloneHandle(),uniffiCallStatus
     )
 })
+}
+    
+    /**
+     * Asks the host for a playback change; `false` if it was not sent.
+     */
+open func sendCommand(command: LiveCommand) -> Bool  {
+    return try!  FfiConverterBool.lift(try! rustCall() {
+        uniffiCallStatus in
+    uniffi_tonearm_ffi_fn_method_liveguest_send_command(
+            self.uniffiCloneHandle(),
+        FfiConverterTypeLiveCommand_lower(command),uniffiCallStatus
+    )
+})
+}
+    
+    /**
+     * Hears when the host allows or forbids guest control. Read
+     * [`Self::guest_control`] after installing it for the current value.
+     */
+open func setControlObserver(observer: LiveControlObserver?)  {try! rustCall() {
+        uniffiCallStatus in
+    uniffi_tonearm_ffi_fn_method_liveguest_set_control_observer(
+            self.uniffiCloneHandle(),
+        FfiConverterOptionTypeLiveControlObserver.lower(observer),uniffiCallStatus
+    )
+}
 }
     
     /**
@@ -1572,12 +1891,24 @@ public protocol LiveHostProtocol: AnyObject, Sendable {
     
     func end() 
     
+    func guestControl()  -> Bool
+    
     func guests()  -> [LiveGuestInfo]
     
     /**
      * `sdat://join/...`, for the QR code.
      */
     func inviteUrl()  -> String
+    
+    /**
+     * Receives guest commands (dropped while none is installed).
+     */
+    func setControlObserver(observer: LiveControlObserver?) 
+    
+    /**
+     * Lets guests play/pause, skip and add tracks (off by default).
+     */
+    func setGuestControl(allowed: Bool) 
     
     /**
      * Call on play, pause, seek and track change.
@@ -1672,6 +2003,15 @@ open func end()  {try! rustCall() {
 }
 }
     
+open func guestControl() -> Bool  {
+    return try!  FfiConverterBool.lift(try! rustCall() {
+        uniffiCallStatus in
+    uniffi_tonearm_ffi_fn_method_livehost_guest_control(
+            self.uniffiCloneHandle(),uniffiCallStatus
+    )
+})
+}
+    
 open func guests() -> [LiveGuestInfo]  {
     return try!  FfiConverterSequenceTypeLiveGuestInfo.lift(try! rustCall() {
         uniffiCallStatus in
@@ -1691,6 +2031,30 @@ open func inviteUrl() -> String  {
             self.uniffiCloneHandle(),uniffiCallStatus
     )
 })
+}
+    
+    /**
+     * Receives guest commands (dropped while none is installed).
+     */
+open func setControlObserver(observer: LiveControlObserver?)  {try! rustCall() {
+        uniffiCallStatus in
+    uniffi_tonearm_ffi_fn_method_livehost_set_control_observer(
+            self.uniffiCloneHandle(),
+        FfiConverterOptionTypeLiveControlObserver.lower(observer),uniffiCallStatus
+    )
+}
+}
+    
+    /**
+     * Lets guests play/pause, skip and add tracks (off by default).
+     */
+open func setGuestControl(allowed: Bool)  {try! rustCall() {
+        uniffiCallStatus in
+    uniffi_tonearm_ffi_fn_method_livehost_set_guest_control(
+            self.uniffiCloneHandle(),
+        FfiConverterBool.lower(allowed),uniffiCallStatus
+    )
+}
 }
     
     /**
@@ -4467,6 +4831,95 @@ public func FfiConverterTypeFfiError_lower(_ value: FfiError) -> RustBuffer {
 }
 
 
+/**
+ * Playback request from a guest (host side) or to the host (guest side).
+ */
+
+public enum LiveCommand: Equatable, Hashable {
+    
+    case play
+    case pause
+    case next
+    /**
+     * Append these TIDAL track ids to the shared queue (max 50, digits only).
+     */
+    case enqueue(trackIds: [String]
+    )
+
+
+
+
+
+}
+
+#if compiler(>=6)
+extension LiveCommand: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeLiveCommand: FfiConverterRustBuffer {
+    typealias SwiftType = LiveCommand
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> LiveCommand {
+        let variant: Int32 = try readInt(&buf)
+        switch variant {
+        
+        case 1: return .play
+        
+        case 2: return .pause
+        
+        case 3: return .next
+        
+        case 4: return .enqueue(trackIds: try FfiConverterSequenceString.read(from: &buf)
+        )
+        
+        default: throw UniffiInternalError.unexpectedEnumCase
+        }
+    }
+
+    public static func write(_ value: LiveCommand, into buf: inout [UInt8]) {
+        switch value {
+        
+        
+        case .play:
+            writeInt(&buf, Int32(1))
+        
+        
+        case .pause:
+            writeInt(&buf, Int32(2))
+        
+        
+        case .next:
+            writeInt(&buf, Int32(3))
+        
+        
+        case let .enqueue(trackIds):
+            writeInt(&buf, Int32(4))
+            FfiConverterSequenceString.write(trackIds, into: &buf)
+            
+        }
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeLiveCommand_lift(_ buf: RustBuffer) throws -> LiveCommand {
+    return try FfiConverterTypeLiveCommand.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeLiveCommand_lower(_ value: LiveCommand) -> RustBuffer {
+    return FfiConverterTypeLiveCommand.lower(value)
+}
+
+
+
 
 public enum LiveCorrection: Equatable, Hashable {
     
@@ -4962,6 +5415,30 @@ fileprivate struct FfiConverterOptionString: FfiConverterRustBuffer {
         switch try readInt(&buf) as Int8 {
         case 0: return nil
         case 1: return try FfiConverterString.read(from: &buf)
+        default: throw UniffiInternalError.unexpectedOptionalTag
+        }
+    }
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+fileprivate struct FfiConverterOptionTypeLiveControlObserver: FfiConverterRustBuffer {
+    typealias SwiftType = LiveControlObserver?
+
+    public static func write(_ value: SwiftType, into buf: inout [UInt8]) {
+        guard let value = value else {
+            writeInt(&buf, Int8(0))
+            return
+        }
+        writeInt(&buf, Int8(1))
+        FfiConverterTypeLiveControlObserver.write(value, into: &buf)
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> SwiftType {
+        switch try readInt(&buf) as Int8 {
+        case 0: return nil
+        case 1: return try FfiConverterTypeLiveControlObserver.read(from: &buf)
         default: throw UniffiInternalError.unexpectedOptionalTag
         }
     }
@@ -6274,7 +6751,16 @@ private let initializationResult: InitializationResult = {
     if (uniffi_tonearm_ffi_checksum_method_trackpager_next_page() != 39957) {
         return InitializationResult.apiChecksumMismatch
     }
+    if (uniffi_tonearm_ffi_checksum_method_livecontrolobserver_on_control_changed() != 30964) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_tonearm_ffi_checksum_method_livecontrolobserver_on_guest_command() != 60396) {
+        return InitializationResult.apiChecksumMismatch
+    }
     if (uniffi_tonearm_ffi_checksum_method_liveguest_correction() != 34405) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_tonearm_ffi_checksum_method_liveguest_guest_control() != 27956) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_tonearm_ffi_checksum_method_liveguest_host_name() != 35764) {
@@ -6289,6 +6775,12 @@ private let initializationResult: InitializationResult = {
     if (uniffi_tonearm_ffi_checksum_method_liveguest_queue_track_ids() != 33492) {
         return InitializationResult.apiChecksumMismatch
     }
+    if (uniffi_tonearm_ffi_checksum_method_liveguest_send_command() != 64956) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_tonearm_ffi_checksum_method_liveguest_set_control_observer() != 13492) {
+        return InitializationResult.apiChecksumMismatch
+    }
     if (uniffi_tonearm_ffi_checksum_method_liveguest_set_seek_only() != 32176) {
         return InitializationResult.apiChecksumMismatch
     }
@@ -6298,10 +6790,19 @@ private let initializationResult: InitializationResult = {
     if (uniffi_tonearm_ffi_checksum_method_livehost_end() != 57801) {
         return InitializationResult.apiChecksumMismatch
     }
+    if (uniffi_tonearm_ffi_checksum_method_livehost_guest_control() != 36461) {
+        return InitializationResult.apiChecksumMismatch
+    }
     if (uniffi_tonearm_ffi_checksum_method_livehost_guests() != 14337) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_tonearm_ffi_checksum_method_livehost_invite_url() != 60222) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_tonearm_ffi_checksum_method_livehost_set_control_observer() != 1340) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_tonearm_ffi_checksum_method_livehost_set_guest_control() != 3579) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_tonearm_ffi_checksum_method_livehost_set_playback() != 50320) {
@@ -6327,6 +6828,7 @@ private let initializationResult: InitializationResult = {
     }
 
     uniffiCallbackInitAppConfig()
+    uniffiCallbackInitLiveControlObserver()
     uniffiCallbackInitLiveObserver()
     uniffiCallbackInitTokenStore()
     return InitializationResult.ok

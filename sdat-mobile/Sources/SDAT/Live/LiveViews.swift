@@ -32,7 +32,7 @@ struct LiveSheet: View {
                     Label("Scan an invitation", systemImage: "qrcode.viewfinder")
                 }
             } footer: {
-                Text("Everyone listens with their own TIDAL account. Only the host controls playback.")
+                Text("Everyone listens with their own TIDAL account. The host controls playback and can let guests help.")
             }
         case .starting, .joining:
             HStack { ProgressView(); Text(live.mode == .starting ? "Starting…" : "Joining…").padding(.leading, 8) }
@@ -44,6 +44,10 @@ struct LiveSheet: View {
                     ShareLink(item: invite) { Label("Share link", systemImage: "square.and.arrow.up") }
                 } footer: { Text("Friends scan this from My Collection.") }
             }
+            Section {
+                Toggle("Allow guests to control playback", isOn: Binding(
+                    get: { live.guestControl }, set: { live.setGuestControl($0) }))
+            } footer: { Text("Play, pause, skip and add songs to the queue.") }
             Section("Listening (\(live.guests.count))") {
                 if live.guests.isEmpty { Text("Nobody yet").foregroundStyle(.secondary) }
                 ForEach(live.guests, id: \.peer) { Text($0.name) }
@@ -52,6 +56,10 @@ struct LiveSheet: View {
         case .joined:
             Section {
                 LabeledContent("Host", value: live.hostName)
+                Text(live.guestControl
+                     ? "The host lets you play, pause, skip and add songs."
+                     : "The host controls playback.")
+                    .font(.footnote).foregroundStyle(.secondary)
                 if live.reconnecting {
                     HStack { ProgressView(); Text("Reconnecting…").padding(.leading, 8) }
                 }
@@ -59,16 +67,6 @@ struct LiveSheet: View {
             Section {
                 Stepper("Output delay: \(live.extraLatencyMs) ms", value: $live.extraLatencyMs, in: 0...500, step: 10)
             } footer: { Text("Raise this if your speakers or headphones sound behind.") }
-            if !live.upNext.isEmpty {
-                Section("Up next") {
-                    ForEach(live.upNext) { row in
-                        VStack(alignment: .leading) {
-                            Text(row.track.title)
-                            Text(row.track.artists.map(\.name).joined(separator: ", ")).font(.caption).foregroundStyle(.secondary)
-                        }
-                    }
-                }
-            }
             Button("Leave", role: .destructive) { live.leave() }
         case .ended(let msg):
             Text(msg)

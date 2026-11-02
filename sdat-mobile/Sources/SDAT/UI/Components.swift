@@ -157,10 +157,10 @@ struct TrackMenu: View {
         }
         Divider()
         Button("Play Next", systemImage: "text.line.first.and.arrowtriangle.forward") {
-            player.playNext(track); Chrome.shared.flash("Playing next")
+            if !Live.shared.userEnqueue([track]) { player.playNext(track); Chrome.shared.flash("Playing next") }
         }
         Button("Add to Queue", systemImage: "text.line.last.and.arrowtriangle.forward") {
-            player.addToQueue(track); Chrome.shared.flash("Added to queue")
+            if !Live.shared.userEnqueue([track]) { player.addToQueue(track); Chrome.shared.flash("Added to queue") }
         }
         Button("Add to Playlist…", systemImage: "text.badge.plus") { Chrome.shared.playlistPickerTrack = track }
         DownloadButton(tracks: [track])

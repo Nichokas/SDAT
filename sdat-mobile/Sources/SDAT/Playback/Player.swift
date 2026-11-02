@@ -758,24 +758,24 @@ final class Player {
 
     private func configureRemote() {
         let c = MPRemoteCommandCenter.shared()
-        c.playCommand.addTarget { [weak self] _ in
-            MainActor.assumeIsolated { if self?.isPlaying == false { self?.toggle() } }
+        c.playCommand.addTarget { _ in
+            MainActor.assumeIsolated { Live.shared.userPlay() }
             return .success
         }
-        c.pauseCommand.addTarget { [weak self] _ in
-            MainActor.assumeIsolated { if self?.isPlaying == true { self?.toggle() } }
+        c.pauseCommand.addTarget { _ in
+            MainActor.assumeIsolated { Live.shared.userPause() }
             return .success
         }
-        c.togglePlayPauseCommand.addTarget { [weak self] _ in
-            MainActor.assumeIsolated { self?.toggle() }
+        c.togglePlayPauseCommand.addTarget { _ in
+            MainActor.assumeIsolated { Live.shared.userToggle() }
             return .success
         }
-        c.nextTrackCommand.addTarget { [weak self] _ in
-            MainActor.assumeIsolated { self?.next() }
+        c.nextTrackCommand.addTarget { _ in
+            MainActor.assumeIsolated { Live.shared.userNext() }
             return .success
         }
         c.previousTrackCommand.addTarget { [weak self] _ in
-            MainActor.assumeIsolated { self?.previous() }
+            MainActor.assumeIsolated { if !Live.shared.guestRefuses() { self?.previous() } }
             return .success
         }
         // Lock screen / Control Center: favourite (like).
@@ -791,7 +791,7 @@ final class Player {
         Favs.shared.onChange = { [weak self] in MainActor.assumeIsolated { self?.syncRemote() } }
         c.changePlaybackPositionCommand.addTarget { [weak self] event in
             guard let e = event as? MPChangePlaybackPositionCommandEvent else { return .commandFailed }
-            MainActor.assumeIsolated { self?.seek(to: e.positionTime) }
+            MainActor.assumeIsolated { if !Live.shared.guestRefuses() { self?.seek(to: e.positionTime) } }
             return .success
         }
     }
