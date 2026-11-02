@@ -247,10 +247,10 @@ impl HostSession {
         self.sync_run();
         let items = &self.queue.queue().items;
         let run = &self.run.items;
-        self.run.items = match self.playing_index() {
+        self.run.items = match self.run_start() {
             // The run entries still right after the playing one.
-            Some(p) => items[p + 1..].iter().take_while(|i| run.contains(&i.item_id)).map(|i| i.item_id.clone()).collect(),
-            // Playing entry unknown (nothing playing, or past the queue cap):
+            Some(p) => items[p..].iter().take_while(|i| run.contains(&i.item_id)).map(|i| i.item_id.clone()).collect(),
+            // Playing entry past the queue cap:
             // keep counting the run so requests still keep their order.
             None => run.iter().filter(|r| items.iter().any(|i| &i.item_id == *r)).cloned().collect(),
         };
@@ -259,9 +259,14 @@ impl HostSession {
         offset
     }
 
-    fn playing_index(&self) -> Option<usize> {
-        let id = self.anchor.item_id.as_ref()?;
-        self.queue.queue().items.iter().position(|i| &i.item_id == id)
+    /// Where Play Next inserts in the shared queue: after the playing entry,
+    /// or the front when nothing plays; `None` when the playing entry is
+    /// outside the shared queue.
+    fn run_start(&self) -> Option<usize> {
+        match &self.anchor.item_id {
+            None => Some(0),
+            Some(id) => self.queue.queue().items.iter().position(|i| &i.item_id == id).map(|p| p + 1),
+        }
     }
 
     /// Starts a new run when another entry is playing.
@@ -279,13 +284,18 @@ impl HostSession {
         self.sync_run();
         let track_ids: Vec<String> = track_ids.into_iter().take(super::MAX_QUEUE).collect();
         let mut ids = stable_ids(&self.queue.queue().items, &track_ids, &self.run.items);
+        let capped = ids.len() == super::MAX_QUEUE;
         // Bind handed-out tracks to the entries right after the playing one
         // and the run. Pending requests are consumed by every replace (they
         // either landed now or were dropped by the app); the run only changes
         // once the queue accepted the replacement.
         let mut run = self.run.items.clone();
-        if let Some(p) = self.anchor.item_id.as_ref().and_then(|id| ids.iter().position(|(i, _)| i == id)) {
-            let mut j = p + 1;
+        // Nothing playing: Play Next goes to the front of the queue.
+        let start = match &self.anchor.item_id {
+            None => Some(0),
+            Some(id) => ids.iter().position(|(i, _)| i == id).map(|p| p + 1),
+        };
+        if let Some(mut j) = start {
             while j < ids.len() && run.contains(&ids[j].0) {
                 j += 1;
             }
@@ -300,6 +310,8 @@ impl HostSession {
                     let fresh = (j + 1..ids.len()).find(|&k| ids[k].1 && &track_ids[k] == t);
                     match fresh {
                         Some(k) => ids.swap(j, k),
+                        // The cap cut the old copy off the shared queue.
+                        None if capped => {}
                         None => break,
                     }
                 }
@@ -1256,6 +1268,29 @@ mod tests {
         insert_next(&mut h, &mut q, 0, &["x", "y"]);
         insert_next(&mut h, &mut q, 0, &["z"]);
         assert_eq!(q, ids(&["p", "x", "y", "z", "x"]));
+    }
+
+    #[test]
+    fn play_next_keeps_order_with_nothing_playing() {
+        let (mut h, _) = host_with(&["a", "b"], 0);
+        h.set_playback(None, None, 0, false, 0);
+        let mut q = ids(&["a", "b"]);
+        for req in [&["x"][..], &["y"]] {
+            let at = h.play_next_offset(&ids(req));
+            q.splice(at..at, ids(req));
+            h.replace_queue(q.clone()).expect("replace");
+        }
+        assert_eq!(q, ids(&["x", "y", "a", "b"]));
+    }
+
+    #[test]
+    fn play_next_tracked_when_the_cap_hides_the_old_copy() {
+        let mut full: Vec<&str> = vec!["p", "x", "x"];
+        full.resize(super::super::MAX_QUEUE, "f");
+        let (mut h, _) = host_with(&full, 0);
+        let mut q = ids(&full);
+        insert_next(&mut h, &mut q, 0, &["x"]);
+        assert_eq!(h.play_next_offset(&ids(&["y"])), 1);
     }
 
     #[test]
