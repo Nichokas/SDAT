@@ -884,20 +884,6 @@ pub fn position() -> Option<Duration> {
     playbin().and_then(|p| statemachine::Playbin::query_position(&p))
 }
 
-/// Changes the playback rate without moving the position (Listen Together
-/// drift nudges). Tries an instant rate change first and falls back to a
-/// flushing seek; returns false when the pipeline refuses both.
-pub fn set_rate(rate: f64) -> bool {
-    let Some(p) = playbin() else { return false };
-    let instant = p.seek(rate, gst::SeekFlags::INSTANT_RATE_CHANGE, gst::SeekType::None, gst::ClockTime::NONE, gst::SeekType::None, gst::ClockTime::NONE);
-    if instant.is_ok() {
-        return true;
-    }
-    let Some(pos) = statemachine::Playbin::query_position(&p) else { return false };
-    let pos = gst::ClockTime::from_nseconds(u64::try_from(pos.as_nanos()).unwrap_or(u64::MAX));
-    p.seek(rate, gst::SeekFlags::FLUSH | gst::SeekFlags::ACCURATE, gst::SeekType::Set, pos, gst::SeekType::None, gst::ClockTime::NONE).is_ok()
-}
-
 #[cfg(test)]
 mod feed_tests {
     #[test]
