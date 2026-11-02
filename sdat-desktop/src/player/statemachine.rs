@@ -302,6 +302,11 @@ impl Machine {
         self.state.get() == State::PlayingGapless
     }
 
+    /// Whether any trigger is waiting behind the one being handled.
+    pub fn has_queued_triggers(&self) -> bool {
+        !self.queue.borrow().is_empty()
+    }
+
     /// Whether the machine is stopped and no track start is queued or being
     /// handled, so nothing is about to start playback.
     pub fn stopped_without_pending_start(&self) -> bool {

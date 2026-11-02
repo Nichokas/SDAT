@@ -302,9 +302,15 @@ async fn on_eos_stopped() {
     };
     // Fetch the whole mix before touching the queues; "play next" requests
     // that land meanwhile are queued but not started (see `complete_play_next`).
+    let list_generation = LIST_GENERATION.with(Cell::get);
     AUTOPLAY_PENDING.with(|a| a.set(true));
     let mix = fetch_radio(id).await;
     AUTOPLAY_PENDING.with(|a| a.set(false));
+    // The user acted while the mix was loading (picked a list or track, or
+    // queued Next/Stop behind this handler): their request wins, leave it be.
+    if LIST_GENERATION.with(Cell::get) != list_generation || with(|p| p.machine.has_queued_triggers()).unwrap_or(false) {
+        return;
+    }
     // Tracks queued while the mix was loading win over autoplay.
     if !user_queue().is_empty() {
         start_if_idle();
