@@ -16,6 +16,10 @@ struct PlayerSheet: View {
             .tabViewStyle(.page(indexDisplayMode: .never))
             .ignoresSafeArea(edges: .bottom)
         }
+        // Listen Together from the queue (or a join link opened while the player is up):
+        // the root-level sheet can't present over this one, so present it from here.
+        .sheet(isPresented: Binding(get: { Live.shared.showSheet && Chrome.shared.showPlayer },
+                                    set: { if !$0 { Live.shared.showSheet = false } })) { LiveSheet() }
         .presentationDragIndicator(.visible)
         .presentationBackground(.black)
         .preferredColorScheme(.dark)

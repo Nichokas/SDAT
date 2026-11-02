@@ -30,7 +30,10 @@ struct SDATApp: App {
             .environment(prefs)
             .environment(Recents.shared)
             .environment(Chrome.shared)
-            .sheet(isPresented: $live.showSheet) { LiveSheet() }
+            // A root sheet can't present while the player sheet is up; PlayerSheet presents
+            // LiveSheet itself then. Exactly one of the two bindings is true at a time.
+            .sheet(isPresented: Binding(get: { live.showSheet && !Chrome.shared.showPlayer },
+                                        set: { if !$0 { live.showSheet = false } })) { LiveSheet() }
             .onOpenURL { url in if session.signedIn { live.open(url.absoluteString) } }
             .preferredColorScheme(.dark)
             .tint(.blue)
