@@ -212,11 +212,11 @@ mod tests {
     #[derive(Default)]
     struct Fake(RefCell<HashMap<(String, String), String>>);
     impl SecretStore for Fake {
-        fn get(&self, s: &str, k: &str) -> anyhow::Result<Option<String>> {
-            Ok(self.0.borrow().get(&(s.into(), k.into())).cloned())
+        fn get(&self, schema: &str, key: &str) -> anyhow::Result<Option<String>> {
+            Ok(self.0.borrow().get(&(schema.into(), key.into())).cloned())
         }
-        fn put(&self, s: &str, k: &str, v: &str) -> anyhow::Result<()> {
-            self.0.borrow_mut().insert((s.into(), k.into()), v.into());
+        fn put(&self, schema: &str, key: &str, value: &str) -> anyhow::Result<()> {
+            self.0.borrow_mut().insert((schema.into(), key.into()), value.into());
             Ok(())
         }
     }
