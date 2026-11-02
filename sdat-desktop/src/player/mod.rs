@@ -3,6 +3,7 @@
 
 
 pub mod mpris;
+pub mod play_next;
 pub use tonearm_core::playqueue;
 pub mod quality;
 pub mod replaygain;
@@ -10,7 +11,7 @@ pub mod statemachine;
 
 use anyhow::{anyhow, Result};
 use gst::prelude::*;
-use std::cell::OnceCell;
+use std::cell::{Cell, OnceCell};
 use std::rc::Rc;
 use std::sync::mpsc;
 use std::time::Duration;
@@ -46,6 +47,22 @@ global_signal!(pub fn toasts() -> Signal<String> = Signal::default());
 global_signal!(pub fn base_queue() -> DurableQueue = DurableQueue::default());
 global_signal!(pub fn user_queue() -> Queue = Queue::default());
 global_signal!(pub fn history() -> HistoryQueue = HistoryQueue::default());
+
+thread_local! {
+    /// Entries at the front of the user queue that were added with "play next".
+    static PLAY_NEXT_PINNED: Cell<usize> = const { Cell::new(0) };
+}
+
+fn update_pinned(f: impl FnOnce(usize) -> usize) {
+    PLAY_NEXT_PINNED.with(|c| c.set(f(c.get())));
+}
+
+/// Removes the user-queue entry at `index`, keeping "play next" order intact.
+pub fn remove_from_user_queue(index: usize) -> tonearm_core::error::CoreResult<()> {
+    user_queue().remove_at(index)?;
+    update_pinned(|p| play_next::after_remove(p, index));
+    Ok(())
+}
 
 // ---------------------------------------------------------------- player
 
@@ -216,12 +233,16 @@ pub fn current_track_id() -> Option<String> {
 
 fn clear_queues() {
     user_queue().clear();
+    update_pinned(|_| 0);
     base_queue().clear();
 }
 
 fn get_next_track_from_queue(peek: bool) -> Option<Track> {
     let t = if peek { user_queue().peek() } else { user_queue().pop() };
     if t.is_some() {
+        if !peek {
+            update_pinned(|p| play_next::after_remove(p, 0));
+        }
         return t;
     }
     let t = if peek { base_queue().peek() } else { base_queue().pop() };
@@ -279,6 +300,31 @@ pub async fn add_track_to_user_queue(track_id: &str) -> Result<()> {
     Ok(())
 }
 
+/// Fetches a track and queues it right after the current one (and after any
+/// earlier "play next" tracks).
+pub async fn play_track_next(track_id: &str) -> Result<()> {
+    let id = track_id.to_string();
+    let track = api::run(move || service::get_track(&id)).await?;
+    play_tracklist_next(vec![track]);
+    Ok(())
+}
+
+/// Queues `tracks`, in order, right after the current one (and after any
+/// earlier "play next" tracks). Starts playback if nothing is playing.
+pub fn play_tracklist_next(tracks: Vec<Track>) {
+    if tracks.is_empty() {
+        return;
+    }
+    let mut entries = user_queue().entries().with(Clone::clone);
+    let pinned = PLAY_NEXT_PINNED.with(Cell::get);
+    let pinned = play_next::insert(&mut entries, pinned, tracks);
+    user_queue().set(entries);
+    update_pinned(|_| pinned);
+    if playback_state_changed().get().status == PlaybackStatus::Stopped {
+        next();
+    }
+}
+
 pub fn add_tracklist_to_user_queue(tracks: Vec<Track>) {
     let any = !tracks.is_empty();
     for t in tracks {
@@ -298,7 +344,7 @@ pub enum QueueKind {
 /// Skips `to` entries of a queue (adding them to the history) and plays the next.
 pub fn skip_through_queue(kind: QueueKind, to: usize) {
     let res = match kind {
-        QueueKind::User => user_queue().skip(to),
+        QueueKind::User => user_queue().skip(to).inspect(|_| update_pinned(|p| play_next::after_skip(p, to))),
         QueueKind::Base => base_queue().skip(to),
     };
     match res {
@@ -307,7 +353,10 @@ pub fn skip_through_queue(kind: QueueKind, to: usize) {
                 history().prepend(t);
             }
             let next = match kind {
-                QueueKind::User => user_queue().pop(),
+                QueueKind::User => {
+                    update_pinned(|p| play_next::after_remove(p, 0));
+                    user_queue().pop()
+                }
                 QueueKind::Base => base_queue().pop(),
             };
             match next {
@@ -363,6 +412,8 @@ pub fn previous() {
     };
     if let Some(cur) = track_changed().with(|t| t.as_ref().map(|e| e.track.clone())) {
         user_queue().prepend(cur);
+        // The track we came back from plays next, ahead of "play next" tracks.
+        update_pinned(|p| p + 1);
     }
     fire(Trigger::PlayTrack(prev, false));
 }

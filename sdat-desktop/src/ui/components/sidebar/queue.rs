@@ -31,7 +31,7 @@ fn queue_tracklist(kind: QueueKind) -> TrackList {
             let b = gtk::Button::from_icon_name("user-trash-symbolic").tooltip(&tr("Remove Track from Queue")).class("flat").mend(10);
             b.connect_clicked(move |_| {
                 let r = match kind {
-                    QueueKind::User => player::user_queue().remove_at(pos),
+                    QueueKind::User => player::remove_from_user_queue(pos),
                     QueueKind::Base => player::base_queue().remove_at(pos),
                 };
                 if let Err(e) = r {

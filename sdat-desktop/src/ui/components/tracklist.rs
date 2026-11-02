@@ -761,6 +761,14 @@ mod lifetime_tests {
 /// The track context menu model (same entries as the "More…" button).
 pub fn track_menu(t: &Track) -> (gio::Menu, gio::Menu) {
     let model = gio::Menu::new();
+    let queue = gio::Menu::new();
+    let next = gio::MenuItem::new(Some(&tr("Play Next")), Some("win.player.play-next-track"));
+    next.set_action_and_target_value(Some("win.player.play-next-track"), Some(&t.id().to_variant()));
+    queue.append_item(&next);
+    let add = gio::MenuItem::new(Some(&tr("Add to Queue")), Some("win.player.queue-track"));
+    add.set_action_and_target_value(Some("win.player.queue-track"), Some(&t.id().to_variant()));
+    queue.append_item(&add);
+    model.append_section(None, &queue);
     let album_id = t.album.as_ref().map(|a| a.id.clone()).unwrap_or_default();
     let item = gio::MenuItem::new(Some(&tr("Navigate to Album")), Some("win.route.album"));
     item.set_action_and_target_value(Some("win.route.album"), Some(&album_id.to_variant()));

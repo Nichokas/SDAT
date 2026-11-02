@@ -334,20 +334,16 @@ fn build_sidebar_layout(app: &adw::Application, window: &adw::ApplicationWindow)
 
 // ------------------------------------------------------------------ actions
 
-/// Queues one track; a Listen Together guest asks the host instead.
-fn queue_track(id: String) {
-    if !crate::live::user_enqueue(vec![id.clone()]) {
-        spawn_logged("queue track", async move { player::add_track_to_user_queue(&id).await });
+fn enqueue(tracks: Vec<crate::model::Track>, next: bool) {
+    if next {
+        player::play_tracklist_next(tracks);
+    } else {
+        player::add_tracklist_to_user_queue(tracks);
     }
 }
 
-fn queue_tracks(t: Vec<model::Track>) {
-    if !crate::live::user_enqueue(t.iter().map(|t| t.id().to_string()).collect()) {
-        player::add_tracklist_to_user_queue(t);
-    }
-}
-
-fn queue_param(param: &str) {
+/// Handles `win.player.queue` (append) and `win.player.play-next` (`next`).
+fn queue_param(param: &str, next: bool) {
     let parts: Vec<&str> = param.split('/').collect();
     if parts.len() != 2 {
         log::error!("parameter doesn't follow the format 'type/id' action=win.player.queue parameter={param}");
@@ -355,15 +351,17 @@ fn queue_param(param: &str) {
     }
     let id = parts[1].to_string();
     match parts[0] {
-        "track" => queue_track(id),
+        "track" => spawn_logged("queue track", async move {
+            if next { player::play_track_next(&id).await } else { player::add_track_to_user_queue(&id).await }
+        }),
         "album" => spawn_logged("queue album", async move {
             let t = crate::cache::all_tracks(crate::cache::Job::Album(id)).await?;
-            queue_tracks(t);
+            enqueue(t, next);
             Ok(())
         }),
         "playlist" => spawn_logged("queue playlist", async move {
             let t = crate::cache::all_tracks(crate::cache::Job::Playlist(id)).await?;
-            queue_tracks(t);
+            enqueue(t, next);
             Ok(())
         }),
         "artist" => spawn_logged("queue artist", async move {
@@ -380,7 +378,7 @@ fn queue_param(param: &str) {
                 Ok::<_, anyhow::Error>(tracks)
             })
             .await?;
-            queue_tracks(t);
+            enqueue(t, next);
             Ok(())
         }),
         "my_collection" => match parts[1] {
@@ -390,7 +388,7 @@ fn queue_param(param: &str) {
                     return Ok(());
                 }
                 let t = crate::cache::all_tracks(crate::cache::Job::FavouriteTracks).await?;
-                queue_tracks(t);
+                enqueue(t, next);
                 Ok(())
             }),
             _ => log::error!("unknown object type to add to queue type={}", parts[0]),
@@ -488,14 +486,10 @@ fn install_actions(app: &adw::Application, window: &adw::ApplicationWindow) {
     }));
     window.add_action(&simple("player.shuffle", player::toggle_shuffle));
     accel(app, "win.player.shuffle", &[p("s")]);
-    window.add_action(&simple("player.next", crate::live::user_next));
+    window.add_action(&simple("player.next", player::next));
     accel(app, "win.player.next", &[p("Right")]);
-    window.add_action(&simple("player.play-pause", crate::live::user_play_pause));
-    window.add_action(&simple("player.previous", || {
-        if !crate::live::guest_refuses() {
-            player::previous();
-        }
-    }));
+    window.add_action(&simple("player.play-pause", player::play_pause));
+    window.add_action(&simple("player.previous", player::previous));
     accel(app, "win.player.previous", &[p("Left")]);
     window.add_action(&simple("player.repeat", player::cycle_repeat_mode));
     accel(app, "win.player.repeat", &[p("r")]);
@@ -506,8 +500,10 @@ fn install_actions(app: &adw::Application, window: &adw::ApplicationWindow) {
         }
     });
     window.add_action(&add);
-    window.add_action(&with_string("player.queue-track", queue_track));
-    window.add_action(&with_string("player.queue", |p| queue_param(&p)));
+    window.add_action(&with_string("player.queue-track", |id| spawn_logged("queue track", async move { player::add_track_to_user_queue(&id).await })));
+    window.add_action(&with_string("player.queue", |p| queue_param(&p, false)));
+    window.add_action(&with_string("player.play-next-track", |id| spawn_logged("play track next", async move { player::play_track_next(&id).await })));
+    window.add_action(&with_string("player.play-next", |p| queue_param(&p, true)));
 
     window.add_action(&simple("route.home", || router::navigate(&settings::default_page())));
     accel(app, "win.route.home", &[p("h")]);
