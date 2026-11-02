@@ -1,0 +1,14 @@
+sdat-mobile/Info.plist
+  h_4221ae13ba15cb 14,16
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "946c22b8f7ed5586e05b8c674d59c1a454eb35f9",
+  "prompts": {},
+  "humans": {
+    "h_4221ae13ba15cb": {
+      "author": "Nicolas Rodriguez-Alvarez <me@nichokas.eu>"
+    }
+  }
+}
