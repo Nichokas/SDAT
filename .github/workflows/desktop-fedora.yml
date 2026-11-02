@@ -1,0 +1,133 @@
+name: Desktop Fedora auto-update
+
+"on":
+  release:
+    types: [published]
+  schedule:
+    - cron: "47 6 * * *"
+  workflow_dispatch:
+    inputs:
+      force:
+        description: "Re-upload the vendor archive for the current version and poke COPR"
+        type: boolean
+        default: false
+  pull_request:
+    paths:
+      - "sdat-desktop/packaging/fedora/**"
+      - ".github/workflows/desktop-fedora.yml"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: fedora-auto-update
+  cancel-in-progress: false
+
+jobs:
+  detect-version:
+    # iOS releases (vX.Y.Z) also fire `release`; only desktop-v* tags matter here.
+    if: github.event_name != 'pull_request' && (github.event_name != 'release' || startsWith(github.event.release.tag_name, 'desktop-v'))
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.detect.outputs.version }}
+      current: ${{ steps.detect.outputs.current }}
+      is_new: ${{ steps.detect.outputs.is_new }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - id: detect
+        run: bash sdat-desktop/packaging/fedora/detect-version.sh
+
+  release:
+    needs: detect-version
+    # A published desktop release must always upload its vendor archive and poke COPR,
+    # even when the spec was already bumped to that version in the release commit.
+    if: needs.detect-version.outputs.is_new == 'true' || inputs.force || github.event_name == 'release'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8 # master
+        with:
+          toolchain: stable
+      - name: Bump spec and build vendor archive
+        env:
+          # A published release builds exactly its own tag, not the newest one.
+          RELEASE_TAG: ${{ github.event_name == 'release' && github.event.release.tag_name || '' }}
+          VERSION: ${{ needs.detect-version.outputs.is_new == 'true' && needs.detect-version.outputs.version || needs.detect-version.outputs.current }}
+        run: |
+          set -euo pipefail
+          if [[ -n "$RELEASE_TAG" ]]; then VERSION="${RELEASE_TAG#desktop-v}"; fi
+          echo "VERSION=$VERSION" >> "$GITHUB_ENV"
+          spec_ver="$(awk '/^Version:/{print $2; exit}' sdat-desktop/packaging/fedora/sdat-desktop.spec)"
+          if [[ "$(printf '%s\n%s\n' "$spec_ver" "$VERSION" | sort -V | tail -1)" != "$VERSION" ]]; then
+            # Older than the spec (e.g. a 1.2.x hotfix after 1.3.0): only attach its vendor
+            # archive; never rewind the spec on main or rebuild COPR with the old version.
+            echo "SPEC_UPDATE=false" >> "$GITHUB_ENV"
+            bash sdat-desktop/packaging/fedora/make-vendor.sh "$VERSION" dist
+          else
+            echo "SPEC_UPDATE=true" >> "$GITHUB_ENV"
+            bash sdat-desktop/packaging/fedora/update-spec.sh "$VERSION"
+          fi
+      - name: Upload vendor archive to the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          asset="dist/sdat-desktop-${VERSION}-vendor.tar.xz"
+          if gh release view "desktop-v${VERSION}" >/dev/null 2>&1; then
+            gh release upload "desktop-v${VERSION}" "$asset" --clobber
+          else
+            gh release create "desktop-v${VERSION}" "$asset" --title "SDAT desktop ${VERSION}" --notes "SDAT desktop ${VERSION}" --latest=false
+          fi
+      - name: Commit spec bump
+        if: env.SPEC_UPDATE == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add sdat-desktop/packaging/fedora/sdat-desktop.spec
+          if git diff --cached --quiet; then echo "spec unchanged"; exit 0; fi
+          git commit -m "packaging(fedora): update to ${VERSION}"
+          git push "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" HEAD:main
+      - name: Trigger COPR rebuild
+        if: env.SPEC_UPDATE == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh api "repos/${GITHUB_REPOSITORY}/dispatches" -f event_type=copr-rebuild
+
+  spec-lint:
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    container: registry.fedoraproject.org/fedora:latest
+    steps:
+      - name: Install tools
+        run: dnf -y install rpmlint rpm-build rpmdevtools 'dnf-command(builddep)' git-core cargo xz
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: rpmlint
+        run: rpmlint sdat-desktop/packaging/fedora/sdat-desktop.spec || true
+      - name: rpmbuild smoke (SRPM + full offline build)
+        run: |
+          set -euo pipefail
+          spec=sdat-desktop/packaging/fedora/sdat-desktop.spec
+          mkdir -p ~/rpmbuild/SOURCES
+          # Build Source0/Source1 from this checkout: the desktop-v tag may not exist yet.
+          ver="$(awk '/^Version:/{print $2; exit}' "$spec")"
+          top="SDAT-desktop-v${ver}"
+          git config --global --add safe.directory "$PWD"
+          git archive --format=tar.gz --prefix="${top}/" -o ~/rpmbuild/SOURCES/"${top}.tar.gz" HEAD
+          cargo vendor --locked --versioned-dirs vendor >/dev/null
+          tar -cJf ~/rpmbuild/SOURCES/"sdat-desktop-${ver}-vendor.tar.xz" vendor
+          dnf -y builddep "$spec"
+          rpmbuild -ba "$spec"
+          rpm -qpl ~/rpmbuild/RPMS/*/sdat-desktop-*.rpm

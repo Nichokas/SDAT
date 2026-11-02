@@ -1,0 +1,692 @@
+# SOME DESCRIPTIVE TITLE.
+# Copyright (C) YEAR THE PACKAGE'S COPYRIGHT HOLDER
+# This file is distributed under the same license as the PACKAGE package.
+# FIRST AUTHOR <EMAIL@ADDRESS>, YEAR.
+#
+msgid ""
+msgstr ""
+"Project-Id-Version: v1.3.1-38-gf3ed956\n"
+"Report-Msgid-Bugs-To: \n"
+"POT-Creation-Date: 2026-08-08 22:44+0200\n"
+"PO-Revision-Date: 2026-06-28 11:41+0000\n"
+"Last-Translator: Anonymous104 <anonymous104@noreply.codeberg.org>\n"
+"Language-Team: Vietnamese <https://translate.codeberg.org/projects/tonearm/"
+"tonearm/vi/>\n"
+"Language: vi\n"
+"MIME-Version: 1.0\n"
+"Content-Type: text/plain; charset=UTF-8\n"
+"Content-Transfer-Encoding: 8bit\n"
+"Plural-Forms: nplurals=1; plural=0;\n"
+"X-Generator: Weblate 2026.6.1\n"
+
+msgid "%d Fan"
+msgid_plural "%d Fans"
+msgstr[0] ""
+msgstr[1] ""
+
+msgid "%d Track"
+msgid_plural "%d Tracks"
+msgstr[0] ""
+msgstr[1] ""
+
+msgid "%d Track (%s)"
+msgid_plural "%d Tracks (%s)"
+msgstr[0] ""
+msgstr[1] ""
+
+msgid "%s and %s"
+msgstr "%s và %s"
+
+msgid "API Base URL"
+msgstr ""
+
+msgid "About SDAT"
+msgstr "Về SDAT"
+
+msgid "Add Album to Queue"
+msgstr "Thêm Album từ Hàng đợi"
+
+msgid "Add My Tracks to Queue"
+msgstr "Thêm Danh sách theo dõi của tôi vào Hàng đợi"
+
+msgid "Add Playlist to Queue"
+msgstr "Thêm Danh sách phát vào Hàng đợi"
+
+msgid "Add Top Tracks to Queue"
+msgstr ""
+
+msgid "Add to Collection"
+msgstr "Thêm vào Bộ sưu tập"
+
+msgid "Add to Queue"
+msgstr "Thêm vào Hàng đợi"
+
+msgid "Album"
+msgstr "Album"
+
+msgid "Album by %s"
+msgstr ""
+
+msgid "Albums"
+msgstr "Albums"
+
+msgid "Allow Background Activity"
+msgstr "Cho phép Hoạt động dưới nền"
+
+msgid "Allow Media Card Images"
+msgstr ""
+
+msgid "Allow Shortcut Images"
+msgstr "Cho phép Ảnh Lối tắt"
+
+msgid "Allow SDAT to load images for media card buttons"
+msgstr "Cho phép SDAT tải ảnh cho nút bấm thẻ phương tiện"
+
+msgid "Allow SDAT to load images for shortcut buttons"
+msgstr "Cho phép SDAT tải ảnh cho nút bấm lối tắt"
+
+msgid "Allow SDAT to load images for tracklists with the cover column"
+msgstr "Cho phép SDAT tải ảnh cho danh sách theo dõi với cột cover"
+
+msgid ""
+"Allow SDAT to retain recently loaded images in memory to improve "
+"performance and reduce network traffic (estimated 50 MiB limit)"
+msgstr ""
+
+msgid ""
+"Allow SDAT to run in the background by hiding the player window instead "
+"of quitting the application"
+msgstr ""
+"Cho phép SDAT chạy dưới nền bằng cách ẩn cửa sổ trình phát thay vì thoát "
+"ứng dụng"
+
+msgid "Allow SDAT to send scrobbling data to Last.fm"
+msgstr ""
+
+msgid "Allow SDAT to send scrobbling data to ListenBrainz"
+msgstr ""
+
+msgid ""
+"Allow SDAT to start a mix with the current playing song when you're at "
+"the end of an album/queue"
+msgstr ""
+"Cho phép SDAT bắt đầu trộn các bài hát đang phát khi bạn nghe hết album/"
+"hàng đợi"
+
+msgid "Allow Tracklist Images"
+msgstr "Cho phép Hình ảnh Danh sách theo dõi"
+
+msgid "An error occurred while fetching the track mix"
+msgstr ""
+
+msgid "An error occurred while logging in to Last.fm"
+msgstr "Có lỗi đã xảy ra trong lúc đăng nhập vào Last.fm"
+
+msgid "An error occurred while logging out of Last.fm"
+msgstr "Có lỗi đã xảy ra trong lúc đăng xuất ra Last.fm"
+
+msgid "An error occurred while playing the album"
+msgstr "Có lỗi xảy ra trong lúc đang phát album"
+
+msgid "An error occurred while playing the playlist"
+msgstr "Có lỗi xảy ra trong lúc đang phát danh sách phát"
+
+msgid "An error occurred while playing the top tracks"
+msgstr ""
+
+msgid "An error occurred while playing the track"
+msgstr ""
+
+msgid "An error occurred while playing the tracks"
+msgstr ""
+
+msgid "An error occurred while shuffling the tracks"
+msgstr ""
+
+msgid ""
+"An unknown error occurred when checking for a secret service provider.\n"
+"\n"
+"Signing in may or may not work. Please see the raw error message for more "
+"details:\n"
+"\n"
+"%s"
+msgstr ""
+
+msgid "Artist"
+msgstr ""
+
+msgid "Artists"
+msgstr ""
+
+msgid "Auth Base URL"
+msgstr ""
+
+msgid "Authentication Required"
+msgstr ""
+
+msgid "Auto"
+msgstr ""
+
+msgid "Back"
+msgstr ""
+
+msgid "Background Activity"
+msgstr ""
+
+msgid "Base URLs"
+msgstr ""
+
+msgid "Basic Shortcuts"
+msgstr ""
+
+msgid "Cache Images"
+msgstr ""
+
+msgid "Cancel"
+msgstr ""
+
+msgid "Cancel Login"
+msgstr ""
+
+msgid ""
+"Choose whether SDAT should prefer album replay gain, track replay gain or "
+"decide automatically"
+msgstr ""
+
+msgid "Close"
+msgstr ""
+
+msgid "Collection"
+msgstr ""
+
+msgid "Configure SDAT to send scrobbling data to Last.fm"
+msgstr ""
+
+msgid "Configure SDAT to send scrobbling data to ListenBrainz"
+msgstr ""
+
+msgid "Configure the base URLs for TIDAL"
+msgstr ""
+
+msgid "Configure the behaviour of SDAT regarding images"
+msgstr ""
+
+msgid "Configure the behaviour of SDAT regarding playback"
+msgstr ""
+
+msgid "Configure the behaviour of SDAT when navigating between pages"
+msgstr ""
+
+msgid "Configure the behaviour of SDAT when running in the background"
+msgstr ""
+
+msgid "Continue"
+msgstr ""
+
+msgid "Continue the authentication process in your browser."
+msgstr ""
+
+msgid "Copied URL to clipboard"
+msgstr ""
+
+msgid "Copied track URL to clipboard"
+msgstr ""
+
+msgid "Copy Track URL"
+msgstr ""
+
+msgid "Copy URL"
+msgstr ""
+
+msgid "Default Page"
+msgstr ""
+
+msgid "Disable Repeat"
+msgstr ""
+
+msgid "Disable Shuffle"
+msgstr ""
+
+msgid "Don't show again"
+msgstr ""
+
+msgid "EP by %s"
+msgstr ""
+
+msgid "Enable Autoplay"
+msgstr ""
+
+msgid "Enable Last.fm"
+msgstr ""
+
+msgid "Enable ListenBrainz"
+msgstr ""
+
+msgid "Enable Shuffle"
+msgstr ""
+
+msgid "Error Fetching Lyrics"
+msgstr ""
+
+msgid "Error loading collection"
+msgstr ""
+
+msgid "Explore"
+msgstr ""
+
+msgid "External Link"
+msgstr ""
+
+msgid "Feed"
+msgstr ""
+
+msgid "For example, Fox Stevenson"
+msgstr ""
+
+msgid "General"
+msgstr ""
+
+msgid "High"
+msgstr ""
+
+msgid "History Length"
+msgstr ""
+
+msgid "Home"
+msgstr ""
+
+msgid "Images"
+msgstr ""
+
+msgid "Internal Error"
+msgstr ""
+
+msgid "Keyboard Shortcuts"
+msgstr ""
+
+msgid "Keychain Unavailable"
+msgstr ""
+
+msgid "Last Month"
+msgstr ""
+
+msgid "Last Week"
+msgstr ""
+
+msgid "ListenBrainz API Token"
+msgstr ""
+
+msgid "ListenBrainz API URL"
+msgstr ""
+
+msgid "Loading Lyrics"
+msgstr ""
+
+msgid "Log In to Last.fm…"
+msgstr ""
+
+msgid "Log Out of Last.fm"
+msgstr ""
+
+msgid "Logged in to Last.fm as %s"
+msgstr ""
+
+msgid "Logged out of Last.fm"
+msgstr ""
+
+msgid "Logging in to Last.fm"
+msgstr ""
+
+msgid "Low (320 kbps)"
+msgstr ""
+
+msgid "Low (96 kbps)"
+msgstr ""
+
+msgid "Lyrics"
+msgstr ""
+
+msgid "Main Menu"
+msgstr ""
+
+msgid "Max"
+msgstr ""
+
+msgid "Maximum history length before dropping old entries"
+msgstr ""
+
+msgid "More"
+msgstr ""
+
+msgid "More…"
+msgstr ""
+
+msgid "My Albums"
+msgstr ""
+
+msgid "My Artists"
+msgstr ""
+
+msgid "My Collection"
+msgstr ""
+
+msgid "My Playlists"
+msgstr ""
+
+msgid "My Tracks"
+msgstr ""
+
+msgid "Navigate Back"
+msgstr ""
+
+msgid "Navigate to %s"
+msgstr ""
+
+msgid "Navigate to Album"
+msgstr ""
+
+msgid "Navigate to Artist"
+msgstr ""
+
+msgid "Navigate to Collection"
+msgstr ""
+
+msgid "Navigate to Explore"
+msgstr ""
+
+msgid "Navigate to Home"
+msgstr ""
+
+msgid "Navigate to Track Mix"
+msgstr ""
+
+msgid "Navigation"
+msgstr ""
+
+msgid "Navigation Behaviour"
+msgstr ""
+
+msgid "Next"
+msgstr ""
+
+msgid "No Artist"
+msgstr ""
+
+msgid "No Lyrics Available"
+msgstr ""
+
+msgid "No Song Currently Playing"
+msgstr ""
+
+msgid "No Track"
+msgstr ""
+
+msgid "No Tracks in Queue"
+msgstr ""
+
+msgid "No mix found for the current track"
+msgstr ""
+
+msgid ""
+"No secret service provider is available.\n"
+"\n"
+"SDAT will not be able to store any authentication-related data and you "
+"will not be able to sign in.\n"
+"\n"
+"Please install a secret service provider such as GNOME Keyring or KDE Wallet."
+msgstr ""
+
+msgid "Normalize Volume"
+msgstr ""
+
+msgid "Not Found"
+msgstr ""
+
+msgid "Not found"
+msgstr ""
+
+msgid "Older"
+msgstr ""
+
+msgid "Open TIDAL Page"
+msgstr ""
+
+msgid "OpenAPI Base URL"
+msgstr ""
+
+msgid "Pause"
+msgstr ""
+
+msgid "Performance"
+msgstr ""
+
+msgid "Personal Mix"
+msgstr ""
+
+msgid "Play"
+msgstr ""
+
+msgid "Play / Pause"
+msgstr ""
+
+msgid "Play Album"
+msgstr ""
+
+msgid "Playback"
+msgstr ""
+
+msgid "Playback quality saved. Changes will be applied on next track change"
+msgstr ""
+
+msgid "Player"
+msgstr ""
+
+msgid "Playing From"
+msgstr ""
+
+msgid "Playlist"
+msgstr ""
+
+msgid "Playlists"
+msgstr ""
+
+msgid "Please sign in to view your collection"
+msgstr ""
+
+msgid "Please sign in to view your feed"
+msgstr ""
+
+msgid "Preferences"
+msgstr ""
+
+msgid "Preferred Replay Gain"
+msgstr ""
+
+msgid "Previous"
+msgstr ""
+
+msgid "Queue"
+msgstr ""
+
+msgid "Quit"
+msgstr ""
+
+msgid "Remove Track from Queue"
+msgstr ""
+
+msgid "Remove from Collection"
+msgstr ""
+
+msgid "Reopen Browser"
+msgstr ""
+
+msgid "Repeat Queue"
+msgstr ""
+
+msgid "Repeat Track"
+msgstr ""
+
+msgid "Resources Base URL"
+msgstr ""
+
+msgid "Scan this QR code to sign into your TIDAL account"
+msgstr ""
+
+msgid "Scrobbling"
+msgstr ""
+
+msgid "Scroll to the Left"
+msgstr ""
+
+msgid "Scroll to the Right"
+msgstr ""
+
+msgid "Search"
+msgstr ""
+
+msgid "Secret Service Error"
+msgstr ""
+
+msgid "Secret Service Issue"
+msgstr ""
+
+msgid "Secret Service Unavailable"
+msgstr ""
+
+msgid "Set as Default Page"
+msgstr ""
+
+msgid "Set current page as default"
+msgstr ""
+
+msgid "Set the same volume for all tracks"
+msgstr ""
+
+msgid "Shuffle Album"
+msgstr ""
+
+msgid "Side Pane"
+msgstr ""
+
+msgid "Sign In"
+msgstr ""
+
+msgid "Sign In…"
+msgstr ""
+
+msgid "Sign Out"
+msgstr ""
+
+msgid "Sign in failed or aborted"
+msgstr ""
+
+msgid "Signed in as %s"
+msgstr ""
+
+msgid "Signed out"
+msgstr ""
+
+msgid "Single by %s"
+msgstr ""
+
+msgid ""
+"Start typing in the search bar to search for songs, artists, albums or "
+"playlists"
+msgstr ""
+
+msgid "Sync with Track"
+msgstr ""
+
+msgid "TIDAL Settings"
+msgstr ""
+
+msgid "TIDAL-specific settings for advanced users"
+msgstr ""
+
+msgid ""
+"The macOS Keychain is not available or accessible.\n"
+"\n"
+"SDAT will not be able to store any authentication-related data and you "
+"will not be able to sign in.\n"
+"\n"
+"Please ensure your keychain is unlocked and accessible."
+msgstr ""
+
+msgid "The requested deeplink did not have any available handlers."
+msgstr ""
+
+msgid "This Month"
+msgstr ""
+
+msgid "This Week"
+msgstr ""
+
+msgid "This track is not available for streaming"
+msgstr ""
+
+msgid "Today"
+msgstr ""
+
+msgid "Toggle Sidebar"
+msgstr ""
+
+msgid "Track"
+msgstr ""
+
+msgid "Track not available for streaming, skipping to next track"
+msgstr ""
+
+msgid "Tracks"
+msgstr ""
+
+msgid ""
+"Unfortunately an error occurred while loading this view. Please try again "
+"later. If the error persists, please open an issue!\n"
+"\n"
+"Error Message: "
+msgstr ""
+
+msgid "Unknown album type"
+msgstr ""
+
+msgid "Unsupported activity"
+msgstr ""
+
+msgid "View All"
+msgstr ""
+
+msgid "Volume"
+msgstr ""
+
+msgid "You are currently not logged in to Last.fm"
+msgstr ""
+
+msgid "You are logged in to Last.fm"
+msgstr ""
+
+msgid "You are logged in to Last.fm as %s"
+msgstr ""
+
+msgid "You can also open the linking page using the button below"
+msgstr ""
+
+msgid ""
+"Your secret service provider was found, but refused to interact with "
+"SDAT.\n"
+"\n"
+"This could because you cancelled a prompt or, if you are using a Flatpak, "
+"the provider not implementing the XDG Secret Portal service.\n"
+"\n"
+"SDAT will not be able to store any authentication-related data and you "
+"will not be able to sign in."
+msgstr ""
+
+msgid "translator-credits"
+msgstr ""
+
+#~ msgid ""
+#~ "Allow Tonearm to temporarily store images on the file system to improve "
+#~ "performance and reduce network traffic"
+#~ msgstr ""
+#~ "Cho phép Tonearm lưu tạm hình ảnh trên tệp tin hệ thống nhằm cải thiện "
+#~ "hiệu suất và giảm lưu lượng mạng"

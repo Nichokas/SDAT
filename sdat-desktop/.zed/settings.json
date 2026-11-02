@@ -1,0 +1,10 @@
+{
+  "project_name": "Tonearm",
+  "file_scan_exclusions": [
+    "**/.git",
+    "**/.DS_Store",
+    "**/Thumbs.db",
+    "**/.direnv",
+    "**/.flatpak-builder",
+  ],
+}

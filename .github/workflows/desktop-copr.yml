@@ -1,0 +1,30 @@
+name: Desktop COPR publish
+
+# Rebuild the desktop package on Fedora COPR (project still nichokas/tonearm-rs;
+# renaming the COPR project/package needs an explicit decision). Fired manually or by
+# fedora-auto-update (repository_dispatch copr-rebuild).
+# Needs: secret COPR_WEBHOOK_TOKEN (COPR → Settings → Integrations),
+#        variable COPR_PROJECT_ID (numeric COPR project id).
+on:
+  workflow_dispatch:
+  repository_dispatch:
+    types: [copr-rebuild]
+
+permissions:
+  contents: read
+
+jobs:
+  copr-publish:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Trigger COPR rebuild
+        env:
+          COPR_WEBHOOK_TOKEN: ${{ secrets.COPR_WEBHOOK_TOKEN }}
+          COPR_PROJECT_ID: ${{ vars.COPR_PROJECT_ID }}
+        run: |
+          set -euo pipefail
+          [[ -n "${COPR_PROJECT_ID}" ]] || { echo "::error::variable COPR_PROJECT_ID is not set"; exit 1; }
+          [[ -n "${COPR_WEBHOOK_TOKEN}" ]] || { echo "::error::secret COPR_WEBHOOK_TOKEN is not set"; exit 1; }
+          # Do not print the URL: it embeds the token.
+          curl -fsS -o /dev/null -w "COPR webhook HTTP %{http_code}\n" -X POST \
+            "https://copr.fedorainfracloud.org/webhooks/custom/${COPR_PROJECT_ID}/${COPR_WEBHOOK_TOKEN}/tonearm-rs/"

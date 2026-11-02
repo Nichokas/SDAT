@@ -28,12 +28,16 @@ def main():
 
     version = re.sub(r"^v", "", a.tag)
     build = "1"
-    try:
-        info = plistlib.loads(sh("git", "show", f"{a.tag}:Info.plist").encode())
+    # Monorepo layout first, then the pre-monorepo root path for older tags.
+    for plist in ("sdat-mobile/Info.plist", "Info.plist"):
+        try:
+            info = plistlib.loads(sh("git", "show", f"{a.tag}:{plist}").encode())
+        except Exception as e:
+            print(f"warning: could not read {plist} at {a.tag}: {e}", file=sys.stderr)
+            continue
         version = info.get("CFBundleShortVersionString", version)
         build = str(info.get("CFBundleVersion", build))
-    except Exception as e:
-        print(f"warning: could not read Info.plist at {a.tag}: {e}", file=sys.stderr)
+        break
 
     with open(a.source) as f:
         src = json.load(f)

@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
-# Rebuilds libtonearm_ffi.a for iOS from ../Tonearm and regenerates the Swift bindings.
+# Rebuilds libtonearm_ffi.a for iOS from the monorepo Cargo workspace (sdat-core/) and regenerates the Swift bindings.
 set -euo pipefail
 here="$(cd "$(dirname "$0")/.." && pwd)"
-core="${TONEARM_DIR:-$here/../Tonearm}"
+core="${CORE_DIR:-$here/..}"
 sdk="$HOME/.swiftpm/swift-sdks/darwin.artifactbundle/Developer/Platforms/iPhoneOS.platform/Developer/SDKs/iPhoneOS.sdk"
 export PATH="$HOME/.local/share/swiftly/bin:$PATH"
 cd "$core"

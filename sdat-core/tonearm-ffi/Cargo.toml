@@ -1,0 +1,32 @@
+[package]
+name = "tonearm-ffi"
+version = "1.0.0"
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "UniFFI bindings of tonearm-core for the Torneam iOS app"
+publish = false
+
+[lib]
+name = "tonearm_ffi"
+crate-type = ["lib", "staticlib"]
+
+[[bin]]
+name = "uniffi-bindgen-swift"
+path = "src/bin/uniffi-bindgen-swift.rs"
+required-features = ["bindgen"]
+
+[features]
+default = []
+# Host-only tool that generates the Swift bindings.
+bindgen = ["uniffi/cli"]
+
+[dependencies]
+tonearm-core = { path = "../tonearm-core" }
+uniffi = "0.32"
+blocking = "1"
+thiserror = "2"
+log = "0.4.35"
+
+[lints]
+workspace = true

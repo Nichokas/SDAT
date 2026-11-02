@@ -1,0 +1,51 @@
+# Legacy Forgejo/Codeberg workflow kept for reference: GitHub does not run it and
+# Forgejo only reads .forgejo/ at the repo root. Paths are updated for the monorepo.
+name: Flatpak
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  flatpak:
+    name: Build Flatpak
+    runs-on: ubuntu-latest
+    container:
+      image: ghcr.io/flathub-infra/flatpak-github-actions:gnome-50
+      options: --privileged
+
+    steps:
+      - name: Checkout code
+        uses: https://code.forgejo.org/actions/checkout@v7
+
+      - name: Add Flathub repo
+        run: flatpak remote-add --user --if-not-exists flathub https://flathub.org/repo/flathub.flatpakrepo
+
+      - name: Cache Flatpak builder
+        uses: https://code.forgejo.org/actions/cache@v6
+        with:
+          path: ~/.local/share/flatpak
+          key: flatpak-builder-${{ hashFiles('sdat-desktop/build/flatpak/com.nichokas.SDAT.Desktop.yaml', 'sdat-desktop/build/flatpak/cargo-sources.json') }}
+          restore-keys: |
+            flatpak-builder-
+
+      - name: Build Flatpak
+        run: |
+          flatpak-builder --user --repo=repo --disable-rofiles-fuse \
+            --install-deps-from=flathub \
+            --force-clean --default-branch=master \
+            flatpak_app sdat-desktop/build/flatpak/com.nichokas.SDAT.Desktop.yaml
+
+      - name: Create bundle
+        run: |
+          flatpak build-bundle repo com.nichokas.SDAT.Desktop.flatpak \
+            --runtime-repo=https://flathub.org/repo/flathub.flatpakrepo \
+            --arch=x86_64 com.nichokas.SDAT.Desktop master
+
+      - name: Upload artifact
+        uses: https://code.forgejo.org/forgejo/upload-artifact@v4
+        with:
+          name: dev.dergs.Tonearm-x86_64.flatpak
+          path: com.nichokas.SDAT.Desktop.flatpak
+          retention-days: ${{ github.ref == 'refs/heads/main' && 7 || 3 }}

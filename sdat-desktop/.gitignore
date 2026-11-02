@@ -1,0 +1,6 @@
+.direnv/
+local/
+.flatpak-builder/
+repo/
+*.flatpak
+/target/

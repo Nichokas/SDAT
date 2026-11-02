@@ -1,0 +1,10 @@
+[Desktop Entry]
+Categories=Audio;AudioVideo;Music;GNOME;GTK
+Comment=SDAT is a GTK client for TIDAL (Rust port of Tonearm).
+Exec=sdat-desktop %u
+Icon=com.nichokas.SDAT.Desktop
+MimeType=x-scheme-handler/tidal
+Name=SDAT
+Keywords=Tidal;Music
+Type=Application
+Version=1.5

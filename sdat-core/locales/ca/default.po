@@ -1,0 +1,767 @@
+# Catalan translation for Tonearm.
+# Copyright (C) 2026 THE PACKAGE'S COPYRIGHT HOLDER
+# This file is distributed under the same license as the PACKAGE package.
+#
+msgid ""
+msgstr ""
+"Project-Id-Version: v1.3.1-38-gf3ed956\n"
+"Report-Msgid-Bugs-To: \n"
+"POT-Creation-Date: 2026-08-08 22:44+0200\n"
+"PO-Revision-Date: 2026-03-19 00:00+0000\n"
+"Last-Translator: \n"
+"Language-Team: Catalan <https://translate.codeberg.org/projects/tonearm/"
+"tonearm/ca/>\n"
+"Language: ca\n"
+"MIME-Version: 1.0\n"
+"Content-Type: text/plain; charset=UTF-8\n"
+"Content-Transfer-Encoding: 8bit\n"
+"Plural-Forms: nplurals=2; plural=n != 1;\n"
+
+msgid "%d Fan"
+msgid_plural "%d Fans"
+msgstr[0] "%d Fan"
+msgstr[1] "%d Fans"
+
+msgid "%d Track"
+msgid_plural "%d Tracks"
+msgstr[0] "%d Pista"
+msgstr[1] "%d Pistes"
+
+msgid "%d Track (%s)"
+msgid_plural "%d Tracks (%s)"
+msgstr[0] "%d Pista (%s)"
+msgstr[1] "%d Pistes (%s)"
+
+msgid "%s and %s"
+msgstr "%s i %s"
+
+msgid "API Base URL"
+msgstr ""
+
+msgid "About SDAT"
+msgstr "Quant a SDAT"
+
+msgid "Add Album to Queue"
+msgstr "Afegeix l'àlbum a la cua"
+
+msgid "Add My Tracks to Queue"
+msgstr "Afegeix les meves pistes a la cua"
+
+msgid "Add Playlist to Queue"
+msgstr "Afegeix la llista de reproducció a la cua"
+
+msgid "Add Top Tracks to Queue"
+msgstr "Afegeix les pistes més populars a la cua"
+
+msgid "Add to Collection"
+msgstr "Afegeix a la col·lecció"
+
+msgid "Add to Queue"
+msgstr "Afegeix a la cua"
+
+msgid "Album"
+msgstr "Àlbum"
+
+msgid "Album by %s"
+msgstr "Àlbum de %s"
+
+msgid "Albums"
+msgstr "Àlbums"
+
+msgid "Allow Background Activity"
+msgstr "Permet l'activitat en segon pla"
+
+msgid "Allow Media Card Images"
+msgstr "Permet les imatges de targetes multimèdia"
+
+msgid "Allow Shortcut Images"
+msgstr "Permet les imatges de les dreceres"
+
+msgid "Allow SDAT to load images for media card buttons"
+msgstr ""
+"Permet a SDAT carregar imatges per als botons de targetes multimèdia"
+
+msgid "Allow SDAT to load images for shortcut buttons"
+msgstr "Permet a SDAT carregar imatges per als botons de dreceres"
+
+msgid "Allow SDAT to load images for tracklists with the cover column"
+msgstr ""
+"Permet a SDAT carregar imatges per a les llistes de pistes amb la columna "
+"de portada"
+
+msgid ""
+"Allow SDAT to retain recently loaded images in memory to improve "
+"performance and reduce network traffic (estimated 50 MiB limit)"
+msgstr ""
+
+msgid ""
+"Allow SDAT to run in the background by hiding the player window instead "
+"of quitting the application"
+msgstr ""
+"Permet a SDAT executar-se en segon pla amagant la finestra del "
+"reproductor en lloc de tancar l'aplicació"
+
+msgid "Allow SDAT to send scrobbling data to Last.fm"
+msgstr "Permet a SDAT enviar dades de scrobbling a Last.fm"
+
+msgid "Allow SDAT to send scrobbling data to ListenBrainz"
+msgstr "Permet a SDAT enviar dades de scrobbling a ListenBrainz"
+
+msgid ""
+"Allow SDAT to start a mix with the current playing song when you're at "
+"the end of an album/queue"
+msgstr ""
+"Permet a SDAT iniciar un mix amb la cançó en reproducció quan s'arribi al "
+"final d'un àlbum o cua"
+
+msgid "Allow Tracklist Images"
+msgstr "Permet les imatges de llistes de pistes"
+
+msgid "An error occurred while fetching the track mix"
+msgstr ""
+
+msgid "An error occurred while logging in to Last.fm"
+msgstr "S'ha produït un error en iniciar la sessió a Last.fm"
+
+msgid "An error occurred while logging out of Last.fm"
+msgstr "S'ha produït un error en tancar la sessió a Last.fm"
+
+msgid "An error occurred while playing the album"
+msgstr "S'ha produït un error en reproduir l'àlbum"
+
+msgid "An error occurred while playing the playlist"
+msgstr "S'ha produït un error en reproduir la llista de reproducció"
+
+msgid "An error occurred while playing the top tracks"
+msgstr "S'ha produït un error en reproduir les pistes més populars"
+
+msgid "An error occurred while playing the track"
+msgstr "S'ha produït un error en reproduir la pista"
+
+msgid "An error occurred while playing the tracks"
+msgstr "S'ha produït un error en reproduir les pistes"
+
+msgid "An error occurred while shuffling the tracks"
+msgstr "S'ha produït un error en reproduir les pistes en mode aleatori"
+
+msgid ""
+"An unknown error occurred when checking for a secret service provider.\n"
+"\n"
+"Signing in may or may not work. Please see the raw error message for more "
+"details:\n"
+"\n"
+"%s"
+msgstr ""
+"S'ha produït un error desconegut en comprovar el proveïdor del servei de "
+"secrets.\n"
+"\n"
+"L'inici de sessió pot funcionar o no. Consulteu el missatge d'error per a "
+"més detalls:\n"
+"\n"
+"%s"
+
+msgid "Artist"
+msgstr "Artista"
+
+msgid "Artists"
+msgstr "Artistes"
+
+msgid "Auth Base URL"
+msgstr ""
+
+msgid "Authentication Required"
+msgstr "Cal autenticació"
+
+msgid "Auto"
+msgstr "Automàtic"
+
+msgid "Back"
+msgstr "Enrere"
+
+msgid "Background Activity"
+msgstr "Activitat en segon pla"
+
+msgid "Base URLs"
+msgstr ""
+
+msgid "Basic Shortcuts"
+msgstr "Dreceres bàsiques"
+
+msgid "Cache Images"
+msgstr "Memòria cau d'imatges"
+
+msgid "Cancel"
+msgstr "Cancel·la"
+
+msgid "Cancel Login"
+msgstr "Cancel·la l'inici de sessió"
+
+msgid ""
+"Choose whether SDAT should prefer album replay gain, track replay gain or "
+"decide automatically"
+msgstr ""
+"Trieu si SDAT ha de preferir el guany de reproducció de l'àlbum, de la "
+"pista o decidir automàticament"
+
+msgid "Close"
+msgstr "Tanca"
+
+msgid "Collection"
+msgstr "Col·lecció"
+
+msgid "Configure SDAT to send scrobbling data to Last.fm"
+msgstr "Configura SDAT per enviar dades de scrobbling a Last.fm"
+
+msgid "Configure SDAT to send scrobbling data to ListenBrainz"
+msgstr "Configura SDAT per enviar dades de scrobbling a ListenBrainz"
+
+msgid "Configure the base URLs for TIDAL"
+msgstr ""
+
+msgid "Configure the behaviour of SDAT regarding images"
+msgstr "Configura el comportament de SDAT respecte a les imatges"
+
+msgid "Configure the behaviour of SDAT regarding playback"
+msgstr "Configura el comportament de SDAT respecte a la reproducció"
+
+msgid "Configure the behaviour of SDAT when navigating between pages"
+msgstr "Configura el comportament de SDAT en navegar entre pàgines"
+
+msgid "Configure the behaviour of SDAT when running in the background"
+msgstr "Configura el comportament de SDAT en executar-se en segon pla"
+
+msgid "Continue"
+msgstr "Continua"
+
+msgid "Continue the authentication process in your browser."
+msgstr "Continueu el procés d'autenticació al vostre navegador."
+
+msgid "Copied URL to clipboard"
+msgstr ""
+
+msgid "Copied track URL to clipboard"
+msgstr "S'ha copiat l'URL de la pista al porta-retalls"
+
+msgid "Copy Track URL"
+msgstr "Copia l'URL de la pista"
+
+msgid "Copy URL"
+msgstr ""
+
+msgid "Default Page"
+msgstr "Pàgina predeterminada"
+
+msgid "Disable Repeat"
+msgstr "Desactiva la repetició"
+
+msgid "Disable Shuffle"
+msgstr "Desactiva el mode aleatori"
+
+msgid "Don't show again"
+msgstr "No ho tornis a mostrar"
+
+msgid "EP by %s"
+msgstr "EP de %s"
+
+msgid "Enable Autoplay"
+msgstr "Activa la reproducció automàtica"
+
+msgid "Enable Last.fm"
+msgstr "Activa Last.fm"
+
+msgid "Enable ListenBrainz"
+msgstr "Activa ListenBrainz"
+
+msgid "Enable Shuffle"
+msgstr "Activa el mode aleatori"
+
+msgid "Error Fetching Lyrics"
+msgstr "Error en obtenir la lletra"
+
+msgid "Error loading collection"
+msgstr "Error en carregar la col·lecció"
+
+msgid "Explore"
+msgstr "Explora"
+
+msgid "External Link"
+msgstr "Enllaç extern"
+
+msgid "Feed"
+msgstr "Novetats"
+
+msgid "For example, Fox Stevenson"
+msgstr "Per exemple, Fox Stevenson"
+
+msgid "General"
+msgstr "General"
+
+msgid "High"
+msgstr "Alta"
+
+msgid "History Length"
+msgstr "Longitud de l'historial"
+
+msgid "Home"
+msgstr "Inici"
+
+msgid "Images"
+msgstr "Imatges"
+
+msgid "Internal Error"
+msgstr "Error intern"
+
+msgid "Keyboard Shortcuts"
+msgstr "Dreceres de teclat"
+
+msgid "Keychain Unavailable"
+msgstr ""
+
+msgid "Last Month"
+msgstr "El mes passat"
+
+msgid "Last Week"
+msgstr "La setmana passada"
+
+msgid "ListenBrainz API Token"
+msgstr "Token d'API de ListenBrainz"
+
+msgid "ListenBrainz API URL"
+msgstr "URL d'API de ListenBrainz"
+
+msgid "Loading Lyrics"
+msgstr "S'està carregant la lletra"
+
+msgid "Log In to Last.fm…"
+msgstr "Inicia la sessió a Last.fm…"
+
+msgid "Log Out of Last.fm"
+msgstr "Tanca la sessió a Last.fm"
+
+msgid "Logged in to Last.fm as %s"
+msgstr "S'ha iniciat la sessió a Last.fm com a %s"
+
+msgid "Logged out of Last.fm"
+msgstr "S'ha tancat la sessió a Last.fm"
+
+msgid "Logging in to Last.fm"
+msgstr "S'està iniciant la sessió a Last.fm"
+
+msgid "Low (320 kbps)"
+msgstr "Baixa (320 kbps)"
+
+msgid "Low (96 kbps)"
+msgstr "Baixa (96 kbps)"
+
+msgid "Lyrics"
+msgstr "Lletra"
+
+msgid "Main Menu"
+msgstr "Menú principal"
+
+msgid "Max"
+msgstr "Màxima"
+
+msgid "Maximum history length before dropping old entries"
+msgstr "Longitud màxima de l'historial abans d'eliminar les entrades antigues"
+
+msgid "More"
+msgstr "Més"
+
+msgid "More…"
+msgstr "Més…"
+
+msgid "My Albums"
+msgstr "Els meus àlbums"
+
+msgid "My Artists"
+msgstr "Els meus artistes"
+
+msgid "My Collection"
+msgstr "La meva col·lecció"
+
+msgid "My Playlists"
+msgstr "Les meves llistes de reproducció"
+
+msgid "My Tracks"
+msgstr "Les meves pistes"
+
+msgid "Navigate Back"
+msgstr "Torna enrere"
+
+msgid "Navigate to %s"
+msgstr "Vés a %s"
+
+msgid "Navigate to Album"
+msgstr "Vés a l'àlbum"
+
+msgid "Navigate to Artist"
+msgstr "Vés a l'artista"
+
+msgid "Navigate to Collection"
+msgstr "Vés a la col·lecció"
+
+msgid "Navigate to Explore"
+msgstr "Vés a Explora"
+
+msgid "Navigate to Home"
+msgstr "Vés a l'inici"
+
+msgid "Navigate to Track Mix"
+msgstr "Vés al mix de la pista"
+
+msgid "Navigation"
+msgstr "Navegació"
+
+msgid "Navigation Behaviour"
+msgstr "Comportament de navegació"
+
+msgid "Next"
+msgstr "Següent"
+
+msgid "No Artist"
+msgstr "Sense artista"
+
+msgid "No Lyrics Available"
+msgstr "Lletra no disponible"
+
+msgid "No Song Currently Playing"
+msgstr "No s'està reproduint cap cançó"
+
+msgid "No Track"
+msgstr "Sense pista"
+
+msgid "No Tracks in Queue"
+msgstr "No hi ha pistes a la cua"
+
+msgid "No mix found for the current track"
+msgstr "No s'ha trobat cap mix per a la pista actual"
+
+msgid ""
+"No secret service provider is available.\n"
+"\n"
+"SDAT will not be able to store any authentication-related data and you "
+"will not be able to sign in.\n"
+"\n"
+"Please install a secret service provider such as GNOME Keyring or KDE Wallet."
+msgstr ""
+"No hi ha cap proveïdor del servei de secrets disponible.\n"
+"\n"
+"SDAT no podrà emmagatzemar dades relacionades amb l'autenticació i no "
+"podreu iniciar la sessió.\n"
+"\n"
+"Instal·leu un proveïdor del servei de secrets com GNOME Keyring o KDE Wallet."
+
+msgid "Normalize Volume"
+msgstr "Normalitza el volum"
+
+msgid "Not Found"
+msgstr "No trobat"
+
+msgid "Not found"
+msgstr "No trobat"
+
+msgid "Older"
+msgstr "Més antic"
+
+msgid "Open TIDAL Page"
+msgstr "Obre la pàgina de TIDAL"
+
+msgid "OpenAPI Base URL"
+msgstr ""
+
+msgid "Pause"
+msgstr "Pausa"
+
+msgid "Performance"
+msgstr "Rendiment"
+
+msgid "Personal Mix"
+msgstr "Mix personal"
+
+msgid "Play"
+msgstr "Reprodueix"
+
+msgid "Play / Pause"
+msgstr "Reprodueix / Pausa"
+
+msgid "Play Album"
+msgstr "Reprodueix l'àlbum"
+
+msgid "Playback"
+msgstr "Reproducció"
+
+msgid "Playback quality saved. Changes will be applied on next track change"
+msgstr ""
+"S'ha desat la qualitat de reproducció. Els canvis s'aplicaran en la següent "
+"pista"
+
+msgid "Player"
+msgstr "Reproductor"
+
+msgid "Playing From"
+msgstr "S'està reproduint des de"
+
+msgid "Playlist"
+msgstr "Llista de reproducció"
+
+msgid "Playlists"
+msgstr "Llistes de reproducció"
+
+msgid "Please sign in to view your collection"
+msgstr "Inicieu la sessió per veure la vostra col·lecció"
+
+msgid "Please sign in to view your feed"
+msgstr "Inicieu la sessió per veure les vostres novetats"
+
+msgid "Preferences"
+msgstr "Preferències"
+
+msgid "Preferred Replay Gain"
+msgstr "Guany de reproducció preferit"
+
+msgid "Previous"
+msgstr "Anterior"
+
+msgid "Queue"
+msgstr "Cua"
+
+msgid "Quit"
+msgstr "Surt"
+
+msgid "Remove Track from Queue"
+msgstr "Elimina la pista de la cua"
+
+msgid "Remove from Collection"
+msgstr "Elimina de la col·lecció"
+
+msgid "Reopen Browser"
+msgstr "Torna a obrir el navegador"
+
+msgid "Repeat Queue"
+msgstr "Repeteix la cua"
+
+msgid "Repeat Track"
+msgstr "Repeteix la pista"
+
+msgid "Resources Base URL"
+msgstr ""
+
+msgid "Scan this QR code to sign into your TIDAL account"
+msgstr ""
+"Escanegeu aquest codi QR per iniciar la sessió al vostre compte de TIDAL"
+
+msgid "Scrobbling"
+msgstr "Scrobbling"
+
+msgid "Scroll to the Left"
+msgstr "Desplaça a l'esquerra"
+
+msgid "Scroll to the Right"
+msgstr "Desplaça a la dreta"
+
+msgid "Search"
+msgstr "Cerca"
+
+msgid "Secret Service Error"
+msgstr "Error del servei de secrets"
+
+msgid "Secret Service Issue"
+msgstr "Problema amb el servei de secrets"
+
+msgid "Secret Service Unavailable"
+msgstr "Servei de secrets no disponible"
+
+msgid "Set as Default Page"
+msgstr "Estableix com a pàgina predeterminada"
+
+msgid "Set current page as default"
+msgstr "Estableix la pàgina actual com a predeterminada"
+
+msgid "Set the same volume for all tracks"
+msgstr "Estableix el mateix volum per a totes les pistes"
+
+msgid "Shuffle Album"
+msgstr "Reprodueix l'àlbum en mode aleatori"
+
+msgid "Side Pane"
+msgstr "Panell lateral"
+
+msgid "Sign In"
+msgstr "Inicia la sessió"
+
+msgid "Sign In…"
+msgstr "Inicia la sessió…"
+
+msgid "Sign Out"
+msgstr "Tanca la sessió"
+
+msgid "Sign in failed or aborted"
+msgstr "L'inici de sessió ha fallat o s'ha cancel·lat"
+
+msgid "Signed in as %s"
+msgstr "S'ha iniciat la sessió com a %s"
+
+msgid "Signed out"
+msgstr "S'ha tancat la sessió"
+
+msgid "Single by %s"
+msgstr "Senzill de %s"
+
+msgid ""
+"Start typing in the search bar to search for songs, artists, albums or "
+"playlists"
+msgstr ""
+"Comenceu a escriure a la barra de cerca per buscar cançons, artistes, àlbums "
+"o llistes de reproducció"
+
+msgid "Sync with Track"
+msgstr "Sincronitza amb la pista"
+
+msgid "TIDAL Settings"
+msgstr ""
+
+msgid "TIDAL-specific settings for advanced users"
+msgstr ""
+
+msgid ""
+"The macOS Keychain is not available or accessible.\n"
+"\n"
+"SDAT will not be able to store any authentication-related data and you "
+"will not be able to sign in.\n"
+"\n"
+"Please ensure your keychain is unlocked and accessible."
+msgstr ""
+
+msgid "The requested deeplink did not have any available handlers."
+msgstr "L'enllaç sol·licitat no té cap controlador disponible."
+
+msgid "This Month"
+msgstr "Aquest mes"
+
+msgid "This Week"
+msgstr "Aquesta setmana"
+
+msgid "This track is not available for streaming"
+msgstr ""
+
+msgid "Today"
+msgstr "Avui"
+
+msgid "Toggle Sidebar"
+msgstr "Mostra/amaga el panell lateral"
+
+msgid "Track"
+msgstr "Pista"
+
+msgid "Track not available for streaming, skipping to next track"
+msgstr "La pista no està disponible per a reproducció, es passa a la següent"
+
+msgid "Tracks"
+msgstr "Pistes"
+
+msgid ""
+"Unfortunately an error occurred while loading this view. Please try again "
+"later. If the error persists, please open an issue!\n"
+"\n"
+"Error Message: "
+msgstr ""
+"Malauradament, s'ha produït un error en carregar aquesta vista. Torneu-ho a "
+"provar més tard. Si l'error persisteix, obriu un informe d'error.\n"
+"\n"
+"Missatge d'error: "
+
+msgid "Unknown album type"
+msgstr "Tipus d'àlbum desconegut"
+
+msgid "Unsupported activity"
+msgstr "Activitat no compatible"
+
+msgid "View All"
+msgstr "Mostra-ho tot"
+
+msgid "Volume"
+msgstr "Volum"
+
+msgid "You are currently not logged in to Last.fm"
+msgstr "Actualment no heu iniciat la sessió a Last.fm"
+
+msgid "You are logged in to Last.fm"
+msgstr "Heu iniciat la sessió a Last.fm"
+
+msgid "You are logged in to Last.fm as %s"
+msgstr "Heu iniciat la sessió a Last.fm com a %s"
+
+msgid "You can also open the linking page using the button below"
+msgstr "També podeu obrir la pàgina de vinculació amb el botó de sota"
+
+msgid ""
+"Your secret service provider was found, but refused to interact with "
+"SDAT.\n"
+"\n"
+"This could because you cancelled a prompt or, if you are using a Flatpak, "
+"the provider not implementing the XDG Secret Portal service.\n"
+"\n"
+"SDAT will not be able to store any authentication-related data and you "
+"will not be able to sign in."
+msgstr ""
+"S'ha trobat el vostre proveïdor del servei de secrets, però ha refusat "
+"interactuar amb SDAT.\n"
+"\n"
+"Això pot ser perquè heu cancel·lat un missatge o, si feu servir Flatpak, "
+"perquè el proveïdor no implementa el servei XDG Secret Portal.\n"
+"\n"
+"SDAT no podrà emmagatzemar dades relacionades amb l'autenticació i no "
+"podreu iniciar la sessió."
+
+msgid "translator-credits"
+msgstr "rubiojr https://codeberg.org/rubiojr"
+
+#~ msgid ""
+#~ "Allow Tonearm to temporarily store images on the file system to improve "
+#~ "performance and reduce network traffic"
+#~ msgstr ""
+#~ "Permet a Tonearm emmagatzemar imatges temporalment al sistema de fitxers "
+#~ "per millorar el rendiment i reduir el trànsit de xarxa"
+
+#~ msgid "Copied album URL to clipboard"
+#~ msgstr "S'ha copiat l'URL de l'àlbum al porta-retalls"
+
+#~ msgid "Copied artist URL to clipboard"
+#~ msgstr "S'ha copiat l'URL de l'artista al porta-retalls"
+
+#~ msgid "Copied playlist URL to clipboard"
+#~ msgstr "S'ha copiat l'URL de la llista de reproducció al porta-retalls"
+
+#~ msgid "Copy Album URL"
+#~ msgstr "Copia l'URL de l'àlbum"
+
+#~ msgid "Copy Artist URL"
+#~ msgstr "Copia l'URL de l'artista"
+
+#~ msgid "Copy Playlist URL"
+#~ msgstr "Copia l'URL de la llista de reproducció"
+
+#~ msgid "Last.fm"
+#~ msgstr "Last.fm"
+
+#~ msgid "ListenBrainz"
+#~ msgstr "ListenBrainz"
+
+#~ msgid "Play My Tracks"
+#~ msgstr "Reprodueix les meves pistes"
+
+#~ msgid "Play Playlist"
+#~ msgstr "Reprodueix la llista de reproducció"
+
+#~ msgid "Play Top Tracks"
+#~ msgstr "Reprodueix les pistes més populars"
+
+#~ msgid "Shuffle My Tracks"
+#~ msgstr "Reprodueix les meves pistes en mode aleatori"
+
+#~ msgid "Shuffle Playlist"
+#~ msgstr "Reprodueix la llista en mode aleatori"
+
+#~ msgid "Shuffle Top Tracks"
+#~ msgstr "Reprodueix les pistes més populars en mode aleatori"

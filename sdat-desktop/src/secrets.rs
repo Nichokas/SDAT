@@ -1,0 +1,179 @@
+//! Secret storage through libsecret (Secret Service / XDG portal), schema
+//! `com.nichokas.SDAT.Desktop`, attribute `key`. Sign-ins stored under the legacy
+//! `dev.dergs.Tonearm` schema are copied over by `migrate` on first start.
+
+use std::collections::HashMap;
+
+use base64::Engine;
+
+use crate::i18n::{tr, trf};
+
+pub(crate) const REFRESH_TOKEN_KEY: &str = "refresh_token";
+
+#[derive(Debug, Clone)]
+pub struct ServiceError {
+    pub title: String,
+    pub body: String,
+    pub fatal: bool,
+}
+
+fn schema() -> libsecret::Schema {
+    schema_named(crate::settings::APP_ID)
+}
+
+pub(crate) fn schema_named(name: &str) -> libsecret::Schema {
+    let mut attrs = HashMap::new();
+    attrs.insert("key", libsecret::SchemaAttributeType::String);
+    libsecret::Schema::new(name, libsecret::SchemaFlags::NONE, attrs)
+}
+
+/// Raw lookup/store against a named schema, used by `migrate` for the legacy keyring entry.
+pub(crate) fn lookup_in(schema_name: &str, key: &str) -> Result<Option<String>, gtk::glib::Error> {
+    libsecret::password_lookup_sync(Some(&schema_named(schema_name)), attrs(key), gtk::gio::Cancellable::NONE).map(|o| o.map(|s| s.to_string()))
+}
+
+pub(crate) fn store_in(schema_name: &str, key: &str, label: &str, value: &str) -> Result<(), gtk::glib::Error> {
+    libsecret::password_store_sync(Some(&schema_named(schema_name)), attrs(key), Some("default"), label, value, gtk::gio::Cancellable::NONE)
+}
+
+fn attrs(key: &str) -> HashMap<&str, &str> {
+    let mut a = HashMap::new();
+    a.insert("key", key);
+    a
+}
+
+fn lookup(key: &str) -> Result<Option<String>, gtk::glib::Error> {
+    libsecret::password_lookup_sync(Some(&schema()), attrs(key), gtk::gio::Cancellable::NONE).map(|o| o.map(|s| s.to_string()))
+}
+
+pub fn healthcheck() -> Option<ServiceError> {
+    let err = match lookup("dummy_key") {
+        Ok(_) => return None,
+        Err(e) => e.to_string(),
+    };
+    if err.contains("name is not activatable") || err.contains("ServiceUnknown") || err.contains("was not provided by any .service files") {
+        return Some(ServiceError {
+            title: tr("Secret Service Unavailable"),
+            body: tr("No secret service provider is available.\n\nSDAT will not be able to store any authentication-related data and you will not be able to sign in.\n\nPlease install a secret service provider such as GNOME Keyring or KDE Wallet."),
+            fatal: false,
+        });
+    }
+    if err.contains("user interaction failed") {
+        return Some(ServiceError {
+            title: tr("Secret Service Issue"),
+            body: tr("Your secret service provider was found, but refused to interact with SDAT.\n\nThis could because you cancelled a prompt or, if you are using a Flatpak, the provider not implementing the XDG Secret Portal service.\n\nSDAT will not be able to store any authentication-related data and you will not be able to sign in."),
+            fatal: false,
+        });
+    }
+    Some(ServiceError {
+        title: tr("Secret Service Error"),
+        body: trf("An unknown error occurred when checking for a secret service provider.\n\nSigning in may or may not work. Please see the raw error message for more details:\n\n%s", &[&err]),
+        fatal: false,
+    })
+}
+
+pub fn has_refresh_token() -> bool {
+    match lookup(REFRESH_TOKEN_KEY) {
+        Ok(Some(v)) => !v.is_empty(),
+        Ok(None) => false,
+        Err(e) => {
+            log::error!("error checking refresh token in keyring: {e}");
+            false
+        }
+    }
+}
+
+pub fn get_refresh_token() -> String {
+    match lookup(REFRESH_TOKEN_KEY) {
+        Ok(v) => v.unwrap_or_default(),
+        Err(e) => {
+            log::error!("error reading refresh token from keyring: {e}");
+            String::new()
+        }
+    }
+}
+
+/// Must be followed by `crate::state::notify_signed_in_changed()` on the main thread.
+pub fn set_refresh_token(token: &str) -> anyhow::Result<()> {
+    libsecret::password_store_sync(
+        Some(&schema()),
+        attrs(REFRESH_TOKEN_KEY),
+        Some("default"),
+        "SDAT TIDAL Refresh Token",
+        token,
+        gtk::gio::Cancellable::NONE,
+    )?;
+    Ok(())
+}
+
+pub fn delete_refresh_token() -> anyhow::Result<()> {
+    libsecret::password_clear_sync(Some(&schema()), attrs(REFRESH_TOKEN_KEY), gtk::gio::Cancellable::NONE).map_err(|e| {
+        log::error!("error deleting refresh token from keyring: {e}");
+        anyhow::anyhow!(e)
+    })
+}
+
+/// Extracts the `uid` claim from the refresh token JWT.
+pub fn user_id_from_token(token: &str) -> String {
+    let parts: Vec<&str> = token.split('.').collect();
+    if parts.len() != 3 {
+        return String::new();
+    }
+    let Ok(payload) = base64::engine::general_purpose::URL_SAFE_NO_PAD.decode(parts[1].trim_end_matches('=')) else {
+        return String::new();
+    };
+    #[derive(serde::Deserialize)]
+    #[expect(clippy::items_after_statements, reason = "local payload type kept next to its only use")]
+    struct Claims {
+        uid: i64,
+    }
+    match serde_json::from_slice::<Claims>(&payload) {
+        Ok(c) => c.uid.to_string(),
+        Err(_) => String::new(),
+    }
+}
+
+pub fn user_id() -> String {
+    if !has_refresh_token() {
+        return String::new();
+    }
+    user_id_from_token(&get_refresh_token())
+}
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn jwt_uid() {
+        // header.{"uid":12345}.sig
+        let payload = base64::Engine::encode(&base64::engine::general_purpose::URL_SAFE_NO_PAD, br#"{"uid":12345}"#);
+        assert_eq!(super::user_id_from_token(&format!("x.{payload}.y")), "12345");
+        assert_eq!(super::user_id_from_token("garbage"), "");
+    }
+}
+
+#[cfg(test)]
+mod live_tests {
+    /// Runs the same dummy-key lookup as the startup health check against the real session bus.
+    #[test]
+    #[ignore = "needs a session secret service"]
+    fn healthcheck_live() {
+        let r = super::healthcheck();
+        eprintln!("healthcheck: {:?}", r.as_ref().map(|e| &e.title));
+        assert!(r.is_none());
+    }
+}
+
+/// The core's view of the keyring (`tonearm_core::auth`).
+#[derive(Debug, Clone, Copy)]
+pub struct KeyringTokens;
+impl tonearm_core::auth::TokenStore for KeyringTokens {
+    fn has_refresh_token(&self) -> bool {
+        has_refresh_token()
+    }
+    fn get_refresh_token(&self) -> String {
+        get_refresh_token()
+    }
+    fn user_id(&self) -> String {
+        user_id()
+    }
+}
