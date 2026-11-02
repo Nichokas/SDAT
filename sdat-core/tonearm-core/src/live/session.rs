@@ -199,17 +199,8 @@ impl HostSession {
         if self.play_next_cursor.0 != self.anchor.track_id {
             self.play_next_cursor = (self.anchor.track_id.clone(), Vec::new());
         }
+        let playing = self.locate_playing();
         let items = &self.queue.queue().items;
-        // The playing entry. When a queue refresh renewed its id, the copy
-        // of the playing track nearest to where it was last found.
-        let last = self.play_next_index;
-        let playing = self.anchor.item_id.as_ref().and_then(|id| items.iter().position(|i| &i.item_id == id)).or_else(|| {
-            let t = self.anchor.track_id.as_ref()?;
-            items.iter().enumerate().filter(|(_, i)| &i.track_id == t).map(|(p, _)| p).min_by_key(|p| p.abs_diff(last))
-        });
-        if let Some(p) = playing {
-            self.play_next_index = p;
-        }
         let after = playing.map_or(&[][..], |p| &items[p + 1..]);
         // Earlier play-next tracks still in place, in order; drop the rest.
         let mut offset = 0;
@@ -223,6 +214,22 @@ impl HostSession {
         kept.extend_from_slice(track_ids);
         self.play_next_cursor.1 = kept;
         offset
+    }
+
+    /// Index of the playing entry in the shared queue, remembered in
+    /// [`Self::play_next_index`]. When a queue refresh renewed its id, the
+    /// copy of the playing track nearest to where it was last found.
+    fn locate_playing(&mut self) -> Option<usize> {
+        let items = &self.queue.queue().items;
+        let last = self.play_next_index;
+        let playing = self.anchor.item_id.as_ref().and_then(|id| items.iter().position(|i| &i.item_id == id)).or_else(|| {
+            let t = self.anchor.track_id.as_ref()?;
+            items.iter().enumerate().filter(|(_, i)| &i.track_id == t).map(|(p, _)| p).min_by_key(|p| p.abs_diff(last))
+        });
+        if let Some(p) = playing {
+            self.play_next_index = p;
+        }
+        playing
     }
 
     /// Accepted guest commands, oldest first. The app applies them through
@@ -347,6 +354,7 @@ impl HostSession {
             host_mono_ns: now_ns,
             playing,
         };
+        self.locate_playing();
         if track_changed || now_ns - self.last_anchor_sent_ns >= DEBOUNCE_NS {
             self.flush_anchor(now_ns)
         } else {
@@ -363,6 +371,8 @@ impl HostSession {
 
     /// Changes the shared queue (host only in the MVP).
     pub fn queue_op(&mut self, kind: OpKind) -> Result<Vec<Out>, QueueError> {
+        // Pin the playing entry while its id still resolves (a Replace renews ids).
+        self.locate_playing();
         match self.queue.apply(Op { op_id: new_id(), kind })? {
             Accepted::New(v) => Ok(vec![all(Msg::Op(v))]),
             Accepted::Duplicate => Ok(Vec::new()),
@@ -1159,6 +1169,8 @@ mod tests {
         let mut q = ids(&["a", "b", "a", "c"]);
         sync(&mut h, &q);
         h.set_playback(Some("g1i2".into()), Some("a".into()), 0, true, 0);
+        // A plain refresh before the first request must not lose the copy.
+        sync(&mut h, &q);
         for req in [ids(&["x"]), ids(&["y"])] {
             let at = (2 + 1 + h.play_next_offset(&req)).min(q.len());
             q.splice(at..at, req);
