@@ -340,7 +340,7 @@ final class Player {
     private func liveAlign(_ item: AVPlayerItem) async -> Bool {
         func at(_ secs: Double) -> CMTime { CMTime(seconds: max(secs, 0), preferredTimescale: 600) }
         func stillOurs() -> Bool { !Task.isCancelled && avPlayer.currentItem === item }
-        for _ in 0..<Self.liveAlignAttempts {
+        attempt: for _ in 0..<Self.liveAlignAttempts {
             avPlayer.pause()
             guard stillOurs(), let t = liveTarget?() else { return false }
             guard t.playing else {
@@ -355,8 +355,11 @@ final class Player {
                 continue
             }
             await waitForBuffer(item, from: startAt)
-            // Wait for the host to reach the parked point.
+            // Wait for the host to reach the parked point. If the host jumped
+            // back (seek, restart), the wait would be longer than the lead:
+            // park again near its new position instead of staying silent.
             while stillOurs(), let now = liveTarget?(), now.playing, now.secs < startAt - 0.01 {
+                if startAt - now.secs > Self.liveJoinLead + Self.liveLateTolerance { continue attempt }
                 try? await Task.sleep(for: .milliseconds(Int(min(max((startAt - now.secs) * 500, 5), 250))))
             }
             guard stillOurs(), let now = liveTarget?() else { return false }
