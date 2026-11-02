@@ -141,9 +141,11 @@ fn on_event(ev: &LiveEvent) {
     }
 }
 
+/// Name shown to the other side. The login name, not the account's real
+/// (GECOS) name: invitations can come from anyone, so joining must not
+/// disclose the user's full name.
 fn display_name() -> String {
-    let real = glib::real_name().to_string_lossy().trim().to_string();
-    if real.is_empty() || real == "Unknown" { glib::user_name().to_string_lossy().to_string() } else { real }
+    glib::user_name().to_string_lossy().trim().to_string()
 }
 
 // ---------------------------------------------------------------- lifecycle
@@ -235,10 +237,15 @@ fn teardown() {
     next_generation();
     let was_guest = matches!(SESSION.with(|s| s.borrow_mut().take()), Some(Session::Guest(_))) || phase().get().is_guest();
     CURRENT_ITEM.with(|c| c.borrow_mut().take());
-    drop(LOADS.with(RefCell::take));
+    let loading = LOADS.with(RefCell::take).is_loading();
     LAST_STATUS.with(|l| l.set(None));
     if was_guest {
         player::set_rate(1.0);
+        // A host track still loading would start after we left: the player
+        // handles triggers in order, so this stop lands after that load.
+        if loading {
+            player::stop();
+        }
     }
 }
 
@@ -350,20 +357,32 @@ pub fn paused_needs_seek(target_ms: i64, actual_ms: i64) -> bool {
 
 /// How long a track the guest's account could not play is left alone.
 const RETRY_FAILED: Duration = Duration::from_secs(15);
+/// A started load that has not reached the player after this long is
+/// treated as failed.
+const LOAD_TIMEOUT: Duration = Duration::from_secs(20);
 
 /// Guest: which host tracks are being loaded or failed recently, so a tick
 /// never starts a second load of the same track and an unavailable track is
 /// not retried (and toasted) every tick.
 #[derive(Debug, Default)]
 pub struct LoadGate {
-    pending: Option<String>,
+    pending: Option<(String, Instant)>,
     failed: Option<(String, Instant)>,
 }
 
 impl LoadGate {
     /// Whether a load of `track` should start now.
     pub fn begin(&mut self, track: &str, now: Instant) -> bool {
-        if self.pending.as_deref() == Some(track) {
+        if let Some((t, at)) = &self.pending
+            && t == track
+        {
+            if now.duration_since(*at) < LOAD_TIMEOUT {
+                return false;
+            }
+            // The metadata loaded but the player never got the track (e.g.
+            // its stream request failed): count it as a failure so it is
+            // retried after RETRY_FAILED instead of never.
+            self.failed(track, now);
             return false;
         }
         if let Some((t, at)) = &self.failed
@@ -372,8 +391,12 @@ impl LoadGate {
         {
             return false;
         }
-        self.pending = Some(track.to_string());
+        self.pending = Some((track.to_string(), now));
         true
+    }
+    /// Whether a host track load is in flight.
+    pub fn is_loading(&self) -> bool {
+        self.pending.is_some()
     }
     /// The player now has the host's track.
     pub fn loaded(&mut self) {
@@ -383,7 +406,7 @@ impl LoadGate {
     /// A load ended without playing (failed or superseded).
     /// Returns true on the first failure of this track (worth a toast).
     pub fn failed(&mut self, track: &str, now: Instant) -> bool {
-        if self.pending.as_deref() == Some(track) {
+        if self.pending.as_ref().is_some_and(|(t, _)| t == track) {
             self.pending = None;
         }
         let first = self.failed.as_ref().is_none_or(|(t, _)| t != track);
@@ -392,7 +415,7 @@ impl LoadGate {
     }
     /// A load was dropped because the host moved on.
     pub fn abandon(&mut self, track: &str) {
-        if self.pending.as_deref() == Some(track) {
+        if self.pending.as_ref().is_some_and(|(t, _)| t == track) {
             self.pending = None;
         }
     }
@@ -524,6 +547,18 @@ mod tests {
         assert!(g.begin("1", now + RETRY_FAILED));
         assert!(!g.failed("1", now + RETRY_FAILED), "repeated failure is not reported again");
         assert!(g.begin("2", now), "other tracks are not blocked");
+    }
+
+    #[test]
+    fn load_that_never_reaches_the_player_is_retried() {
+        let now = Instant::now();
+        let mut g = LoadGate::default();
+        assert!(g.begin("1", now));
+        assert!(g.is_loading());
+        assert!(!g.begin("1", now + LOAD_TIMEOUT - Duration::from_secs(1)), "still loading");
+        assert!(!g.begin("1", now + LOAD_TIMEOUT), "timed out: backs off first");
+        assert!(!g.is_loading());
+        assert!(g.begin("1", now + LOAD_TIMEOUT + RETRY_FAILED), "then retried");
     }
 
     #[test]
