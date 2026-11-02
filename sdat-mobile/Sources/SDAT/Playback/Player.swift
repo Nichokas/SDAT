@@ -264,6 +264,7 @@ final class Player {
     /// loads it paused, so joining a paused session never blips audio.
     func livePlay(_ tracks: [Track], index i: Int, at secs: Double, playing: Bool) {
         guard tracks.indices.contains(i) else { return }
+        liveSeekLead = 0 // seek timing is per item: do not carry it to a new track
         recentIDs = []; recentOrder = []
         infinite = nil
         original = tracks
@@ -275,8 +276,43 @@ final class Player {
     /// Drift correction: plays slightly faster or slower (pitch kept).
     func liveSetRate(_ rate: Float) {
         guard isPlaying, let item = avPlayer.currentItem else { return }
-        item.audioTimePitchAlgorithm = .spectral
-        avPlayer.rate = rate
+        if item.audioTimePitchAlgorithm != .spectral { item.audioTimePitchAlgorithm = .spectral }
+        if avPlayer.rate != rate { avPlayer.rate = rate }
+    }
+
+    /// A drift seek is still running (or the item is rebuffering after one):
+    /// the position is not trustworthy, so no new correction may start.
+    @ObservationIgnored private(set) var liveSeeking = false
+
+    /// True while audio is actually advancing (not buffering after a seek).
+    var liveAdvancing: Bool { avPlayer.timeControlStatus == .playing }
+
+    /// Exact drift seek: the default tolerance can land seconds away on
+    /// streamed audio, which re-triggers another seek on the next tick.
+    /// The host keeps playing while we seek, so we aim ahead by how long the
+    /// last drift seek took; otherwise a slow seek lands >300 ms behind and
+    /// the next tick seeks again.
+    @ObservationIgnored private var liveSeekLead: Double = 0
+
+    func liveSeek(to secs: Double) {
+        guard !liveSeeking else { return }
+        liveSeeking = true
+        let target = max(secs + liveSeekLead, 0)
+        let started = Date()
+        avPlayer.seek(to: CMTime(seconds: target, preferredTimescale: 600),
+                      toleranceBefore: .zero, toleranceAfter: .zero) { [weak self] finished in
+            Task { @MainActor in
+                guard let self else { return }
+                if finished {
+                    let took = Date().timeIntervalSince(started)
+                    // Smooth and cap so one outlier can't overshoot by seconds.
+                    self.liveSeekLead = min(max(self.liveSeekLead * 0.5 + took * 0.5, 0), 2)
+                }
+                self.liveSeeking = false
+            }
+        }
+        position = target
+        updateNowPlaying()
     }
 
     func cycleRepeat() {
