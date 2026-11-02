@@ -513,6 +513,11 @@ pub fn user_seek(to: Duration) -> bool {
     run(route(is_guest(), guest_control().get(), GuestCommand::Seek { position_ms: ms }))
 }
 
+/// Guest: the track the host is playing now.
+pub fn host_track() -> Option<String> {
+    guest().and_then(|g| g.target(0)).and_then(|t| t.track_id)
+}
+
 /// UI relative seek (`offset_ms`). For guests it is relative to the host's
 /// position, not the local one (which may differ by the accepted drift).
 pub fn user_seek_by(offset_ms: i64) -> bool {

@@ -380,8 +380,9 @@ fn quality_entry(q: TrackQuality, css: &str, title: &str, details: &str, popover
 const SCRUB_DEBOUNCE: std::time::Duration = std::time::Duration::from_millis(250);
 
 thread_local! {
-    /// Guest scrub waiting to be sent: position and its pending timer.
-    static SCRUB: std::cell::RefCell<Option<(std::time::Duration, glib::SourceId)>> = const { std::cell::RefCell::new(None) };
+    /// Guest scrub waiting to be sent: position, the host track it is for,
+    /// and its pending timer.
+    static SCRUB: std::cell::RefCell<Option<(std::time::Duration, Option<String>, glib::SourceId)>> = const { std::cell::RefCell::new(None) };
 }
 
 fn track_timeline() -> gtk::Overlay {
@@ -398,15 +399,19 @@ fn track_timeline() -> gtk::Overlay {
         if crate::live::is_guest() {
             let d = player::playback_state_changed().get().duration;
             SCRUB.with(|s| {
-                if let Some((_, id)) = s.borrow_mut().take() {
+                if let Some((_, _, id)) = s.borrow_mut().take() {
                     id.remove();
                 }
                 let id = glib::timeout_add_local_once(SCRUB_DEBOUNCE, || {
-                    if let Some((to, _)) = SCRUB.with(|s| s.borrow_mut().take()) {
+                    // Dropped if the host moved to another track meanwhile.
+                    if let Some((to, track, _)) = SCRUB.with(|s| s.borrow_mut().take())
+                        && track.is_some()
+                        && crate::live::host_track() == track
+                    {
                         crate::live::user_seek(to);
                     }
                 });
-                *s.borrow_mut() = Some((d.mul_f64((f / 100.0).clamp(0.0, 1.0)), id));
+                *s.borrow_mut() = Some((d.mul_f64((f / 100.0).clamp(0.0, 1.0)), crate::live::host_track(), id));
             });
             return glib::Propagation::Stop;
         }
