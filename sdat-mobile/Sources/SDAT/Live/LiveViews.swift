@@ -67,16 +67,6 @@ struct LiveSheet: View {
             Section {
                 Stepper("Output delay: \(live.extraLatencyMs) ms", value: $live.extraLatencyMs, in: 0...500, step: 10)
             } footer: { Text("Raise this if your speakers or headphones sound behind.") }
-            if !live.upNext.isEmpty {
-                Section("Up next") {
-                    ForEach(live.upNext) { row in
-                        VStack(alignment: .leading) {
-                            Text(row.track.title)
-                            Text(row.track.artists.map(\.name).joined(separator: ", ")).font(.caption).foregroundStyle(.secondary)
-                        }
-                    }
-                }
-            }
             Button("Leave", role: .destructive) { live.leave() }
         case .ended(let msg):
             Text(msg)

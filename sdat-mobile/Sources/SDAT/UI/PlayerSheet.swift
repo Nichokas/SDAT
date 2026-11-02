@@ -203,7 +203,19 @@ private struct QueuePage: View {
                 if let t = player.current {
                     Section("Now Playing") { TrackRow(track: t).listRowBackground(Color.white.opacity(0.06)) }
                 }
-                if !player.userQueue.isEmpty {
+                if Live.shared.isGuest {
+                    // Guests follow the host's queue; the header opens the session sheet.
+                    Section {
+                        ForEach(Live.shared.upNext) { row in
+                            TrackRow(track: row.track).trackMenu(row.track)
+                        }
+                        .listRowBackground(Color.white.opacity(0.06))
+                    } header: {
+                        Button { Live.shared.showSheet = true } label: {
+                            Label("Playing from Listen Together", systemImage: "dot.radiowaves.left.and.right")
+                        }
+                    }
+                } else if !player.userQueue.isEmpty {
                     Section("Next in Queue") {
                         ForEach(queueRows(player.userQueue), id: \.key) { i, _, t in
                             Button { player.jump(toUser: i) } label: { TrackRow(track: t) }
@@ -215,6 +227,7 @@ private struct QueuePage: View {
                         .listRowBackground(Color.white.opacity(0.06))
                     }
                 }
+                if !Live.shared.isGuest {
                 Section(player.sourceTitle.map { "Playing from \($0)" } ?? "Up Next") {
                     ForEach(queueRows(player.upNext), id: \.key) { i, _, t in
                         Button { player.jump(toUpNext: i) } label: { TrackRow(track: t) }
@@ -224,6 +237,7 @@ private struct QueuePage: View {
                     .onMove { player.moveUpNext(from: $0, to: $1) }
                     .onDelete { player.removeUpNext(at: $0) }
                     .listRowBackground(Color.white.opacity(0.06))
+                }
                 }
             }
             .scrollContentBackground(.hidden)
