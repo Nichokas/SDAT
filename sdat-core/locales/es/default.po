@@ -60,6 +60,9 @@ msgstr "Añadir a la colección"
 msgid "Add to Queue"
 msgstr "Añadir a la cola"
 
+msgid "Play Next"
+msgstr "Reproducir a continuación"
+
 msgid "Album"
 msgstr "Álbum"
 

@@ -62,6 +62,9 @@ msgstr "Zur Sammlung hinzufügen"
 msgid "Add to Queue"
 msgstr "Zur Warteschlange hinzufügen"
 
+msgid "Play Next"
+msgstr "Als Nächstes abspielen"
+
 msgid "Album"
 msgstr "Album"
 

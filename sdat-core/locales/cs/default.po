@@ -64,6 +64,9 @@ msgstr "Přidat do sbírky"
 msgid "Add to Queue"
 msgstr "Přidat do fronty"
 
+msgid "Play Next"
+msgstr "Přehrát jako další"
+
 msgid "Album"
 msgstr "Album"
 
