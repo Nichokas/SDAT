@@ -427,7 +427,7 @@ fn handle(cmd: Cmd) {
         Cmd::Play => crate::live::user_play(),
         // Guests never take these; the refusal is shown as a toast.
         Cmd::Seek(off) if crate::live::is_guest() => {
-            let pos = playback_state_changed().get().position.as_micros() as i64 + off;
+            let pos = (playback_state_changed().get().position.as_micros() as i64).saturating_add(off);
             crate::live::user_seek(Duration::from_micros(pos.max(0) as u64));
         }
         Cmd::SetPosition(p) if crate::live::is_guest() => {
@@ -437,7 +437,7 @@ fn handle(cmd: Cmd) {
         Cmd::Previous => previous(),
         Cmd::Stop => super::stop(),
         Cmd::Seek(off) => {
-            let pos = playback_state_changed().get().position.as_micros() as i64 + off;
+            let pos = (playback_state_changed().get().position.as_micros() as i64).saturating_add(off);
             seek_to_position(Duration::from_micros(pos.max(0) as u64), false);
         }
         Cmd::SetPosition(p) => seek_to_position(Duration::from_micros(p.max(0) as u64), false),

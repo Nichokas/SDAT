@@ -787,9 +787,8 @@ impl StartGate {
     pub fn is_active(&self) -> bool {
         self.active.is_some()
     }
-    /// `target_ms`/`host_playing`: the host now; `actual_ms`: the local player
-    /// (paused); `ready`: loaded and not buffering.
-    pub fn step(&mut self, track: &str, target_ms: i64, host_playing: bool, actual_ms: Option<i64>, ready: bool, now: Instant) -> StartStep {
+    /// `target_ms`/`host_playing`: the host now; `ready`: loaded and not buffering.
+    pub fn step(&mut self, track: &str, target_ms: i64, host_playing: bool, ready: bool, now: Instant) -> StartStep {
         let Some((t, aim, since, retries)) = self.active.as_mut() else { return StartStep::Follow };
         if t != track || !host_playing {
             // Another track, or the host paused: the paused path takes over.
@@ -804,20 +803,20 @@ impl StartGate {
             return StartStep::Wait;
         }
         let Some(a) = *aim else {
-            let to = target_ms.max(0) + START_LEAD_MS;
+            let to = target_ms.max(0).saturating_add(START_LEAD_MS);
             *aim = Some(to);
             return StartStep::Seek(to);
         };
-        if target_ms > a + START_MISSED_MS && *retries < START_RETRIES {
+        // The host seeked (forwards past the aim, or backwards before where
+        // it was when we aimed): aim again from where it is now.
+        let missed = target_ms > a.saturating_add(START_MISSED_MS) || target_ms < a.saturating_sub(START_LEAD_MS + START_MISSED_MS);
+        if missed && *retries < START_RETRIES {
             *retries += 1;
-            let to = target_ms + START_LEAD_MS;
+            let to = target_ms.max(0).saturating_add(START_LEAD_MS);
             *aim = Some(to);
             return StartStep::Seek(to);
         }
-        if actual_ms.is_none_or(|x| (x - a).abs() > SEEK_MS) && *retries < START_RETRIES && target_ms < a {
-            return StartStep::Wait; // seek still landing
-        }
-        if target_ms >= a {
+        if target_ms >= a || missed {
             self.active = None;
             return StartStep::Play;
         }
@@ -888,8 +887,7 @@ fn guest_tick() {
         return;
     }
     LOADS.with(|l| l.borrow_mut().loaded());
-    let actual = player::position().map(ms);
-    let step = START.with(|s| s.borrow_mut().step(&track, t.position_ms, t.playing, actual, !ps.loading, Instant::now()));
+    let step = START.with(|s| s.borrow_mut().step(&track, t.position_ms, t.playing, !ps.loading, Instant::now()));
     match step {
         StartStep::Follow => {}
         StartStep::Wait => {
@@ -917,7 +915,7 @@ fn guest_tick() {
         if t.playing { player::play() } else { player::pause() }
         return;
     }
-    let Some(actual) = actual else { return };
+    let Some(actual) = player::position().map(ms) else { return };
     if !t.playing {
         if paused_needs_seek(t.position_ms, actual) {
             player::seek_to_position(Duration::from_millis(u64::try_from(t.position_ms.max(0)).unwrap_or(0)), true);
@@ -952,15 +950,15 @@ mod tests {
         let t0 = Instant::now();
         let at = |s: u64| t0 + Duration::from_secs(s);
         let mut g = StartGate::default();
-        assert_eq!(g.step("t", 0, true, None, true, t0), StartStep::Follow);
+        assert_eq!(g.step("t", 0, true, true, t0), StartStep::Follow);
         g.begin("t", t0);
         // Joining an iOS host already at 42 s: never start from 0:00.
-        assert_eq!(g.step("t", 42_000, true, Some(0), false, t0), StartStep::Wait);
-        assert_eq!(g.step("t", 42_500, true, Some(0), true, at(1)), StartStep::Seek(45_500));
-        assert_eq!(g.step("t", 43_500, true, Some(45_500), true, at(2)), StartStep::Wait);
-        assert_eq!(g.step("t", 45_500, true, Some(45_500), true, at(3)), StartStep::Play);
+        assert_eq!(g.step("t", 42_000, true, false, t0), StartStep::Wait);
+        assert_eq!(g.step("t", 42_500, true, true, at(1)), StartStep::Seek(45_500));
+        assert_eq!(g.step("t", 43_500, true, true, at(2)), StartStep::Wait);
+        assert_eq!(g.step("t", 45_500, true, true, at(3)), StartStep::Play);
         assert!(!g.is_active());
-        assert_eq!(g.step("t", 46_000, true, Some(45_600), true, at(4)), StartStep::Follow);
+        assert_eq!(g.step("t", 46_000, true, true, at(4)), StartStep::Follow);
     }
 
     #[test]
@@ -968,9 +966,17 @@ mod tests {
         let t0 = Instant::now();
         let mut g = StartGate::default();
         g.begin("t", t0);
-        assert_eq!(g.step("t", 0, true, Some(0), true, t0), StartStep::Seek(START_LEAD_MS));
-        assert_eq!(g.step("t", 90_000, true, Some(START_LEAD_MS), true, t0), StartStep::Seek(90_000 + START_LEAD_MS));
-        assert_eq!(g.step("t", 91_000, true, None, false, t0 + START_TIMEOUT + Duration::from_secs(1)), StartStep::Play);
+        assert_eq!(g.step("t", 0, true, true, t0), StartStep::Seek(START_LEAD_MS));
+        assert_eq!(g.step("t", 90_000, true, true, t0), StartStep::Seek(90_000 + START_LEAD_MS));
+        assert_eq!(g.step("t", 91_000, true, false, t0 + START_TIMEOUT + Duration::from_secs(1)), StartStep::Play);
+        // Backwards host seek re-aims too; extreme positions do not overflow.
+        let mut g = StartGate::default();
+        g.begin("t", t0);
+        assert_eq!(g.step("t", 90_000, true, true, t0), StartStep::Seek(93_000));
+        assert_eq!(g.step("t", 10_000, true, true, t0), StartStep::Seek(13_000));
+        let mut g = StartGate::default();
+        g.begin("t", t0);
+        assert_eq!(g.step("t", i64::MAX, true, true, t0), StartStep::Seek(i64::MAX));
     }
 
     #[test]
@@ -978,9 +984,9 @@ mod tests {
         let t0 = Instant::now();
         let mut g = StartGate::default();
         g.begin("t", t0);
-        assert_eq!(g.step("u", 0, true, Some(0), true, t0), StartStep::Follow);
+        assert_eq!(g.step("u", 0, true, true, t0), StartStep::Follow);
         g.begin("t", t0);
-        assert_eq!(g.step("t", 0, false, Some(0), true, t0), StartStep::Follow);
+        assert_eq!(g.step("t", 0, false, true, t0), StartStep::Follow);
     }
 
     #[test]
