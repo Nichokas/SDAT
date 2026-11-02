@@ -57,6 +57,15 @@ thread_local! {
     /// Id of the gapless-prepared track moved from the base queue to the head
     /// of the user queue by "play next", until that entry is consumed.
     static GAPLESS_MOVED: std::cell::RefCell<Option<String>> = const { std::cell::RefCell::new(None) };
+    /// Set while end-of-queue autoplay is fetching a radio mix.
+    static AUTOPLAY_PENDING: Cell<bool> = const { Cell::new(false) };
+}
+
+/// Drops pending "play next" requests (e.g. when leaving a Listen Together
+/// session, so a guest's request isn't applied to the local queue).
+pub fn invalidate_play_next() {
+    PLAY_NEXT_GENERATION.with(|g| g.set(g.get() + 1));
+    PLAY_NEXT_ORDER.with(|s| *s.borrow_mut() = play_next::Sequencer::default());
 }
 
 /// A reserved place in the "play next" order, tied to the queue it was taken for.
@@ -91,7 +100,10 @@ pub fn complete_play_next(ticket: PlayNextTicket, tracks: Vec<Track>) {
     // Start playback once, and only if no start is already queued or in
     // flight: `next()` only queues the start, so a second call before the
     // first track plays would pop (and lose) another track.
-    if queued && with(|p| p.machine.stopped_without_pending_start()).unwrap_or(false) {
+    if queued
+        && !AUTOPLAY_PENDING.with(Cell::get)
+        && with(|p| p.machine.stopped_without_pending_start()).unwrap_or(false)
+    {
         next();
     }
 }
@@ -267,7 +279,23 @@ async fn on_eos_stopped() {
         stop();
         return;
     };
-    if let Err(e) = play_track_radio(&id, true).await {
+    AUTOPLAY_PENDING.with(|a| a.set(true));
+    let radio = api::run(move || service::get_track_radio(&id)).await.inspect_err(|e| log::error!("failed to retrieve mix: {e}"));
+    AUTOPLAY_PENDING.with(|a| a.set(false));
+    // "Play next" tracks queued while the mix was loading win over autoplay.
+    if !user_queue().is_empty() {
+        next();
+        return;
+    }
+    let result = match radio {
+        Ok(Some(mix)) => play_playlist(&mix.id, false, 1).await,
+        Ok(None) => {
+            toasts().notify(&tr("No mix found for the current track"));
+            Err(anyhow::anyhow!("no mix found for the current track"))
+        }
+        Err(e) => Err(e),
+    };
+    if let Err(e) = result {
         log::info!("failed to play track radio: {e:#}");
         stop();
     }
@@ -522,10 +550,10 @@ pub fn set_shuffle(shuffle: bool, current_track_id: &str) {
     }
     // Rebuilding from the source brings back a gapless-prepared track that
     // "play next" moved to the user queue; drop the base copy so it plays once.
-    // The marker is only valid while its entry is still the user-queue head
+    // The marker is only valid while its entry is still in the user queue
     // (a skip may have drained it); otherwise forget it.
     let moved = GAPLESS_MOVED.with(|m| m.borrow_mut().take())
-        .filter(|id| user_queue().peek().is_some_and(|t| t.id() == id.as_str()));
+        .filter(|id| user_queue().entries().with(|e| e.iter().any(|t| t.id() == id.as_str())));
     GAPLESS_MOVED.with(|m| m.borrow_mut().clone_from(&moved));
     if let Some(id) = moved
         && let Some(i) = base_queue().entries().with(|e| e.iter().position(|t| t.id() == id))
@@ -617,16 +645,6 @@ pub async fn play_playlist(playlist_id: &str, shuffle: bool, position: usize) ->
     play_tracks(tracks, shuffle, position)?;
     source_changed().set(Some(PlaybackSource::Playlist(info)));
     Ok(())
-}
-
-pub async fn play_track_radio(track_id: &str, skip_self: bool) -> Result<()> {
-    let id = track_id.to_string();
-    let radio = api::run(move || service::get_track_radio(&id)).await.inspect_err(|e| log::error!("failed to retrieve mix: {e}"))?;
-    let Some(mix) = radio else {
-        toasts().notify(&tr("No mix found for the current track"));
-        anyhow::bail!("no mix found for the current track");
-    };
-    play_playlist(&mix.id, false, usize::from(skip_self)).await
 }
 
 thread_local! {

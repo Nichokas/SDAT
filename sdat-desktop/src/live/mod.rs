@@ -256,6 +256,7 @@ pub fn dismiss() {
 /// also stops its timers and drops its late events.
 fn teardown() {
     next_generation();
+    player::invalidate_play_next();
     let was_guest = matches!(SESSION.with(|s| s.borrow_mut().take()), Some(Session::Guest(_))) || phase().get().is_guest();
     CURRENT_ITEM.with(|c| c.borrow_mut().take());
     if guest_control().get() {
