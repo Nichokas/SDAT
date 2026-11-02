@@ -1901,6 +1901,7 @@ mod tests {
 
     #[test]
     fn drift_correction_uses_host_time() {
+        use crate::live::drift::SETTLE_NS;
         let mut w = World::new(7 * S, 10 * MS);
         w.join(0);
         for i in 1..12 {
@@ -1909,9 +1910,12 @@ mod tests {
         let o = w.host.set_playback(Some("i".into()), None, 0, true, 3 * S);
         w.deliver(o, 3 * S);
         let local = 13 * S - 7 * S; // host time 13 s => host at 10_000 ms
-        assert_eq!(w.guest.correction(local, 0, 10_000), Correction::None);
-        assert_eq!(w.guest.correction(local, 0, 9_900), Correction::Rate(1.02));
-        assert_eq!(w.guest.correction(local + 10 * MS, 0, 5_000), Correction::Seek(10_010));
+        // The first measurement opens the settle window: nothing until it ends.
+        assert_eq!(w.guest.correction(local, 0, 5_000), Correction::None);
+        let later = local + SETTLE_NS; // host at 15_000 ms
+        assert_eq!(w.guest.correction(later, 0, 14_900), Correction::None, "small error, never a rate change");
+        assert_eq!(w.guest.correction(later, 0, 12_000), Correction::None, "within tolerance");
+        assert_eq!(w.guest.correction(later + 10 * MS, 0, 5_000), Correction::Seek(15_010));
     }
 
     #[test]
