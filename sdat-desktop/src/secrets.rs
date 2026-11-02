@@ -54,14 +54,14 @@ pub fn healthcheck() -> Option<ServiceError> {
     if err.contains("name is not activatable") || err.contains("ServiceUnknown") || err.contains("was not provided by any .service files") {
         return Some(ServiceError {
             title: tr("Secret Service Unavailable"),
-            body: tr("No secret service provider is available.\n\nTonearm will not be able to store any authentication-related data and you will not be able to sign in.\n\nPlease install a secret service provider such as GNOME Keyring or KDE Wallet."),
+            body: tr("No secret service provider is available.\n\nSDAT will not be able to store any authentication-related data and you will not be able to sign in.\n\nPlease install a secret service provider such as GNOME Keyring or KDE Wallet."),
             fatal: false,
         });
     }
     if err.contains("user interaction failed") {
         return Some(ServiceError {
             title: tr("Secret Service Issue"),
-            body: tr("Your secret service provider was found, but refused to interact with Tonearm.\n\nThis could because you cancelled a prompt or, if you are using a Flatpak, the provider not implementing the XDG Secret Portal service.\n\nTonearm will not be able to store any authentication-related data and you will not be able to sign in."),
+            body: tr("Your secret service provider was found, but refused to interact with SDAT.\n\nThis could because you cancelled a prompt or, if you are using a Flatpak, the provider not implementing the XDG Secret Portal service.\n\nSDAT will not be able to store any authentication-related data and you will not be able to sign in."),
             fatal: false,
         });
     }

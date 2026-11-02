@@ -279,7 +279,7 @@ fn build_sidebar_header(app: &adw::Application, window: &adw::ApplicationWindow)
     menu.append(Some(&tr("Set as Default Page")), Some("win.set-as-default"));
     menu.append(Some(&tr("Keyboard Shortcuts")), Some("app.shortcuts"));
     menu.append(Some(&tr("Preferences")), Some("app.preferences"));
-    menu.append(Some(&tr("About Tonearm")), Some("app.about"));
+    menu.append(Some(&tr("About SDAT")), Some("app.about"));
     menu.append(Some(&tr("Quit")), Some("app.quit"));
     on_state(state::signed_in_changed(), &menu, |m, signed_in| {
         m.remove(0);
@@ -726,10 +726,10 @@ fn present_preferences(window: &adw::ApplicationWindow) {
         &[
             group(
                 &tr("Background Activity"),
-                &tr("Configure the behaviour of Tonearm when running in the background"),
+                &tr("Configure the behaviour of SDAT when running in the background"),
                 &[switch_row(
                     &tr("Allow Background Activity"),
-                    &tr("Allow Tonearm to run in the background by hiding the player window instead of quitting the application"),
+                    &tr("Allow SDAT to run in the background by hiding the player window instead of quitting the application"),
                     &gen_s,
                     "allow-running-in-background",
                 )
@@ -737,7 +737,7 @@ fn present_preferences(window: &adw::ApplicationWindow) {
             ),
             group(
                 &tr("Navigation Behaviour"),
-                &tr("Configure the behaviour of Tonearm when navigating between pages"),
+                &tr("Configure the behaviour of SDAT when navigating between pages"),
                 &[entry_row(&tr("Default Page"), &gen_s, "default-page").upcast_ref(), history.upcast_ref()],
             ),
             group(&tr("TIDAL Settings"), &tr("TIDAL-specific settings for advanced users"), &[country_row().upcast_ref(), base.upcast_ref()]),
@@ -746,7 +746,7 @@ fn present_preferences(window: &adw::ApplicationWindow) {
 
     let rg = adw::ComboRow::builder()
         .title(tr("Preferred Replay Gain"))
-        .subtitle(tr("Choose whether Tonearm should prefer album replay gain, track replay gain or decide automatically"))
+        .subtitle(tr("Choose whether SDAT should prefer album replay gain, track replay gain or decide automatically"))
         .build();
     let strs = settings::replay_gain_mode_strings();
     let strs: Vec<&str> = strs.iter().map(std::string::String::as_str).collect();
@@ -765,11 +765,11 @@ fn present_preferences(window: &adw::ApplicationWindow) {
         "media-playback-start-symbolic",
         &[group(
             &tr("Playback"),
-            &tr("Configure the behaviour of Tonearm regarding playback"),
+            &tr("Configure the behaviour of SDAT regarding playback"),
             &[
                 switch_row(
                     &tr("Enable Autoplay"),
-                    &tr("Allow Tonearm to start a mix with the current playing song when you're at the end of an album/queue"),
+                    &tr("Allow SDAT to start a mix with the current playing song when you're at the end of an album/queue"),
                     &pb,
                     "allow-autoplay",
                 )
@@ -785,15 +785,15 @@ fn present_preferences(window: &adw::ApplicationWindow) {
         "speedometer5-symbolic",
         &[group(
             &tr("Images"),
-            &tr("Configure the behaviour of Tonearm regarding images"),
+            &tr("Configure the behaviour of SDAT regarding images"),
             &[
-                switch_row(&tr("Allow Media Card Images"), &tr("Allow Tonearm to load images for media card buttons"), &perf, "allow-mediacard-images").upcast_ref(),
-                switch_row(&tr("Allow Shortcut Images"), &tr("Allow Tonearm to load images for shortcut buttons"), &perf, "allow-shortcuts-images").upcast_ref(),
-                switch_row(&tr("Allow Tracklist Images"), &tr("Allow Tonearm to load images for tracklists with the cover column"), &perf, "allow-tracklist-images")
+                switch_row(&tr("Allow Media Card Images"), &tr("Allow SDAT to load images for media card buttons"), &perf, "allow-mediacard-images").upcast_ref(),
+                switch_row(&tr("Allow Shortcut Images"), &tr("Allow SDAT to load images for shortcut buttons"), &perf, "allow-shortcuts-images").upcast_ref(),
+                switch_row(&tr("Allow Tracklist Images"), &tr("Allow SDAT to load images for tracklists with the cover column"), &perf, "allow-tracklist-images")
                     .upcast_ref(),
                 switch_row(
                     &tr("Cache Images"),
-                    &tr("Allow Tonearm to retain recently loaded images in memory to improve performance and reduce network traffic (estimated 50 MiB limit)"),
+                    &tr("Allow SDAT to retain recently loaded images in memory to improve performance and reduce network traffic (estimated 50 MiB limit)"),
                     &perf,
                     "cache-images",
                 )
@@ -801,7 +801,7 @@ fn present_preferences(window: &adw::ApplicationWindow) {
             ],
         ), group(
             &tr("Network"),
-            &tr("Configure how much Tonearm downloads in the background"),
+            &tr("Configure how much SDAT downloads in the background"),
             &[preload_row().upcast_ref()],
         )],
     ));
@@ -873,17 +873,17 @@ fn present_preferences(window: &adw::ApplicationWindow) {
         &[
             group(
                 "ListenBrainz",
-                &tr("Configure Tonearm to send scrobbling data to ListenBrainz"),
+                &tr("Configure SDAT to send scrobbling data to ListenBrainz"),
                 &[
-                    switch_row(&tr("Enable ListenBrainz"), &tr("Allow Tonearm to send scrobbling data to ListenBrainz"), &scr, "enable-listenbrainz").upcast_ref(),
+                    switch_row(&tr("Enable ListenBrainz"), &tr("Allow SDAT to send scrobbling data to ListenBrainz"), &scr, "enable-listenbrainz").upcast_ref(),
                     lb_token.upcast_ref(),
                     entry_row(&tr("ListenBrainz API URL"), &scr, "listenbrainz-url").upcast_ref(),
                 ],
             ),
             group(
                 "Last.fm",
-                &tr("Configure Tonearm to send scrobbling data to Last.fm"),
-                &[switch_row(&tr("Enable Last.fm"), &tr("Allow Tonearm to send scrobbling data to Last.fm"), &scr, "enable-lastfm").upcast_ref(), lfm_row.upcast_ref()],
+                &tr("Configure SDAT to send scrobbling data to Last.fm"),
+                &[switch_row(&tr("Enable Last.fm"), &tr("Allow SDAT to send scrobbling data to Last.fm"), &scr, "enable-lastfm").upcast_ref(), lfm_row.upcast_ref()],
             ),
         ],
     ));

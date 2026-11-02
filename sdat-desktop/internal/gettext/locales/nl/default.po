@@ -47,8 +47,8 @@ msgid "API Base URL"
 msgstr ""
 
 #: internal/ui/window_sidebar.go:35
-msgid "About Tonearm"
-msgstr "Over Tonearm"
+msgid "About SDAT"
+msgstr "Over SDAT"
 
 #: internal/ui/components/tracklist_header/tracklist_header_album.go:57
 msgid "Add Album to Queue"
@@ -107,35 +107,35 @@ msgid "Allow Shortcut Images"
 msgstr ""
 
 #: internal/ui/window_preferences.go:112
-msgid "Allow Tonearm to load images for media card buttons"
+msgid "Allow SDAT to load images for media card buttons"
 msgstr ""
 
 #: internal/ui/window_preferences.go:118
-msgid "Allow Tonearm to load images for shortcut buttons"
+msgid "Allow SDAT to load images for shortcut buttons"
 msgstr ""
 
 #: internal/ui/window_preferences.go:124
-msgid "Allow Tonearm to load images for tracklists with the cover column"
+msgid "Allow SDAT to load images for tracklists with the cover column"
 msgstr ""
 
 #: internal/ui/window_preferences.go:130
-msgid "Allow Tonearm to retain recently loaded images in memory to improve performance and reduce network traffic (estimated 50 MiB limit)"
+msgid "Allow SDAT to retain recently loaded images in memory to improve performance and reduce network traffic (estimated 50 MiB limit)"
 msgstr ""
 
 #: internal/ui/window_preferences.go:24
-msgid "Allow Tonearm to run in the background by hiding the player window instead of quitting the application"
+msgid "Allow SDAT to run in the background by hiding the player window instead of quitting the application"
 msgstr ""
 
 #: internal/ui/window_preferences.go:167
-msgid "Allow Tonearm to send scrobbling data to Last.fm"
+msgid "Allow SDAT to send scrobbling data to Last.fm"
 msgstr ""
 
 #: internal/ui/window_preferences.go:147
-msgid "Allow Tonearm to send scrobbling data to ListenBrainz"
+msgid "Allow SDAT to send scrobbling data to ListenBrainz"
 msgstr ""
 
 #: internal/ui/window_preferences.go:85
-msgid "Allow Tonearm to start a mix with the current playing song when you're at the end of an album/queue"
+msgid "Allow SDAT to start a mix with the current playing song when you're at the end of an album/queue"
 msgstr ""
 
 #: internal/ui/window_preferences.go:123
@@ -253,9 +253,9 @@ msgid "Cancel Login"
 msgstr "Annuleer Inlog"
 
 #: internal/ui/window_preferences.go:97
-msgid "Choose whether Tonearm should prefer album replay gain, track replay gain or decide automatically"
+msgid "Choose whether SDAT should prefer album replay gain, track replay gain or decide automatically"
 msgstr ""
-"Kies of Tonearm voorkeur moet geven aan album replay gain, nummer replay "
+"Kies of SDAT voorkeur moet geven aan album replay gain, nummer replay "
 "gain, of automatisch moet kiezen"
 
 #: internal/ui/window_shortcuts.go:11
@@ -267,32 +267,32 @@ msgid "Collection"
 msgstr "Verzameling"
 
 #: internal/ui/window_preferences.go:294
-msgid "Configure Tonearm to send scrobbling data to Last.fm"
-msgstr "Configureer Tonearm om scrobbling data naar Last.fm te sturen"
+msgid "Configure SDAT to send scrobbling data to Last.fm"
+msgstr "Configureer SDAT om scrobbling data naar Last.fm te sturen"
 
 #: internal/ui/window_preferences.go:163
-msgid "Configure Tonearm to send scrobbling data to ListenBrainz"
-msgstr "Configureer Tonearm om scrobbling data naar ListenBrainz te sturen"
+msgid "Configure SDAT to send scrobbling data to ListenBrainz"
+msgstr "Configureer SDAT om scrobbling data naar ListenBrainz te sturen"
 
 #: internal/ui/window_preferences.go:73
 msgid "Configure the base URLs for TIDAL"
 msgstr "Configureer de base URLs voor TIDAL"
 
 #: internal/ui/window_preferences.go:134
-msgid "Configure the behaviour of Tonearm regarding images"
-msgstr "Configureer Tonearm's gedrag met relatie tot afbeeldingen"
+msgid "Configure the behaviour of SDAT regarding images"
+msgstr "Configureer SDAT's gedrag met relatie tot afbeeldingen"
 
 #: internal/ui/window_preferences.go:103
-msgid "Configure the behaviour of Tonearm regarding playback"
-msgstr "Configureer Tonearm's gedrag met relatie tot playback"
+msgid "Configure the behaviour of SDAT regarding playback"
+msgstr "Configureer SDAT's gedrag met relatie tot playback"
 
 #: internal/ui/window_preferences.go:48
-msgid "Configure the behaviour of Tonearm when navigating between pages"
-msgstr "Configureer Tonearm's gedrag met relatie tot navigatie tussen pagina's"
+msgid "Configure the behaviour of SDAT when navigating between pages"
+msgstr "Configureer SDAT's gedrag met relatie tot navigatie tussen pagina's"
 
 #: internal/ui/window_preferences.go:30
-msgid "Configure the behaviour of Tonearm when running in the background"
-msgstr "Configureer Tonearm's gedrag met relatie tot achtergrond activiteit"
+msgid "Configure the behaviour of SDAT when running in the background"
+msgstr "Configureer SDAT's gedrag met relatie tot achtergrond activiteit"
 
 #: internal/ui/window_popups.go:28
 msgid "Continue"
@@ -610,13 +610,13 @@ msgstr "Geen mix gevonden voor het huidige nummer"
 msgid ""
 "No secret service provider is available.\n"
 "\n"
-"Tonearm will not be able to store any authentication-related data and you will not be able to sign in.\n"
+"SDAT will not be able to store any authentication-related data and you will not be able to sign in.\n"
 "\n"
 "Please install a secret service provider such as GNOME Keyring or KDE Wallet."
 msgstr ""
 "Er is geen secret service provider beschikbaar.\n"
 "\n"
-"Tonearm zal geen authentificatie-gerelateerde data kunnen opslaan, en u zal "
+"SDAT zal geen authentificatie-gerelateerde data kunnen opslaan, en u zal "
 "niet kunnen inloggen.\n"
 "\n"
 "Installeer gelieve een secret service provider GNOME Keyring of KDE Wallet."
@@ -870,13 +870,13 @@ msgstr "TIDAL-specifieke voorkeuren voor geavanceerde gebruikers"
 msgid ""
 "The macOS Keychain is not available or accessible.\n"
 "\n"
-"Tonearm will not be able to store any authentication-related data and you will not be able to sign in.\n"
+"SDAT will not be able to store any authentication-related data and you will not be able to sign in.\n"
 "\n"
 "Please ensure your keychain is unlocked and accessible."
 msgstr ""
 "De macOS Keychain is niet beschikbaar of toegankelijk.\n"
 "\n"
-"Tonearm zal geen authentificatie-gerelateerde data kunnen opslaan, en u zal "
+"SDAT zal geen authentificatie-gerelateerde data kunnen opslaan, en u zal "
 "niet kunnen inloggen.\n"
 "\n"
 "Gelieve te controleren dat uw keychain ontgrendeld en toegangelijk is."
@@ -968,20 +968,20 @@ msgstr "U kunt ook de link-pagina openen via de knop hieronder"
 
 #: internal/secrets/service_linux.go:40
 msgid ""
-"Your secret service provider was found, but refused to interact with Tonearm.\n"
+"Your secret service provider was found, but refused to interact with SDAT.\n"
 "\n"
 "This could because you cancelled a prompt or, if you are using a Flatpak, the provider not implementing the XDG Secret Portal service.\n"
 "\n"
-"Tonearm will not be able to store any authentication-related data and you will not be able to sign in."
+"SDAT will not be able to store any authentication-related data and you will not be able to sign in."
 msgstr ""
 "Uw secret service provider was gevonden, maar weigerde te communiceren met "
-"Tonearm.\n"
+"SDAT.\n"
 "\n"
 "Dit kan gebeuren doordat u een pop-up annuleerde, of als u een Flatpak "
 "gebruikt, de provider niet het XDG Secret Portal service protocol "
 "implementeerd.\n"
 "\n"
-"Tonearm zal geen authentificatie-gerelateerde data kunnen opslaan, en u zal "
+"SDAT zal geen authentificatie-gerelateerde data kunnen opslaan, en u zal "
 "niet kunnen inloggen."
 
 #: internal/ui/window_about.go:132

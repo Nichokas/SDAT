@@ -51,8 +51,8 @@ msgid "API Base URL"
 msgstr "Базовый URL API"
 
 #: internal/ui/window_sidebar.go:35
-msgid "About Tonearm"
-msgstr "О Tonearm"
+msgid "About SDAT"
+msgstr "О SDAT"
 
 #: internal/ui/components/tracklist_header/tracklist_header_album.go:57
 msgid "Add Album to Queue"
@@ -111,44 +111,44 @@ msgid "Allow Shortcut Images"
 msgstr "Разрешить изображения для ярлыков"
 
 #: internal/ui/window_preferences.go:112
-msgid "Allow Tonearm to load images for media card buttons"
-msgstr "Разрешить Tonearm загружать изображения для кнопок медиа-карточек"
+msgid "Allow SDAT to load images for media card buttons"
+msgstr "Разрешить SDAT загружать изображения для кнопок медиа-карточек"
 
 #: internal/ui/window_preferences.go:118
-msgid "Allow Tonearm to load images for shortcut buttons"
-msgstr "Разрешить Tonearm загружать изображения для кнопок ярлыков"
+msgid "Allow SDAT to load images for shortcut buttons"
+msgstr "Разрешить SDAT загружать изображения для кнопок ярлыков"
 
 #: internal/ui/window_preferences.go:124
-msgid "Allow Tonearm to load images for tracklists with the cover column"
+msgid "Allow SDAT to load images for tracklists with the cover column"
 msgstr ""
-"Разрешить Tonearm загружать изображения для списков треков со столбцом "
+"Разрешить SDAT загружать изображения для списков треков со столбцом "
 "обложки"
 
 #: internal/ui/window_preferences.go:130
-msgid "Allow Tonearm to retain recently loaded images in memory to improve performance and reduce network traffic (estimated 50 MiB limit)"
+msgid "Allow SDAT to retain recently loaded images in memory to improve performance and reduce network traffic (estimated 50 MiB limit)"
 msgstr ""
-"Разрешить Tonearm хранить недавно загруженные изображения в памяти для "
+"Разрешить SDAT хранить недавно загруженные изображения в памяти для "
 "повышения производительности и снижения сетевого трафика (предполагаемый "
 "лимит — 50 МиБ)"
 
 #: internal/ui/window_preferences.go:24
-msgid "Allow Tonearm to run in the background by hiding the player window instead of quitting the application"
+msgid "Allow SDAT to run in the background by hiding the player window instead of quitting the application"
 msgstr ""
-"Разрешить Tonearm работать в фоне, скрывая окно проигрывателя вместо выхода "
+"Разрешить SDAT работать в фоне, скрывая окно проигрывателя вместо выхода "
 "из приложения"
 
 #: internal/ui/window_preferences.go:167
-msgid "Allow Tonearm to send scrobbling data to Last.fm"
-msgstr "Разрешить Tonearm отправлять данные скробблинга в Last.fm"
+msgid "Allow SDAT to send scrobbling data to Last.fm"
+msgstr "Разрешить SDAT отправлять данные скробблинга в Last.fm"
 
 #: internal/ui/window_preferences.go:147
-msgid "Allow Tonearm to send scrobbling data to ListenBrainz"
-msgstr "Разрешить Tonearm отправлять данные скробблинга в ListenBrainz"
+msgid "Allow SDAT to send scrobbling data to ListenBrainz"
+msgstr "Разрешить SDAT отправлять данные скробблинга в ListenBrainz"
 
 #: internal/ui/window_preferences.go:85
-msgid "Allow Tonearm to start a mix with the current playing song when you're at the end of an album/queue"
+msgid "Allow SDAT to start a mix with the current playing song when you're at the end of an album/queue"
 msgstr ""
-"Разрешить Tonearm начинать микс с текущей воспроизводимой песней, когда вы "
+"Разрешить SDAT начинать микс с текущей воспроизводимой песней, когда вы "
 "находитесь в конце альбома или очереди"
 
 #: internal/ui/window_preferences.go:123
@@ -265,9 +265,9 @@ msgid "Cancel Login"
 msgstr "Отменить вход"
 
 #: internal/ui/window_preferences.go:97
-msgid "Choose whether Tonearm should prefer album replay gain, track replay gain or decide automatically"
+msgid "Choose whether SDAT should prefer album replay gain, track replay gain or decide automatically"
 msgstr ""
-"Выберите, должен ли Tonearm отдавать предпочтение усилению громкости "
+"Выберите, должен ли SDAT отдавать предпочтение усилению громкости "
 "альбома, усилению громкости трека или выбирать автоматически"
 
 #: internal/ui/window_shortcuts.go:11
@@ -279,32 +279,32 @@ msgid "Collection"
 msgstr "Коллекция"
 
 #: internal/ui/window_preferences.go:294
-msgid "Configure Tonearm to send scrobbling data to Last.fm"
-msgstr "Настроить Tonearm для отправки данных скробблинга в Last.fm"
+msgid "Configure SDAT to send scrobbling data to Last.fm"
+msgstr "Настроить SDAT для отправки данных скробблинга в Last.fm"
 
 #: internal/ui/window_preferences.go:163
-msgid "Configure Tonearm to send scrobbling data to ListenBrainz"
-msgstr "Настроить Tonearm для отправки данных скробблинга в ListenBrainz"
+msgid "Configure SDAT to send scrobbling data to ListenBrainz"
+msgstr "Настроить SDAT для отправки данных скробблинга в ListenBrainz"
 
 #: internal/ui/window_preferences.go:73
 msgid "Configure the base URLs for TIDAL"
 msgstr "Настроить базовые URL для TIDAL"
 
 #: internal/ui/window_preferences.go:134
-msgid "Configure the behaviour of Tonearm regarding images"
-msgstr "Настроить работу Tonearm с изображениями"
+msgid "Configure the behaviour of SDAT regarding images"
+msgstr "Настроить работу SDAT с изображениями"
 
 #: internal/ui/window_preferences.go:103
-msgid "Configure the behaviour of Tonearm regarding playback"
-msgstr "Настроить работу Tonearm с воспроизведением"
+msgid "Configure the behaviour of SDAT regarding playback"
+msgstr "Настроить работу SDAT с воспроизведением"
 
 #: internal/ui/window_preferences.go:48
-msgid "Configure the behaviour of Tonearm when navigating between pages"
-msgstr "Настроить работу Tonearm при переходе между страницами"
+msgid "Configure the behaviour of SDAT when navigating between pages"
+msgstr "Настроить работу SDAT при переходе между страницами"
 
 #: internal/ui/window_preferences.go:30
-msgid "Configure the behaviour of Tonearm when running in the background"
-msgstr "Настроить работу Tonearm в фоновом режиме"
+msgid "Configure the behaviour of SDAT when running in the background"
+msgstr "Настроить работу SDAT в фоновом режиме"
 
 #: internal/ui/window_popups.go:28
 msgid "Continue"
@@ -615,13 +615,13 @@ msgstr "Для текущего трека микс не найден"
 msgid ""
 "No secret service provider is available.\n"
 "\n"
-"Tonearm will not be able to store any authentication-related data and you will not be able to sign in.\n"
+"SDAT will not be able to store any authentication-related data and you will not be able to sign in.\n"
 "\n"
 "Please install a secret service provider such as GNOME Keyring or KDE Wallet."
 msgstr ""
 "Секретная служба недоступна.\n"
 "\n"
-"Tonearm не сможет сохранять данные, связанные с аутентификацией, и вы не "
+"SDAT не сможет сохранять данные, связанные с аутентификацией, и вы не "
 "сможете войти в систему.\n"
 "\n"
 "Установите поставщика секретной службы, например GNOME Keyring или KDE "
@@ -876,13 +876,13 @@ msgstr "Специальные настройки TIDAL для опытных п
 msgid ""
 "The macOS Keychain is not available or accessible.\n"
 "\n"
-"Tonearm will not be able to store any authentication-related data and you will not be able to sign in.\n"
+"SDAT will not be able to store any authentication-related data and you will not be able to sign in.\n"
 "\n"
 "Please ensure your keychain is unlocked and accessible."
 msgstr ""
 "Связка ключей macOS недоступна или к ней нет доступа.\n"
 "\n"
-"Tonearm не сможет сохранять данные, связанные с аутентификацией, и вы не "
+"SDAT не сможет сохранять данные, связанные с аутентификацией, и вы не "
 "сможете войти в систему.\n"
 "\n"
 "Убедитесь, что связка ключей разблокирована и доступна."
@@ -973,19 +973,19 @@ msgstr "Также можно открыть страницу связывани
 
 #: internal/secrets/service_linux.go:40
 msgid ""
-"Your secret service provider was found, but refused to interact with Tonearm.\n"
+"Your secret service provider was found, but refused to interact with SDAT.\n"
 "\n"
 "This could because you cancelled a prompt or, if you are using a Flatpak, the provider not implementing the XDG Secret Portal service.\n"
 "\n"
-"Tonearm will not be able to store any authentication-related data and you will not be able to sign in."
+"SDAT will not be able to store any authentication-related data and you will not be able to sign in."
 msgstr ""
 "Поставщик секретной службы найден, но отказался взаимодействовать с "
-"Tonearm.\n"
+"SDAT.\n"
 "\n"
 "Это могло произойти из-за отмены запроса или, если вы используете Flatpak, "
 "из-за того, что поставщик не реализует службу портала секретов XDG.\n"
 "\n"
-"Tonearm не сможет сохранять данные, связанные с аутентификацией, и вы не "
+"SDAT не сможет сохранять данные, связанные с аутентификацией, и вы не "
 "сможете войти в систему."
 
 #: internal/ui/window_about.go:132
