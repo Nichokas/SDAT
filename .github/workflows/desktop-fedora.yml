@@ -41,7 +41,9 @@ jobs:
 
   release:
     needs: detect-version
-    if: needs.detect-version.outputs.is_new == 'true' || inputs.force
+    # A published desktop release must always upload its vendor archive and poke COPR,
+    # even when the spec was already bumped to that version in the release commit.
+    if: needs.detect-version.outputs.is_new == 'true' || inputs.force || github.event_name == 'release'
     runs-on: ubuntu-latest
     permissions:
       contents: write

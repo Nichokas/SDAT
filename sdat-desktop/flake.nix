@@ -60,11 +60,13 @@
           }
         );
 
-        packages.tonearm = pkgs.rustPlatform.buildRustPackage (finalAttrs: {
-          pname = "tonearm";
-          version = "1.5.1";
-          src = pkgs.lib.cleanSource ./.;
-          cargoLock.lockFile = ./Cargo.lock;
+        packages.sdat-desktop = pkgs.rustPlatform.buildRustPackage (finalAttrs: {
+          pname = "sdat-desktop";
+          version = "1.2.0";
+          # The Cargo workspace (sdat-core + sdat-desktop) lives at the monorepo root.
+          src = pkgs.lib.cleanSource ../.;
+          cargoLock.lockFile = ../Cargo.lock;
+          cargoBuildFlags = [ "-p" "sdat-desktop" ];
 
           env = {
             TONEARM_COMMIT = if (self ? rev) then self.rev else "";
@@ -91,11 +93,11 @@
 
           desktopItems = [
             (pkgs.makeDesktopItem {
-              name = "dev.dergs.Tonearm";
-              exec = "tonearm %u";
-              icon = "dev.dergs.Tonearm";
-              comment = "Tonearm is a GTK client for TIDAL written in Rust.";
-              desktopName = "Tonearm";
+              name = "com.nichokas.SDAT.Desktop";
+              exec = "sdat-desktop %u";
+              icon = "com.nichokas.SDAT.Desktop";
+              comment = "SDAT is a GTK client for TIDAL written in Rust (port of Tonearm).";
+              desktopName = "SDAT";
               mimeTypes = [
                 "x-scheme-handler/tidal"
               ];
@@ -110,29 +112,29 @@
           ];
 
           postInstall = ''
-            wrapProgram $out/bin/tonearm \
+            wrapProgram $out/bin/sdat-desktop \
               --prefix GST_PLUGIN_PATH : "$GST_PLUGIN_SYSTEM_PATH_1_0" \
               ''${gappsWrapperArgs[@]}
-            install -Dm644 internal/icons/hicolor/scalable/apps/dev.dergs.Tonearm.svg -t $out/share/icons/hicolor/scalable/apps
-            install -Dm644 internal/icons/hicolor/128x128/apps/dev.dergs.Tonearm.png -t $out/share/icons/hicolor/128x128/apps
-            install -Dm644 internal/icons/hicolor/symbolic/apps/dev.dergs.Tonearm-symbolic.svg -t $out/share/icons/hicolor/symbolic/apps
-            install -Dm644 internal/settings/dev.dergs.Tonearm.gschema.xml -t $out/share/glib-2.0/schemas
+            install -Dm644 sdat-desktop/internal/icons/hicolor/scalable/apps/com.nichokas.SDAT.Desktop.svg -t $out/share/icons/hicolor/scalable/apps
+            install -Dm644 sdat-desktop/internal/icons/hicolor/128x128/apps/com.nichokas.SDAT.Desktop.png -t $out/share/icons/hicolor/128x128/apps
+            install -Dm644 sdat-desktop/internal/icons/hicolor/symbolic/apps/com.nichokas.SDAT.Desktop-symbolic.svg -t $out/share/icons/hicolor/symbolic/apps
+            install -Dm644 sdat-desktop/internal/settings/com.nichokas.SDAT.Desktop.gschema.xml sdat-desktop/internal/settings/dev.dergs.Tonearm.gschema.xml -t $out/share/glib-2.0/schemas
             glib-compile-schemas $out/share/glib-2.0/schemas
           '';
 
           meta = {
-            description = "Tonearm is a GTK client for TIDAL written in Rust.";
-            homepage = "https://codeberg.org/Dergs/Tonearm";
+            description = "SDAT is a GTK client for TIDAL written in Rust (port of Tonearm).";
+            homepage = "https://github.com/Nichokas/SDAT";
             license = pkgs.lib.licenses.gpl3Plus;
             maintainers = with pkgs.lib.maintainers; [
               drafolin
               nilathedragon
             ];
-            mainProgram = "tonearm";
+            mainProgram = "sdat-desktop";
           };
         });
 
-        packages.default = self.packages.${system}.tonearm;
+        packages.default = self.packages.${system}.sdat-desktop;
       }
     );
 }

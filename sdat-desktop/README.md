@@ -1,9 +1,9 @@
 <div align="center">
 
   <a href="https://codeberg.org/dergs/Tonearm">
-    <img src="internal/icons/hicolor/128x128/apps/dev.dergs.Tonearm.png" alt="Logo" width="80" height="80">
+    <img src="internal/icons/hicolor/128x128/apps/com.nichokas.SDAT.Desktop.png" alt="Logo" width="80" height="80">
   </a>
-  <h2 align="center">Tonearm (tonearm-rs)</h2>
+  <h2 align="center">SDAT desktop (formerly tonearm-rs)</h2>
 
   [![Forks][forks-shield]][forks-url]
   [![Stargazers][stars-shield]][stars-url]
@@ -11,14 +11,14 @@
   [![License][license-shield]][license-url]
 
   <p align="center">
-    <strong>tonearm-rs</strong> is a Rust port of Tonearm, an <strong>unofficial</strong> native GTK4 / Adwaita music streaming client for <a href="https://tidal.com">TIDAL</a>
+    <strong>SDAT desktop</strong> is a Rust port of Tonearm, an <strong>unofficial</strong> native GTK4 / Adwaita music streaming client for <a href="https://tidal.com">TIDAL</a>
     <br />
     <a href="#installation"><strong>How to Install »</strong></a>
     <br />
     <br />
     <a href="#features">Features</a>
     &middot;
-    <a href="https://github.com/Nichokas/tonearm-rs/issues/new">Report Bug or Request Feature</a>
+    <a href="https://github.com/Nichokas/SDAT/issues/new">Report Bug or Request Feature</a>
     &middot;
     <a href="https://matrix.to/#/%23tonearm:derg.social">Join the Matrix Room</a>
   </p>
@@ -81,19 +81,19 @@ The current design for Tonearm originally came to be when I tried myself on a re
 
 ## Installation
 ### Building from source
-Tonearm is a Cargo project. You need a Rust toolchain (edition 2024, Rust 1.85+) and the development files for GTK 4.20+, libadwaita 1.8+, GStreamer (base, good and bad plugins) and OpenSSL. On Fedora:
+The SDAT desktop app is part of the SDAT monorepo Cargo workspace (run commands from the repository root). You need a Rust toolchain (edition 2024, Rust 1.85+) and the development files for GTK 4.20+, libadwaita 1.8+, GStreamer (base, good and bad plugins) and OpenSSL. On Fedora:
 ```sh
 sudo dnf install cargo rust clippy gtk4-devel libadwaita-devel gstreamer1-devel gstreamer1-plugins-base-devel gstreamer1-plugins-good gstreamer1-plugins-bad-free openssl-devel
-cargo build --release
-./target/release/tonearm
+cargo build --release -p sdat-desktop
+./target/release/sdat-desktop
 ```
-The GSettings schema is compiled by `build.rs`, so the binary runs from the build tree without installing the schema. For a system install, also install `internal/settings/dev.dergs.Tonearm.gschema.xml`, the desktop file and metainfo from `build/`, and the icons from `internal/icons/hicolor`, then run `glib-compile-schemas`.
+The GSettings schema is compiled by `build.rs`, so the binary runs from the build tree without installing the schema. For a system install, also install `sdat-desktop/internal/settings/com.nichokas.SDAT.Desktop.gschema.xml` (plus the legacy `dev.dergs.Tonearm.gschema.xml`, read once to migrate old settings), the desktop file and metainfo from `sdat-desktop/build/`, and the icons from `sdat-desktop/internal/icons/hicolor`, then run `glib-compile-schemas`.
 
 Packages for Fedora (COPR) and Arch Linux are coming soon.
 
 ### Flatpak
 ```sh
-flatpak-builder --user --install build-dir build/flatpak/dev.dergs.Tonearm.yaml
+flatpak-builder --user --install build-dir sdat-desktop/build/flatpak/com.nichokas.SDAT.Desktop.yaml
 ```
 `build/flatpak/cargo-sources.json` is generated from `Cargo.lock` with [flatpak-cargo-generator](https://github.com/flatpak/flatpak-builder-tools/tree/master/cargo) and must be regenerated whenever dependencies change.
 
