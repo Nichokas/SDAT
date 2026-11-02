@@ -48,6 +48,17 @@
   <url type="vcs-browser">https://github.com/Nichokas/SDAT</url>
 
   <releases>
+    <release version="1.2.3" date="2026-11-02">
+        <url type="details">https://github.com/Nichokas/SDAT/releases/tag/desktop-v1.2.3</url>
+        <description>
+            <p>Listen Together sync fixes:</p>
+            <ul>
+                <li>Guests no longer start a new track at the previous track's position</li>
+                <li>Guests start playback aligned with the host's position</li>
+                <li>Host seeks reach guests faster, and guests can seek</li>
+            </ul>
+        </description>
+    </release>
     <release version="1.2.2" date="2026-11-02">
         <url type="details">https://github.com/Nichokas/SDAT/releases/tag/desktop-v1.2.2</url>
         <description>

@@ -1,6 +1,6 @@
 [package]
 name = "sdat-desktop"
-version = "1.2.2"
+version = "1.2.3"
 edition = "2024"
 description = "SDAT desktop: an unofficial native GTK4 / Adwaita music streaming client for TIDAL (Rust port of Tonearm)"
 license = "GPL-3.0-or-later"
