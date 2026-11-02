@@ -77,12 +77,6 @@ pub fn play_next_ticket() -> PlayNextTicket {
 /// each batch to the host as a normal enqueue, in the same order.
 pub fn complete_play_next(ticket: PlayNextTicket, tracks: Vec<Track>) {
     if ticket.generation != PLAY_NEXT_GENERATION.with(Cell::get) {
-        // The local queues were replaced (e.g. a guest following a host track
-        // change), but a guest's request belongs to the session: still send it.
-        // Outside a session `user_enqueue` does nothing and the batch is dropped.
-        if !tracks.is_empty() {
-            crate::live::user_enqueue(tracks.iter().map(|t| t.id().to_string()).collect());
-        }
         return;
     }
     let batches = PLAY_NEXT_ORDER.with(|s| s.borrow_mut().complete(ticket.seq, tracks));
@@ -288,8 +282,13 @@ pub fn current_track_id() -> Option<String> {
 fn clear_queues() {
     user_queue().clear();
     update_pinned(|_| 0);
-    PLAY_NEXT_GENERATION.with(|g| g.set(g.get() + 1));
-    PLAY_NEXT_ORDER.with(|s| *s.borrow_mut() = play_next::Sequencer::default());
+    // A guest's pending "play next" requests belong to the session and go to
+    // the host, so keep them (and their order) when the guest follows a host
+    // track change; otherwise they target the replaced queue and are dropped.
+    if !crate::live::is_guest() {
+        PLAY_NEXT_GENERATION.with(|g| g.set(g.get() + 1));
+        PLAY_NEXT_ORDER.with(|s| *s.borrow_mut() = play_next::Sequencer::default());
+    }
     GAPLESS_MOVED.with(|m| m.borrow_mut().take());
     base_queue().clear();
 }
@@ -523,7 +522,12 @@ pub fn set_shuffle(shuffle: bool, current_track_id: &str) {
     }
     // Rebuilding from the source brings back a gapless-prepared track that
     // "play next" moved to the user queue; drop the base copy so it plays once.
-    if let Some(id) = GAPLESS_MOVED.with(|m| m.borrow().clone())
+    // The marker is only valid while its entry is still the user-queue head
+    // (a skip may have drained it); otherwise forget it.
+    let moved = GAPLESS_MOVED.with(|m| m.borrow_mut().take())
+        .filter(|id| user_queue().peek().is_some_and(|t| t.id() == id.as_str()));
+    GAPLESS_MOVED.with(|m| m.borrow_mut().clone_from(&moved));
+    if let Some(id) = moved
         && let Some(i) = base_queue().entries().with(|e| e.iter().position(|t| t.id() == id))
     {
         // Only the upcoming copy: `remove_at` would also drop it from the

@@ -462,7 +462,7 @@ fn run(r: Route) -> bool {
     }
 }
 
-fn is_guest() -> bool {
+pub(crate) fn is_guest() -> bool {
     guest().is_some()
 }
 
