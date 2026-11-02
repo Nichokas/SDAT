@@ -147,11 +147,13 @@ impl PlayNextRun {
     }
 }
 
-/// Whether `new` is `old` with one track inserted at `at` and the last one
-/// pushed past the cap (and not simply `old` unchanged).
-fn shifted_by_insert(old: &[&str], new: &[String], at: usize) -> bool {
-    let tail = || new[at..].iter().map(String::as_str);
-    old.len() == new.len() && at < old.len() && new[at + 1..].iter().map(String::as_str).eq(old[at..old.len() - 1].iter().copied()) && !tail().eq(old[at..].iter().copied())
+/// Whether `new` is `old` with the `batch` of tracks inserted at `at` and
+/// the overflow pushed past the cap (and not simply `old` unchanged).
+fn shifted_by_insert(old: &[&str], new: &[String], at: usize, batch: &[String]) -> bool {
+    let len = new.len();
+    let vis = batch.len().min(len.saturating_sub(at));
+    let same = |n: &[String], o: &[&str]| n.len() == o.len() && n.iter().zip(o).all(|(a, b)| a == b);
+    old.len() == len && vis > 0 && new[at..at + vis] == batch[..vis] && same(&new[at + vis..], &old[at..len - vis]) && !same(&new[at..], &old[at..])
 }
 
 /// The run entries right after `start` in `items`, in queue order.
@@ -460,10 +462,16 @@ impl HostSession {
                     let fresh = (j + 1..ids.len()).find(|&k| ids[k].1 && &track_ids[k] == t);
                     match fresh {
                         Some(k) => ids.swap(j, k),
-                        // The cap cut the old copy off the shared queue: only
-                        // when the rest is the old queue shifted by one (an
-                        // unchanged refresh is not an insertion).
-                        None if capped && shifted_by_insert(&old_tracks, &track_ids, j) => {}
+                        // The cap cut the old copies off the shared queue:
+                        // only when the rest is the old queue shifted by the
+                        // remaining batch (an unchanged refresh is not an
+                        // insertion). Bind the visible part, keep the rest.
+                        None if capped && shifted_by_insert(&old_tracks, &track_ids, j, &self.run.pending[n..]) => {
+                            let vis = (self.run.pending.len() - n).min(ids.len() - j);
+                            run.extend(ids[j..j + vis].iter().map(|(i, _)| i.clone()));
+                            beyond_cap = self.run.pending[n + vis..].to_vec();
+                            break;
+                        }
                         None => break,
                     }
                 }
@@ -1607,6 +1615,17 @@ mod tests {
         assert_eq!(h.play_next_offset(&ids(&["x"])), 0);
         h.replace_queue(full.clone()).expect("unchanged");
         assert_eq!(h.play_next_offset(&ids(&["y"])), 0);
+    }
+
+    #[test]
+    fn multi_track_play_next_at_the_cap_keeps_order() {
+        let mut full: Vec<String> = (0..497).map(|n| format!("f{n}")).collect();
+        full.extend(["p", "x", "x"].map(String::from));
+        let refs: Vec<&str> = full.iter().map(String::as_str).collect();
+        let (mut h, _) = host_with(&refs, 497);
+        let mut q = full.clone();
+        insert_next(&mut h, &mut q, 497, &["x", "y"]);
+        assert_eq!(h.play_next_offset(&ids(&["z"])), 2);
     }
 
     #[test]
