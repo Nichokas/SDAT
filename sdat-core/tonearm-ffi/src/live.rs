@@ -94,7 +94,7 @@ pub trait LiveControlObserver: Send + Sync {
 pub trait LivePlayNextObserver: Send + Sync {
     /// A guest asked to play these tracks next (permission, validation and
     /// rate limits already checked). Insert them at
-    /// `index_of_playing + 1 + LiveHost::play_next_offset(count)`.
+    /// `index_of_playing + 1 + LiveHost::play_next_offset(track_ids)`.
     fn on_guest_play_next(&self, peer: String, name: String, track_ids: Vec<String>);
 }
 
@@ -231,10 +231,11 @@ impl LiveHost {
         self.0.set_play_next(observer.is_some());
         *self.2.lock().unwrap_or_else(std::sync::PoisonError::into_inner) = observer;
     }
-    /// Offset after the playing entry at which to insert `count` guest
-    /// Play Next tracks; keeps several requests in order.
-    pub fn play_next_offset(&self, count: u32) -> u32 {
-        u32::try_from(self.0.play_next_offset(count as usize)).unwrap_or(u32::MAX)
+    /// Offset after the playing entry at which to insert these guest Play
+    /// Next tracks; keeps several requests in order. Call `set_queue` after
+    /// each insertion so the next offset sees it.
+    pub fn play_next_offset(&self, track_ids: Vec<String>) -> u32 {
+        u32::try_from(self.0.play_next_offset(&track_ids)).unwrap_or(u32::MAX)
     }
     pub fn end(&self) {
         self.0.end();

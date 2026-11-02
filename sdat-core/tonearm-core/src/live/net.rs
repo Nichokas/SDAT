@@ -343,8 +343,8 @@ impl LiveHost {
     }
 
     /// See [`HostSession::play_next_offset`].
-    pub fn play_next_offset(&self, count: usize) -> usize {
-        self.state.lock().unwrap_or_else(PoisonError::into_inner).play_next_offset(count)
+    pub fn play_next_offset(&self, track_ids: &[String]) -> usize {
+        self.state.lock().unwrap_or_else(PoisonError::into_inner).play_next_offset(track_ids)
     }
 
     /// Replaces the shared queue; returns the entry ids given to each track.
