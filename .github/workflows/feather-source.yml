@@ -26,7 +26,8 @@ concurrency:
 jobs:
   update:
     runs-on: ubuntu-latest
-    if: github.event_name != 'workflow_run' || (github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.event == 'push' && github.event.workflow_run.head_repository.full_name == github.repository && startsWith(github.event.workflow_run.head_branch, 'v'))
+    # desktop-v* releases belong to the desktop app; only iOS vX.Y.Z tags feed Feather.
+    if: (github.event_name != 'release' || startsWith(github.event.release.tag_name, 'v')) && (github.event_name != 'workflow_run' || (github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.event == 'push' && github.event.workflow_run.head_repository.full_name == github.repository && startsWith(github.event.workflow_run.head_branch, 'v')))
     env:
       GH_TOKEN: ${{ github.token }}
     steps:
@@ -60,7 +61,7 @@ jobs:
       - name: Update source.json
         env:
           TAG: ${{ steps.tag.outputs.tag }}
-        run: python3 scripts/update-feather-source.py "$TAG" --repo "$GITHUB_REPOSITORY"
+        run: python3 sdat-mobile/scripts/update-feather-source.py "$TAG" --repo "$GITHUB_REPOSITORY"
 
       - name: Validate JSON
         run: jq -e '.apps[0].versions | length > 0' feather/source.json
