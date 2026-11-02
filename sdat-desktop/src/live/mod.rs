@@ -752,6 +752,9 @@ fn load_host_track(track: String, attempt: u64) {
     });
 }
 
+/// A few seconds of divergence between listeners is fine.
+const DRIFT_TOLERANCE_MS: i64 = 3_000;
+
 /// Moves the local player towards the host's anchor.
 fn guest_tick() {
     let Some(g) = guest() else { return };
@@ -791,8 +794,12 @@ fn guest_tick() {
         return;
     }
     match g.correction(latency, actual) {
-        // Never change the playback speed: a rate answer is ignored.
+        // Never change the playback speed: a rate answer is ignored. Drift
+        // below a few seconds is acceptable and deliberately left alone.
         Correction::None | Correction::Rate(_) => {}
+        // Also gated here so an older core (300 ms threshold) can't seek for
+        // small, acceptable drift.
+        Correction::Seek(to) if (to - actual).abs() <= DRIFT_TOLERANCE_MS => {}
         Correction::Seek(to) => player::seek_to_position(Duration::from_millis(u64::try_from(to.max(0)).unwrap_or(0)), true),
     }
 }
