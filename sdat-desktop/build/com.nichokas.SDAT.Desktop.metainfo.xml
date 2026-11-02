@@ -48,6 +48,17 @@
   <url type="vcs-browser">https://github.com/Nichokas/SDAT</url>
 
   <releases>
+    <release version="1.2.2" date="2026-11-02">
+        <url type="details">https://github.com/Nichokas/SDAT/releases/tag/desktop-v1.2.2</url>
+        <description>
+            <ul>
+                <li>Listen Together: guests can control playback when the host allows it</li>
+                <li>New "Play Next" option in queue menus</li>
+                <li>Listen Together sync no longer changes the playback speed to catch up</li>
+                <li>More stable playback start for Listen Together guests</li>
+            </ul>
+        </description>
+    </release>
     <release version="1.2.0" date="2026-11-02">
         <url type="details">https://github.com/Nichokas/SDAT/releases/tag/desktop-v1.2.0</url>
         <description>
