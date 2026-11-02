@@ -52,6 +52,9 @@ fn queue_tracklist(kind: QueueKind) -> TrackList {
             q.insert(dst, track.clone());
             q
         });
+        if kind == QueueKind::User {
+            player::user_queue_moved(src, dst);
+        }
     })));
     list
 }

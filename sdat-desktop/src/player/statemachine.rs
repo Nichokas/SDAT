@@ -293,6 +293,12 @@ impl Machine {
     }
 
 
+    /// Whether the next track was already chosen (and is being fetched or
+    /// waiting for its stream to start) for gapless playback.
+    pub fn gapless_pending(&self) -> bool {
+        self.state.get() == State::PlayingGapless
+    }
+
     /// Queues a trigger; transitions run in order on the main loop.
     pub fn fire(self: &Rc<Self>, t: Trigger) {
         self.queue.borrow_mut().push_back(t);

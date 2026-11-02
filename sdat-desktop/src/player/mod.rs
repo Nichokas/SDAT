@@ -51,6 +51,26 @@ global_signal!(pub fn history() -> HistoryQueue = HistoryQueue::default());
 thread_local! {
     /// Entries at the front of the user queue that were added with "play next".
     static PLAY_NEXT_PINNED: Cell<usize> = const { Cell::new(0) };
+    static PLAY_NEXT_ORDER: std::cell::RefCell<play_next::Sequencer<Track>> = std::cell::RefCell::default();
+}
+
+/// Reserves the order of a "play next" request when the user makes it.
+pub fn play_next_ticket() -> u64 {
+    PLAY_NEXT_ORDER.with(|s| s.borrow_mut().ticket())
+}
+
+/// Delivers the tracks for a "play next" request (empty if fetching failed);
+/// requests are applied in the order their tickets were taken.
+pub fn complete_play_next(ticket: u64, tracks: Vec<Track>) {
+    let batches = PLAY_NEXT_ORDER.with(|s| s.borrow_mut().complete(ticket, tracks));
+    for b in batches {
+        play_tracklist_next(b);
+    }
+}
+
+/// Keeps the "play next" region in step with a drag in the user queue.
+pub fn user_queue_moved(src: usize, dst: usize) {
+    update_pinned(|p| play_next::after_move(p, src, dst));
 }
 
 fn update_pinned(f: impl FnOnce(usize) -> usize) {
@@ -300,24 +320,26 @@ pub async fn add_track_to_user_queue(track_id: &str) -> Result<()> {
     Ok(())
 }
 
-/// Fetches a track and queues it right after the current one (and after any
-/// earlier "play next" tracks).
-pub async fn play_track_next(track_id: &str) -> Result<()> {
-    let id = track_id.to_string();
-    let track = api::run(move || service::get_track(&id)).await?;
-    play_tracklist_next(vec![track]);
-    Ok(())
-}
-
 /// Queues `tracks`, in order, right after the current one (and after any
 /// earlier "play next" tracks). Starts playback if nothing is playing.
-pub fn play_tracklist_next(tracks: Vec<Track>) {
+fn play_tracklist_next(tracks: Vec<Track>) {
     if tracks.is_empty() {
         return;
     }
+    // A gapless handoff already picked the head of the queues and pops it at
+    // StreamStart; keep that entry first so the popped entry is the one playing.
+    let gapless = with(|p| p.machine.gapless_pending()).unwrap_or(false)
+        && repeat_mode_changed().get() != RepeatMode::Track;
+    if gapless
+        && user_queue().is_empty()
+        && let Some(head) = base_queue().pop()
+    {
+        user_queue().prepend(head);
+    }
+    let floor = usize::from(gapless && !user_queue().is_empty());
     let mut entries = user_queue().entries().with(Clone::clone);
     let pinned = PLAY_NEXT_PINNED.with(Cell::get);
-    let pinned = play_next::insert(&mut entries, pinned, tracks);
+    let pinned = play_next::insert(&mut entries, pinned, floor, tracks);
     user_queue().set(entries);
     update_pinned(|_| pinned);
     if playback_state_changed().get().status == PlaybackStatus::Stopped {

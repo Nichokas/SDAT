@@ -334,38 +334,14 @@ fn build_sidebar_layout(app: &adw::Application, window: &adw::ApplicationWindow)
 
 // ------------------------------------------------------------------ actions
 
-fn enqueue(tracks: Vec<crate::model::Track>, next: bool) {
-    if next {
-        player::play_tracklist_next(tracks);
-    } else {
-        player::add_tracklist_to_user_queue(tracks);
-    }
-}
-
-/// Handles `win.player.queue` (append) and `win.player.play-next` (`next`).
-fn queue_param(param: &str, next: bool) {
-    let parts: Vec<&str> = param.split('/').collect();
-    if parts.len() != 2 {
-        log::error!("parameter doesn't follow the format 'type/id' action=win.player.queue parameter={param}");
-        return;
-    }
-    let id = parts[1].to_string();
-    match parts[0] {
-        "track" => spawn_logged("queue track", async move {
-            if next { player::play_track_next(&id).await } else { player::add_track_to_user_queue(&id).await }
-        }),
-        "album" => spawn_logged("queue album", async move {
-            let t = crate::cache::all_tracks(crate::cache::Job::Album(id)).await?;
-            enqueue(t, next);
-            Ok(())
-        }),
-        "playlist" => spawn_logged("queue playlist", async move {
-            let t = crate::cache::all_tracks(crate::cache::Job::Playlist(id)).await?;
-            enqueue(t, next);
-            Ok(())
-        }),
-        "artist" => spawn_logged("queue artist", async move {
-            let t = api::run(move || {
+/// Fetches the tracks a `type/id` queue target refers to.
+async fn queue_target_tracks(kind: String, id: String) -> anyhow::Result<Vec<crate::model::Track>> {
+    Ok(match (kind.as_str(), id.as_str()) {
+        ("track", _) => vec![api::run(move || crate::service::get_track(&id)).await?],
+        ("album", _) => crate::cache::all_tracks(crate::cache::Job::Album(id)).await?,
+        ("playlist", _) => crate::cache::all_tracks(crate::cache::Job::Playlist(id)).await?,
+        ("artist", _) => {
+            api::run(move || {
                 let page = api::artist_page(&id)?;
                 let mut tracks = vec![];
                 if let Some(m) = page.items.iter().find(|i| i.module_id == "ARTIST_TOP_TRACKS") {
@@ -377,23 +353,42 @@ fn queue_param(param: &str, next: bool) {
                 }
                 Ok::<_, anyhow::Error>(tracks)
             })
-            .await?;
-            enqueue(t, next);
+            .await?
+        }
+        ("my_collection", "tracks") => {
+            if secrets::user_id().is_empty() {
+                log::warn!("user not logged in, ignoring action");
+                return Ok(vec![]);
+            }
+            crate::cache::all_tracks(crate::cache::Job::FavouriteTracks).await?
+        }
+        _ => anyhow::bail!("unknown object type to add to queue type={kind}"),
+    })
+}
+
+/// Handles `win.player.queue` (append) and `win.player.play-next` (`next`).
+/// The parameter has the form `type/id`.
+fn queue_param(param: &str, next: bool) {
+    let Some((kind, id)) = param.split_once('/').filter(|(_, id)| !id.contains('/')) else {
+        log::error!("parameter doesn't follow the format 'type/id' action=win.player.queue parameter={param}");
+        return;
+    };
+    let (kind, id) = (kind.to_string(), id.to_string());
+    if next {
+        // Take the place in line now, so slow fetches can't reorder requests.
+        let ticket = player::play_next_ticket();
+        spawn_logged("play next", async move {
+            let r = queue_target_tracks(kind, id).await;
+            player::complete_play_next(ticket, r.as_ref().map(Clone::clone).unwrap_or_default());
+            r.map(drop)
+        });
+    } else if kind == "track" {
+        spawn_logged("queue track", async move { player::add_track_to_user_queue(&id).await });
+    } else {
+        spawn_logged("queue tracks", async move {
+            player::add_tracklist_to_user_queue(queue_target_tracks(kind, id).await?);
             Ok(())
-        }),
-        "my_collection" => match parts[1] {
-            "tracks" => spawn_logged("queue my tracks", async move {
-                if secrets::user_id().is_empty() {
-                    log::warn!("user not logged in, ignoring action");
-                    return Ok(());
-                }
-                let t = crate::cache::all_tracks(crate::cache::Job::FavouriteTracks).await?;
-                enqueue(t, next);
-                Ok(())
-            }),
-            _ => log::error!("unknown object type to add to queue type={}", parts[0]),
-        },
-        _ => log::error!("unknown object type to add to queue type={}", parts[0]),
+        });
     }
 }
 
@@ -502,7 +497,7 @@ fn install_actions(app: &adw::Application, window: &adw::ApplicationWindow) {
     window.add_action(&add);
     window.add_action(&with_string("player.queue-track", |id| spawn_logged("queue track", async move { player::add_track_to_user_queue(&id).await })));
     window.add_action(&with_string("player.queue", |p| queue_param(&p, false)));
-    window.add_action(&with_string("player.play-next-track", |id| spawn_logged("play track next", async move { player::play_track_next(&id).await })));
+    window.add_action(&with_string("player.play-next-track", |id| queue_param(&format!("track/{id}"), true)));
     window.add_action(&with_string("player.play-next", |p| queue_param(&p, true)));
 
     window.add_action(&simple("route.home", || router::navigate(&settings::default_page())));
