@@ -147,6 +147,13 @@ impl PlayNextRun {
     }
 }
 
+/// Whether `new` is `old` with one track inserted at `at` and the last one
+/// pushed past the cap (and not simply `old` unchanged).
+fn shifted_by_insert(old: &[&str], new: &[String], at: usize) -> bool {
+    let tail = || new[at..].iter().map(String::as_str);
+    old.len() == new.len() && at < old.len() && new[at + 1..].iter().map(String::as_str).eq(old[at..old.len() - 1].iter().copied()) && !tail().eq(old[at..].iter().copied())
+}
+
 /// The run entries right after `start` in `items`, in queue order.
 fn contiguous_run(items: &[QueueItem], start: usize, run: &[String]) -> Vec<String> {
     let run: std::collections::HashSet<&str> = run.iter().map(String::as_str).collect();
@@ -413,6 +420,7 @@ impl HostSession {
             // Back to inferring: the run's ids are the app's, start over.
             self.run = PlayNextRun { after: self.anchor.item_id.clone(), ..PlayNextRun::default() };
         }
+        let old_tracks: Vec<&str> = self.queue.queue().items.iter().map(|i| i.track_id.as_str()).collect();
         let mut ids = stable_ids(&self.queue.queue().items, &track_ids, &self.run.items, self.anchor.item_id.as_deref());
         let capped = ids.len() == super::MAX_QUEUE;
         // Bind handed-out tracks to the entries right after the playing one
@@ -452,8 +460,10 @@ impl HostSession {
                     let fresh = (j + 1..ids.len()).find(|&k| ids[k].1 && &track_ids[k] == t);
                     match fresh {
                         Some(k) => ids.swap(j, k),
-                        // The cap cut the old copy off the shared queue.
-                        None if capped => {}
+                        // The cap cut the old copy off the shared queue: only
+                        // when the rest is the old queue shifted by one (an
+                        // unchanged refresh is not an insertion).
+                        None if capped && shifted_by_insert(&old_tracks, &track_ids, j) => {}
                         None => break,
                     }
                 }
@@ -1586,6 +1596,17 @@ mod tests {
         h.run.hidden = 10;
         h.replace_queue_entries(entries(&[("a", "p")])).expect("replace");
         assert_eq!(h.play_next_offset(&ids(&["x"])), 0);
+    }
+
+    #[test]
+    fn unchanged_capped_refresh_does_not_bind_an_existing_copy() {
+        let mut full: Vec<String> = vec!["p".into(), "x".into()];
+        full.extend((0..super::super::MAX_QUEUE - 2).map(|n| format!("o{n}")));
+        let refs: Vec<&str> = full.iter().map(String::as_str).collect();
+        let (mut h, _) = host_with(&refs, 0);
+        assert_eq!(h.play_next_offset(&ids(&["x"])), 0);
+        h.replace_queue(full.clone()).expect("unchanged");
+        assert_eq!(h.play_next_offset(&ids(&["y"])), 0);
     }
 
     #[test]
