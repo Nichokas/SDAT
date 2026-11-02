@@ -76,6 +76,9 @@ msgstr ""
 msgid "Add to Queue"
 msgstr ""
 
+msgid "Play Next"
+msgstr ""
+
 #: internal/settings/playback.go:23
 #: internal/ui/routes/album.go:30
 #: internal/ui/routes/album.go:35

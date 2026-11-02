@@ -59,6 +59,9 @@ msgstr "Afegeix a la col·lecció"
 msgid "Add to Queue"
 msgstr "Afegeix a la cua"
 
+msgid "Play Next"
+msgstr "Reprodueix a continuació"
+
 msgid "Album"
 msgstr "Àlbum"
 

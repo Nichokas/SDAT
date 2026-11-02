@@ -78,6 +78,9 @@ msgstr "Voeg toe aan Verzameling"
 msgid "Add to Queue"
 msgstr "Voeg toe aan Wachtrij"
 
+msgid "Play Next"
+msgstr "Hierna afspelen"
+
 #: internal/settings/playback.go:23
 #: internal/ui/routes/album.go:30
 #: internal/ui/routes/album.go:35

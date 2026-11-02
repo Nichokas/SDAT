@@ -82,6 +82,9 @@ msgstr "Добавить в коллекцию"
 msgid "Add to Queue"
 msgstr "Добавить в очередь"
 
+msgid "Play Next"
+msgstr "Воспроизвести следующим"
+
 #: internal/settings/playback.go:23
 #: internal/ui/routes/album.go:30
 #: internal/ui/routes/album.go:35
