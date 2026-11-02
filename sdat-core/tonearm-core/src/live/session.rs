@@ -295,9 +295,9 @@ impl HostSession {
                 }
                 if !ids[j].1 {
                     // Inserted before another copy of the same track: the
-                    // diff gave the old id to the first copy. The old entry
-                    // is the fresh copy further along that same-track stretch.
-                    let fresh = (j + 1..ids.len()).take_while(|&k| &track_ids[k] == t).find(|&k| ids[k].1);
+                    // diff gave the old id to this copy. The old entry is the
+                    // nearest later copy that got a fresh id, so they swap.
+                    let fresh = (j + 1..ids.len()).find(|&k| ids[k].1 && &track_ids[k] == t);
                     match fresh {
                         Some(k) => ids.swap(j, k),
                         None => break,
@@ -1247,6 +1247,15 @@ mod tests {
         insert_next(&mut h, &mut q, 0, &["x"]);
         insert_next(&mut h, &mut q, 0, &["y"]);
         assert_eq!(q, ids(&["p", "x", "y", "x"]));
+    }
+
+    #[test]
+    fn multi_track_play_next_before_another_copy() {
+        let (mut h, _) = host_with(&["p", "x"], 0);
+        let mut q = ids(&["p", "x"]);
+        insert_next(&mut h, &mut q, 0, &["x", "y"]);
+        insert_next(&mut h, &mut q, 0, &["z"]);
+        assert_eq!(q, ids(&["p", "x", "y", "z", "x"]));
     }
 
     #[test]
