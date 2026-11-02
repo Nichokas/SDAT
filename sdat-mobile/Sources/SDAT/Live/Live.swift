@@ -72,6 +72,7 @@ final class Live {
 
     /// Handles a scanned QR or an opened `sdat://join/...` link.
     func open(_ text: String) {
+        player.clearSystemPause()
         guard liveIsInvite(text: text) else { return }
         showScanner = false
         showSheet = true

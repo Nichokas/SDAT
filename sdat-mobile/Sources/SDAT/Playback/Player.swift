@@ -50,6 +50,9 @@ final class Player {
     /// Paused by the system (interruption, headphones unplugged) rather than
     /// by the user; Listen Together must not resume on its own then.
     private(set) var systemPaused = false
+    /// Joining a session is a deliberate choice to listen: forget an older
+    /// system pause so it doesn't hold the host's playback.
+    func clearSystemPause() { systemPaused = false }
     private var infinite: Shuffle?
     private var loadTask: Task<Void, Never>?
     private var preloadTask: Task<Void, Never>?
