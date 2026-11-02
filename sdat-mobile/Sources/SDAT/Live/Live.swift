@@ -53,8 +53,11 @@ final class Live {
     private var outboxTask: Task<Void, Never>?
 
     // host: accepted guest track ids, fetched one at a time in arrival order
-    private var hostEnqueue: [(gen: Int, id: String)] = []
+    private var hostEnqueue: [(epoch: Int, id: String)] = []
     private var hostEnqueueTask: Task<Void, Never>?
+    /// Bumped when a session ends or control is turned off: requests (and the
+    /// worker) from an older epoch are dropped, even mid-fetch.
+    private var enqueueEpoch = 0
 
     var active: Bool { [.starting, .hosting, .joining, .joined].contains(mode) }
 
@@ -95,6 +98,8 @@ final class Live {
             guest = try LiveGuest.join(invite: text, name: deviceName, relays: nil, observer: LiveBridge(generation: generation))
             guestControl = false
             guest?.setControlObserver(observer: LiveControlBridge(generation: generation))
+            // The permission may have arrived before the observer was installed.
+            guestControl = guest?.guestControl() ?? false
             mode = .joining
             // Only an accepted invitation clears an older system pause.
             player.clearSystemPause()
@@ -122,7 +127,7 @@ final class Live {
         host = nil; guest = nil
         guestControl = false
         outbox = []; outboxFailures = 0; outboxTask?.cancel(); outboxTask = nil
-        hostEnqueue = []; hostEnqueueTask?.cancel(); hostEnqueueTask = nil
+        dropGuestEnqueues()
         switching = nil
         lastSeekAt = nil; seekBackoff = Self.seekBackoffMin; lastTarget = nil
         player.liveFollowing = false
@@ -179,7 +184,7 @@ final class Live {
         guard let host else { return }
         host.setGuestControl(allowed: allowed)
         guestControl = host.guestControl()
-        if !guestControl { hostEnqueue = [] }
+        if !guestControl { dropGuestEnqueues() }
     }
 
     fileprivate func controlChanged(_ allowed: Bool, generation gen: Int) {
@@ -197,28 +202,36 @@ final class Live {
         case .pause: if player.isPlaying { player.toggle() }
         case .next: player.next()
         case .enqueue(let ids):
-            hostEnqueue += ids.map { (gen, $0) }
+            hostEnqueue += ids.map { (enqueueEpoch, $0) }
             pumpHostEnqueue()
         }
     }
 
-    private func guestRequestValid(_ gen: Int) -> Bool {
-        gen == generation && host?.guestControl() == true
+    private func dropGuestEnqueues() {
+        enqueueEpoch += 1
+        hostEnqueue = []
+        hostEnqueueTask?.cancel(); hostEnqueueTask = nil
     }
 
+    private func guestRequestValid(_ epoch: Int) -> Bool {
+        epoch == enqueueEpoch && host?.guestControl() == true
+    }
+
+    /// One worker per epoch fetches guest tracks in arrival order. A worker
+    /// from an older epoch stops (checked again after every fetch), so it can
+    /// neither append a dropped track nor race a newer worker.
     private func pumpHostEnqueue() {
         guard hostEnqueueTask == nil else { return }
-        let session = generation
+        let epoch = enqueueEpoch
         hostEnqueueTask = Task {
-            while !hostEnqueue.isEmpty {
-                let (gen, id) = hostEnqueue.removeFirst()
-                guard guestRequestValid(gen) else { continue }
+            while epoch == enqueueEpoch, !Task.isCancelled, !hostEnqueue.isEmpty {
+                let (e, id) = hostEnqueue.removeFirst()
+                guard guestRequestValid(e) else { continue }
                 let track = try? await liveTrack(id: id)
-                // The session may have ended or control been turned off meanwhile.
-                guard let track, guestRequestValid(gen) else { continue }
+                guard let track, !Task.isCancelled, guestRequestValid(e) else { continue }
                 player.addToQueue(track)
             }
-            if session == generation { hostEnqueueTask = nil }
+            if epoch == enqueueEpoch { hostEnqueueTask = nil }
         }
     }
 
@@ -236,10 +249,22 @@ final class Live {
     /// Play/pause from the UI or the lock screen.
     func userToggle() {
         let hostPlaying = guest?.target(latencyMs: 0)?.playing ?? false
+        if hostPlaying, resumeLocally() { return }
         if !route(hostPlaying ? .pause : .play) { player.toggle() }
     }
 
-    func userPlay() { if !route(.play) { if !player.isPlaying { player.toggle() } } }
+    func userPlay() {
+        if guest?.target(latencyMs: 0)?.playing == true, resumeLocally() { return }
+        if !route(.play) { if !player.isPlaying { player.toggle() } }
+    }
+
+    /// Guest paused by the system (call, headphones unplugged) while the host
+    /// plays: "play" means resume here, not change the host.
+    private func resumeLocally() -> Bool {
+        guard guest != nil, player.systemPaused else { return false }
+        player.clearSystemPause()
+        return true
+    }
     func userPause() { if !route(.pause) { if player.isPlaying { player.toggle() } } }
     func userNext() { if !route(.next) { player.next() } }
 

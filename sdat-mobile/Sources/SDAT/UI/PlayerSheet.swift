@@ -143,6 +143,7 @@ private struct NowPlayingPage: View {
                     Image(systemName: "backward.fill").font(.system(size: 30))
                         .symbolEffect(.wiggle.left, value: prevTap)
                 }
+                .opacity(Live.shared.isGuest ? 0.4 : 1)
                 .sensoryFeedback(.impact(weight: .light), trigger: prevTap)
                 Spacer()
                 Button { Live.shared.userToggle() } label: {
@@ -154,6 +155,7 @@ private struct NowPlayingPage: View {
                     }
                     .frame(width: 64, height: 64)
                 }
+                .opacity(Live.shared.playbackLocked ? 0.4 : 1)
                 Spacer()
                 Button { forward = true; nextTap += 1; if Live.shared.isGuest { Live.shared.userNext() } else { withAnimation(.spring(duration: 0.4, bounce: 0.2)) { player.next() } } } label: {
                     Image(systemName: "forward.fill").font(.system(size: 30))
