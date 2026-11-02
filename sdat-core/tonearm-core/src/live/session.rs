@@ -329,9 +329,10 @@ impl HostSession {
             }
         } else if capped {
             // The playing entry itself is past the cap.
-            beyond_cap = self.run.pending.clone();
+            beyond_cap.clone_from(&self.run.pending);
         }
-        beyond_cap.truncate(super::MAX_QUEUE);
+        // Not truncated: the app's queue is not capped, and growth is bounded
+        // by the per-guest command budget and reset when the track changes.
         let items: Vec<QueueItem> = ids.iter().zip(&track_ids).map(|((item_id, _), t)| QueueItem { item_id: item_id.clone(), track_id: t.clone() }).collect();
         let out = self.queue_op(OpKind::Replace { items })?;
         self.run.items = run;
