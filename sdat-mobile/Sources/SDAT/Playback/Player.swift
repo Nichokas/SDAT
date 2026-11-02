@@ -288,14 +288,29 @@ final class Player {
 
     /// Exact drift seek: the default tolerance can land seconds away on
     /// streamed audio, which re-triggers another seek on the next tick.
+    /// The host keeps playing while we seek, so we aim ahead by how long the
+    /// last drift seek took; otherwise a slow seek lands >300 ms behind and
+    /// the next tick seeks again.
+    @ObservationIgnored private var liveSeekLead: Double = 0
+
     func liveSeek(to secs: Double) {
         guard !liveSeeking else { return }
         liveSeeking = true
-        avPlayer.seek(to: CMTime(seconds: max(secs, 0), preferredTimescale: 600),
-                      toleranceBefore: .zero, toleranceAfter: .zero) { [weak self] _ in
-            Task { @MainActor in self?.liveSeeking = false }
+        let target = max(secs + liveSeekLead, 0)
+        let started = Date()
+        avPlayer.seek(to: CMTime(seconds: target, preferredTimescale: 600),
+                      toleranceBefore: .zero, toleranceAfter: .zero) { [weak self] finished in
+            Task { @MainActor in
+                guard let self else { return }
+                if finished {
+                    let took = Date().timeIntervalSince(started)
+                    // Smooth and cap so one outlier can't overshoot by seconds.
+                    self.liveSeekLead = min(max(self.liveSeekLead * 0.5 + took * 0.5, 0), 2)
+                }
+                self.liveSeeking = false
+            }
         }
-        position = max(secs, 0)
+        position = target
         updateNowPlaying()
     }
 
