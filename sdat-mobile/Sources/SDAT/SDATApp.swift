@@ -5,6 +5,7 @@ struct SDATApp: App {
     @State private var session = Session.shared
     @State private var prefs = Preferences.shared
     @State private var boot = Boot.shared
+    @State private var live = Live.shared
     @Environment(\.scenePhase) private var phase
 
     var body: some Scene {
@@ -29,6 +30,8 @@ struct SDATApp: App {
             .environment(prefs)
             .environment(Recents.shared)
             .environment(Chrome.shared)
+            .sheet(isPresented: $live.showSheet) { LiveSheet() }
+            .onOpenURL { url in if session.signedIn { live.open(url.absoluteString) } }
             .preferredColorScheme(.dark)
             .tint(.blue)
         }

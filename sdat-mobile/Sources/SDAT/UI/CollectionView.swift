@@ -39,6 +39,14 @@ struct CollectionView: View {
         .navigationTitle("My Collection")
         .scrollEdgeEffectStyle(.soft, for: .all)
         .profileToolbar()
+        .toolbar {
+            ToolbarItem(placement: .topBarLeading) {
+                Button { Live.shared.showScanner = true } label: { Image(systemName: "qrcode.viewfinder") }
+                    .accessibilityLabel("Scan Listen Together invitation")
+            }
+        }
+        .sheet(isPresented: Binding(get: { Live.shared.showScanner && !Live.shared.showSheet },
+                                    set: { Live.shared.showScanner = $0 })) { LiveScannerSheet() }
         .refreshable { await load() }
         .task { if recents.isEmpty { await load() } }
     }

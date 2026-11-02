@@ -47,6 +47,12 @@ final class Player {
     private var systemObservers: [NSObjectProtocol] = []
     /// Set when an audio-session interruption paused active playback.
     private var resumeAfterInterruption = false
+    /// Paused by the system (interruption, headphones unplugged) rather than
+    /// by the user; Listen Together must not resume on its own then.
+    private(set) var systemPaused = false
+    /// Joining a session is a deliberate choice to listen: forget an older
+    /// system pause so it doesn't hold the host's playback.
+    func clearSystemPause() { systemPaused = false }
     private var infinite: Shuffle?
     private var loadTask: Task<Void, Never>?
     private var preloadTask: Task<Void, Never>?
@@ -216,6 +222,7 @@ final class Player {
             return
         }
         resumeAfterInterruption = false
+        systemPaused = false
         if isPlaying { avPlayer.pause() } else {
             try? AVAudioSession.sharedInstance().setActive(true)
             avPlayer.play()
@@ -237,6 +244,41 @@ final class Player {
         updateNowPlaying()
     }
 
+    // MARK: Listen Together (guest side; the host just plays normally)
+
+    /// Exact player position (the published `position` only updates on the periodic observer).
+    var livePosition: Double {
+        let t = avPlayer.currentTime().seconds
+        return t.isFinite ? t : position
+    }
+
+    /// Following a Listen Together host: the host decides what plays next, so the
+    /// personal queue, repeat and preloading are suspended (nothing is consumed).
+    var liveFollowing = false
+
+    /// False once the guest's copy of a track has finished (the queue player drops the
+    /// item), so the host's next anchor reloads it even when it is the same song.
+    var liveHasItem: Bool { avPlayer.currentItem != nil }
+
+    /// Plays the host's track at `secs`, replacing the local queue. `playing: false`
+    /// loads it paused, so joining a paused session never blips audio.
+    func livePlay(_ tracks: [Track], index i: Int, at secs: Double, playing: Bool) {
+        guard tracks.indices.contains(i) else { return }
+        recentIDs = []; recentOrder = []
+        infinite = nil
+        original = tracks
+        queue = tracks
+        sourceTitle = "Listen Together"
+        load(i, resumeAt: max(secs, 0), autoplay: playing)
+    }
+
+    /// Drift correction: plays slightly faster or slower (pitch kept).
+    func liveSetRate(_ rate: Float) {
+        guard isPlaying, let item = avPlayer.currentItem else { return }
+        item.audioTimePitchAlgorithm = .spectral
+        avPlayer.rate = rate
+    }
+
     func cycleRepeat() {
         repeatMode = switch repeatMode { case .off: .all; case .all: .one; case .one: .off }
         syncRemote()
@@ -254,6 +296,7 @@ final class Player {
     /// What plays after the current track: (track, comes from user queue, base index).
     /// `manual`: an explicit Next skips past a repeat-one track (it only loops on natural end).
     private func following(manual: Bool = false) -> (Track, Bool, Int?)? {
+        if liveFollowing { return nil }
         if repeatMode == .one, !manual, let c = current { return (c, false, index) }
         if let u = userQueue.first { return (u, true, index) }
         guard let i = index else { return nil }
@@ -301,10 +344,10 @@ final class Player {
         seek(to: 0)
     }
 
-    private func load(_ i: Int, resumeAt: Double = 0) {
+    private func load(_ i: Int, resumeAt: Double = 0, autoplay: Bool = true) {
         guard queue.indices.contains(i) else { return }
         index = i
-        start(queue[i], resumeAt: resumeAt)
+        start(queue[i], resumeAt: resumeAt, autoplay: autoplay)
     }
 
     private func adopt(_ track: Track, stream s: Stream?) {
@@ -318,7 +361,7 @@ final class Player {
         artwork = nil
     }
 
-    private func start(_ track: Track, resumeAt: Double = 0) {
+    private func start(_ track: Track, resumeAt: Double = 0, autoplay: Bool = true) {
         needsStart = false
         adopt(track, stream: nil)
         loading = true
@@ -336,8 +379,13 @@ final class Player {
                 if url.isFileURL { watchLocal(item, track: track) }
                 if resumeAt > 0 { await avPlayer.seek(to: CMTime(seconds: resumeAt, preferredTimescale: 600)) }
                 try? AVAudioSession.sharedInstance().setActive(true)
-                avPlayer.play()
-                isPlaying = true
+                if autoplay {
+                    avPlayer.play()
+                    isPlaying = true
+                } else {
+                    avPlayer.pause()
+                    isPlaying = false
+                }
                 loading = false
                 afterStart(track)
             } catch {
@@ -421,6 +469,8 @@ final class Player {
     private func trackEnded(_ item: AVPlayerItem?) {
         // Only react to the item that was actually playing.
         guard item == nil || item === avPlayer.items().first || item !== preloaded?.item else { return }
+        // Listen Together guest: wait for the host's next track instead of advancing.
+        if liveFollowing { DispatchQueue.main.async { self.avPlayer.pause(); self.isPlaying = false }; return }
         if repeatMode == .one, let c = current { start(c); return }
         DispatchQueue.main.async { self.advance(auto: true) }
     }
@@ -578,13 +628,14 @@ final class Player {
                 switch type {
                 case .began:
                     // Remember only real playback; a cold-restored paused state never auto-resumes.
-                    if self.isPlaying { self.resumeAfterInterruption = true }
+                    if self.isPlaying { self.resumeAfterInterruption = true; self.systemPaused = true }
                     self.markPaused()
                 case .ended:
                     let should = AVAudioSession.InterruptionOptions(rawValue: opts).contains(.shouldResume)
                     let resume = should && self.resumeAfterInterruption && !self.needsStart && self.current != nil
                     self.resumeAfterInterruption = false
                     if resume {
+                        self.systemPaused = false
                         try? AVAudioSession.sharedInstance().setActive(true)
                         self.avPlayer.play()
                         self.isPlaying = true
@@ -601,6 +652,7 @@ final class Player {
                 guard let raw, AVAudioSession.RouteChangeReason(rawValue: raw) == .oldDeviceUnavailable,
                       let self, self.isPlaying else { return }
                 self.resumeAfterInterruption = false
+                self.systemPaused = true
                 self.markPaused()
             }
         })

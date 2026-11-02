@@ -271,6 +271,13 @@ typedef void (*UniffiCallbackInterfaceTokenStoreMethod1)(uint64_t, RustBuffer* _
     );
 
 #endif
+#ifndef UNIFFI_FFIDEF_CALLBACK_INTERFACE_LIVE_OBSERVER_METHOD0
+#define UNIFFI_FFIDEF_CALLBACK_INTERFACE_LIVE_OBSERVER_METHOD0
+typedef void (*UniffiCallbackInterfaceLiveObserverMethod0)(uint64_t, RustBuffer, void* _Nonnull, 
+        RustCallStatus *_Nonnull uniffiCallStatus
+    );
+
+#endif
 #ifndef UNIFFI_FFIDEF_V_TABLE_CALLBACK_INTERFACE_APP_CONFIG
 #define UNIFFI_FFIDEF_V_TABLE_CALLBACK_INTERFACE_APP_CONFIG
 typedef struct UniffiVTableCallbackInterfaceAppConfig {
@@ -289,6 +296,15 @@ typedef struct UniffiVTableCallbackInterfaceTokenStore {
     UniffiCallbackInterfaceTokenStoreMethod0 _Nonnull refreshToken;
     UniffiCallbackInterfaceTokenStoreMethod1 _Nonnull userId;
 } UniffiVTableCallbackInterfaceTokenStore;
+
+#endif
+#ifndef UNIFFI_FFIDEF_V_TABLE_CALLBACK_INTERFACE_LIVE_OBSERVER
+#define UNIFFI_FFIDEF_V_TABLE_CALLBACK_INTERFACE_LIVE_OBSERVER
+typedef struct UniffiVTableCallbackInterfaceLiveObserver {
+    UniffiCallbackInterfaceFree _Nonnull uniffiFree;
+    UniffiCallbackInterfaceClone _Nonnull uniffiClone;
+    UniffiCallbackInterfaceLiveObserverMethod0 _Nonnull onUpdate;
+} UniffiVTableCallbackInterfaceLiveObserver;
 
 #endif
 #ifndef UNIFFI_FFIDEF_UNIFFI_TONEARM_FFI_FN_CLONE_APPCONFIG
@@ -434,6 +450,116 @@ void uniffi_tonearm_ffi_fn_free_trackpager(uint64_t handle, RustCallStatus *_Non
 #ifndef UNIFFI_FFIDEF_UNIFFI_TONEARM_FFI_FN_METHOD_TRACKPAGER_NEXT_PAGE
 #define UNIFFI_FFIDEF_UNIFFI_TONEARM_FFI_FN_METHOD_TRACKPAGER_NEXT_PAGE
 uint64_t uniffi_tonearm_ffi_fn_method_trackpager_next_page(uint64_t ptr
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_TONEARM_FFI_FN_CLONE_LIVEGUEST
+#define UNIFFI_FFIDEF_UNIFFI_TONEARM_FFI_FN_CLONE_LIVEGUEST
+uint64_t uniffi_tonearm_ffi_fn_clone_liveguest(uint64_t handle, RustCallStatus *_Nonnull out_status
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_TONEARM_FFI_FN_FREE_LIVEGUEST
+#define UNIFFI_FFIDEF_UNIFFI_TONEARM_FFI_FN_FREE_LIVEGUEST
+void uniffi_tonearm_ffi_fn_free_liveguest(uint64_t handle, RustCallStatus *_Nonnull out_status
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_TONEARM_FFI_FN_CONSTRUCTOR_LIVEGUEST_JOIN
+#define UNIFFI_FFIDEF_UNIFFI_TONEARM_FFI_FN_CONSTRUCTOR_LIVEGUEST_JOIN
+uint64_t uniffi_tonearm_ffi_fn_constructor_liveguest_join(RustBuffer invite, RustBuffer name, RustBuffer relays, uint64_t observer, RustCallStatus *_Nonnull out_status
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_TONEARM_FFI_FN_METHOD_LIVEGUEST_CORRECTION
+#define UNIFFI_FFIDEF_UNIFFI_TONEARM_FFI_FN_METHOD_LIVEGUEST_CORRECTION
+RustBuffer uniffi_tonearm_ffi_fn_method_liveguest_correction(uint64_t ptr, int64_t latency_ms, int64_t actual_ms, RustCallStatus *_Nonnull out_status
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_TONEARM_FFI_FN_METHOD_LIVEGUEST_HOST_NAME
+#define UNIFFI_FFIDEF_UNIFFI_TONEARM_FFI_FN_METHOD_LIVEGUEST_HOST_NAME
+RustBuffer uniffi_tonearm_ffi_fn_method_liveguest_host_name(uint64_t ptr, RustCallStatus *_Nonnull out_status
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_TONEARM_FFI_FN_METHOD_LIVEGUEST_LEAVE
+#define UNIFFI_FFIDEF_UNIFFI_TONEARM_FFI_FN_METHOD_LIVEGUEST_LEAVE
+void uniffi_tonearm_ffi_fn_method_liveguest_leave(uint64_t ptr, RustCallStatus *_Nonnull out_status
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_TONEARM_FFI_FN_METHOD_LIVEGUEST_QUEUE
+#define UNIFFI_FFIDEF_UNIFFI_TONEARM_FFI_FN_METHOD_LIVEGUEST_QUEUE
+RustBuffer uniffi_tonearm_ffi_fn_method_liveguest_queue(uint64_t ptr, RustCallStatus *_Nonnull out_status
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_TONEARM_FFI_FN_METHOD_LIVEGUEST_QUEUE_TRACK_IDS
+#define UNIFFI_FFIDEF_UNIFFI_TONEARM_FFI_FN_METHOD_LIVEGUEST_QUEUE_TRACK_IDS
+RustBuffer uniffi_tonearm_ffi_fn_method_liveguest_queue_track_ids(uint64_t ptr, RustCallStatus *_Nonnull out_status
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_TONEARM_FFI_FN_METHOD_LIVEGUEST_SET_SEEK_ONLY
+#define UNIFFI_FFIDEF_UNIFFI_TONEARM_FFI_FN_METHOD_LIVEGUEST_SET_SEEK_ONLY
+void uniffi_tonearm_ffi_fn_method_liveguest_set_seek_only(uint64_t ptr, int8_t on, RustCallStatus *_Nonnull out_status
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_TONEARM_FFI_FN_METHOD_LIVEGUEST_TARGET
+#define UNIFFI_FFIDEF_UNIFFI_TONEARM_FFI_FN_METHOD_LIVEGUEST_TARGET
+RustBuffer uniffi_tonearm_ffi_fn_method_liveguest_target(uint64_t ptr, int64_t latency_ms, RustCallStatus *_Nonnull out_status
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_TONEARM_FFI_FN_CLONE_LIVEHOST
+#define UNIFFI_FFIDEF_UNIFFI_TONEARM_FFI_FN_CLONE_LIVEHOST
+uint64_t uniffi_tonearm_ffi_fn_clone_livehost(uint64_t handle, RustCallStatus *_Nonnull out_status
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_TONEARM_FFI_FN_FREE_LIVEHOST
+#define UNIFFI_FFIDEF_UNIFFI_TONEARM_FFI_FN_FREE_LIVEHOST
+void uniffi_tonearm_ffi_fn_free_livehost(uint64_t handle, RustCallStatus *_Nonnull out_status
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_TONEARM_FFI_FN_CONSTRUCTOR_LIVEHOST_START
+#define UNIFFI_FFIDEF_UNIFFI_TONEARM_FFI_FN_CONSTRUCTOR_LIVEHOST_START
+uint64_t uniffi_tonearm_ffi_fn_constructor_livehost_start(RustBuffer name, RustBuffer relays, uint64_t observer
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_TONEARM_FFI_FN_METHOD_LIVEHOST_END
+#define UNIFFI_FFIDEF_UNIFFI_TONEARM_FFI_FN_METHOD_LIVEHOST_END
+void uniffi_tonearm_ffi_fn_method_livehost_end(uint64_t ptr, RustCallStatus *_Nonnull out_status
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_TONEARM_FFI_FN_METHOD_LIVEHOST_GUESTS
+#define UNIFFI_FFIDEF_UNIFFI_TONEARM_FFI_FN_METHOD_LIVEHOST_GUESTS
+RustBuffer uniffi_tonearm_ffi_fn_method_livehost_guests(uint64_t ptr, RustCallStatus *_Nonnull out_status
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_TONEARM_FFI_FN_METHOD_LIVEHOST_INVITE_URL
+#define UNIFFI_FFIDEF_UNIFFI_TONEARM_FFI_FN_METHOD_LIVEHOST_INVITE_URL
+RustBuffer uniffi_tonearm_ffi_fn_method_livehost_invite_url(uint64_t ptr, RustCallStatus *_Nonnull out_status
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_TONEARM_FFI_FN_METHOD_LIVEHOST_SET_PLAYBACK
+#define UNIFFI_FFIDEF_UNIFFI_TONEARM_FFI_FN_METHOD_LIVEHOST_SET_PLAYBACK
+void uniffi_tonearm_ffi_fn_method_livehost_set_playback(uint64_t ptr, RustBuffer item_id, RustBuffer track_id, int64_t position_ms, int8_t playing, RustCallStatus *_Nonnull out_status
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_TONEARM_FFI_FN_METHOD_LIVEHOST_SET_QUEUE
+#define UNIFFI_FFIDEF_UNIFFI_TONEARM_FFI_FN_METHOD_LIVEHOST_SET_QUEUE
+RustBuffer uniffi_tonearm_ffi_fn_method_livehost_set_queue(uint64_t ptr, RustBuffer track_ids, RustCallStatus *_Nonnull out_status
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_TONEARM_FFI_FN_CLONE_LIVEOBSERVER
+#define UNIFFI_FFIDEF_UNIFFI_TONEARM_FFI_FN_CLONE_LIVEOBSERVER
+uint64_t uniffi_tonearm_ffi_fn_clone_liveobserver(uint64_t handle, RustCallStatus *_Nonnull out_status
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_TONEARM_FFI_FN_FREE_LIVEOBSERVER
+#define UNIFFI_FFIDEF_UNIFFI_TONEARM_FFI_FN_FREE_LIVEOBSERVER
+void uniffi_tonearm_ffi_fn_free_liveobserver(uint64_t handle, RustCallStatus *_Nonnull out_status
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_TONEARM_FFI_FN_INIT_CALLBACK_VTABLE_LIVEOBSERVER
+#define UNIFFI_FFIDEF_UNIFFI_TONEARM_FFI_FN_INIT_CALLBACK_VTABLE_LIVEOBSERVER
+void uniffi_tonearm_ffi_fn_init_callback_vtable_liveobserver(const UniffiVTableCallbackInterfaceLiveObserver* _Nonnull vtable
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_TONEARM_FFI_FN_METHOD_LIVEOBSERVER_ON_UPDATE
+#define UNIFFI_FFIDEF_UNIFFI_TONEARM_FFI_FN_METHOD_LIVEOBSERVER_ON_UPDATE
+void uniffi_tonearm_ffi_fn_method_liveobserver_on_update(uint64_t ptr, RustBuffer update, RustCallStatus *_Nonnull out_status
 );
 #endif
 #ifndef UNIFFI_FFIDEF_UNIFFI_TONEARM_FFI_FN_CLONE_SHUFFLE
@@ -599,6 +725,16 @@ uint64_t uniffi_tonearm_ffi_fn_func_search_tracks(RustBuffer query, RustCallStat
 #ifndef UNIFFI_FFIDEF_UNIFFI_TONEARM_FFI_FN_FUNC_SET_FAVOURITE
 #define UNIFFI_FFIDEF_UNIFFI_TONEARM_FFI_FN_FUNC_SET_FAVOURITE
 uint64_t uniffi_tonearm_ffi_fn_func_set_favourite(RustBuffer kind, RustBuffer id, int8_t favourite
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_TONEARM_FFI_FN_FUNC_LIVE_IS_INVITE
+#define UNIFFI_FFIDEF_UNIFFI_TONEARM_FFI_FN_FUNC_LIVE_IS_INVITE
+int8_t uniffi_tonearm_ffi_fn_func_live_is_invite(RustBuffer text, RustCallStatus *_Nonnull out_status
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_TONEARM_FFI_FN_FUNC_LIVE_TRACK
+#define UNIFFI_FFIDEF_UNIFFI_TONEARM_FFI_FN_FUNC_LIVE_TRACK
+uint64_t uniffi_tonearm_ffi_fn_func_live_track(RustBuffer id
 );
 #endif
 #ifndef UNIFFI_FFIDEF_UNIFFI_TONEARM_FFI_FN_FUNC_LYRICS
@@ -1079,6 +1215,18 @@ uint16_t uniffi_tonearm_ffi_checksum_func_set_favourite(void
     
 );
 #endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_TONEARM_FFI_CHECKSUM_FUNC_LIVE_IS_INVITE
+#define UNIFFI_FFIDEF_UNIFFI_TONEARM_FFI_CHECKSUM_FUNC_LIVE_IS_INVITE
+uint16_t uniffi_tonearm_ffi_checksum_func_live_is_invite(void
+    
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_TONEARM_FFI_CHECKSUM_FUNC_LIVE_TRACK
+#define UNIFFI_FFIDEF_UNIFFI_TONEARM_FFI_CHECKSUM_FUNC_LIVE_TRACK
+uint16_t uniffi_tonearm_ffi_checksum_func_live_track(void
+    
+);
+#endif
 #ifndef UNIFFI_FFIDEF_UNIFFI_TONEARM_FFI_CHECKSUM_FUNC_LYRICS
 #define UNIFFI_FFIDEF_UNIFFI_TONEARM_FFI_CHECKSUM_FUNC_LYRICS
 uint16_t uniffi_tonearm_ffi_checksum_func_lyrics(void
@@ -1223,9 +1371,99 @@ uint16_t uniffi_tonearm_ffi_checksum_method_trackpager_next_page(void
     
 );
 #endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_TONEARM_FFI_CHECKSUM_METHOD_LIVEGUEST_CORRECTION
+#define UNIFFI_FFIDEF_UNIFFI_TONEARM_FFI_CHECKSUM_METHOD_LIVEGUEST_CORRECTION
+uint16_t uniffi_tonearm_ffi_checksum_method_liveguest_correction(void
+    
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_TONEARM_FFI_CHECKSUM_METHOD_LIVEGUEST_HOST_NAME
+#define UNIFFI_FFIDEF_UNIFFI_TONEARM_FFI_CHECKSUM_METHOD_LIVEGUEST_HOST_NAME
+uint16_t uniffi_tonearm_ffi_checksum_method_liveguest_host_name(void
+    
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_TONEARM_FFI_CHECKSUM_METHOD_LIVEGUEST_LEAVE
+#define UNIFFI_FFIDEF_UNIFFI_TONEARM_FFI_CHECKSUM_METHOD_LIVEGUEST_LEAVE
+uint16_t uniffi_tonearm_ffi_checksum_method_liveguest_leave(void
+    
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_TONEARM_FFI_CHECKSUM_METHOD_LIVEGUEST_QUEUE
+#define UNIFFI_FFIDEF_UNIFFI_TONEARM_FFI_CHECKSUM_METHOD_LIVEGUEST_QUEUE
+uint16_t uniffi_tonearm_ffi_checksum_method_liveguest_queue(void
+    
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_TONEARM_FFI_CHECKSUM_METHOD_LIVEGUEST_QUEUE_TRACK_IDS
+#define UNIFFI_FFIDEF_UNIFFI_TONEARM_FFI_CHECKSUM_METHOD_LIVEGUEST_QUEUE_TRACK_IDS
+uint16_t uniffi_tonearm_ffi_checksum_method_liveguest_queue_track_ids(void
+    
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_TONEARM_FFI_CHECKSUM_METHOD_LIVEGUEST_SET_SEEK_ONLY
+#define UNIFFI_FFIDEF_UNIFFI_TONEARM_FFI_CHECKSUM_METHOD_LIVEGUEST_SET_SEEK_ONLY
+uint16_t uniffi_tonearm_ffi_checksum_method_liveguest_set_seek_only(void
+    
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_TONEARM_FFI_CHECKSUM_METHOD_LIVEGUEST_TARGET
+#define UNIFFI_FFIDEF_UNIFFI_TONEARM_FFI_CHECKSUM_METHOD_LIVEGUEST_TARGET
+uint16_t uniffi_tonearm_ffi_checksum_method_liveguest_target(void
+    
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_TONEARM_FFI_CHECKSUM_METHOD_LIVEHOST_END
+#define UNIFFI_FFIDEF_UNIFFI_TONEARM_FFI_CHECKSUM_METHOD_LIVEHOST_END
+uint16_t uniffi_tonearm_ffi_checksum_method_livehost_end(void
+    
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_TONEARM_FFI_CHECKSUM_METHOD_LIVEHOST_GUESTS
+#define UNIFFI_FFIDEF_UNIFFI_TONEARM_FFI_CHECKSUM_METHOD_LIVEHOST_GUESTS
+uint16_t uniffi_tonearm_ffi_checksum_method_livehost_guests(void
+    
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_TONEARM_FFI_CHECKSUM_METHOD_LIVEHOST_INVITE_URL
+#define UNIFFI_FFIDEF_UNIFFI_TONEARM_FFI_CHECKSUM_METHOD_LIVEHOST_INVITE_URL
+uint16_t uniffi_tonearm_ffi_checksum_method_livehost_invite_url(void
+    
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_TONEARM_FFI_CHECKSUM_METHOD_LIVEHOST_SET_PLAYBACK
+#define UNIFFI_FFIDEF_UNIFFI_TONEARM_FFI_CHECKSUM_METHOD_LIVEHOST_SET_PLAYBACK
+uint16_t uniffi_tonearm_ffi_checksum_method_livehost_set_playback(void
+    
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_TONEARM_FFI_CHECKSUM_METHOD_LIVEHOST_SET_QUEUE
+#define UNIFFI_FFIDEF_UNIFFI_TONEARM_FFI_CHECKSUM_METHOD_LIVEHOST_SET_QUEUE
+uint16_t uniffi_tonearm_ffi_checksum_method_livehost_set_queue(void
+    
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_TONEARM_FFI_CHECKSUM_METHOD_LIVEOBSERVER_ON_UPDATE
+#define UNIFFI_FFIDEF_UNIFFI_TONEARM_FFI_CHECKSUM_METHOD_LIVEOBSERVER_ON_UPDATE
+uint16_t uniffi_tonearm_ffi_checksum_method_liveobserver_on_update(void
+    
+);
+#endif
 #ifndef UNIFFI_FFIDEF_UNIFFI_TONEARM_FFI_CHECKSUM_METHOD_SHUFFLE_NEXT_BATCH
 #define UNIFFI_FFIDEF_UNIFFI_TONEARM_FFI_CHECKSUM_METHOD_SHUFFLE_NEXT_BATCH
 uint16_t uniffi_tonearm_ffi_checksum_method_shuffle_next_batch(void
+    
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_TONEARM_FFI_CHECKSUM_CONSTRUCTOR_LIVEGUEST_JOIN
+#define UNIFFI_FFIDEF_UNIFFI_TONEARM_FFI_CHECKSUM_CONSTRUCTOR_LIVEGUEST_JOIN
+uint16_t uniffi_tonearm_ffi_checksum_constructor_liveguest_join(void
+    
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_TONEARM_FFI_CHECKSUM_CONSTRUCTOR_LIVEHOST_START
+#define UNIFFI_FFIDEF_UNIFFI_TONEARM_FFI_CHECKSUM_CONSTRUCTOR_LIVEHOST_START
+uint16_t uniffi_tonearm_ffi_checksum_constructor_livehost_start(void
     
 );
 #endif

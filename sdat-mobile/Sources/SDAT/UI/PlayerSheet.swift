@@ -218,8 +218,17 @@ private struct QueuePage: View {
             .navigationTitle("Queue")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
-                Button { player.setShuffle(!player.shuffle) } label: {
-                    Image(systemName: "shuffle").foregroundStyle(player.shuffle ? Color.blue : .white)
+                ToolbarItem(placement: .topBarLeading) {
+                    Button { Live.shared.showSheet = true } label: {
+                        Image(systemName: "dot.radiowaves.left.and.right")
+                            .foregroundStyle(Live.shared.active ? Color.blue : .white)
+                    }
+                    .accessibilityLabel("Listen Together")
+                }
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button { player.setShuffle(!player.shuffle) } label: {
+                        Image(systemName: "shuffle").foregroundStyle(player.shuffle ? Color.blue : .white)
+                    }
                 }
             }
             .background { ZStack { Color.black.opacity(0.55); Rectangle().fill(.ultraThinMaterial).opacity(0.9) }.ignoresSafeArea() }
