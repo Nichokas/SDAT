@@ -122,7 +122,7 @@ final class Live {
 
     private func finish(_ m: Mode) {
         generation += 1
-        lastPath = nil; lastDiagAt = .distantPast; lastDriftLogAt = .distantPast
+        lastPath = nil; lastDiagAt = .distantPast; lastDriftLogAt = .distantPast; alignedLatencyMs = nil
         loop?.cancel(); loop = nil
         host?.setControlObserver(observer: nil)
         guest?.setControlObserver(observer: nil)
@@ -383,6 +383,8 @@ final class Live {
     @ObservationIgnored private var lastDiagAt = Date.distantPast
     @ObservationIgnored private var lastPath: LivePath?
     @ObservationIgnored private var lastDriftLogAt = Date.distantPast
+    /// Latency the playing position was last aligned with.
+    @ObservationIgnored private var alignedLatencyMs: Int64?
 
     /// Logs the network path and clock state when the path changes and every
     /// 10 s, so a slow same-network session can be told apart from a relay.
@@ -445,6 +447,16 @@ final class Live {
         let now = Date()
         if let s = player.liveSeekEndedAt, now.timeIntervalSince(s) < Self.seekSettle { return }
         let actual = Int64(player.livePosition * 1000)
+        // An output route change (e.g. to AirPlay) can move the target by
+        // more than core's tolerance: realign once instead of staying off.
+        let lat = latencyMs
+        let previous = alignedLatencyMs
+        alignedLatencyMs = lat
+        if let previous, abs(lat - previous) >= Self.latencyRealignMs, let t = guest.target(latencyMs: lat) {
+            Self.log.notice("latency changed \(previous)->\(lat) ms, realigning")
+            player.liveSeek(to: Double(t.positionMs) / 1000)
+            return
+        }
         if let t = guest.target(latencyMs: latencyMs), now.timeIntervalSince(lastDriftLogAt) >= 10 {
             lastDriftLogAt = now
             Self.log.notice("drift errMs=\(t.positionMs - actual)")
@@ -467,6 +479,8 @@ final class Live {
     private static let log = Logger(subsystem: "dev.sdat", category: "live")
     /// Quiet time after a start or a drift seek before measuring again.
     private static let seekSettle: TimeInterval = 3
+    /// Latency change that triggers one realigning seek (smaller ones are jitter).
+    private static let latencyRealignMs: Int64 = 300
 
     private func resolve(_ id: String) async -> Track? {
         if let t = cache[id] { return t }
