@@ -43,7 +43,7 @@ impl DriftController {
     pub fn decide(&mut self, expected_ms: i64, actual_ms: i64, now_ns: i64) -> Correction {
         let err = expected_ms - actual_ms; // > 0: we are behind
         let abs = err.abs();
-        if self.rate_dirty && !(abs > SEEK_MS || self.seek_only) {
+        if self.rate_dirty && !(abs > SEEK_MS || (self.seek_only && abs >= DEADBAND_MS)) {
             self.rate_dirty = false;
             return Correction::Rate(1.0);
         }
@@ -94,6 +94,16 @@ impl DriftController {
 mod tests {
     use super::*;
     const S: i64 = 1_000_000_000;
+
+    #[test]
+    fn reset_nudge_is_undone_in_seek_only_mode_inside_deadband() {
+        let mut d = DriftController::new();
+        assert_eq!(d.decide(10_100, 10_000, 0), Correction::Rate(1.02));
+        d.reset();
+        d.seek_only = true;
+        assert_eq!(d.decide(10_000, 10_010, S), Correction::Rate(1.0));
+        assert_eq!(d.decide(10_000, 10_010, 2 * S), Correction::None);
+    }
 
     #[test]
     fn deadband_ignored() {

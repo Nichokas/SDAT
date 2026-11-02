@@ -100,6 +100,9 @@ impl HostSession {
 
     pub fn on_message(&mut self, peer: &str, msg: Msg, now_ns: i64) -> Vec<Out> {
         match msg {
+            // A joined guest repeating Hello gets the same per-guest limit as
+            // Resync, so it cannot make the host clone full snapshots in a loop.
+            Msg::Hello { .. } if self.guests.contains_key(peer) && self.last_resync_ns.get(peer).is_some_and(|t| now_ns - t < RESYNC_MIN_NS) => Vec::new(),
             Msg::Hello { proto, secret, name } => {
                 if proto != PROTO_VERSION {
                     return vec![to(peer, Msg::Reject { reason: RejectReason::IncompatibleVersion, proto: PROTO_VERSION })];
@@ -111,6 +114,7 @@ impl HostSession {
                     return vec![to(peer, Msg::Reject { reason: RejectReason::Full, proto: PROTO_VERSION })];
                 }
                 let name: String = name.chars().take(40).collect();
+                self.last_resync_ns.insert(peer.to_owned(), now_ns);
                 self.guests.insert(peer.to_owned(), GuestInfo { peer: peer.to_owned(), name });
                 let mut anchor = self.anchor.clone();
                 anchor.position_ms = anchor.position_at(now_ns);
@@ -532,6 +536,20 @@ mod tests {
         assert_eq!(answered, 1);
         // A retry after the guest's own gap timeout is answered.
         assert_eq!(snaps(&h.on_message("g", Msg::Resync { have: u64::MAX }, S + GAP_TIMEOUT_NS)), 1);
+    }
+
+    #[test]
+    fn hello_spam_from_joined_guest_is_rate_limited() {
+        let mut h = HostSession::new("Host".into(), 0);
+        let secret = h.secret.clone();
+        let hello = || Msg::Hello { proto: PROTO_VERSION, secret: secret.clone(), name: "G".into() };
+        let welcomes = |o: &[Out]| o.iter().filter(|o| matches!(o.msg, Msg::Welcome { .. })).count();
+        let mut answered = 0;
+        for i in 0..100 {
+            answered += welcomes(&h.on_message("g", hello(), i * MS));
+        }
+        assert_eq!(answered, 1);
+        assert_eq!(welcomes(&h.on_message("g", hello(), RESYNC_MIN_NS)), 1, "a reconnect after the limit is welcomed");
     }
 
     fn items(n: usize) -> Vec<QueueItem> {

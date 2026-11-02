@@ -27,6 +27,10 @@ use super::{ALPN, PROTO_VERSION, mono_now_ns, new_id};
 /// Relay of the SDAT project on iroh services (public URL, not a secret).
 pub const DEFAULT_RELAYS: &[&str] = &["https://efc2pr1s527pykb0a.euc1.relay.iroh-svc.com/"];
 /// Comma-separated relay URLs overriding [`DEFAULT_RELAYS`].
+/// How long an incoming connection may take to open its stream and to be
+/// accepted (valid `Hello`) before the host drops it.
+const HELLO_TIMEOUT: Duration = Duration::from_secs(10);
+
 pub const RELAYS_ENV: &str = "SDAT_LIVE_RELAYS";
 
 #[derive(Debug, Clone)]
@@ -55,7 +59,17 @@ impl NetConfig {
         if self.n0_fallback {
             urls.extend(RelayMode::Default.relay_map().urls::<Vec<_>>());
         }
-        if urls.is_empty() { RelayMode::Default } else { RelayMode::Custom(urls.into_iter().collect::<RelayMap>()) }
+        if !urls.is_empty() {
+            RelayMode::Custom(urls.into_iter().collect::<RelayMap>())
+        } else if self.relays.is_empty() {
+            // Nothing configured at all: iroh's defaults.
+            RelayMode::Default
+        } else {
+            // Relays were configured but none parsed and the public fallback
+            // is off: honour that and stay direct-only instead of silently
+            // using n0's relays.
+            RelayMode::Disabled
+        }
     }
 }
 
@@ -232,6 +246,12 @@ fn route_from(peers: &Peers, outs: Vec<super::session::Out>, own: Option<(&str, 
     }
 }
 
+/// The invitation for `state`. Uses the session's (already shortened) name,
+/// so a long host name cannot push the ticket over the parse limit.
+fn host_ticket(state: &HostSession, addr: String) -> Ticket {
+    Ticket { v: PROTO_VERSION, addr, secret: state.secret.clone(), name: Some(state.name.clone()) }
+}
+
 /// Removes `peer` only if `token` still owns it. Returns whether it did.
 fn unregister(peers: &Peers, peer: &str, token: u64) -> bool {
     let mut p = peers.lock().unwrap_or_else(PoisonError::into_inner);
@@ -250,10 +270,9 @@ impl LiveHost {
         runtime().block_on(async {
             let endpoint = bind(cfg, vec![ALPN.to_vec()]).await?;
             drop(tokio::time::timeout(Duration::from_secs(5), endpoint.online()).await);
-            let state = Arc::new(Mutex::new(HostSession::new(name.clone(), mono_now_ns())));
-            let secret = state.lock().unwrap_or_else(PoisonError::into_inner).secret.clone();
+            let state = Arc::new(Mutex::new(HostSession::new(name, mono_now_ns())));
             let addr = serde_json::to_string(&endpoint.addr()).map_err(net)?;
-            let ticket = Ticket { v: PROTO_VERSION, addr, secret, name: Some(name) };
+            let ticket = host_ticket(&state.lock().unwrap_or_else(PoisonError::into_inner), addr);
             let peers: Peers = Arc::default();
             let stop = Arc::new(Stop::default());
             // Accept loop.
@@ -334,7 +353,7 @@ impl LiveHost {
 
 async fn serve_guest(conn: Connection, state: Arc<Mutex<HostSession>>, peers: Peers, listener: Arc<dyn LiveListener>) {
     let peer = conn.remote_id().to_string();
-    let Ok((mut send, mut recv)) = conn.accept_bi().await else { return };
+    let Ok(Ok((mut send, mut recv))) = tokio::time::timeout(HELLO_TIMEOUT, conn.accept_bi()).await else { return };
     let (tx, mut rx) = Outbox::new();
     let token = next_token();
     let mut registered = false;
@@ -353,11 +372,20 @@ async fn serve_guest(conn: Connection, state: Arc<Mutex<HostSession>>, peers: Pe
     let mut known = 0;
     loop {
         // Dropping a half-read frame is fine here: a kicked guest is gone.
+        // Until its Hello is accepted a connection must speak within
+        // HELLO_TIMEOUT, so idle or uninvited peers cannot pile up.
+        let read = async {
+            if registered {
+                Some(read_msg(&mut recv).await)
+            } else {
+                tokio::time::timeout(HELLO_TIMEOUT, read_msg(&mut recv)).await.ok()
+            }
+        };
         let m = tokio::select! {
-            m = read_msg(&mut recv) => m,
+            m = read => m,
             () = tx.kicked.wait() => break,
         };
-        let Ok(m) = m else { break };
+        let Some(Ok(m)) = m else { break };
         let now = mono_now_ns();
         // Snapshot (Welcome), registration and routing happen under the
         // state lock, and every other sender routes under it too, so no
@@ -631,6 +659,20 @@ mod tests {
         assert!(urls.iter().any(|u| u.as_str().contains("iroh-svc.com")));
         let only = NetConfig { relays: vec![], n0_fallback: false };
         assert_eq!(only.relay_mode(), RelayMode::Default);
+    }
+
+    #[test]
+    fn invalid_relays_without_fallback_do_not_use_public_relays() {
+        let cfg = NetConfig { relays: vec!["not a url".into()], n0_fallback: false };
+        assert_eq!(cfg.relay_mode(), RelayMode::Disabled);
+    }
+
+    #[test]
+    fn host_ticket_with_long_name_still_parses() {
+        let state = HostSession::new("x".repeat(100_000), 0);
+        let t = host_ticket(&state, "addr".repeat(100));
+        assert_eq!(t.name.as_deref().map(|n| n.chars().count()), Some(40));
+        assert!(super::super::ticket::Ticket::parse(&t.to_url()).is_ok());
     }
 
     fn sender() -> Outbox {
