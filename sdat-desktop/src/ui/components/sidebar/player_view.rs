@@ -383,8 +383,10 @@ fn track_timeline() -> gtk::Overlay {
     let scale = scale.hexp(true).background("transparent").hpadding(0);
     on_state(is_controllable(), &scale, |s, v| s.set_sensitive(*v));
     scale.connect_change_value(|_, _, f| {
-        // Guests follow the host's position; a local scrub is refused.
-        if crate::live::guest_refuses() {
+        // Guests with control ask the host to seek everyone; otherwise refused.
+        if crate::live::is_guest() {
+            let d = player::playback_state_changed().get().duration;
+            crate::live::user_seek(d.mul_f64((f / 100.0).clamp(0.0, 1.0)));
             return glib::Propagation::Stop;
         }
         player::seek_to_percent(f);

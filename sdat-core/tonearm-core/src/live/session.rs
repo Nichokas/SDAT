@@ -60,6 +60,9 @@ pub struct HostCommand {
     pub next: bool,
 }
 
+/// Longest position a guest may ask to seek to (24 h).
+pub const MAX_SEEK_MS: i64 = 24 * 3_600_000;
+
 /// Whether `cmd` is well formed: known, and for `Enqueue` 1..=[`MAX_ENQUEUE`]
 /// TIDAL track ids (ASCII digits, at most [`MAX_TRACK_ID_LEN`]).
 pub fn valid_command(cmd: &GuestCommand) -> bool {
@@ -70,6 +73,7 @@ pub fn valid_command(cmd: &GuestCommand) -> bool {
                 && track_ids.len() <= MAX_ENQUEUE
                 && track_ids.iter().all(|t| !t.is_empty() && t.len() <= MAX_TRACK_ID_LEN && t.bytes().all(|b| b.is_ascii_digit()))
         }
+        GuestCommand::Seek { position_ms } => (0..=MAX_SEEK_MS).contains(position_ms),
         GuestCommand::Unknown => false,
     }
 }
@@ -1841,6 +1845,8 @@ mod tests {
             GuestCommand::Enqueue { track_ids: vec!["\"\n".into()] },
             GuestCommand::Enqueue { track_ids: vec!["1".repeat(MAX_TRACK_ID_LEN + 1)] },
             GuestCommand::Enqueue { track_ids: vec!["1".into(); MAX_ENQUEUE + 1] },
+            GuestCommand::Seek { position_ms: -1 },
+            GuestCommand::Seek { position_ms: MAX_SEEK_MS + 1 },
         ];
         for (i, c) in bad.into_iter().enumerate() {
             h.on_message("g", Msg::Command { cmd: c, next: false }, i as i64 * CMD_WINDOW_NS);
@@ -1948,6 +1954,17 @@ mod tests {
         w.deliver(o, 60 * S);
         // The guest still plays the old entry at 57 s: seek now, no settle.
         assert_eq!(w.guest.correction(local(60 * S), 0, 57_000), Correction::Seek(0));
+    }
+
+    #[test]
+    fn small_host_seek_is_followed_at_once() {
+        let (mut w, local) = following("i");
+        assert_eq!(w.guest.correction(local(13 * S), 0, 10_000), Correction::None); // settle starts
+        // Host seeks 2 s ahead (below the drift tolerance) inside the settle
+        // window: the guest follows right away instead of waiting.
+        let o = w.host.set_playback(Some("i".into()), Some("t".into()), 13_000, true, 14 * S);
+        w.deliver(o, 14 * S);
+        assert_eq!(w.guest.correction(local(14 * S), 0, 11_000), Correction::Seek(13_000));
     }
 
     #[test]

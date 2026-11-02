@@ -60,7 +60,7 @@ impl DriftController {
     pub fn decide(&mut self, expected_ms: i64, actual_ms: i64, now_ns: i64) -> Correction {
         // abs_diff: positions come from the network and may be extreme.
         let abs = i64::try_from(expected_ms.abs_diff(actual_ms)).unwrap_or(i64::MAX);
-        if std::mem::take(&mut self.host_jump) && abs > TOLERANCE_MS {
+        if std::mem::take(&mut self.host_jump) && abs > HOST_JUMP_MS {
             return self.seek(expected_ms, now_ns);
         }
         let from = *self.settle_from_ns.get_or_insert(now_ns);
@@ -85,8 +85,9 @@ impl DriftController {
     /// The host jumped on the same track (a seek, or the next queue entry is
     /// the same song so the client keeps its player): honor it at once,
     /// bypassing the settle window and seek spacing (it is not drift).
-    /// The tolerance still applies: a host seek that leaves the guest within
-    /// [`TOLERANCE_MS`] is accepted divergence, not worth an audible seek.
+    /// An explicit seek is followed even when it is smaller than
+    /// [`TOLERANCE_MS`] (that tolerance is for drift); only a guest already
+    /// within [`HOST_JUMP_MS`] of the new position stays put.
     pub fn host_jumped(&mut self) {
         self.host_jump = true;
     }
@@ -187,9 +188,19 @@ mod tests {
     fn host_jump_within_tolerance_needs_nothing() {
         let mut d = DriftController::new();
         d.host_jumped();
-        assert_eq!(d.decide(12_000, 10_000, 0), Correction::None);
+        assert_eq!(d.decide(10_900, 10_000, 0), Correction::None);
         // The pending jump is consumed: settling applies as usual.
         assert_eq!(d.decide(20_000, 10_000, S), Correction::None);
+    }
+
+    #[test]
+    fn small_host_jump_is_followed_at_once() {
+        // A 2 s host seek is below the drift tolerance but is explicit:
+        // follow it right away, even inside the settle window.
+        let mut d = DriftController::new();
+        assert_eq!(d.decide(10_000, 10_000, 0), Correction::None);
+        d.host_jumped();
+        assert_eq!(d.decide(12_000, 10_000, S), Correction::Seek(12_000));
     }
 
     #[test]

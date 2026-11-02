@@ -74,6 +74,9 @@ pub enum GuestCommand {
     Next,
     /// Append TIDAL track ids (each listener resolves them with their own account).
     Enqueue { track_ids: Vec<String> },
+    /// Move the shared playback to this position (ms) in the current track.
+    /// Hosts that predate it decode it as `Unknown` and ignore it.
+    Seek { position_ms: i64 },
     #[serde(other)]
     Unknown,
 }
@@ -216,6 +219,14 @@ mod tests {
         assert_eq!(decode(&f[4..]).unwrap(), m);
         assert_eq!(decode(br#"{"t":"command","cmd":{"c":"shuffle"}}"#).unwrap(), Msg::Command { cmd: GuestCommand::Unknown, next: false });
         assert_eq!(decode(br#"{"t":"control","guest_control":true}"#).unwrap(), Msg::Control { guest_control: true });
+    }
+
+    #[test]
+    fn seek_command_round_trip() {
+        let m = Msg::Command { cmd: GuestCommand::Seek { position_ms: 42_000 }, next: false };
+        let f = encode(&m).unwrap();
+        assert_eq!(serde_json::to_value(&m).unwrap(), serde_json::json!({"t":"command","cmd":{"c":"seek","position_ms":42000}}));
+        assert_eq!(decode(&f[4..]).unwrap(), m);
     }
 
     #[test]

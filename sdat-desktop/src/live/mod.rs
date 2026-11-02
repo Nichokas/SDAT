@@ -49,6 +49,10 @@ thread_local! {
     static LAST_STATUS: Cell<Option<(PlaybackStatus, bool)>> = const { Cell::new(None) };
     /// Guest: track loads started to follow the host.
     static LOADS: RefCell<LoadGate> = RefCell::new(LoadGate::default());
+    /// Guest: aligned start of the host's track (see [`StartGate`]).
+    static START: RefCell<StartGate> = RefCell::new(StartGate::default());
+    /// Host: track of the last published anchor, to spot a track change.
+    static LAST_TRACK: RefCell<Option<String>> = const { RefCell::new(None) };
     static HOOKED: Cell<bool> = const { Cell::new(false) };
     static OUTPUT_DELAY: Cell<i32> = const { Cell::new(0) };
     /// Host: accepted guest track ids waiting to be fetched, in arrival order.
@@ -266,6 +270,8 @@ fn teardown() {
     }
     let loading = LOADS.with(RefCell::take).is_loading();
     LAST_STATUS.with(|l| l.set(None));
+    START.with(RefCell::take);
+    LAST_TRACK.with(RefCell::take);
     if was_guest {
         // A host track still loading would start after we left: the player
         // handles triggers in order, so this stop lands after that load.
@@ -296,6 +302,8 @@ fn apply_guest_command(c: &HostCommand) {
         GuestCommand::Play => player::play(),
         GuestCommand::Pause => player::pause(),
         GuestCommand::Next => player::next(),
+        // `seeked` publishes the new anchor right away.
+        GuestCommand::Seek { position_ms } => player::seek_to_position(Duration::from_millis(u64::try_from(*position_ms).unwrap_or(0)), true),
         GuestCommand::Enqueue { track_ids } => {
             let generation = current_generation();
             HOST_ENQUEUE.with(|q| q.borrow_mut().extend(track_ids.iter().map(|id| (generation, id.clone()))));
@@ -494,7 +502,14 @@ pub fn user_next() {
     }
 }
 
-/// Actions guests can never take (previous, seek, stop, shuffle, repeat):
+/// UI seek. Guests with control ask the host (it moves everyone at once);
+/// `true` when handled here, `false` when the caller should seek locally.
+pub fn user_seek(to: Duration) -> bool {
+    let ms = i64::try_from(to.as_millis()).unwrap_or(i64::MAX);
+    run(route(is_guest(), guest_control().get(), GuestCommand::Seek { position_ms: ms }))
+}
+
+/// Actions guests can never take (previous, stop, shuffle, repeat):
 /// `true` when refused.
 pub fn guest_refuses() -> bool {
     is_guest() && run(Route::Locked)
@@ -563,7 +578,25 @@ fn publish_playback() {
     let playing = ps.status == PlaybackStatus::Playing && !ps.loading;
     let item = CURRENT_ITEM.with(|c| c.borrow().clone());
     let track = if item.is_some() { player::current_track_id() } else { None };
+    let changed = LAST_TRACK.with(|l| {
+        let mut l = l.borrow_mut();
+        let changed = track_change_position_is_stale(l.as_deref(), track.as_deref());
+        if track.is_some() {
+            l.clone_from(&track);
+        }
+        changed
+    });
+    let pos = if changed { Duration::ZERO } else { pos };
     h.set_playback(item, track, i64::try_from(pos.as_millis()).unwrap_or(i64::MAX), playing);
+}
+
+/// Host: whether the position read right at a track change still belongs to
+/// the previous track. On a gapless switch `GStreamer` posts stream-start (and
+/// `track_changed` fires) while the sink still reports the old track's
+/// position; publishing it made guests start the new song mid-way and jump
+/// back to 0:00 on the next anchor. A new track always starts at 0.
+pub fn track_change_position_is_stale(last: Option<&str>, now: Option<&str>) -> bool {
+    matches!((last, now), (Some(a), Some(b)) if a != b)
 }
 
 fn start_host_refresh(generation: u64) {
@@ -716,6 +749,82 @@ impl LoadGate {
     }
 }
 
+/// The guest starts the host's track this far ahead of the host, paused,
+/// then plays when the host gets there: the buffer fills meanwhile, so the
+/// start is clean and lands on the host's position (same as iOS).
+pub const START_LEAD_MS: i64 = 3_000;
+/// Give up aligning after this long and just play (drift handles the rest).
+const START_TIMEOUT: Duration = Duration::from_secs(15);
+/// Re-aim when the host ended up this far past the aimed point (it seeked).
+const START_MISSED_MS: i64 = 2_000;
+const START_RETRIES: u32 = 3;
+
+/// What an aligned start needs from the player this tick.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum StartStep {
+    /// Nothing to align (not starting, or done): normal following.
+    Follow,
+    /// Keep waiting, paused.
+    Wait,
+    /// Seek the paused player here (ms).
+    Seek(i64),
+    /// Start playing now.
+    Play,
+}
+
+/// Guest: aligned start of a newly loaded host track (join or track change).
+#[derive(Debug, Default)]
+pub struct StartGate {
+    /// Track being aligned, the point aimed at, when it began, retries used.
+    active: Option<(String, Option<i64>, Instant, u32)>,
+}
+
+impl StartGate {
+    pub fn begin(&mut self, track: &str, now: Instant) {
+        self.active = Some((track.to_string(), None, now, 0));
+    }
+    #[cfg(test)]
+    pub fn is_active(&self) -> bool {
+        self.active.is_some()
+    }
+    /// `target_ms`/`host_playing`: the host now; `actual_ms`: the local player
+    /// (paused); `ready`: loaded and not buffering.
+    pub fn step(&mut self, track: &str, target_ms: i64, host_playing: bool, actual_ms: Option<i64>, ready: bool, now: Instant) -> StartStep {
+        let Some((t, aim, since, retries)) = self.active.as_mut() else { return StartStep::Follow };
+        if t != track || !host_playing {
+            // Another track, or the host paused: the paused path takes over.
+            self.active = None;
+            return StartStep::Follow;
+        }
+        if now.duration_since(*since) > START_TIMEOUT {
+            self.active = None;
+            return StartStep::Play;
+        }
+        if !ready {
+            return StartStep::Wait;
+        }
+        let Some(a) = *aim else {
+            let to = target_ms.max(0) + START_LEAD_MS;
+            *aim = Some(to);
+            return StartStep::Seek(to);
+        };
+        if target_ms > a + START_MISSED_MS && *retries < START_RETRIES {
+            *retries += 1;
+            let to = target_ms + START_LEAD_MS;
+            *aim = Some(to);
+            return StartStep::Seek(to);
+        }
+        if actual_ms.is_none_or(|x| (x - a).abs() > SEEK_MS) && *retries < START_RETRIES && target_ms < a {
+            return StartStep::Wait; // seek still landing
+        }
+        if target_ms >= a {
+            self.active = None;
+            return StartStep::Play;
+        }
+        StartStep::Wait
+    }
+}
+
 /// Fetches the host's track with the guest's own TIDAL session, then plays it
 /// only if the same session still wants it, honouring the host's pause.
 fn load_host_track(track: String, attempt: u64) {
@@ -738,8 +847,11 @@ fn load_host_track(track: String, attempt: u64) {
         match r {
             Ok(t) => {
                 player::play_track(t);
-                if want.is_some_and(|t| !t.playing) {
-                    player::pause();
+                // Always load paused: a playing host is joined by an aligned
+                // start (see `StartGate`), never from 0:00 or a stale spot.
+                player::pause();
+                if want.is_some_and(|t| t.playing) {
+                    START.with(|s| s.borrow_mut().begin(&track, Instant::now()));
                 }
             }
             Err(e) => {
@@ -776,6 +888,28 @@ fn guest_tick() {
         return;
     }
     LOADS.with(|l| l.borrow_mut().loaded());
+    let actual = player::position().map(ms);
+    let step = START.with(|s| s.borrow_mut().step(&track, t.position_ms, t.playing, actual, !ps.loading, Instant::now()));
+    match step {
+        StartStep::Follow => {}
+        StartStep::Wait => {
+            if local_playing {
+                player::pause();
+            }
+            return;
+        }
+        StartStep::Seek(to) => {
+            if local_playing {
+                player::pause();
+            }
+            player::seek_to_position(Duration::from_millis(u64::try_from(to).unwrap_or(0)), true);
+            return;
+        }
+        StartStep::Play => {
+            player::play();
+            return;
+        }
+    }
     if ps.loading {
         return;
     }
@@ -783,7 +917,7 @@ fn guest_tick() {
         if t.playing { player::play() } else { player::pause() }
         return;
     }
-    let Some(actual) = player::position().map(ms) else { return };
+    let Some(actual) = actual else { return };
     if !t.playing {
         if paused_needs_seek(t.position_ms, actual) {
             player::seek_to_position(Duration::from_millis(u64::try_from(t.position_ms.max(0)).unwrap_or(0)), true);
@@ -803,6 +937,51 @@ fn guest_tick() {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn track_change_publishes_zero() {
+        assert!(track_change_position_is_stale(Some("1"), Some("2")));
+        assert!(!track_change_position_is_stale(Some("1"), Some("1")));
+        // Starting to host mid-song keeps the real position.
+        assert!(!track_change_position_is_stale(None, Some("1")));
+        assert!(!track_change_position_is_stale(Some("1"), None));
+    }
+
+    #[test]
+    fn aligned_start_waits_for_the_host() {
+        let t0 = Instant::now();
+        let at = |s: u64| t0 + Duration::from_secs(s);
+        let mut g = StartGate::default();
+        assert_eq!(g.step("t", 0, true, None, true, t0), StartStep::Follow);
+        g.begin("t", t0);
+        // Joining an iOS host already at 42 s: never start from 0:00.
+        assert_eq!(g.step("t", 42_000, true, Some(0), false, t0), StartStep::Wait);
+        assert_eq!(g.step("t", 42_500, true, Some(0), true, at(1)), StartStep::Seek(45_500));
+        assert_eq!(g.step("t", 43_500, true, Some(45_500), true, at(2)), StartStep::Wait);
+        assert_eq!(g.step("t", 45_500, true, Some(45_500), true, at(3)), StartStep::Play);
+        assert!(!g.is_active());
+        assert_eq!(g.step("t", 46_000, true, Some(45_600), true, at(4)), StartStep::Follow);
+    }
+
+    #[test]
+    fn aligned_start_reaims_after_a_host_seek_and_times_out() {
+        let t0 = Instant::now();
+        let mut g = StartGate::default();
+        g.begin("t", t0);
+        assert_eq!(g.step("t", 0, true, Some(0), true, t0), StartStep::Seek(START_LEAD_MS));
+        assert_eq!(g.step("t", 90_000, true, Some(START_LEAD_MS), true, t0), StartStep::Seek(90_000 + START_LEAD_MS));
+        assert_eq!(g.step("t", 91_000, true, None, false, t0 + START_TIMEOUT + Duration::from_secs(1)), StartStep::Play);
+    }
+
+    #[test]
+    fn aligned_start_yields_to_pause_and_track_change() {
+        let t0 = Instant::now();
+        let mut g = StartGate::default();
+        g.begin("t", t0);
+        assert_eq!(g.step("u", 0, true, Some(0), true, t0), StartStep::Follow);
+        g.begin("t", t0);
+        assert_eq!(g.step("t", 0, false, Some(0), true, t0), StartStep::Follow);
+    }
 
     #[test]
     fn guest_actions_follow_the_host_permission() {

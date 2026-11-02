@@ -37,6 +37,8 @@ pub enum LiveCommand {
     Next,
     /// Append these TIDAL track ids to the shared queue (max 50, digits only).
     Enqueue { track_ids: Vec<String> },
+    /// Move the shared playback to this position (ms).
+    Seek { position_ms: i64 },
 }
 
 fn command_of(c: GuestCommand) -> Option<LiveCommand> {
@@ -45,6 +47,7 @@ fn command_of(c: GuestCommand) -> Option<LiveCommand> {
         GuestCommand::Pause => LiveCommand::Pause,
         GuestCommand::Next => LiveCommand::Next,
         GuestCommand::Enqueue { track_ids } => LiveCommand::Enqueue { track_ids },
+        GuestCommand::Seek { position_ms } => LiveCommand::Seek { position_ms },
         GuestCommand::Unknown => return None,
     })
 }
@@ -55,6 +58,7 @@ fn to_core(c: LiveCommand) -> GuestCommand {
         LiveCommand::Pause => GuestCommand::Pause,
         LiveCommand::Next => GuestCommand::Next,
         LiveCommand::Enqueue { track_ids } => GuestCommand::Enqueue { track_ids },
+        LiveCommand::Seek { position_ms } => GuestCommand::Seek { position_ms },
     }
 }
 
