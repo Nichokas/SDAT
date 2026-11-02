@@ -1,8 +1,6 @@
 .direnv/
 local/
-__debug_bin*
 .flatpak-builder/
 repo/
 *.flatpak
-/tonearm
 /target/

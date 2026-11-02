@@ -14,7 +14,7 @@
     <download-page rdf:resource="https://codeberg.org/dergs/Tonearm" />
     <bug-database rdf:resource="https://codeberg.org/dergs/Tonearm/issues" />
 
-    <programming-language>Golang</programming-language>
+    <programming-language>Rust</programming-language>
 
     <maintainer>
         <foaf:Person>
