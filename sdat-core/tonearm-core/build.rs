@@ -4,7 +4,7 @@ fn main() {
     // Embedded translations (like Go's //go:embed of the .po files).
     let out = std::env::var("OUT_DIR").expect("cargo sets OUT_DIR");
     let manifest = std::env::var("CARGO_MANIFEST_DIR").expect("cargo sets CARGO_MANIFEST_DIR");
-    let loc_dir = Path::new(&manifest).join("../../sdat-desktop/internal/gettext/locales");
+    let loc_dir = Path::new(&manifest).join("../locales");
     println!("cargo:rerun-if-changed={}", loc_dir.display());
     let mut entries: Vec<String> = Vec::new();
     if let Ok(rd) = std::fs::read_dir(&loc_dir) {

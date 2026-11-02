@@ -10,7 +10,6 @@ on:
       - "sdat-core/**"
       - "Cargo.toml"
       - "Cargo.lock"
-      - "sdat-desktop/internal/gettext/locales/**"
       - ".github/workflows/ios-build.yml"
   pull_request:
     paths:
@@ -18,7 +17,6 @@ on:
       - "sdat-core/**"
       - "Cargo.toml"
       - "Cargo.lock"
-      - "sdat-desktop/internal/gettext/locales/**"
       - ".github/workflows/ios-build.yml"
   workflow_dispatch:
     inputs:

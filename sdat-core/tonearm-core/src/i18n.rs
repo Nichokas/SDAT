@@ -1,5 +1,5 @@
 //! Translations. Like the Go version (gotext + embed), the `.po` files from
-//! `internal/gettext/locales` are embedded into the binary and looked up at
+//! `sdat-core/locales` are embedded into the binary and looked up at
 //! runtime, so no `.mo` installation step is needed.
 
 use std::collections::HashMap;
