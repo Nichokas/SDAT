@@ -1,7 +1,6 @@
 package com.nichokas.sdat.ui
 
 import androidx.compose.foundation.background
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -14,6 +13,8 @@ import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.safeDrawingPadding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.selection.selectable
+import androidx.compose.foundation.selection.selectableGroup
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -24,6 +25,7 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.nichokas.sdat.core.coreLoaded
@@ -72,11 +74,11 @@ fun RootView() {
 @Composable
 private fun TabBar(selected: AppTab, onSelect: (AppTab) -> Unit, modifier: Modifier = Modifier) {
     GlassSurface(modifier.height(62.dp), shape = capsule) {
-        Row(Modifier.fillMaxSize().padding(4.dp)) {
+        Row(Modifier.fillMaxSize().padding(4.dp).selectableGroup()) {
             AppTab.entries.forEach { t ->
                 val tint = if (t == selected) GlasmioTheme.colors.accent else GlasmioTheme.colors.content
                 Column(
-                    Modifier.weight(1f).fillMaxHeight().clickable { onSelect(t) },
+                    Modifier.weight(1f).fillMaxHeight().selectable(t == selected, role = Role.Tab) { onSelect(t) },
                     horizontalAlignment = Alignment.CenterHorizontally,
                     verticalArrangement = Arrangement.Center,
                 ) {

@@ -48,6 +48,7 @@ val buildRustCore = tasks.register<BuildRustCore>("buildRustCore") {
     script.set(repo.file("scripts/build-rust-android.sh"))
     sources.from(
         repo.file("scripts/build-rust-android.sh"),
+        repo.file("Cargo.toml"),
         repo.file("Cargo.lock"),
         repo.dir("sdat-core").asFileTree.matching { exclude("**/target/**") },
     )
