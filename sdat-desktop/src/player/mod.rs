@@ -52,18 +52,35 @@ thread_local! {
     /// Entries at the front of the user queue that were added with "play next".
     static PLAY_NEXT_PINNED: Cell<usize> = const { Cell::new(0) };
     static PLAY_NEXT_ORDER: std::cell::RefCell<play_next::Sequencer<Track>> = std::cell::RefCell::default();
+    /// Bumped when the queues are replaced, so pending "play next" fetches are discarded.
+    static PLAY_NEXT_GENERATION: Cell<u64> = const { Cell::new(0) };
+}
+
+/// A reserved place in the "play next" order, tied to the queue it was taken for.
+#[derive(Debug, Clone, Copy)]
+pub struct PlayNextTicket {
+    generation: u64,
+    seq: u64,
 }
 
 /// Reserves the order of a "play next" request when the user makes it.
-pub fn play_next_ticket() -> u64 {
-    PLAY_NEXT_ORDER.with(|s| s.borrow_mut().ticket())
+pub fn play_next_ticket() -> PlayNextTicket {
+    PlayNextTicket { generation: PLAY_NEXT_GENERATION.with(Cell::get), seq: PLAY_NEXT_ORDER.with(|s| s.borrow_mut().ticket()) }
 }
 
 /// Delivers the tracks for a "play next" request (empty if fetching failed);
-/// requests are applied in the order their tickets were taken.
-pub fn complete_play_next(ticket: u64, tracks: Vec<Track>) {
-    let batches = PLAY_NEXT_ORDER.with(|s| s.borrow_mut().complete(ticket, tracks));
+/// requests are applied in the order their tickets were taken. Requests taken
+/// before the queues were replaced are dropped. A Listen Together guest sends
+/// each batch to the host as a normal enqueue, in the same order.
+pub fn complete_play_next(ticket: PlayNextTicket, tracks: Vec<Track>) {
+    if ticket.generation != PLAY_NEXT_GENERATION.with(Cell::get) {
+        return;
+    }
+    let batches = PLAY_NEXT_ORDER.with(|s| s.borrow_mut().complete(ticket.seq, tracks));
     for b in batches {
+        if b.is_empty() || crate::live::user_enqueue(b.iter().map(|t| t.id().to_string()).collect()) {
+            continue;
+        }
         play_tracklist_next(b);
     }
 }
@@ -254,6 +271,8 @@ pub fn current_track_id() -> Option<String> {
 fn clear_queues() {
     user_queue().clear();
     update_pinned(|_| 0);
+    PLAY_NEXT_GENERATION.with(|g| g.set(g.get() + 1));
+    PLAY_NEXT_ORDER.with(|s| *s.borrow_mut() = play_next::Sequencer::default());
     base_queue().clear();
 }
 

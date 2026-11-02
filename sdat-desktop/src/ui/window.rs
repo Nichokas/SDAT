@@ -379,11 +379,9 @@ fn queue_param(param: &str, next: bool) {
         let ticket = player::play_next_ticket();
         spawn_logged("play next", async move {
             let r = queue_target_tracks(kind, id).await;
-            let tracks = r.as_ref().map(Clone::clone).unwrap_or_default();
-            // A Listen Together guest can't reorder the host's queue: like
-            // "add to queue", the request goes to the host as an enqueue.
-            let guest = !tracks.is_empty() && crate::live::user_enqueue(ids(&tracks));
-            player::complete_play_next(ticket, if guest { vec![] } else { tracks });
+            // A Listen Together guest can't reorder the host's queue, so
+            // complete_play_next sends the batch to the host as an enqueue.
+            player::complete_play_next(ticket, r.as_ref().map(Clone::clone).unwrap_or_default());
             r.map(drop)
         });
     } else if kind == "track" {
@@ -502,10 +500,14 @@ fn install_actions(app: &adw::Application, window: &adw::ApplicationWindow) {
     }));
     window.add_action(&simple("player.shuffle", player::toggle_shuffle));
     accel(app, "win.player.shuffle", &[p("s")]);
-    window.add_action(&simple("player.next", player::next));
+    window.add_action(&simple("player.next", crate::live::user_next));
     accel(app, "win.player.next", &[p("Right")]);
-    window.add_action(&simple("player.play-pause", player::play_pause));
-    window.add_action(&simple("player.previous", player::previous));
+    window.add_action(&simple("player.play-pause", crate::live::user_play_pause));
+    window.add_action(&simple("player.previous", || {
+        if !crate::live::guest_refuses() {
+            player::previous();
+        }
+    }));
     accel(app, "win.player.previous", &[p("Left")]);
     window.add_action(&simple("player.repeat", player::cycle_repeat_mode));
     accel(app, "win.player.repeat", &[p("r")]);
