@@ -18,6 +18,9 @@ final class Live {
     private(set) var reconnecting = false
     /// Guest view of the host's queue (resolved lazily).
     private(set) var upNext: [LiveRow] = []
+    /// Host: whether guests may play/pause, skip and add songs (off by default).
+    /// Guest: whether the host currently allows that.
+    private(set) var guestControl = false
     var showSheet = false
     var showScanner = false
     /// Manual extra output delay (e.g. Bluetooth), in ms.
@@ -44,6 +47,14 @@ final class Live {
     // guest bookkeeping
     private var cache: [String: Track] = [:]
     private var switching: String?
+    /// Guest: queue requests waiting for room in the command budget.
+    private var outbox: [[String]] = []
+    private var outboxFailures = 0
+    private var outboxTask: Task<Void, Never>?
+
+    // host: accepted guest track ids, fetched one at a time in arrival order
+    private var hostEnqueue: [(gen: Int, id: String)] = []
+    private var hostEnqueueTask: Task<Void, Never>?
 
     var active: Bool { [.starting, .hosting, .joining, .joined].contains(mode) }
 
@@ -61,6 +72,8 @@ final class Live {
             // Cancelled (or replaced) while the endpoint was coming up.
             guard gen == generation, mode == .starting else { h.end(); return }
             host = h
+            guestControl = false
+            h.setControlObserver(observer: LiveControlBridge(generation: gen))
             invite = h.inviteUrl()
             mode = .hosting
             sentTrackIds = []; sent = nil
@@ -80,6 +93,8 @@ final class Live {
         generation += 1
         do {
             guest = try LiveGuest.join(invite: text, name: deviceName, relays: nil, observer: LiveBridge(generation: generation))
+            guestControl = false
+            guest?.setControlObserver(observer: LiveControlBridge(generation: generation))
             mode = .joining
             // Only an accepted invitation clears an older system pause.
             player.clearSystemPause()
@@ -102,7 +117,12 @@ final class Live {
     private func finish(_ m: Mode) {
         generation += 1
         loop?.cancel(); loop = nil
+        host?.setControlObserver(observer: nil)
+        guest?.setControlObserver(observer: nil)
         host = nil; guest = nil
+        guestControl = false
+        outbox = []; outboxFailures = 0; outboxTask?.cancel(); outboxTask = nil
+        hostEnqueue = []; hostEnqueueTask?.cancel(); hostEnqueueTask = nil
         switching = nil
         lastSeekAt = nil; seekBackoff = Self.seekBackoffMin; lastTarget = nil
         player.liveFollowing = false
@@ -145,6 +165,126 @@ final class Live {
         case .badInvite: "This invitation isn't valid."
         case .incompatible: "The host is using a different version of SDAT. Update both apps."
         case .full: "This session is full."
+        }
+    }
+
+    // MARK: guest playback control
+
+    var isGuest: Bool { guest != nil }
+    /// A guest who may not play/pause, skip or add songs right now.
+    var playbackLocked: Bool { guest != nil && !guestControl }
+
+    /// Host: lets guests play/pause, skip and add songs.
+    func setGuestControl(_ allowed: Bool) {
+        guard let host else { return }
+        host.setGuestControl(allowed: allowed)
+        guestControl = host.guestControl()
+        if !guestControl { hostEnqueue = [] }
+    }
+
+    fileprivate func controlChanged(_ allowed: Bool, generation gen: Int) {
+        guard gen == generation, guest != nil else { return }
+        guestControl = allowed
+        if !allowed { outbox = []; outboxFailures = 0 }
+    }
+
+    /// Host: applies an accepted guest command through the normal player path;
+    /// the regular host tick then publishes the result to every guest.
+    fileprivate func guestCommand(_ cmd: LiveCommand, generation gen: Int) {
+        guard gen == generation, let host, host.guestControl() else { return }
+        switch cmd {
+        case .play: if !player.isPlaying { player.toggle() }
+        case .pause: if player.isPlaying { player.toggle() }
+        case .next: player.next()
+        case .enqueue(let ids):
+            hostEnqueue += ids.map { (gen, $0) }
+            pumpHostEnqueue()
+        }
+    }
+
+    private func guestRequestValid(_ gen: Int) -> Bool {
+        gen == generation && host?.guestControl() == true
+    }
+
+    private func pumpHostEnqueue() {
+        guard hostEnqueueTask == nil else { return }
+        let session = generation
+        hostEnqueueTask = Task {
+            while !hostEnqueue.isEmpty {
+                let (gen, id) = hostEnqueue.removeFirst()
+                guard guestRequestValid(gen) else { continue }
+                let track = try? await liveTrack(id: id)
+                // The session may have ended or control been turned off meanwhile.
+                guard let track, guestRequestValid(gen) else { continue }
+                player.addToQueue(track)
+            }
+            if session == generation { hostEnqueueTask = nil }
+        }
+    }
+
+    /// Returns `true` when Listen Together handled the action (sent to the
+    /// host or refused), `false` when the caller should act locally.
+    private func route(_ cmd: LiveCommand) -> Bool {
+        guard let guest else { return false }
+        guard guestControl else { refuse(); return true }
+        if !guest.sendCommand(command: cmd) { Chrome.shared.flash("Couldn't reach the host") }
+        return true
+    }
+
+    private func refuse() { Chrome.shared.flash("The host controls playback") }
+
+    /// Play/pause from the UI or the lock screen.
+    func userToggle() {
+        let hostPlaying = guest?.target(latencyMs: 0)?.playing ?? false
+        if !route(hostPlaying ? .pause : .play) { player.toggle() }
+    }
+
+    func userPlay() { if !route(.play) { if !player.isPlaying { player.toggle() } } }
+    func userPause() { if !route(.pause) { if player.isPlaying { player.toggle() } } }
+    func userNext() { if !route(.next) { player.next() } }
+
+    /// Previous track and seeking: guests always follow the host.
+    func guestRefuses() -> Bool {
+        guard guest != nil else { return false }
+        refuse()
+        return true
+    }
+
+    /// "Add to Queue" / "Play Next". Guests ask the host to append the songs;
+    /// returns `false` when the caller should queue locally.
+    func userEnqueue(_ tracks: [Track]) -> Bool {
+        guard guest != nil else { return false }
+        guard guestControl else { refuse(); return true }
+        let ids = tracks.map(\.id)
+        outbox += stride(from: 0, to: ids.count, by: Self.maxEnqueue).map { Array(ids[$0..<min($0 + Self.maxEnqueue, ids.count)]) }
+        pumpOutbox()
+        Chrome.shared.flash("Sent to the host's queue")
+        return true
+    }
+
+    private static let maxEnqueue = 50
+    private static let outboxRetries = 20
+
+    /// Sends queue requests in order; when the command budget refuses one it
+    /// waits and retries (about 10 s) instead of dropping it.
+    private func pumpOutbox() {
+        guard outboxTask == nil else { return }
+        let gen = generation
+        outboxTask = Task {
+            while let chunk = outbox.first, gen == generation, let guest, guestControl {
+                if guest.sendCommand(command: .enqueue(trackIds: chunk)) {
+                    outbox.removeFirst(); outboxFailures = 0
+                    continue
+                }
+                outboxFailures += 1
+                if outboxFailures >= Self.outboxRetries {
+                    outbox = []; outboxFailures = 0
+                    Chrome.shared.flash("Couldn't reach the host")
+                    break
+                }
+                try? await Task.sleep(for: .milliseconds(500))
+            }
+            if gen == generation { outboxTask = nil }
         }
     }
 
@@ -302,6 +442,20 @@ final class Live {
 struct LiveRow: Identifiable {
     let id: String
     let track: Track
+}
+
+/// Guest-control callbacks, also from core threads.
+final class LiveControlBridge: LiveControlObserver, @unchecked Sendable {
+    private let generation: Int
+    init(generation: Int) { self.generation = generation }
+    func onControlChanged(allowed: Bool) {
+        let gen = generation
+        Task { @MainActor in Live.shared.controlChanged(allowed, generation: gen) }
+    }
+    func onGuestCommand(peer: String, name: String, command: LiveCommand) {
+        let gen = generation
+        Task { @MainActor in Live.shared.guestCommand(command, generation: gen) }
+    }
 }
 
 /// Callbacks arrive on core threads; hop to the main actor.

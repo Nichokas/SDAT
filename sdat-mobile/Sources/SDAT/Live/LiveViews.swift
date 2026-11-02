@@ -32,7 +32,7 @@ struct LiveSheet: View {
                     Label("Scan an invitation", systemImage: "qrcode.viewfinder")
                 }
             } footer: {
-                Text("Everyone listens with their own TIDAL account. Only the host controls playback.")
+                Text("Everyone listens with their own TIDAL account. The host controls playback and can let guests help.")
             }
         case .starting, .joining:
             HStack { ProgressView(); Text(live.mode == .starting ? "Starting…" : "Joining…").padding(.leading, 8) }
@@ -44,6 +44,10 @@ struct LiveSheet: View {
                     ShareLink(item: invite) { Label("Share link", systemImage: "square.and.arrow.up") }
                 } footer: { Text("Friends scan this from My Collection.") }
             }
+            Section {
+                Toggle("Allow guests to control playback", isOn: Binding(
+                    get: { live.guestControl }, set: { live.setGuestControl($0) }))
+            } footer: { Text("Play, pause, skip and add songs to the queue.") }
             Section("Listening (\(live.guests.count))") {
                 if live.guests.isEmpty { Text("Nobody yet").foregroundStyle(.secondary) }
                 ForEach(live.guests, id: \.peer) { Text($0.name) }
@@ -52,6 +56,10 @@ struct LiveSheet: View {
         case .joined:
             Section {
                 LabeledContent("Host", value: live.hostName)
+                Text(live.guestControl
+                     ? "The host lets you play, pause, skip and add songs."
+                     : "The host controls playback.")
+                    .font(.footnote).foregroundStyle(.secondary)
                 if live.reconnecting {
                     HStack { ProgressView(); Text("Reconnecting…").padding(.leading, 8) }
                 }

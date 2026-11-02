@@ -100,8 +100,13 @@ private struct NowPlayingPage: View {
                     value: Binding(get: { scrub ?? player.position }, set: { scrub = $0 }),
                     in: 0...max(player.duration, 1)
                 ) { editing in
-                    if !editing, let s = scrub { player.seek(to: s); scrub = nil }
+                    if !editing, let s = scrub {
+                        scrub = nil
+                        // Guests follow the host's position.
+                        if !Live.shared.guestRefuses() { player.seek(to: s) }
+                    }
                 }
+                .disabled(Live.shared.isGuest)
                 .tint(.white)
                 HStack {
                     Text(Fmt.time(scrub ?? player.position))
@@ -134,13 +139,13 @@ private struct NowPlayingPage: View {
                     Image(systemName: "shuffle").font(.title3).foregroundStyle(player.shuffle ? Color.blue : .white.opacity(0.8))
                 }
                 Spacer()
-                Button { forward = false; prevTap += 1; withAnimation(.spring(duration: 0.4, bounce: 0.2)) { player.previous() } } label: {
+                Button { forward = false; prevTap += 1; if !Live.shared.guestRefuses() { withAnimation(.spring(duration: 0.4, bounce: 0.2)) { player.previous() } } } label: {
                     Image(systemName: "backward.fill").font(.system(size: 30))
                         .symbolEffect(.wiggle.left, value: prevTap)
                 }
                 .sensoryFeedback(.impact(weight: .light), trigger: prevTap)
                 Spacer()
-                Button { player.toggle() } label: {
+                Button { Live.shared.userToggle() } label: {
                     Group {
                         if player.loading { ProgressView().controlSize(.large).tint(.white) } else {
                             Image(systemName: player.isPlaying ? "pause.fill" : "play.fill").font(.system(size: 46))
@@ -150,10 +155,11 @@ private struct NowPlayingPage: View {
                     .frame(width: 64, height: 64)
                 }
                 Spacer()
-                Button { forward = true; nextTap += 1; withAnimation(.spring(duration: 0.4, bounce: 0.2)) { player.next() } } label: {
+                Button { forward = true; nextTap += 1; if Live.shared.isGuest { Live.shared.userNext() } else { withAnimation(.spring(duration: 0.4, bounce: 0.2)) { player.next() } } } label: {
                     Image(systemName: "forward.fill").font(.system(size: 30))
                         .symbolEffect(.wiggle.right, value: nextTap)
                 }
+                .opacity(Live.shared.playbackLocked ? 0.4 : 1)
                 .sensoryFeedback(.impact(weight: .light), trigger: nextTap)
                 Spacer()
                 Button { player.cycleRepeat() } label: {

@@ -176,10 +176,10 @@ final class PlaneScrollView: UIScrollView, UIScrollViewDelegate, UIContextMenuIn
         let fav = known ?? false
         var main: [UIMenuElement] = [
             UIAction(title: "Play Next", image: UIImage(systemName: "text.line.first.and.arrowtriangle.forward")) { _ in
-                player.playNext(t); chrome.flash("Playing next")
+                if !Live.shared.userEnqueue([t]) { player.playNext(t); chrome.flash("Playing next") }
             },
             UIAction(title: "Add to Queue", image: UIImage(systemName: "text.line.last.and.arrowtriangle.forward")) { _ in
-                player.addToQueue(t); chrome.flash("Added to queue")
+                if !Live.shared.userEnqueue([t]) { player.addToQueue(t); chrome.flash("Added to queue") }
             },
             UIAction(title: "Add to Playlist…", image: UIImage(systemName: "text.badge.plus")) { _ in
                 chrome.playlistPickerTrack = t

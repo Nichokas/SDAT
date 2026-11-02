@@ -208,10 +208,10 @@ struct DetailPage: View {
             }
             Menu {
                 Button("Play Next", systemImage: "text.line.first.and.arrowtriangle.forward") {
-                    for t in tracks.reversed() { player.playNext(t) }
+                    if !Live.shared.userEnqueue(tracks) { for t in tracks.reversed() { player.playNext(t) } }
                 }
                 Button("Add to Queue", systemImage: "text.line.last.and.arrowtriangle.forward") {
-                    for t in tracks { player.addToQueue(t) }
+                    if !Live.shared.userEnqueue(tracks) { for t in tracks { player.addToQueue(t) } }
                 }
                 DownloadButton(tracks: tracks)
                 if let favourite {

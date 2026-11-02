@@ -57,7 +57,7 @@ struct MiniPlayer: View {
                         onDown: { chrome.miniPressed = true; gestureLog.notice("mini press began") },
                         onHold: {
                             UIImpactFeedbackGenerator(style: .medium).impactOccurred()
-                            player.toggle()
+                            Live.shared.userToggle()
                         },
                         onEnd: { kind in
                             gestureLog.notice("mini press ended \(String(describing: kind))")
@@ -78,8 +78,9 @@ struct MiniPlayer: View {
                     Spacer(minLength: 0)
                     playButton(size: 40)
                     if style == .wide {
-                        Button { player.next() } label: { Image(systemName: "forward.fill").frame(width: 36, height: 40) }
+                        Button { Live.shared.userNext() } label: { Image(systemName: "forward.fill").frame(width: 36, height: 40) }
                             .buttonStyle(.plain)
+                            .opacity(Live.shared.playbackLocked ? 0.4 : 1)
                     }
                 }
                 .padding(.leading, 9).padding(.trailing, 10)
@@ -89,8 +90,9 @@ struct MiniPlayer: View {
     }
 
     private func playButton(size: CGFloat) -> some View {
-        Button { player.toggle() } label: { ringIcon(size: size) }
+        Button { Live.shared.userToggle() } label: { ringIcon(size: size) }
             .buttonStyle(.plain)
+            .opacity(Live.shared.playbackLocked ? 0.4 : 1)
     }
 
     private func ringIcon(size: CGFloat) -> some View {
