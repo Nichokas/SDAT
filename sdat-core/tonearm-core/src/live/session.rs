@@ -343,7 +343,7 @@ impl HostSession {
             }
         }
         let shared = entries.iter().take(super::MAX_QUEUE).cloned().collect();
-        let out = self.queue_op(OpKind::Replace { items: shared })?;
+        let out = self.apply_shared(OpKind::Replace { items: shared })?;
         self.run.items = run;
         self.run.pending.clear();
         self.app_queue = Some(entries);
@@ -560,8 +560,17 @@ impl HostSession {
         vec![all(Msg::Anchor(self.anchor.clone()))]
     }
 
-    /// Changes the shared queue (host only in the MVP).
+    /// Changes the shared queue (host only in the MVP). The app's whole
+    /// queue from [`Self::replace_queue_entries`] no longer matches after a
+    /// direct change, so Play Next falls back to the shared queue (by entry
+    /// id) until the next `replace_queue_entries`.
     pub fn queue_op(&mut self, kind: OpKind) -> Result<Vec<Out>, QueueError> {
+        let out = self.apply_shared(kind)?;
+        self.app_queue = None;
+        Ok(out)
+    }
+
+    fn apply_shared(&mut self, kind: OpKind) -> Result<Vec<Out>, QueueError> {
         match self.queue.apply(Op { op_id: new_id(), kind })? {
             Accepted::New(v) => Ok(vec![all(Msg::Op(v))]),
             Accepted::Duplicate => Ok(Vec::new()),
@@ -1477,6 +1486,15 @@ mod tests {
         assert_eq!(bad, Some(QueueError::DuplicateItem("n1".into())));
         h.replace_queue_entries(entries(&[("n1", "x"), ("a", "a")])).expect("replace");
         assert_eq!(h.play_next_offset(&ids(&["y"])), 1);
+    }
+
+    #[test]
+    fn direct_queue_ops_invalidate_the_app_queue() {
+        let mut h = exact_host(&[("a", "p"), ("b", "x")], "a");
+        assert_eq!(h.play_next_offset(&ids(&["y"])), 0);
+        h.replace_queue_entries(entries(&[("a", "p"), ("n1", "y"), ("b", "x")])).expect("replace");
+        h.queue_op(OpKind::Remove { item_id: "n1".into() }).expect("remove");
+        assert_eq!(h.play_next_offset(&ids(&["z"])), 0);
     }
 
     #[test]
