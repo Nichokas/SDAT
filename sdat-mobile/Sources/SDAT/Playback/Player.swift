@@ -270,6 +270,7 @@ final class Player {
     /// loads it paused, so joining a paused session never blips audio.
     func livePlay(_ tracks: [Track], index i: Int, at secs: Double, playing: Bool) {
         guard tracks.indices.contains(i) else { return }
+        liveSeekEndedAt = nil
         liveSeekLead = 0 // seek timing is per item: do not carry it to a new track
         recentIDs = []; recentOrder = []
         infinite = nil
@@ -281,8 +282,7 @@ final class Player {
 
     /// Drift correction: plays slightly faster or slower (pitch kept).
     func liveSetRate(_ rate: Float) {
-        guard isPlaying, let item = avPlayer.currentItem else { return }
-        if item.audioTimePitchAlgorithm != .spectral { item.audioTimePitchAlgorithm = .spectral }
+        guard isPlaying, avPlayer.currentItem != nil else { return }
         if avPlayer.rate != rate { avPlayer.rate = rate }
     }
 
@@ -299,6 +299,8 @@ final class Player {
     /// last drift seek took; otherwise a slow seek lands >300 ms behind and
     /// the next tick seeks again.
     @ObservationIgnored private var liveSeekLead: Double = 0
+    /// When the last drift seek finished (Live waits a moment before measuring again).
+    @ObservationIgnored private(set) var liveSeekEndedAt: Date?
 
     func liveSeek(to secs: Double) {
         guard !liveSeeking else { return }
@@ -315,6 +317,7 @@ final class Player {
                     self.liveSeekLead = min(max(self.liveSeekLead * 0.5 + took * 0.5, 0), 2)
                 }
                 self.liveSeeking = false
+                self.liveSeekEndedAt = Date()
             }
         }
         position = target
@@ -416,10 +419,16 @@ final class Player {
                 guard !Task.isCancelled, current?.id == track.id, let url = URL(string: s.url) else { return }
                 stream = s
                 avPlayer.removeAllItems()
-                let item = AVPlayerItem(url: url)
+                let item = Self.makeItem(url)
                 avPlayer.insert(item, after: nil)
                 if url.isFileURL { watchLocal(item, track: track) }
-                if resumeAt > 0 { await avPlayer.seek(to: CMTime(seconds: resumeAt, preferredTimescale: 600)) }
+                if resumeAt > 0 {
+                    // Following a host: land exactly on its position, so the
+                    // first drift check doesn't need a second, audible seek.
+                    let tol: CMTime = liveFollowing ? .zero : .positiveInfinity
+                    await avPlayer.seek(to: CMTime(seconds: resumeAt, preferredTimescale: 600),
+                                        toleranceBefore: tol, toleranceAfter: tol)
+                }
                 try? AVAudioSession.sharedInstance().setActive(true)
                 if autoplay {
                     avPlayer.play()
@@ -450,7 +459,7 @@ final class Player {
             let at = self.position
             self.stream = s
             self.avPlayer.removeAllItems()
-            self.avPlayer.insert(AVPlayerItem(url: u), after: nil)
+            self.avPlayer.insert(Self.makeItem(u), after: nil)
             if at > 0 { await self.avPlayer.seek(to: CMTime(seconds: at, preferredTimescale: 600)) }
             if self.isPlaying { self.avPlayer.play() }
         }
@@ -464,6 +473,17 @@ final class Player {
         nowPlayingScrobble(track)
         refillIfNeeded()
         schedulePreload()
+    }
+
+    /// Every item gets a real forward buffer and the cheap time-domain pitch
+    /// algorithm up front: Listen Together nudges the rate by ±2%, and
+    /// switching the algorithm on a playing item glitches the audio (the
+    /// spectral one is also CPU heavy).
+    private static func makeItem(_ url: URL) -> AVPlayerItem {
+        let item = AVPlayerItem(url: url)
+        item.preferredForwardBufferDuration = 10
+        item.audioTimePitchAlgorithm = .timeDomain
+        return item
     }
 
     /// Downloaded file when available (works offline), else a fresh HLS stream.
@@ -481,8 +501,7 @@ final class Player {
             guard let s = try? await Self.source(next.id),
                   !Task.isCancelled, current?.id == cur.id, let url = URL(string: s.url),
                   let curItem = avPlayer.currentItem else { return }
-            let item = AVPlayerItem(url: url)
-            item.preferredForwardBufferDuration = 10
+            let item = Self.makeItem(url)
             guard avPlayer.canInsert(item, after: curItem) else { return }
             avPlayer.insert(item, after: curItem)
             preloaded = (next.id, item, s)
