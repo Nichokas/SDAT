@@ -275,8 +275,28 @@ final class Player {
     /// Drift correction: plays slightly faster or slower (pitch kept).
     func liveSetRate(_ rate: Float) {
         guard isPlaying, let item = avPlayer.currentItem else { return }
-        item.audioTimePitchAlgorithm = .spectral
-        avPlayer.rate = rate
+        if item.audioTimePitchAlgorithm != .spectral { item.audioTimePitchAlgorithm = .spectral }
+        if avPlayer.rate != rate { avPlayer.rate = rate }
+    }
+
+    /// A drift seek is still running (or the item is rebuffering after one):
+    /// the position is not trustworthy, so no new correction may start.
+    @ObservationIgnored private(set) var liveSeeking = false
+
+    /// True while audio is actually advancing (not buffering after a seek).
+    var liveAdvancing: Bool { avPlayer.timeControlStatus == .playing }
+
+    /// Exact drift seek: the default tolerance can land seconds away on
+    /// streamed audio, which re-triggers another seek on the next tick.
+    func liveSeek(to secs: Double) {
+        guard !liveSeeking else { return }
+        liveSeeking = true
+        avPlayer.seek(to: CMTime(seconds: max(secs, 0), preferredTimescale: 600),
+                      toleranceBefore: .zero, toleranceAfter: .zero) { [weak self] _ in
+            Task { @MainActor in self?.liveSeeking = false }
+        }
+        position = max(secs, 0)
+        updateNowPlaying()
     }
 
     func cycleRepeat() {

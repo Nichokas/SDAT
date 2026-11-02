@@ -129,7 +129,7 @@ final class Live {
             if mode == .joining { mode = .joined }
             refreshUpNext()
         case .queueChanged: refreshUpNext()
-        case .playbackChanged: reconnecting = false
+        case .playbackChanged: if reconnecting { reconnecting = false }
         case .reconnecting: reconnecting = true
         case .ended(let r): finish(.ended(Self.message(r)))
         }
@@ -206,7 +206,9 @@ final class Live {
             }
             return
         }
-        if player.loading || switching != nil { return }
+        // Don't measure drift mid-seek or while rebuffering: the position is
+        // frozen there, so the error looks huge and would trigger seek after seek.
+        if player.loading || switching != nil || player.liveSeeking { return }
         // Paused by the system (call, headphones unplugged): wait for the
         // user or the system to resume instead of restarting on the speaker.
         if t.playing && !player.isPlaying && player.systemPaused { return }
@@ -221,11 +223,12 @@ final class Live {
             }
             return
         }
+        guard player.liveAdvancing else { return }
         switch guest.correction(latencyMs: latencyMs, actualMs: Int64(player.livePosition * 1000)) {
         case .none: break
         case .rate(let r): player.liveSetRate(Float(r))
         case .seek(let ms):
-            player.seek(to: Double(ms) / 1000)
+            player.liveSeek(to: Double(ms) / 1000)
             player.liveSetRate(1) // a seek always ends any nudge
         }
     }
