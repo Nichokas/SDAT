@@ -537,6 +537,11 @@ uint64_t uniffi_tonearm_ffi_fn_constructor_liveguest_join(RustBuffer invite, Rus
 RustBuffer uniffi_tonearm_ffi_fn_method_liveguest_correction(uint64_t ptr, int64_t latency_ms, int64_t actual_ms, RustCallStatus *_Nonnull out_status
 );
 #endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_TONEARM_FFI_FN_METHOD_LIVEGUEST_DIAGNOSTICS
+#define UNIFFI_FFIDEF_UNIFFI_TONEARM_FFI_FN_METHOD_LIVEGUEST_DIAGNOSTICS
+RustBuffer uniffi_tonearm_ffi_fn_method_liveguest_diagnostics(uint64_t ptr, RustCallStatus *_Nonnull out_status
+);
+#endif
 #ifndef UNIFFI_FFIDEF_UNIFFI_TONEARM_FFI_FN_METHOD_LIVEGUEST_GUEST_CONTROL
 #define UNIFFI_FFIDEF_UNIFFI_TONEARM_FFI_FN_METHOD_LIVEGUEST_GUEST_CONTROL
 int8_t uniffi_tonearm_ffi_fn_method_liveguest_guest_control(uint64_t ptr, RustCallStatus *_Nonnull out_status
@@ -875,6 +880,11 @@ uint64_t uniffi_tonearm_ffi_fn_func_set_favourite(RustBuffer kind, RustBuffer id
 #ifndef UNIFFI_FFIDEF_UNIFFI_TONEARM_FFI_FN_FUNC_LIVE_IS_INVITE
 #define UNIFFI_FFIDEF_UNIFFI_TONEARM_FFI_FN_FUNC_LIVE_IS_INVITE
 int8_t uniffi_tonearm_ffi_fn_func_live_is_invite(RustBuffer text, RustCallStatus *_Nonnull out_status
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_TONEARM_FFI_FN_FUNC_LIVE_OUTPUT_LATENCY_MS
+#define UNIFFI_FFIDEF_UNIFFI_TONEARM_FFI_FN_FUNC_LIVE_OUTPUT_LATENCY_MS
+int64_t uniffi_tonearm_ffi_fn_func_live_output_latency_ms(int64_t reported_ms, RustBuffer route, RustCallStatus *_Nonnull out_status
 );
 #endif
 #ifndef UNIFFI_FFIDEF_UNIFFI_TONEARM_FFI_FN_FUNC_LIVE_TRACK
@@ -1366,6 +1376,12 @@ uint16_t uniffi_tonearm_ffi_checksum_func_live_is_invite(void
     
 );
 #endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_TONEARM_FFI_CHECKSUM_FUNC_LIVE_OUTPUT_LATENCY_MS
+#define UNIFFI_FFIDEF_UNIFFI_TONEARM_FFI_CHECKSUM_FUNC_LIVE_OUTPUT_LATENCY_MS
+uint16_t uniffi_tonearm_ffi_checksum_func_live_output_latency_ms(void
+    
+);
+#endif
 #ifndef UNIFFI_FFIDEF_UNIFFI_TONEARM_FFI_CHECKSUM_FUNC_LIVE_TRACK
 #define UNIFFI_FFIDEF_UNIFFI_TONEARM_FFI_CHECKSUM_FUNC_LIVE_TRACK
 uint16_t uniffi_tonearm_ffi_checksum_func_live_track(void
@@ -1531,6 +1547,12 @@ uint16_t uniffi_tonearm_ffi_checksum_method_livecontrolobserver_on_guest_command
 #ifndef UNIFFI_FFIDEF_UNIFFI_TONEARM_FFI_CHECKSUM_METHOD_LIVEGUEST_CORRECTION
 #define UNIFFI_FFIDEF_UNIFFI_TONEARM_FFI_CHECKSUM_METHOD_LIVEGUEST_CORRECTION
 uint16_t uniffi_tonearm_ffi_checksum_method_liveguest_correction(void
+    
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_TONEARM_FFI_CHECKSUM_METHOD_LIVEGUEST_DIAGNOSTICS
+#define UNIFFI_FFIDEF_UNIFFI_TONEARM_FFI_CHECKSUM_METHOD_LIVEGUEST_DIAGNOSTICS
+uint16_t uniffi_tonearm_ffi_checksum_method_liveguest_diagnostics(void
     
 );
 #endif

@@ -366,11 +366,85 @@ impl LiveGuest {
     pub fn leave(&self) {
         self.0.leave();
     }
+    /// Connection and clock diagnostics for logging (path, RTT, offset).
+    pub fn diagnostics(&self) -> LiveDiagnostics {
+        let p = self.0.path();
+        // Between connections the clock estimate belongs to the old one.
+        let (clock_offset_ms, clock_rtt_ms) = if p.is_some() { self.0.clock_stats() } else { (None, None) };
+        LiveDiagnostics {
+            path: match p { None => LivePath::Unknown, Some(p) if p.relay => LivePath::Relay, Some(_) => LivePath::Direct },
+            path_rtt_ms: p.map(|p| p.rtt_ms),
+            clock_offset_ms,
+            clock_rtt_ms,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, uniffi::Enum)]
+pub enum LivePath {
+    /// Not connected (or no path selected yet).
+    Unknown,
+    /// Direct UDP between the devices (same network or hole-punched).
+    Direct,
+    /// Through a relay server.
+    Relay,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, uniffi::Record)]
+pub struct LiveDiagnostics {
+    pub path: LivePath,
+    pub path_rtt_ms: Option<i64>,
+    /// Host clock minus local clock.
+    pub clock_offset_ms: Option<i64>,
+    /// Best round trip used for the clock estimate.
+    pub clock_rtt_ms: Option<i64>,
+}
+
+/// Where audio leaves the device, for [`live_output_latency_ms`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq, uniffi::Enum)]
+pub enum LiveOutputRoute {
+    /// Built-in speaker, wired headphones, USB, HDMI…
+    Wired,
+    /// Bluetooth (A2DP, LE, HFP).
+    Bluetooth,
+    AirPlay,
+}
+
+/// Lowest believable latency for Bluetooth: iOS often reports only the
+/// device side of the path, missing the headset's own buffer.
+const BLUETOOTH_MIN_LATENCY_MS: i64 = 150;
+/// Lowest believable latency for `AirPlay`, which buffers about 2 s.
+const AIRPLAY_MIN_LATENCY_MS: i64 = 1_800;
+
+/// Output latency to aim ahead by.
+///
+/// The system value, raised to a calibrated
+/// floor on wireless routes where the system tends to under-report. Never
+/// lowers what the system reports. The manual offset is added on top by the
+/// app.
+#[uniffi::export]
+pub fn live_output_latency_ms(reported_ms: i64, route: LiveOutputRoute) -> i64 {
+    let reported = reported_ms.max(0);
+    match route {
+        LiveOutputRoute::Wired => reported,
+        LiveOutputRoute::Bluetooth => reported.max(BLUETOOTH_MIN_LATENCY_MS),
+        LiveOutputRoute::AirPlay => reported.max(AIRPLAY_MIN_LATENCY_MS),
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn output_latency_floors_only_wireless_and_never_lowers() {
+        assert_eq!(live_output_latency_ms(5, LiveOutputRoute::Wired), 5);
+        assert_eq!(live_output_latency_ms(-3, LiveOutputRoute::Wired), 0);
+        assert_eq!(live_output_latency_ms(40, LiveOutputRoute::Bluetooth), 150);
+        assert_eq!(live_output_latency_ms(220, LiveOutputRoute::Bluetooth), 220);
+        assert_eq!(live_output_latency_ms(30, LiveOutputRoute::AirPlay), 1_800);
+        assert_eq!(live_output_latency_ms(2_100, LiveOutputRoute::AirPlay), 2_100);
+    }
 
     #[test]
     fn commands_map_both_ways() {

@@ -25,8 +25,10 @@ final class Live {
     var showScanner = false
     /// Manual extra output delay (e.g. Bluetooth), in ms.
     /// Stored (so views observe it) and persisted.
-    var extraLatencyMs: Int = UserDefaults.standard.integer(forKey: "liveExtraLatencyMs") {
-        didSet { UserDefaults.standard.set(extraLatencyMs, forKey: "liveExtraLatencyMs") }
+    /// Manual output delay. A new key: offsets saved before the Bluetooth and
+    /// AirPlay floors existed would now be counted twice.
+    var extraLatencyMs: Int = UserDefaults.standard.integer(forKey: "liveExtraLatencyMsV2") {
+        didSet { UserDefaults.standard.set(extraLatencyMs, forKey: "liveExtraLatencyMsV2") }
     }
 
     private var host: LiveHost?
@@ -122,6 +124,7 @@ final class Live {
 
     private func finish(_ m: Mode) {
         generation += 1
+        lastPath = nil; lastDiagAt = .distantPast; lastDriftLogAt = .distantPast; alignedLatencyMs = nil
         loop?.cancel(); loop = nil
         host?.setControlObserver(observer: nil)
         guest?.setControlObserver(observer: nil)
@@ -364,12 +367,42 @@ final class Live {
 
     // MARK: guest
 
+    /// System output latency, raised to a calibrated floor on Bluetooth and
+    /// AirPlay (iOS often under-reports those), plus the manual offset.
     private var latencyMs: Int64 {
-        Int64(AVAudioSession.sharedInstance().outputLatency * 1000) + Int64(extraLatencyMs)
+        let session = AVAudioSession.sharedInstance()
+        let reported = Int64(session.outputLatency * 1000)
+        return liveOutputLatencyMs(reportedMs: reported, route: Self.route(session.currentRoute)) + Int64(extraLatencyMs)
+    }
+
+    private static func route(_ r: AVAudioSessionRouteDescription) -> LiveOutputRoute {
+        let ports = r.outputs.map(\.portType)
+        if ports.contains(.airPlay) { return .airPlay }
+        if ports.contains(where: { [.bluetoothA2DP, .bluetoothLE, .bluetoothHFP].contains($0) }) { return .bluetooth }
+        return .wired
+    }
+
+    private static func ms(_ v: Int64?) -> String { v.map(String.init) ?? "none" }
+
+    @ObservationIgnored private var lastDiagAt = Date.distantPast
+    @ObservationIgnored private var lastPath: LivePath?
+    @ObservationIgnored private var lastDriftLogAt = Date.distantPast
+    /// Latency the playing position was last aligned with.
+    @ObservationIgnored private var alignedLatencyMs: Int64?
+
+    /// Logs the network path and clock state when the path changes and every
+    /// 10 s, so a slow same-network session can be told apart from a relay.
+    private func logDiagnostics(_ guest: LiveGuest) {
+        let now = Date()
+        let d = guest.diagnostics()
+        guard d.path != lastPath || now.timeIntervalSince(lastDiagAt) >= 10 else { return }
+        lastPath = d.path; lastDiagAt = now
+        Self.log.notice("path=\(String(describing: d.path), privacy: .public) pathRttMs=\(Self.ms(d.pathRttMs), privacy: .public) clockOffsetMs=\(Self.ms(d.clockOffsetMs), privacy: .public) clockRttMs=\(Self.ms(d.clockRttMs), privacy: .public) latencyMs=\(self.latencyMs)")
     }
 
     private func guestTick() {
         guard let guest, mode == .joined else { return }
+        logDiagnostics(guest)
         guard let t = guest.target(latencyMs: latencyMs) else { return }
         guard let trackId = t.trackId else {
             if player.isPlaying { player.toggle() }
@@ -418,24 +451,46 @@ final class Live {
         let now = Date()
         if let s = player.liveSeekEndedAt, now.timeIntervalSince(s) < Self.seekSettle { return }
         let actual = Int64(player.livePosition * 1000)
+        // An output route change (e.g. to AirPlay) can move the target by
+        // more than core's tolerance: realign once instead of staying off.
+        let lat = latencyMs
+        let previous = alignedLatencyMs
+        if previous == nil { alignedLatencyMs = lat }
+        if let previous, abs(lat - previous) >= Self.latencyRealignMs, let t = guest.target(latencyMs: lat) {
+            alignedLatencyMs = lat
+            Self.log.notice("latency changed \(previous)->\(lat) ms, realigning")
+            player.liveSeek(to: Double(t.positionMs) / 1000)
+            return
+        }
+        if now.timeIntervalSince(lastDriftLogAt) >= 10 {
+            lastDriftLogAt = now
+            Self.log.notice("drift errMs=\(t.positionMs - actual)")
+        }
         // Core decides: it ignores errors up to a few seconds, spaces its own
         // corrections, and follows host seeks at once. The playback speed is
         // never changed (a `rate` answer is ignored).
         guard case .seek(let ms) = guest.correction(latencyMs: latencyMs, actualMs: actual) else { return }
         Self.log.notice("drift seek errMs=\(ms - actual)")
+        alignedLatencyMs = lat
         player.liveSeek(to: Double(ms) / 1000)
     }
 
     /// The host's position for the track loaded here (latency included).
     private func hostPosition() -> (secs: Double, playing: Bool)? {
-        guard let guest, let t = guest.target(latencyMs: latencyMs),
+        let lat = latencyMs
+        guard let guest, let t = guest.target(latencyMs: lat),
               let id = t.trackId, id == player.current?.id else { return nil }
+        // The player aligns to this answer (start, rebuffer): it is the
+        // latency the position now matches.
+        alignedLatencyMs = lat
         return (Double(t.positionMs) / 1000, t.playing)
     }
 
     private static let log = Logger(subsystem: "dev.sdat", category: "live")
     /// Quiet time after a start or a drift seek before measuring again.
     private static let seekSettle: TimeInterval = 3
+    /// Latency change that triggers one realigning seek (smaller ones are jitter).
+    private static let latencyRealignMs: Int64 = 300
 
     private func resolve(_ id: String) async -> Track? {
         if let t = cache[id] { return t }

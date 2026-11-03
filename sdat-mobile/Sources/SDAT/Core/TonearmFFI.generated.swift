@@ -1605,6 +1605,11 @@ public protocol LiveGuestProtocol: AnyObject, Sendable {
     func correction(latencyMs: Int64, actualMs: Int64)  -> LiveCorrection
     
     /**
+     * Connection and clock diagnostics for logging (path, RTT, offset).
+     */
+    func diagnostics()  -> LiveDiagnostics
+    
+    /**
      * Whether the host allows our playback commands (lock controls otherwise).
      */
     func guestControl()  -> Bool
@@ -1746,6 +1751,18 @@ open func correction(latencyMs: Int64, actualMs: Int64) -> LiveCorrection  {
             self.uniffiCloneHandle(),
         FfiConverterInt64.lower(latencyMs),
         FfiConverterInt64.lower(actualMs),uniffiCallStatus
+    )
+})
+}
+    
+    /**
+     * Connection and clock diagnostics for logging (path, RTT, offset).
+     */
+open func diagnostics() -> LiveDiagnostics  {
+    return try!  FfiConverterTypeLiveDiagnostics_lift(try! rustCall() {
+        uniffiCallStatus in
+    uniffi_tonearm_ffi_fn_method_liveguest_diagnostics(
+            self.uniffiCloneHandle(),uniffiCallStatus
     )
 })
 }
@@ -3969,6 +3986,80 @@ public func FfiConverterTypeLastFmAuth_lower(_ value: LastFmAuth) -> RustBuffer 
 }
 
 
+public struct LiveDiagnostics: Equatable, Hashable {
+    public var path: LivePath
+    public var pathRttMs: Int64?
+    /**
+     * Host clock minus local clock.
+     */
+    public var clockOffsetMs: Int64?
+    /**
+     * Best round trip used for the clock estimate.
+     */
+    public var clockRttMs: Int64?
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(path: LivePath, pathRttMs: Int64?, 
+        /**
+         * Host clock minus local clock.
+         */clockOffsetMs: Int64?, 
+        /**
+         * Best round trip used for the clock estimate.
+         */clockRttMs: Int64?) {
+        self.path = path
+        self.pathRttMs = pathRttMs
+        self.clockOffsetMs = clockOffsetMs
+        self.clockRttMs = clockRttMs
+    }
+
+    
+
+    
+}
+
+#if compiler(>=6)
+extension LiveDiagnostics: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeLiveDiagnostics: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> LiveDiagnostics {
+        return
+            try LiveDiagnostics(
+                path: FfiConverterTypeLivePath.read(from: &buf), 
+                pathRttMs: FfiConverterOptionInt64.read(from: &buf), 
+                clockOffsetMs: FfiConverterOptionInt64.read(from: &buf), 
+                clockRttMs: FfiConverterOptionInt64.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: LiveDiagnostics, into buf: inout [UInt8]) {
+        FfiConverterTypeLivePath.write(value.path, into: &buf)
+        FfiConverterOptionInt64.write(value.pathRttMs, into: &buf)
+        FfiConverterOptionInt64.write(value.clockOffsetMs, into: &buf)
+        FfiConverterOptionInt64.write(value.clockRttMs, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeLiveDiagnostics_lift(_ buf: RustBuffer) throws -> LiveDiagnostics {
+    return try FfiConverterTypeLiveDiagnostics.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeLiveDiagnostics_lower(_ value: LiveDiagnostics) -> RustBuffer {
+    return FfiConverterTypeLiveDiagnostics.lower(value)
+}
+
+
 public struct LiveGuestInfo: Equatable, Hashable {
     public var peer: String
     public var name: String
@@ -5466,6 +5557,170 @@ public func FfiConverterTypeLiveEnd_lower(_ value: LiveEnd) -> RustBuffer {
 
 
 
+/**
+ * Where audio leaves the device, for [`live_output_latency_ms`].
+ */
+
+public enum LiveOutputRoute: Equatable, Hashable {
+    
+    /**
+     * Built-in speaker, wired headphones, USB, HDMI…
+     */
+    case wired
+    /**
+     * Bluetooth (A2DP, LE, HFP).
+     */
+    case bluetooth
+    case airPlay
+
+
+
+
+
+}
+
+#if compiler(>=6)
+extension LiveOutputRoute: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeLiveOutputRoute: FfiConverterRustBuffer {
+    typealias SwiftType = LiveOutputRoute
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> LiveOutputRoute {
+        let variant: Int32 = try readInt(&buf)
+        switch variant {
+        
+        case 1: return .wired
+        
+        case 2: return .bluetooth
+        
+        case 3: return .airPlay
+        
+        default: throw UniffiInternalError.unexpectedEnumCase
+        }
+    }
+
+    public static func write(_ value: LiveOutputRoute, into buf: inout [UInt8]) {
+        switch value {
+        
+        
+        case .wired:
+            writeInt(&buf, Int32(1))
+        
+        
+        case .bluetooth:
+            writeInt(&buf, Int32(2))
+        
+        
+        case .airPlay:
+            writeInt(&buf, Int32(3))
+        
+        }
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeLiveOutputRoute_lift(_ buf: RustBuffer) throws -> LiveOutputRoute {
+    return try FfiConverterTypeLiveOutputRoute.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeLiveOutputRoute_lower(_ value: LiveOutputRoute) -> RustBuffer {
+    return FfiConverterTypeLiveOutputRoute.lower(value)
+}
+
+
+
+
+public enum LivePath: Equatable, Hashable {
+    
+    /**
+     * Not connected (or no path selected yet).
+     */
+    case unknown
+    /**
+     * Direct UDP between the devices (same network or hole-punched).
+     */
+    case direct
+    /**
+     * Through a relay server.
+     */
+    case relay
+
+
+
+
+
+}
+
+#if compiler(>=6)
+extension LivePath: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeLivePath: FfiConverterRustBuffer {
+    typealias SwiftType = LivePath
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> LivePath {
+        let variant: Int32 = try readInt(&buf)
+        switch variant {
+        
+        case 1: return .unknown
+        
+        case 2: return .direct
+        
+        case 3: return .relay
+        
+        default: throw UniffiInternalError.unexpectedEnumCase
+        }
+    }
+
+    public static func write(_ value: LivePath, into buf: inout [UInt8]) {
+        switch value {
+        
+        
+        case .unknown:
+            writeInt(&buf, Int32(1))
+        
+        
+        case .direct:
+            writeInt(&buf, Int32(2))
+        
+        
+        case .relay:
+            writeInt(&buf, Int32(3))
+        
+        }
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeLivePath_lift(_ buf: RustBuffer) throws -> LivePath {
+    return try FfiConverterTypeLivePath.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeLivePath_lower(_ value: LivePath) -> RustBuffer {
+    return FfiConverterTypeLivePath.lower(value)
+}
+
+
+
 
 public enum LiveUpdate: Equatable, Hashable {
     
@@ -6772,6 +7027,23 @@ public func liveIsInvite(text: String) -> Bool  {
 })
 }
 /**
+ * Output latency to aim ahead by.
+ *
+ * The system value, raised to a calibrated
+ * floor on wireless routes where the system tends to under-report. Never
+ * lowers what the system reports. The manual offset is added on top by the
+ * app.
+ */
+public func liveOutputLatencyMs(reportedMs: Int64, route: LiveOutputRoute) -> Int64  {
+    return try!  FfiConverterInt64.lift(try! rustCall() {
+        uniffiCallStatus in
+    uniffi_tonearm_ffi_fn_func_live_output_latency_ms(
+        FfiConverterInt64.lower(reportedMs),
+        FfiConverterTypeLiveOutputRoute_lower(route),uniffiCallStatus
+    )
+})
+}
+/**
  * One track by id (guests resolve the shared queue's ids with their own account).
  */
 public func liveTrack(id: String)async throws  -> Track  {
@@ -7061,6 +7333,9 @@ private let initializationResult: InitializationResult = {
     if (uniffi_tonearm_ffi_checksum_func_live_is_invite() != 42431) {
         return InitializationResult.apiChecksumMismatch
     }
+    if (uniffi_tonearm_ffi_checksum_func_live_output_latency_ms() != 34904) {
+        return InitializationResult.apiChecksumMismatch
+    }
     if (uniffi_tonearm_ffi_checksum_func_live_track() != 11805) {
         return InitializationResult.apiChecksumMismatch
     }
@@ -7143,6 +7418,9 @@ private let initializationResult: InitializationResult = {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_tonearm_ffi_checksum_method_liveguest_correction() != 29537) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_tonearm_ffi_checksum_method_liveguest_diagnostics() != 52363) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_tonearm_ffi_checksum_method_liveguest_guest_control() != 27956) {

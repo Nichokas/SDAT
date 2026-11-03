@@ -388,7 +388,8 @@ final class Player {
                 // The host stopped advancing (e.g. it is buffering): re-park.
                 if Date() > hostDeadline { continue attempt }
                 if startAt - now.secs > Self.liveJoinLead + Self.liveLateTolerance { continue attempt }
-                try? await Task.sleep(for: .milliseconds(Int(min(max((startAt - now.secs) * 500, 5), 250))))
+                // Poll often near the start point: a late check is a late start.
+                try? await Task.sleep(for: .milliseconds(Int(min(max((startAt - now.secs) * 500, 5), 50))))
             }
             guard stillOurs(), let now = liveTarget?() else { return false }
             guard now.playing else {
