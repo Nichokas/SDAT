@@ -39,6 +39,13 @@ class Session(context: Context) : TokenStore {
         signedIn = true
     }
 
+    /** Also the way out of a session TIDAL no longer accepts. */
+    fun signOut() {
+        prefs.edit { clear() }
+        sessionChanged()
+        signedIn = false
+    }
+
     private companion object {
         const val REFRESH = "refresh_token"
         const val USER = "user_id"

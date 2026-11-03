@@ -57,7 +57,7 @@ fun RootView(session: Session) {
         modifier = Modifier.fillMaxSize(),
         sampledContent = {
             if (tab == AppTab.Discover) {
-                DiscoverView(pagePadding())
+                DiscoverView(session, pagePadding())
             } else {
                 Column(Modifier.fillMaxSize().background(colors.groupedBackground).safeDrawingPadding().padding(20.dp)) {
                     Text(tab.label, style = IosTypography.largeTitle)

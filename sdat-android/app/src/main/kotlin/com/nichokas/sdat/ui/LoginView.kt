@@ -36,6 +36,7 @@ fun LoginView(session: Session) {
     val uri = LocalUriHandler.current
     var login by remember { mutableStateOf<DeviceLogin?>(null) }
     var error by remember { mutableStateOf<String?>(null) }
+    var busy by remember { mutableStateOf(false) }
     val colors = GlasmioTheme.colors
     Column(
         Modifier.fillMaxSize().background(colors.groupedBackground).safeDrawingPadding().padding(32.dp),
@@ -47,12 +48,15 @@ fun LoginView(session: Session) {
         if (pending == null) {
             Text("Sign in with your TIDAL account.", style = IosTypography.body, color = colors.secondaryContent)
             GlasmioButton(onClick = {
+                if (busy) return@GlasmioButton
+                busy = true
                 error = null
                 scope.launch {
                     try {
                         startDeviceLogin().use { l ->
                             login = l
-                            uri.openUri(l.verificationUrl())
+                            // No browser on this device: the code can still be approved from another one.
+                            runCatching { uri.openUri(l.verificationUrl()) }
                             session.signIn(l.wait())
                         }
                     } catch (e: CancellationException) {
@@ -62,13 +66,14 @@ fun LoginView(session: Session) {
                         error = e.message ?: e.javaClass.simpleName
                     } finally {
                         login = null
+                        busy = false
                     }
                 }
             }) { Text("Sign in with TIDAL") }
         } else {
             Text("Approve this code on link.tidal.com", style = IosTypography.body, color = colors.secondaryContent)
             Text(pending.userCode(), fontSize = 34.sp, fontWeight = FontWeight.Bold, letterSpacing = 4.sp)
-            GlasmioButton(onClick = { uri.openUri(pending.verificationUrl()) }) { Text("Open link.tidal.com") }
+            GlasmioButton(onClick = { runCatching { uri.openUri(pending.verificationUrl()) } }) { Text("Open link.tidal.com") }
             GlasmioButton(onClick = { pending.cancel() }) { Text("Cancel") }
         }
         error?.let { Text(it, style = IosTypography.footnote, color = colors.secondaryContent) }

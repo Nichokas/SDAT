@@ -28,6 +28,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.unit.dp
 import coil3.compose.AsyncImage
+import com.nichokas.sdat.core.Session
 import io.github.neoruaa.glasmio.core.GlasmioTheme
 import io.github.neoruaa.glasmio.core.IosTypography
 import io.github.neoruaa.glasmio.ui.GlasmioButton
@@ -40,7 +41,7 @@ private const val POOL_TARGET = 320
 
 /** Covers from the user's home mixes, filled batch by batch like the iOS cover plane. */
 @Composable
-fun DiscoverView(contentPadding: PaddingValues) {
+fun DiscoverView(session: Session, contentPadding: PaddingValues) {
     var tracks by remember { mutableStateOf(emptyList<Track>()) }
     var error by remember { mutableStateOf<String?>(null) }
     var attempt by remember { mutableIntStateOf(0) }
@@ -55,6 +56,7 @@ fun DiscoverView(contentPadding: PaddingValues) {
                     if (pool.tracks.size >= POOL_TARGET) return@use
                 }
             }
+            if (pool.tracks.isEmpty()) error = "Your home mixes have no covers yet."
         } catch (e: CancellationException) {
             throw e
         } catch (e: Exception) {
@@ -91,6 +93,7 @@ fun DiscoverView(contentPadding: PaddingValues) {
                             Text("Couldn't load Discover", style = IosTypography.headline)
                             Text(message, style = IosTypography.footnote, color = colors.secondaryContent)
                             GlasmioButton(onClick = { attempt++ }) { Text("Retry") }
+                            GlasmioButton(onClick = session::signOut) { Text("Sign out") }
                         }
                     }
                 }
