@@ -1,10 +1,15 @@
 package com.nichokas.sdat.ui
 
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.safeDrawingPadding
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -37,50 +42,53 @@ fun LoginView(session: Session) {
     var error by remember { mutableStateOf<String?>(null) }
     var busy by remember { mutableStateOf(false) }
     val colors = GlasmioTheme.colors
-    Column(
-        Modifier.fillMaxSize().safeDrawingPadding().padding(32.dp),
-        horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.spacedBy(16.dp, Alignment.CenterVertically),
-    ) {
-        Text("SDAT", style = IosTypography.largeTitle)
-        val pending = login
-        if (pending == null) {
-            Text("Sign in with your TIDAL account.", style = IosTypography.body, color = colors.secondaryContent)
-            GlasmioButton(onClick = {
-                if (busy) return@GlasmioButton
-                busy = true
-                error = null
-                scope.launch {
-                    try {
-                        startDeviceLogin().use { l ->
-                            login = l
-                            // No browser on this device: the code can still be approved from another one.
-                            runCatching { uri.openUri(l.verificationUrl()) }
-                            try {
-                                session.signIn(l.wait())
-                            } catch (e: CancellationException) {
-                                // The native poll outlives the coroutine unless told to stop.
-                                l.cancel()
-                                throw e
+    // Centered when it fits, scrollable in short (landscape, split-screen) windows.
+    BoxWithConstraints(Modifier.fillMaxSize().safeDrawingPadding()) {
+        Column(
+            Modifier.verticalScroll(rememberScrollState()).fillMaxWidth().heightIn(min = maxHeight).padding(32.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.spacedBy(16.dp, Alignment.CenterVertically),
+        ) {
+            Text("SDAT", style = IosTypography.largeTitle)
+            val pending = login
+            if (pending == null) {
+                Text("Sign in with your TIDAL account.", style = IosTypography.body, color = colors.secondaryContent)
+                GlasmioButton(onClick = {
+                    if (busy) return@GlasmioButton
+                    busy = true
+                    error = null
+                    scope.launch {
+                        try {
+                            startDeviceLogin().use { l ->
+                                login = l
+                                // No browser on this device: the code can still be approved from another one.
+                                runCatching { uri.openUri(l.verificationUrl()) }
+                                try {
+                                    session.signIn(l.wait())
+                                } catch (e: CancellationException) {
+                                    // The native poll outlives the coroutine unless told to stop.
+                                    l.cancel()
+                                    throw e
+                                }
                             }
+                        } catch (e: CancellationException) {
+                            throw e
+                        } catch (_: FfiException.Cancelled) {
+                        } catch (e: Exception) {
+                            error = e.message ?: e.javaClass.simpleName
+                        } finally {
+                            login = null
+                            busy = false
                         }
-                    } catch (e: CancellationException) {
-                        throw e
-                    } catch (_: FfiException.Cancelled) {
-                    } catch (e: Exception) {
-                        error = e.message ?: e.javaClass.simpleName
-                    } finally {
-                        login = null
-                        busy = false
                     }
-                }
-            }) { Text("Sign in with TIDAL") }
-        } else {
-            Text("Approve this code on link.tidal.com", style = IosTypography.body, color = colors.secondaryContent)
-            Text(pending.userCode(), fontSize = 34.sp, fontWeight = FontWeight.Bold, letterSpacing = 4.sp)
-            GlasmioButton(onClick = { runCatching { uri.openUri(pending.verificationUrl()) } }) { Text("Open link.tidal.com") }
-            GlasmioButton(onClick = { pending.cancel() }) { Text("Cancel") }
+                }) { Text("Sign in with TIDAL") }
+            } else {
+                Text("Approve this code on link.tidal.com", style = IosTypography.body, color = colors.secondaryContent)
+                Text(pending.userCode(), fontSize = 34.sp, fontWeight = FontWeight.Bold, letterSpacing = 4.sp)
+                GlasmioButton(onClick = { runCatching { uri.openUri(pending.verificationUrl()) } }) { Text("Open link.tidal.com") }
+                GlasmioButton(onClick = { pending.cancel() }) { Text("Cancel") }
+            }
+            error?.let { Text(it, style = IosTypography.footnote, color = colors.secondaryContent) }
         }
-        error?.let { Text(it, style = IosTypography.footnote, color = colors.secondaryContent) }
     }
 }
