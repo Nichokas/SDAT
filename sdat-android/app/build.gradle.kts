@@ -71,6 +71,8 @@ dependencies {
     implementation(libs.activity.compose)
     implementation(libs.glasmio.scaffold)
     implementation(libs.coroutines.android)
+    implementation(libs.coil.compose)
+    implementation(libs.coil.network)
     implementation(libs.jna) { artifact { type = "aar" } }
     testImplementation(libs.junit)
 }

@@ -20,7 +20,7 @@ class MainActivity : ComponentActivity() {
         setContent {
             CompositionLocalProvider(LocalAppFonts provides fonts) {
                 GlasmioTheme(typography = glasmioTypography(fonts.text)) {
-                    GlasmioIconProvider(symbolTypeface = fonts.sfPro) { RootView() }
+                    GlasmioIconProvider(symbolTypeface = fonts.sfPro) { RootView((application as SdatApp).session) }
                 }
             }
         }

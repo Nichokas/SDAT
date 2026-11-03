@@ -5,7 +5,6 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.height
@@ -20,7 +19,6 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -28,7 +26,14 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import com.nichokas.sdat.core.coreLoaded
+import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.asPaddingValues
+import androidx.compose.foundation.layout.calculateEndPadding
+import androidx.compose.foundation.layout.calculateStartPadding
+import androidx.compose.foundation.layout.safeDrawing
+import androidx.compose.ui.platform.LocalLayoutDirection
+import com.nichokas.sdat.core.Session
 import io.github.neoruaa.glasmio.core.GlasmioTheme
 import io.github.neoruaa.glasmio.core.IosTypography
 import io.github.neoruaa.glasmio.glass.GlassSurface
@@ -42,19 +47,21 @@ enum class AppTab(val label: String, val symbol: String) {
 
 private val capsule = RoundedCornerShape(percent = 50)
 
-/** Placeholder shell: the three root tabs and the bottom chrome (tab bar beside the circular mini-player). */
+/** Login until signed in, then the three root tabs and the bottom chrome (tab bar beside the circular mini-player). */
 @Composable
-fun RootView() {
+fun RootView(session: Session) {
+    if (!session.signedIn) return LoginView(session)
     var tab by rememberSaveable { mutableStateOf(AppTab.Discover) }
-    val core = remember { coreLoaded() }
     val colors = GlasmioTheme.colors
     GlasmioBackdropHost(
         modifier = Modifier.fillMaxSize(),
         sampledContent = {
-            Column(Modifier.fillMaxSize().background(colors.groupedBackground).safeDrawingPadding().padding(20.dp)) {
-                Text(tab.label, style = IosTypography.largeTitle)
-                Spacer(Modifier.height(8.dp))
-                Text(if (core) "Rust core loaded" else "Rust core failed to load", style = IosTypography.body)
+            if (tab == AppTab.Discover) {
+                DiscoverView(pagePadding())
+            } else {
+                Column(Modifier.fillMaxSize().background(colors.groupedBackground).safeDrawingPadding().padding(20.dp)) {
+                    Text(tab.label, style = IosTypography.largeTitle)
+                }
             }
         },
         overlayContent = {
@@ -70,6 +77,19 @@ fun RootView() {
     )
 }
 
+
+/** Safe area plus room for the floating tab bar. */
+@Composable
+private fun pagePadding(): PaddingValues {
+    val safe = WindowInsets.safeDrawing.asPaddingValues()
+    val dir = LocalLayoutDirection.current
+    return PaddingValues(
+        start = safe.calculateStartPadding(dir) + 20.dp,
+        top = safe.calculateTopPadding() + 20.dp,
+        end = safe.calculateEndPadding(dir) + 20.dp,
+        bottom = safe.calculateBottomPadding() + 96.dp,
+    )
+}
 
 @Composable
 private fun TabBar(selected: AppTab, onSelect: (AppTab) -> Unit, modifier: Modifier = Modifier) {
