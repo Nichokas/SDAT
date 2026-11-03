@@ -1,6 +1,5 @@
 package com.nichokas.sdat.ui
 
-import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
@@ -39,7 +38,7 @@ fun LoginView(session: Session) {
     var busy by remember { mutableStateOf(false) }
     val colors = GlasmioTheme.colors
     Column(
-        Modifier.fillMaxSize().background(colors.groupedBackground).safeDrawingPadding().padding(32.dp),
+        Modifier.fillMaxSize().safeDrawingPadding().padding(32.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.spacedBy(16.dp, Alignment.CenterVertically),
     ) {

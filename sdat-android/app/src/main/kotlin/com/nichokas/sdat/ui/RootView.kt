@@ -50,9 +50,16 @@ private val capsule = RoundedCornerShape(percent = 50)
 /** Login until signed in, then the three root tabs and the bottom chrome (tab bar beside the circular mini-player). */
 @Composable
 fun RootView(session: Session) {
-    if (!session.signedIn) return LoginView(session)
-    var tab by rememberSaveable { mutableStateOf(AppTab.Discover) }
     val colors = GlasmioTheme.colors
+    if (!session.signedIn) {
+        // Glass controls throw outside a backdrop host.
+        return GlasmioBackdropHost(
+            modifier = Modifier.fillMaxSize(),
+            sampledContent = { Box(Modifier.fillMaxSize().background(colors.groupedBackground)) },
+            overlayContent = { LoginView(session) },
+        )
+    }
+    var tab by rememberSaveable { mutableStateOf(AppTab.Discover) }
     GlasmioBackdropHost(
         modifier = Modifier.fillMaxSize(),
         sampledContent = {
