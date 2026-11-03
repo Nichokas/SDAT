@@ -4625,6 +4625,7 @@ dependencies = [
  "tokio",
  "url",
  "urlencoding",
+ "webpki-root-certs",
 ]
 
 [[package]]

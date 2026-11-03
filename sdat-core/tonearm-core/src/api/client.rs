@@ -43,7 +43,7 @@ pub fn client_secret() -> &'static str {
 fn http() -> &'static Client {
     static C: OnceLock<Client> = OnceLock::new();
     C.get_or_init(|| // Go's net/http sends this UA by default; TIDAL's CDN rejects requests without one.
-        Client::builder().user_agent("Go-http-client/1.1").build().expect("failed to build http client"))
+        crate::http::client_builder().user_agent("Go-http-client/1.1").build().expect("failed to build http client"))
 }
 
 #[derive(Default)]
