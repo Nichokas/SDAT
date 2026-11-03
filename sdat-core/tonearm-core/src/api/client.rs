@@ -76,11 +76,8 @@ struct AccessToken {
     expires_in: u64,
 }
 
-fn token_request(form: &[(&str, &str)]) -> Result<Response> {
-    Ok(http()
-        .post(format!("{}/v1/oauth2/token", crate::config::get().auth_base_url()))
-        .form(form)
-        .send()?)
+fn token_request(form: &[(&str, &str)]) -> reqwest::Result<Response> {
+    http().post(format!("{}/v1/oauth2/token", crate::config::get().auth_base_url())).form(form).send()
 }
 
 fn fetch_access_token(cache: &Mutex<CachedToken>, form: &[(&str, &str)]) -> Result<String> {
@@ -732,6 +729,8 @@ pub fn request_device_linking_challenge() -> Result<DeviceLinkingChallenge> {
 }
 
 /// Polls until the user approved the device. `cancelled` is checked between polls.
+const MAX_POLL_SEND_FAILURES: u32 = 5;
+
 pub fn poll_device_linking_status(device_code: &str, interval: i64, cancelled: &dyn Fn() -> bool) -> Result<TokenResponse> {
     let form = [
         ("client_id", client_id()),
@@ -740,23 +739,39 @@ pub fn poll_device_linking_status(device_code: &str, interval: i64, cancelled: &
         ("grant_type", "urn:ietf:params:oauth:grant-type:device_code"),
         ("scope", SCOPE),
     ];
+    // Sleeps in small steps so cancellation is responsive.
+    let pause = || {
+        let until = Instant::now() + Duration::from_secs(interval.max(1) as u64);
+        while Instant::now() < until {
+            if cancelled() {
+                return Err(CoreError::Cancelled("linking canceled".into()));
+            }
+            std::thread::sleep(Duration::from_millis(200));
+        }
+        Ok(())
+    };
+    let mut send_failures = 0;
     loop {
         if cancelled() {
             return Err(CoreError::Cancelled("linking canceled".into()));
         }
-        let resp = token_request(&form)?;
+        // The user is in the browser approving the code meanwhile, so a phone can drop or
+        // switch networks; a failed send is retried a few times instead of ending the login.
+        let resp = match token_request(&form) {
+            Ok(r) => r,
+            Err(e) if !e.is_status() && send_failures < MAX_POLL_SEND_FAILURES => {
+                send_failures += 1;
+                pause()?;
+                continue;
+            }
+            Err(e) => return Err(e.into()),
+        };
+        send_failures = 0;
         if resp.status() != StatusCode::OK {
             let e: TokenError = resp.json()?;
             match e.error.as_str() {
                 "authorization_pending" => {
-                    // sleep in small steps so cancellation is responsive
-                    let until = Instant::now() + Duration::from_secs(interval.max(1) as u64);
-                    while Instant::now() < until {
-                        if cancelled() {
-                            return Err(CoreError::Cancelled("linking canceled".into()));
-                        }
-                        std::thread::sleep(Duration::from_millis(200));
-                    }
+                    pause()?;
                     continue;
                 }
                 "expired_token" => bail!("linking session expired"),
