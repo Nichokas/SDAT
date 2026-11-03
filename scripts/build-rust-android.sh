@@ -4,8 +4,8 @@
 set -euo pipefail
 root="$(cd "$(dirname "$0")/.." && pwd)"
 app="${ANDROID_APP_DIR:-$root/sdat-android/app}"
-jni="$app/src/main/jniLibs"
-kotlin="$app/build/generated/source/uniffi/kotlin"
+jni="${ANDROID_JNI_DIR:-$app/src/main/jniLibs}"
+kotlin="${ANDROID_KOTLIN_DIR:-$app/build/generated/source/uniffi/kotlin}"
 api="${ANDROID_API:-33}"
 cd "$root"
 # 16 KB page alignment is required for apps targeting Android 15+ on arm64.
