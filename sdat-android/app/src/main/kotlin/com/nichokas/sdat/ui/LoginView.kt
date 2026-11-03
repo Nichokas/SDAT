@@ -57,7 +57,13 @@ fun LoginView(session: Session) {
                             login = l
                             // No browser on this device: the code can still be approved from another one.
                             runCatching { uri.openUri(l.verificationUrl()) }
-                            session.signIn(l.wait())
+                            try {
+                                session.signIn(l.wait())
+                            } catch (e: CancellationException) {
+                                // The native poll outlives the coroutine unless told to stop.
+                                l.cancel()
+                                throw e
+                            }
                         }
                     } catch (e: CancellationException) {
                         throw e
