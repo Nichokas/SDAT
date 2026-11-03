@@ -35,14 +35,20 @@ import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.ui.platform.LocalLayoutDirection
 import com.nichokas.sdat.core.Session
 import io.github.neoruaa.glasmio.core.GlasmioTheme
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.mutableFloatStateOf
+import io.github.neoruaa.glasmio.ui.GlasmioTabItem
+import io.github.neoruaa.glasmio.ui.GlasmioNavigationBar
+import io.github.neoruaa.glasmio.icons.SfSymbol
 import io.github.neoruaa.glasmio.core.IosTypography
 import io.github.neoruaa.glasmio.glass.GlassSurface
 import io.github.neoruaa.glasmio.glass.GlasmioBackdropHost
 
-enum class AppTab(val label: String, val symbol: String) {
-    Discover("Discover", "signpost.right.and.left.fill"),
-    Search("Search", "magnifyingglass"),
-    Collection("My Collection", "music.note.house.fill"),
+// Glasmio's tab bar takes its own symbol set, which has no signpost or music.note.house, so these are the closest.
+enum class AppTab(val label: String, val symbol: SfSymbol) {
+    Discover("Discover", SfSymbol.SafariFilled),
+    Search("Search", SfSymbol.Search),
+    Collection("My Collection", SfSymbol.MusicNoteSquareStackFilled),
 }
 
 private val capsule = RoundedCornerShape(percent = 50)
@@ -60,11 +66,12 @@ fun RootView(session: Session) {
         )
     }
     var tab by rememberSaveable { mutableStateOf(AppTab.Discover) }
+    val expanded = remember { mutableFloatStateOf(0f) }
     GlasmioBackdropHost(
         modifier = Modifier.fillMaxSize(),
         sampledContent = {
             if (tab == AppTab.Discover) {
-                DiscoverView(session, pagePadding())
+                DiscoverView(session)
             } else {
                 Column(Modifier.fillMaxSize().background(colors.groupedBackground).safeDrawingPadding().padding(20.dp)) {
                     Text(tab.label, style = IosTypography.largeTitle)
@@ -77,7 +84,15 @@ fun RootView(session: Session) {
                 horizontalArrangement = Arrangement.spacedBy(12.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                TabBar(tab, onSelect = { tab = it }, Modifier.weight(1f))
+                GlasmioNavigationBar(
+                    items = tabItems,
+                    selectedKey = tab,
+                    onSelected = { tab = it },
+                    onExpand = {},
+                    compactProgress = expanded,
+                    compactSize = 62.dp,
+                    modifier = Modifier.weight(1f),
+                )
                 MiniPlayer()
             }
         },
@@ -85,37 +100,7 @@ fun RootView(session: Session) {
 }
 
 
-/** Safe area plus room for the floating tab bar. */
-@Composable
-private fun pagePadding(): PaddingValues {
-    val safe = WindowInsets.safeDrawing.asPaddingValues()
-    val dir = LocalLayoutDirection.current
-    return PaddingValues(
-        start = safe.calculateStartPadding(dir) + 20.dp,
-        top = safe.calculateTopPadding() + 20.dp,
-        end = safe.calculateEndPadding(dir) + 20.dp,
-        bottom = safe.calculateBottomPadding() + 96.dp,
-    )
-}
-
-@Composable
-private fun TabBar(selected: AppTab, onSelect: (AppTab) -> Unit, modifier: Modifier = Modifier) {
-    GlassSurface(modifier.height(62.dp), shape = capsule) {
-        Row(Modifier.fillMaxSize().padding(4.dp).selectableGroup()) {
-            AppTab.entries.forEach { t ->
-                val tint = if (t == selected) GlasmioTheme.colors.accent else GlasmioTheme.colors.content
-                Column(
-                    Modifier.weight(1f).fillMaxHeight().selectable(t == selected, role = Role.Tab) { onSelect(t) },
-                    horizontalAlignment = Alignment.CenterHorizontally,
-                    verticalArrangement = Arrangement.Center,
-                ) {
-                    SdatIcon(t.symbol, contentDescription = null, size = 22.dp, tint = tint)
-                    Text(t.label, color = tint, fontSize = 10.sp, maxLines = 1)
-                }
-            }
-        }
-    }
-}
+private val tabItems = AppTab.entries.map { GlasmioTabItem(it, it.label, it.symbol) }
 
 /** Circle state of the iOS mini-player; morphing into the capsule comes with playback. */
 @Composable
