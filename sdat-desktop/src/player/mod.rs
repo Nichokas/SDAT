@@ -83,7 +83,7 @@ pub fn play_next_ticket() -> PlayNextTicket {
 /// Delivers the tracks for a "play next" request (empty if fetching failed);
 /// requests are applied in the order their tickets were taken. Requests taken
 /// before the queues were replaced are dropped. A Listen Together guest sends
-/// each batch to the host as a normal enqueue, in the same order.
+/// each batch to the host as a Play Next, in the same order.
 pub fn complete_play_next(ticket: PlayNextTicket, tracks: Vec<Track>) {
     if ticket.generation != PLAY_NEXT_GENERATION.with(Cell::get) {
         return;
@@ -91,7 +91,7 @@ pub fn complete_play_next(ticket: PlayNextTicket, tracks: Vec<Track>) {
     let batches = PLAY_NEXT_ORDER.with(|s| s.borrow_mut().complete(ticket.seq, tracks));
     let mut queued = false;
     for b in batches {
-        if b.is_empty() || crate::live::user_enqueue(b.iter().map(|t| t.id().to_string()).collect()) {
+        if b.is_empty() || crate::live::user_play_next(&b.iter().map(|t| t.id().to_string()).collect::<Vec<_>>()) {
             continue;
         }
         insert_tracklist_next(b);
@@ -460,6 +460,16 @@ fn insert_tracklist_next(tracks: Vec<Track>) {
     let pinned = play_next::insert(&mut entries, pinned, floor, tracks);
     user_queue().set(entries);
     update_pinned(|_| pinned);
+}
+
+/// Host: a guest's Play Next, after the current track and earlier Play Next
+/// tracks (local or from guests).
+pub fn play_tracklist_next(tracks: Vec<Track>) {
+    if tracks.is_empty() {
+        return;
+    }
+    insert_tracklist_next(tracks);
+    start_if_idle();
 }
 
 pub fn add_tracklist_to_user_queue(tracks: Vec<Track>) {

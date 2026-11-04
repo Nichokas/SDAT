@@ -55,11 +55,12 @@ thread_local! {
     static LAST_TRACK: RefCell<Option<String>> = const { RefCell::new(None) };
     static HOOKED: Cell<bool> = const { Cell::new(false) };
     static OUTPUT_DELAY: Cell<i32> = const { Cell::new(0) };
-    /// Host: accepted guest track ids waiting to be fetched, in arrival order.
-    static HOST_ENQUEUE: RefCell<VecDeque<(u64, String)>> = const { RefCell::new(VecDeque::new()) };
+    /// Host: accepted guest track ids waiting to be fetched, in arrival order
+    /// (`true`: Play Next).
+    static HOST_ENQUEUE: RefCell<VecDeque<(u64, String, bool)>> = const { RefCell::new(VecDeque::new()) };
     static HOST_ENQUEUE_BUSY: Cell<bool> = const { Cell::new(false) };
-    /// Guest: enqueue chunks paced against the command budget.
-    static OUTBOX: RefCell<Outbox<GuestCommand>> = RefCell::new(Outbox::default());
+    /// Guest: enqueue chunks paced against the command budget (`true`: Play Next).
+    static OUTBOX: RefCell<Outbox<(GuestCommand, bool)>> = RefCell::new(Outbox::default());
     static OUTBOX_BUSY: Cell<bool> = const { Cell::new(false) };
 }
 
@@ -194,6 +195,7 @@ pub fn start_host() {
         match r {
             Ok(Ok(h)) => {
                 let h = Arc::new(h);
+                h.set_play_next(true);
                 let url = h.ticket_url();
                 SESSION.with(|s| *s.borrow_mut() = Some(Session::Host(h)));
                 install_hooks();
@@ -304,13 +306,39 @@ fn apply_guest_command(c: &HostCommand) {
         GuestCommand::Next => player::next(),
         // `seeked` publishes the new anchor right away.
         GuestCommand::Seek { position_ms } => player::seek_to_position(Duration::from_millis(u64::try_from(*position_ms).unwrap_or(0)), true),
+        GuestCommand::Enqueue { track_ids } if c.next => host_play_next(track_ids.clone()),
         GuestCommand::Enqueue { track_ids } => {
             let generation = current_generation();
-            HOST_ENQUEUE.with(|q| q.borrow_mut().extend(track_ids.iter().map(|id| (generation, id.clone()))));
+            HOST_ENQUEUE.with(|q| q.borrow_mut().extend(track_ids.iter().map(|id| (generation, id.clone(), c.next))));
             pump_host_enqueue();
         }
         GuestCommand::Unknown => {}
     }
+}
+
+/// Host: a guest's Play Next takes its place in line now, like the host's
+/// own, so the requests play in the order they were made.
+fn host_play_next(track_ids: Vec<String>) {
+    let generation = current_generation();
+    let ticket = player::play_next_ticket();
+    glib::spawn_future_local(async move {
+        let mut tracks = Vec::new();
+        for id in track_ids {
+            if !guest_request_still_valid(generation) {
+                break;
+            }
+            let fetch_id = id.clone();
+            match crate::api::run(move || crate::service::get_track(&fetch_id)).await {
+                Ok(track) => tracks.push(track),
+                Err(e) => log::warn!("failed to queue a guest track id={id} error={e}"),
+            }
+        }
+        if !guest_request_still_valid(generation) {
+            tracks.clear();
+        }
+        // Completed even when empty, so later Play Next requests aren't held up.
+        player::complete_play_next(ticket, tracks);
+    });
 }
 
 /// `true` while the host session that accepted a guest request is still
@@ -327,12 +355,13 @@ fn pump_host_enqueue() {
         return;
     }
     glib::spawn_future_local(async {
-        while let Some((generation, id)) = HOST_ENQUEUE.with(|q| q.borrow_mut().pop_front()) {
+        while let Some((generation, id, next)) = HOST_ENQUEUE.with(|q| q.borrow_mut().pop_front()) {
             if !guest_request_still_valid(generation) {
                 continue;
             }
             let fetch_id = id.clone();
             match crate::api::run(move || crate::service::get_track(&fetch_id)).await {
+                Ok(track) if guest_request_still_valid(generation) && next => player::play_tracklist_next(vec![track]),
                 Ok(track) if guest_request_still_valid(generation) => player::add_tracklist_to_user_queue(vec![track]),
                 Ok(_) => {}
                 Err(e) => log::warn!("failed to queue a guest track id={id} error={e}"),
@@ -408,7 +437,15 @@ fn pump_outbox() {
             let generation = current_generation();
             let g = guest();
             let step = OUTBOX.with(|o| {
-                o.borrow_mut().pump(generation, |cmd| g.as_ref().is_some_and(|g| guest_control().get() && g.send_command(cmd)))
+                o.borrow_mut().pump(generation, |(cmd, next)| {
+                    g.as_ref().is_some_and(|g| {
+                        guest_control().get()
+                            && match cmd {
+                                GuestCommand::Enqueue { track_ids } if next => g.send_play_next(track_ids),
+                                cmd => g.send_command(cmd),
+                            }
+                    })
+                })
             });
             match step {
                 Pump::Empty => break,
@@ -542,7 +579,20 @@ pub fn guest_refuses() -> bool {
 
 /// UI "add to queue". Guests send the track ids to the host in chunks the
 /// protocol accepts; `false` means act locally.
-pub fn user_enqueue(track_ids: Vec<String>) -> bool {
+pub fn user_enqueue(track_ids: &[String]) -> bool {
+    send_enqueue(track_ids, false)
+}
+
+/// UI "play next". Like [`user_enqueue`], but the host plays the tracks
+/// after the current one; a host without Play Next appends them instead.
+pub fn user_play_next(track_ids: &[String]) -> bool {
+    if is_guest() && guest_control().get() && !guest().is_some_and(|g| g.host_supports_play_next()) {
+        player::toasts().notify(&tr("The host's app is too old for Play Next, added to the end of the queue"));
+    }
+    send_enqueue(track_ids, true)
+}
+
+fn send_enqueue(track_ids: &[String], next: bool) -> bool {
     if !is_guest() {
         return false;
     }
@@ -554,7 +604,7 @@ pub fn user_enqueue(track_ids: Vec<String>) -> bool {
     OUTBOX.with(|o| {
         let mut o = o.borrow_mut();
         for chunk in track_ids.chunks(tonearm_core::live::session::MAX_ENQUEUE) {
-            o.push(generation, GuestCommand::Enqueue { track_ids: chunk.to_vec() });
+            o.push(generation, (GuestCommand::Enqueue { track_ids: chunk.to_vec() }, next));
         }
     });
     pump_outbox();
