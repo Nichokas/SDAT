@@ -11,7 +11,6 @@ import androidx.media3.common.MimeTypes
 import androidx.media3.common.PlaybackException
 import androidx.media3.common.Player
 import androidx.media3.exoplayer.ExoPlayer
-import java.net.URI
 import kotlin.coroutines.cancellation.CancellationException
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.MainScope
@@ -67,14 +66,15 @@ class Playback(context: Context, private val quality: Quality) {
         request = scope.launch {
             try {
                 val url = stream(t.id, quality).url
-                player.setMediaItem(MediaItem.Builder().setUri(url).setMimeType(mimeType(url)).build())
+                // The core only hands out HLS manifests.
+                player.setMediaItem(MediaItem.Builder().setUri(url).setMimeType(MimeTypes.APPLICATION_M3U8).build())
                 player.prepare()
                 player.play()
+                fetching = false
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
                 error = e.message ?: e.javaClass.simpleName
-            } finally {
                 fetching = false
             }
         }
@@ -83,10 +83,14 @@ class Playback(context: Context, private val quality: Quality) {
     /** After a failure there is nothing prepared, so this starts the track again. */
     fun toggle() {
         val t = track ?: return
-        when {
-            error != null -> play(t)
-            player.isPlaying -> player.pause()
-            else -> player.play()
+        when (tapAction(error != null, player.playbackState == Player.STATE_ENDED, player.playWhenReady)) {
+            Tap.Retry -> play(t)
+            Tap.Replay -> {
+                player.seekToDefaultPosition()
+                player.play()
+            }
+            Tap.Pause -> player.pause()
+            Tap.Resume -> player.play()
         }
     }
 
@@ -96,9 +100,16 @@ class Playback(context: Context, private val quality: Quality) {
         player.clearMediaItems()
         track = null
         error = null
+        fetching = false
     }
 }
 
-/** HLS manifests need an explicit type when the URL carries a query string. */
-internal fun mimeType(url: String): String? =
-    if (runCatching { URI(url).path }.getOrNull()?.endsWith(".m3u8") == true) MimeTypes.APPLICATION_M3U8 else null
+internal enum class Tap { Retry, Replay, Pause, Resume }
+
+/** Pauses on `playWhenReady`, not `isPlaying`, so a tap while buffering still pauses. */
+internal fun tapAction(failed: Boolean, ended: Boolean, playWhenReady: Boolean) = when {
+    failed -> Tap.Retry
+    ended -> Tap.Replay
+    playWhenReady -> Tap.Pause
+    else -> Tap.Resume
+}
