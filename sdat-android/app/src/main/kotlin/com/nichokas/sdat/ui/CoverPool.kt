@@ -13,7 +13,11 @@ class CoverPool {
         for (t in batch) {
             val album = t.album ?: continue
             val cover = album.coverUrl ?: continue
-            if (ids.add(t.id) && albums.add(album.id) && covers.add(cover)) tracks += t
+            if (t.id in ids || album.id in albums || cover in covers) continue
+            ids += t.id
+            albums += album.id
+            covers += cover
+            tracks += t
         }
     }
 }

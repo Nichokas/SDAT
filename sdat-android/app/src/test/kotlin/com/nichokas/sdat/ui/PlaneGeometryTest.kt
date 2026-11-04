@@ -27,6 +27,14 @@ class PlaneGeometryTest {
         assertEquals(cells.size, cells.map(plane::index).toSet().size)
     }
 
+    @Test fun everyPooledTrackIsOnThePlane() {
+        for (count in listOf(5, 320, 321)) {
+            val plane = PlaneGeometry(count)
+            val seen = (0 until 200).flatMap { r -> (0 until 200).map { c -> plane.index(Cell(c, r)) } }.toSet()
+            assertEquals((0 until count).toSet(), seen)
+        }
+    }
+
     @Test fun picksTheSmallestCoverThatFits() {
         val base = "https://resources.tidal.com/images/ab/cd/320x320.jpg"
         assertEquals("https://resources.tidal.com/images/ab/cd/640x640.jpg", coverUrl(base, 420f))

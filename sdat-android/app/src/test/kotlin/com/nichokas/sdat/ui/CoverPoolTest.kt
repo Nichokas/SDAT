@@ -23,4 +23,10 @@ class CoverPoolTest {
         pool.add(listOf(track("4", "d"), track("4", "e")))
         assertEquals(listOf("1", "4"), pool.tracks.map { it.id })
     }
+
+    @Test fun aRejectedTrackDoesNotReserveItsAlbum() {
+        val pool = CoverPool()
+        pool.add(listOf(track("1", "a"), track("2", "b", cover = "c-a"), track("3", "b")))
+        assertEquals(listOf("1", "3"), pool.tracks.map { it.id })
+    }
 }

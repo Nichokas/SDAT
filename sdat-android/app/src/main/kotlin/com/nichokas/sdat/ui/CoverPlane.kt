@@ -86,7 +86,7 @@ class PlaneGeometry(private val count: Int) {
     private val gap = 12f
     private val period = sizes.sum() + gap * sizes.size
     private val rows = maxOf(12, kotlin.math.sqrt(count / 1.4).toInt())
-    private val cols = maxOf(1, count / rows)
+    private val cols = maxOf(1, (count + rows - 1) / rows)
 
     fun rowSize(r: Int) = sizes[r.mod(sizes.size)]
 
@@ -126,7 +126,8 @@ class PlaneGeometry(private val count: Int) {
     }
 
     /** The pool tiles the plane as one cols×rows block, so a repeat is a block away. */
-    fun index(cell: Cell) = minOf(cell.r.mod(rows) * cols + cell.c.mod(cols), count - 1)
+    // Rounding cols up and wrapping keeps every pooled track on the plane.
+    fun index(cell: Cell) = (cell.r.mod(rows) * cols + cell.c.mod(cols)) % count
 }
 
 private val tidalSize = Regex("""/\d+x\d+\.jpg$""")
