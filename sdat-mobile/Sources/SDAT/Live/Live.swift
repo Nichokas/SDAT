@@ -325,9 +325,21 @@ final class Live {
     }
 
     /// "Play Next". Guests ask the host to play the songs after the current
-    /// one (a host without Play Next appends them); returns `false` when the
-    /// caller should queue locally.
+    /// one (a host without Play Next appends them); a host inserts them after
+    /// earlier Play Next songs. Returns `false` when the caller should queue
+    /// locally.
     func userPlayNext(_ tracks: [Track]) -> Bool {
+        if let host {
+            // The host's own Play Next joins the same run as the guests', so
+            // neither jumps ahead of the other.
+            for t in tracks {
+                hostTick()
+                player.insertUpNext(t, at: Int(host.playNextOffset(trackIds: [t.id])))
+            }
+            hostTick()
+            Chrome.shared.flash("Playing next")
+            return true
+        }
         let supported = guest?.hostSupportsPlayNext() ?? false
         return send(tracks, next: true, flash: supported ? "Sent to play next on the host" : "The host's app is too old for Play Next, added to the end of the queue")
     }
