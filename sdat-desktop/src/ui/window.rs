@@ -458,6 +458,7 @@ async fn session_changed() {
         anyhow::Ok(())
     })
     .await);
+    crate::cache::allow_prefetch_again();
 }
 
 fn install_actions(app: &adw::Application, window: &adw::ApplicationWindow) {
