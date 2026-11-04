@@ -444,7 +444,7 @@ fn sign_in(window: &adw::ApplicationWindow) {
                 state::notify_signed_in_changed();
                 if let Err(e) = saved {
                     log::error!("failed to store refresh token error={e:#}");
-                    toast(&trf("Signed in as %s, but the sign-in could not be saved; you will need to sign in again next time", &[&resp.user.email]));
+                    toast(&tr("Sign in failed: the keyring could not store the session"));
                 } else {
                     toast(&trf("Signed in as %s", &[&resp.user.email]));
                 }

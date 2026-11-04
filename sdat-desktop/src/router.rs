@@ -196,9 +196,11 @@ fn navigate_inner(path: String, off_record: bool) {
         if !should_cache {
             entry.expires_at = Some(Instant::now());
         }
-        // A newer navigation superseded this one: keep it out of history too,
-        // so Back does not land on a page the user never saw.
-        let superseded = GENERATION.with(std::cell::Cell::get) != generation;
+        // A newer navigation superseded this one: drop the result so neither
+        // history nor the kept pages hold a page (or account) the user never saw.
+        if GENERATION.with(std::cell::Cell::get) != generation {
+            return;
+        }
         if should_cache && is_kept_route(&path) {
             KEPT.with(|k| k.borrow_mut().insert(path.clone(), entry.clone()));
         }
@@ -210,11 +212,8 @@ fn navigate_inner(path: String, off_record: bool) {
                     c.expires_at = entry.expires_at;
                 }
             });
-        } else if !superseded {
+        } else {
             push(entry.clone());
-        }
-        if superseded {
-            return;
         }
         complete(entry);
     });
