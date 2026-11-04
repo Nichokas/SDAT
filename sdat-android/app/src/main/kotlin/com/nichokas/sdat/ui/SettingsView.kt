@@ -15,6 +15,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -51,7 +52,6 @@ import io.github.neoruaa.glasmio.ui.GlasmioSwitch
 import io.github.neoruaa.glasmio.ui.GlasmioTextField
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.launch
-import uniffi.tonearm_ffi.LastFmAuth
 import uniffi.tonearm_ffi.Quality
 import uniffi.tonearm_ffi.lastfmBeginAuth
 import uniffi.tonearm_ffi.lastfmFinishAuth
@@ -65,11 +65,11 @@ fun SettingsView(session: Session, prefs: Preferences, secrets: Secrets, onBack:
     var confirmLogout by remember { mutableStateOf(false) }
     var confirmErase by remember { mutableStateOf(false) }
     var lastFmUser by remember { mutableStateOf(secrets.get(Secrets.LASTFM_USER)) }
-    var lastFmPending by remember { mutableStateOf<LastFmAuth?>(null) }
+    var lastFmPending by rememberSaveable { mutableStateOf<String?>(null) }
     var lastFmError by remember { mutableStateOf<String?>(null) }
     var listenBrainzToken by remember { mutableStateOf("") }
     var hasListenBrainz by remember { mutableStateOf(secrets.get(Secrets.LISTENBRAINZ_TOKEN) != null) }
-    var browserOpened by remember { mutableStateOf(false) }
+    var browserOpened by rememberSaveable { mutableStateOf(false) }
     val destructive = GlasmioTheme.colors.destructive
 
     BackHandler(onBack = onBack)
@@ -81,7 +81,7 @@ fun SettingsView(session: Session, prefs: Preferences, secrets: Secrets, onBack:
             browserOpened = false
             scope.launch {
                 try {
-                    val sk = lastfmFinishAuth(pending.token)
+                    val sk = lastfmFinishAuth(pending)
                     if (sk == null) {
                         lastFmError = "Last.fm access wasn't approved."
                     } else {
@@ -100,7 +100,7 @@ fun SettingsView(session: Session, prefs: Preferences, secrets: Secrets, onBack:
                 }
             }
         }
-        onPauseOrDispose {}
+        onPauseOrDispose { if (pending != null) browserOpened = true }
     }
 
     GlasmioPinnedListPage(title = "Settings", showsLargeTitle = false, onNavigateBack = onBack) {
@@ -144,13 +144,14 @@ fun SettingsView(session: Session, prefs: Preferences, secrets: Secrets, onBack:
                                 scope.launch {
                                     try {
                                         val auth = lastfmBeginAuth()
-                                        lastFmPending = auth
-                                        browserOpened = true
+                                        browserOpened = false
+                                        lastFmPending = auth.token
                                         context.open(auth.url)
                                     } catch (e: CancellationException) {
                                         throw e
                                     } catch (e: Exception) {
                                         lastFmError = e.message ?: e.javaClass.simpleName
+                                        lastFmPending = null
                                     }
                                 }
                             },
@@ -201,11 +202,11 @@ fun SettingsView(session: Session, prefs: Preferences, secrets: Secrets, onBack:
 
     if (confirmErase) {
         Confirm("Erase all app data?", "This cannot be undone.", "Erase everything", onDismiss = { confirmErase = false }) {
-            eraseAll(context, session, prefs, secrets)
+            scope.launch { eraseAll(context, session, prefs, secrets) }
         }
     }
     if (confirmLogout) {
-        Confirm("Log out of TIDAL?", null, "Log out", onDismiss = { confirmLogout = false }, onConfirm = session::signOut)
+        Confirm("Log out of TIDAL?", null, "Log out", onDismiss = { confirmLogout = false }, onConfirm = { prefs.profilePicture = null; session.signOut() })
     }
 }
 

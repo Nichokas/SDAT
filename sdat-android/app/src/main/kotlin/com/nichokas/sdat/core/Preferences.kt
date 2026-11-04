@@ -3,6 +3,8 @@ package com.nichokas.sdat.core
 import android.content.Context
 import androidx.compose.runtime.mutableStateOf
 import androidx.core.content.edit
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import uniffi.tonearm_ffi.Quality
 
 /** Picker order, keys and copy as on iOS. */
@@ -95,9 +97,11 @@ class Secrets(context: Context) {
 }
 
 /** Erase all app data: TIDAL session, Last.fm and ListenBrainz tokens, settings, caches and stored files. */
-fun eraseAll(context: Context, session: Session, prefs: Preferences, secrets: Secrets) {
+suspend fun eraseAll(context: Context, session: Session, prefs: Preferences, secrets: Secrets) {
     secrets.clear()
     prefs.clear()
-    listOf(context.cacheDir, context.filesDir).forEach { dir -> dir.listFiles()?.forEach { it.deleteRecursively() } }
+    withContext(Dispatchers.IO) {
+        listOf(context.cacheDir, context.filesDir).forEach { dir -> dir.listFiles()?.forEach { it.deleteRecursively() } }
+    }
     session.signOut()
 }
