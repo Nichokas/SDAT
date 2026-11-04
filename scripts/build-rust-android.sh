@@ -11,6 +11,8 @@ cd "$root"
 # 16 KB page alignment is required for apps targeting Android 15+ on arm64.
 RUSTFLAGS="${RUSTFLAGS:-} -C link-arg=-Wl,-z,max-page-size=16384" \
   cargo ndk -t arm64-v8a -t x86_64 -P "$api" -o "$jni" build -p tonearm-ffi --lib --release
+# cargo-ndk also copies iroh's own cdylibs; libtonearm_ffi.so links iroh statically and never loads them.
+rm -f "$jni"/*/libiroh*.so
 rm -rf "$kotlin"
 # Library mode reads the UniFFI metadata embedded in the .so, so any ABI works.
 cargo run -q -p tonearm-ffi --features bindgen --bin uniffi-bindgen -- \
