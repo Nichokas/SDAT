@@ -13,6 +13,7 @@ import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.wrapContentHeight
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -29,7 +30,6 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.nichokas.sdat.core.Session
 import io.github.neoruaa.glasmio.core.IosTypography
-import io.github.neoruaa.glasmio.ui.GlasmioButton
 import kotlin.coroutines.cancellation.CancellationException
 import uniffi.tonearm_ffi.Shuffle
 import uniffi.tonearm_ffi.Track
@@ -90,8 +90,9 @@ fun DiscoverView(session: Session) {
                     Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(12.dp)) {
                         Text("Couldn't load Discover", style = IosTypography.headline, color = Color.White)
                         Text(message, style = IosTypography.footnote, color = Color.White.copy(alpha = 0.6f))
-                        GlasmioButton(onClick = { attempt++ }) { Text("Retry") }
-                        GlasmioButton(onClick = session::signOut) { Text("Sign out") }
+                        // Plain buttons: this is the backdrop's sampled layer, where glass would sample itself.
+                        TextButton(onClick = { attempt++ }) { Text("Retry", color = Color.White) }
+                        TextButton(onClick = session::signOut) { Text("Sign out", color = Color.White) }
                     }
                 }
             }
