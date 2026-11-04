@@ -49,7 +49,7 @@ pub fn session_changed() {
     crate::api::reset_user_token();
     crate::api::reset_country_code();
     for c in [&crate::state::ALBUMS, &crate::state::ARTISTS, &crate::state::MIXES, &crate::state::PLAYLISTS, &crate::state::TRACKS] {
-        c.bust();
+        c.reset();
     }
     crate::cache::clear();
 }
