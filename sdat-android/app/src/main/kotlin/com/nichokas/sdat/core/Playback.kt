@@ -12,7 +12,9 @@ import androidx.media3.common.PlaybackException
 import androidx.media3.common.Player
 import androidx.media3.exoplayer.ExoPlayer
 import kotlin.coroutines.cancellation.CancellationException
+import kotlinx.coroutines.Deferred
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.async
 import kotlinx.coroutines.MainScope
 import kotlinx.coroutines.launch
 import uniffi.tonearm_ffi.Mix
@@ -34,8 +36,7 @@ class Playback(context: Context, private val quality: Quality) {
     private var request: Job? = null
     private val queue = PlayQueue<Track> { it.id }
     private var infinite: Shuffle? = null
-    private var refilling: Job? = null
-    private var refilled = false
+    private var refilling: Deferred<Boolean>? = null
 
     var track by mutableStateOf<Track?>(null)
         private set
@@ -103,19 +104,22 @@ class Playback(context: Context, private val quality: Quality) {
 
     /** Appends a new endless batch, skipping tracks already queued; one fetch at a time. */
     private suspend fun fetchMore(source: Shuffle): Boolean {
-        refilling?.let { it.join(); return refilled }
-        val job = scope.launch {
-            refilled = false
+        if (infinite !== source) return false
+        refilling?.let { return it.await() }
+        val job = scope.async {
             repeat(3) {
-                val batch = try { source.nextBatch(10u) } catch (e: CancellationException) { throw e } catch (e: Exception) { return@launch }
-                if (infinite !== source) return@launch
-                if (queue.append(batch)) { refilled = true; return@launch }
+                val batch = try { source.nextBatch(10u) } catch (e: CancellationException) { throw e } catch (e: Exception) { return@async false }
+                if (infinite !== source) return@async false
+                if (queue.append(batch)) return@async true
             }
+            false
         }
         refilling = job
-        job.join()
-        refilling = null
-        return refilled
+        try {
+            return job.await()
+        } finally {
+            if (refilling === job) refilling = null
+        }
     }
 
     private fun replaceInfinite(source: Shuffle?) {
