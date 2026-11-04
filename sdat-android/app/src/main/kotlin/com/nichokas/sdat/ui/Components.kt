@@ -64,6 +64,7 @@ import io.github.neoruaa.glasmio.ui.GlasmioCascadingMenuItem
 import kotlin.coroutines.cancellation.CancellationException
 import kotlin.math.abs
 import kotlin.math.sin
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import uniffi.tonearm_ffi.Track
@@ -193,9 +194,13 @@ fun TrackRow(track: Track, modifier: Modifier = Modifier, showCover: Boolean = t
 
 /** Long-press menu items shared by every track row. */
 @Composable
-fun trackMenuItems(track: Track, ownPlaylistId: String? = null, onRemoved: (() -> Unit)? = null): List<GlasmioCascadingMenuItem> {
+fun trackMenuItems(
+    track: Track,
+    scope: CoroutineScope,
+    ownPlaylistId: String? = null,
+    onRemoved: (() -> Unit)? = null,
+): List<GlasmioCascadingMenuItem> {
     val player = LocalTrackPlayer.current
-    val scope = rememberCoroutineScope()
     val fav = Favs.known(track.id) ?: false
     return buildList {
         add(GlasmioCascadingMenuItem(if (fav) "Remove from Favourites" else "Add to Favourites", if (fav) "star.slash" else "star", onClick = { Favs.toggle(track.id) }))
@@ -248,6 +253,8 @@ fun TrackMenuRow(
 ) {
     var bounds by remember { mutableStateOf<Rect?>(null) }
     var open by remember { mutableStateOf(false) }
+    // Outlives the menu: Glasmio dismisses it before running the chosen action.
+    val scope = rememberCoroutineScope()
     LaunchedEffect(track.id) {
         delay(600)
         Favs.check(track.id)
@@ -260,7 +267,7 @@ fun TrackMenuRow(
     if (open) {
         GlasmioCascadingMenu(
             anchorBounds = bounds,
-            items = trackMenuItems(track, ownPlaylistId, onRemoved),
+            items = trackMenuItems(track, scope, ownPlaylistId, onRemoved),
             title = track.displayTitle,
             expandedDescription = "Expanded",
             collapsedDescription = "Collapsed",

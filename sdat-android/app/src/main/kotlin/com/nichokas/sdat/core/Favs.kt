@@ -15,11 +15,14 @@ object Favs {
 
     fun known(id: String): Boolean? = tracks[id]
     fun mark(ids: List<String>, v: Boolean) = ids.forEach { tracks[it] = v }
+    fun clear() = tracks.clear()
 
     suspend fun check(id: String) {
         if (tracks[id] != null) return
         try {
-            tracks[id] = isFavourite(FavouriteKind.TRACK, id)
+            val v = isFavourite(FavouriteKind.TRACK, id)
+            // A toggle made while this was in flight wins.
+            if (tracks[id] == null) tracks[id] = v
         } catch (e: CancellationException) {
             throw e
         } catch (_: Exception) {

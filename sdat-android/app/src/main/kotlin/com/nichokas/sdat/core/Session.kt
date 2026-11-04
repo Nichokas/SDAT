@@ -42,6 +42,7 @@ class Session(context: Context) : TokenStore {
     /** Also the way out of a session TIDAL no longer accepts. */
     fun signOut() {
         prefs.edit { clear() }
+        Favs.clear()
         sessionChanged()
         signedIn = false
     }
