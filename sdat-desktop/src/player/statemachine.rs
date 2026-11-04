@@ -186,6 +186,7 @@ pub fn on_playing_gapless_exit(track: Track, manifest: &TrackManifest, did_repea
         s
     });
     if did_repeat {
+        crate::scrobbling::start_listen(&track);
         return;
     }
     track_changed().set(Some(TrackChangedEvent { track, skip_history: false }));

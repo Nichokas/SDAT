@@ -399,6 +399,8 @@ pub fn for_module(module: &legacy::Module) -> gtk::Widget {
             for it in &module.paged_list.items {
                 let fake = legacy::TrackItemData {
                     album: legacy::TrackItemDataAlbum { cover: it.album.cover.clone(), id: it.album.id, title: it.album.title.clone(), ..Default::default() },
+                    // Page track lists carry no streaming flag; TIDAL only lists streamable tracks there.
+                    allow_streaming: true,
                     artists: it.artists.iter().map(|a| legacy::ArtistItemData { id: a.id, name: a.name.clone(), ..Default::default() }).collect(),
                     duration: it.duration,
                     id: it.id.int,

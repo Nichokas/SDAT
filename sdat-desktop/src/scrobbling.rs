@@ -2,6 +2,7 @@
 //! driven by a listening clock (scrobble after half the track or 4 minutes).
 use std::cell::RefCell;
 
+use crate::model::Track;
 use crate::player::{self, PlaybackStatus};
 use crate::settings;
 pub use tonearm_core::scrobbling::*;
@@ -135,17 +136,24 @@ fn clock_stop() {
     });
 }
 
+/// Starts a new listen; also called when gapless repeat replays the same track,
+/// which does not fire `track_changed`.
+pub fn start_listen(track: &Track) {
+    let meta = TrackMeta::from_track(track);
+    now_playing(meta.clone());
+    clock_stop();
+    CLOCK.with(|c| {
+        *c.borrow_mut() = Some(Clock::new(meta, now_unix()));
+    });
+    if player::playback_state_changed().get().status == PlaybackStatus::Playing {
+        clock_start();
+    }
+}
+
 pub fn init() {
     player::track_changed().on(|ev| {
-        let Some(ev) = ev else { return false };
-        let meta = TrackMeta::from_track(&ev.track);
-        now_playing(meta.clone());
-        clock_stop();
-        CLOCK.with(|c| {
-            *c.borrow_mut() = Some(Clock::new(meta, now_unix()));
-        });
-        if player::playback_state_changed().get().status == PlaybackStatus::Playing {
-            clock_start();
+        if let Some(ev) = ev {
+            start_listen(&ev.track);
         }
         false
     });

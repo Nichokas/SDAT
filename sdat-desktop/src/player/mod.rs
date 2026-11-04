@@ -244,7 +244,6 @@ pub fn init() -> Result<()> {
         CONTINUE
     });
     enqueued_track_hook();
-    mpris::init();
     Ok(())
 }
 
