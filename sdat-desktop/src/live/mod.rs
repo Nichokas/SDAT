@@ -55,9 +55,8 @@ thread_local! {
     static LAST_TRACK: RefCell<Option<String>> = const { RefCell::new(None) };
     static HOOKED: Cell<bool> = const { Cell::new(false) };
     static OUTPUT_DELAY: Cell<i32> = const { Cell::new(0) };
-    /// Host: accepted guest track ids waiting to be fetched, in arrival order
-    /// (`true`: Play Next).
-    static HOST_ENQUEUE: RefCell<VecDeque<(u64, String, bool)>> = const { RefCell::new(VecDeque::new()) };
+    /// Host: accepted guest track ids waiting to be fetched, in arrival order.
+    static HOST_ENQUEUE: RefCell<VecDeque<(u64, String)>> = const { RefCell::new(VecDeque::new()) };
     static HOST_ENQUEUE_BUSY: Cell<bool> = const { Cell::new(false) };
     /// Guest: enqueue chunks paced against the command budget (`true`: Play Next).
     static OUTBOX: RefCell<Outbox<(GuestCommand, bool)>> = RefCell::new(Outbox::default());
@@ -309,7 +308,7 @@ fn apply_guest_command(c: &HostCommand) {
         GuestCommand::Enqueue { track_ids } if c.next => host_play_next(track_ids.clone()),
         GuestCommand::Enqueue { track_ids } => {
             let generation = current_generation();
-            HOST_ENQUEUE.with(|q| q.borrow_mut().extend(track_ids.iter().map(|id| (generation, id.clone(), c.next))));
+            HOST_ENQUEUE.with(|q| q.borrow_mut().extend(track_ids.iter().map(|id| (generation, id.clone()))));
             pump_host_enqueue();
         }
         GuestCommand::Unknown => {}
@@ -333,17 +332,14 @@ fn host_play_next(track_ids: Vec<String>) {
                 Err(e) => log::warn!("failed to queue a guest track id={id} error={e}"),
             }
         }
-        if !guest_request_still_valid(generation) {
-            tracks.clear();
-        }
-        // Completed even when empty, so later Play Next requests aren't held up.
-        player::complete_play_next(ticket, tracks);
+        // Completed even when dropped, so later Play Next requests aren't held up.
+        player::complete_play_next(ticket, tracks, Some(generation));
     });
 }
 
 /// `true` while the host session that accepted a guest request is still
 /// live and still lets guests control playback.
-fn guest_request_still_valid(generation: u64) -> bool {
+pub(crate) fn guest_request_still_valid(generation: u64) -> bool {
     generation == current_generation() && host().is_some_and(|h| h.guest_control())
 }
 
@@ -355,13 +351,12 @@ fn pump_host_enqueue() {
         return;
     }
     glib::spawn_future_local(async {
-        while let Some((generation, id, next)) = HOST_ENQUEUE.with(|q| q.borrow_mut().pop_front()) {
+        while let Some((generation, id)) = HOST_ENQUEUE.with(|q| q.borrow_mut().pop_front()) {
             if !guest_request_still_valid(generation) {
                 continue;
             }
             let fetch_id = id.clone();
             match crate::api::run(move || crate::service::get_track(&fetch_id)).await {
-                Ok(track) if guest_request_still_valid(generation) && next => player::play_tracklist_next(vec![track]),
                 Ok(track) if guest_request_still_valid(generation) => player::add_tracklist_to_user_queue(vec![track]),
                 Ok(_) => {}
                 Err(e) => log::warn!("failed to queue a guest track id={id} error={e}"),

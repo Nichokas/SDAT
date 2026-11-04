@@ -380,7 +380,7 @@ fn queue_param(param: &str, next: bool) {
         spawn_logged("play next", async move {
             let r = queue_target_tracks(kind, id).await;
             // A Listen Together guest sends the batch to the host instead.
-            player::complete_play_next(ticket, r.as_ref().map(Clone::clone).unwrap_or_default());
+            player::complete_play_next(ticket, r.as_ref().map(Clone::clone).unwrap_or_default(), None);
             r.map(drop)
         });
     } else if kind == "track" {

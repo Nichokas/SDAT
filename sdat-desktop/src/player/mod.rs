@@ -51,7 +51,7 @@ global_signal!(pub fn history() -> HistoryQueue = HistoryQueue::default());
 thread_local! {
     /// Entries at the front of the user queue that were added with "play next".
     static PLAY_NEXT_PINNED: Cell<usize> = const { Cell::new(0) };
-    static PLAY_NEXT_ORDER: std::cell::RefCell<play_next::Sequencer<Track>> = std::cell::RefCell::default();
+    static PLAY_NEXT_ORDER: std::cell::RefCell<play_next::Sequencer<(Option<u64>, Vec<Track>)>> = std::cell::RefCell::default();
     /// Bumped when the queues are replaced, so pending "play next" fetches are discarded.
     static PLAY_NEXT_GENERATION: Cell<u64> = const { Cell::new(0) };
     /// Id of the gapless-prepared track moved from the base queue to the head
@@ -83,14 +83,19 @@ pub fn play_next_ticket() -> PlayNextTicket {
 /// Delivers the tracks for a "play next" request (empty if fetching failed);
 /// requests are applied in the order their tickets were taken. Requests taken
 /// before the queues were replaced are dropped. A Listen Together guest sends
-/// each batch to the host as a Play Next, in the same order.
-pub fn complete_play_next(ticket: PlayNextTicket, tracks: Vec<Track>) {
+/// each batch to the host as a Play Next, in the same order. `guest` is the
+/// Listen Together session of a guest's request, rechecked on release since
+/// control may be revoked while it waits behind an earlier request.
+pub fn complete_play_next(ticket: PlayNextTicket, tracks: Vec<Track>, guest: Option<u64>) {
     if ticket.generation != PLAY_NEXT_GENERATION.with(Cell::get) {
         return;
     }
-    let batches = PLAY_NEXT_ORDER.with(|s| s.borrow_mut().complete(ticket.seq, tracks));
+    let batches = PLAY_NEXT_ORDER.with(|s| s.borrow_mut().complete(ticket.seq, vec![(guest, tracks)]));
     let mut queued = false;
-    for b in batches {
+    for (guest, b) in batches.into_iter().flatten() {
+        if guest.is_some_and(|g| !crate::live::guest_request_still_valid(g)) {
+            continue;
+        }
         if b.is_empty() || crate::live::user_play_next(&b.iter().map(|t| t.id().to_string()).collect::<Vec<_>>()) {
             continue;
         }
@@ -460,16 +465,6 @@ fn insert_tracklist_next(tracks: Vec<Track>) {
     let pinned = play_next::insert(&mut entries, pinned, floor, tracks);
     user_queue().set(entries);
     update_pinned(|_| pinned);
-}
-
-/// Host: a guest's Play Next, after the current track and earlier Play Next
-/// tracks (local or from guests).
-pub fn play_tracklist_next(tracks: Vec<Track>) {
-    if tracks.is_empty() {
-        return;
-    }
-    insert_tracklist_next(tracks);
-    start_if_idle();
 }
 
 pub fn add_tracklist_to_user_queue(tracks: Vec<Track>) {
