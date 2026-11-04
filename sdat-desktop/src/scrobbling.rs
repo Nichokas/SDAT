@@ -136,9 +136,7 @@ fn clock_stop() {
     });
 }
 
-/// Starts a new listen; also called when gapless repeat replays the same track,
-/// which does not fire `track_changed`.
-pub fn start_listen(track: &Track) {
+fn start_listen(track: &Track) {
     let meta = TrackMeta::from_track(track);
     now_playing(meta.clone());
     clock_stop();
@@ -155,6 +153,10 @@ pub fn init() {
         if let Some(ev) = ev {
             start_listen(&ev.track);
         }
+        false
+    });
+    player::track_repeated().on(|track| {
+        start_listen(track);
         false
     });
     player::playback_state_changed().on(|ps| {
