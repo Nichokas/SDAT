@@ -43,8 +43,9 @@ class Playback(context: Context, private val quality: Quality) {
 
     init {
         player.addListener(object : Player.Listener {
-            override fun onIsPlayingChanged(isPlaying: Boolean) {
-                playing = isPlaying
+            // The requested state, so the icon matches what a tap does even while audio focus suppresses output.
+            override fun onEvents(player: Player, events: Player.Events) {
+                playing = player.playWhenReady && player.playbackState != Player.STATE_ENDED
             }
 
             override fun onPlaybackStateChanged(state: Int) {
