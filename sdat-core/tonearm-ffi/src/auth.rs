@@ -100,8 +100,8 @@ impl DeviceLogin {
     }
     /// Polls until approved, expired (`Other`) or cancelled (`Cancelled`).
     pub async fn wait(&self) -> Result<LoginTokens, FfiError> {
-        let (code, interval, c) = (self.device_code.clone(), self.interval, Arc::clone(&self.cancelled));
-        let r = run(move || api::poll_device_linking_status(&code, interval, &|| c.load(Ordering::SeqCst))).await?;
+        let (code, interval, expires, c) = (self.device_code.clone(), self.interval, self.expires_in_secs, Arc::clone(&self.cancelled));
+        let r = run(move || api::poll_device_linking_status(&code, interval, expires, &|| c.load(Ordering::SeqCst))).await?;
         if self.cancelled.load(Ordering::SeqCst) {
             return Err(FfiError::Cancelled);
         }

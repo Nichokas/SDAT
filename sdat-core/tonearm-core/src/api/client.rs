@@ -77,7 +77,11 @@ struct AccessToken {
 }
 
 fn token_request(form: &[(&str, &str)]) -> reqwest::Result<Response> {
-    http().post(format!("{}/v1/oauth2/token", crate::config::get().auth_base_url())).form(form).send()
+    token_request_with(http(), form)
+}
+
+fn token_request_with(client: &Client, form: &[(&str, &str)]) -> reqwest::Result<Response> {
+    client.post(format!("{}/v1/oauth2/token", crate::config::get().auth_base_url())).form(form).send()
 }
 
 fn fetch_access_token(cache: &Mutex<CachedToken>, form: &[(&str, &str)]) -> Result<String> {
@@ -728,10 +732,18 @@ pub fn request_device_linking_challenge() -> Result<DeviceLinkingChallenge> {
     Ok(resp.json()?)
 }
 
-/// Polls until the user approved the device. `cancelled` is checked between polls.
-const MAX_POLL_SEND_FAILURES: u32 = 5;
-
-pub fn poll_device_linking_status(device_code: &str, interval: i64, cancelled: &dyn Fn() -> bool) -> Result<TokenResponse> {
+/// Polls until the user approves the code, it expires (`expires_in` seconds) or `cancelled` returns true.
+pub fn poll_device_linking_status(device_code: &str, interval: i64, expires_in: i64, cancelled: &dyn Fn() -> bool) -> Result<TokenResponse> {
+    let deadline = Instant::now() + Duration::from_secs(expires_in.max(1) as u64);
+    // The user is in the browser meanwhile, so the app is in the background: the OS may kill an idle
+    // keep-alive socket or hold back data for a while. Every poll opens a fresh connection with a
+    // bounded timeout, and failed sends are retried until the code itself expires.
+    let client = crate::http::client_builder()
+        .user_agent("Go-http-client/1.1")
+        .pool_max_idle_per_host(0)
+        .connect_timeout(Duration::from_secs(10))
+        .timeout(Duration::from_secs(20))
+        .build()?;
     let form = [
         ("client_id", client_id()),
         ("client_secret", client_secret()),
@@ -750,23 +762,22 @@ pub fn poll_device_linking_status(device_code: &str, interval: i64, cancelled: &
         }
         Ok(())
     };
-    let mut send_failures = 0;
     loop {
         if cancelled() {
             return Err(CoreError::Cancelled("linking canceled".into()));
         }
-        // The user is in the browser approving the code meanwhile, so a phone can drop or
-        // switch networks; a failed send is retried a few times instead of ending the login.
-        let resp = match token_request(&form) {
+        if Instant::now() >= deadline {
+            bail!("linking session expired");
+        }
+        let resp = match token_request_with(&client, &form) {
             Ok(r) => r,
-            Err(e) if !(e.is_status() || e.is_redirect() || e.is_builder()) && send_failures < MAX_POLL_SEND_FAILURES => {
-                send_failures += 1;
+            Err(e) if !(e.is_status() || e.is_redirect() || e.is_builder()) => {
+                log::warn!("device login poll failed, retrying: {e}");
                 pause()?;
                 continue;
             }
             Err(e) => return Err(e.into()),
         };
-        send_failures = 0;
         if resp.status() != StatusCode::OK {
             let e: TokenError = resp.json()?;
             match e.error.as_str() {
