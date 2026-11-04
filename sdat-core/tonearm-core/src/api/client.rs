@@ -759,7 +759,7 @@ pub fn poll_device_linking_status(device_code: &str, interval: i64, cancelled: &
         // switch networks; a failed send is retried a few times instead of ending the login.
         let resp = match token_request(&form) {
             Ok(r) => r,
-            Err(e) if !e.is_status() && send_failures < MAX_POLL_SEND_FAILURES => {
+            Err(e) if !(e.is_status() || e.is_redirect() || e.is_builder()) && send_failures < MAX_POLL_SEND_FAILURES => {
                 send_failures += 1;
                 pause()?;
                 continue;
