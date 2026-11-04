@@ -97,7 +97,7 @@ impl FavouriteCache {
         self.inner.lock().unwrap_or_else(std::sync::PoisonError::into_inner).last_fetched = None;
     }
 
-    /// Forgets the cached ids and ETag (another account's).
+    /// Forgets the cached ids and `ETag` (another account's).
     pub fn reset(&self) {
         *self.inner.lock().unwrap_or_else(std::sync::PoisonError::into_inner) = Inner { etag: String::new(), items: None, last_fetched: None };
     }
