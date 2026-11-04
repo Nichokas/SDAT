@@ -439,15 +439,14 @@ fn sign_in(window: &adw::ApplicationWindow) {
             }
             Ok(resp) => {
                 let token = resp.refresh_token.clone();
-                let saved = api::run(move || secrets::set_refresh_token(&token)).await;
-                session_changed().await;
-                state::notify_signed_in_changed();
-                if let Err(e) = saved {
+                if let Err(e) = api::run(move || secrets::set_refresh_token(&token)).await {
                     log::error!("failed to store refresh token error={e:#}");
                     toast(&tr("Sign in failed: the keyring could not store the session"));
-                } else {
-                    toast(&trf("Signed in as %s", &[&resp.user.email]));
+                    return;
                 }
+                session_changed().await;
+                state::notify_signed_in_changed();
+                toast(&trf("Signed in as %s", &[&resp.user.email]));
                 router::refresh();
             }
         }
