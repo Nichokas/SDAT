@@ -32,7 +32,16 @@ struct Store {
     lists: HashMap<String, Vec<Track>>,
     /// Bumped on invalidation so in-flight fetches started earlier don't write stale data.
     generation: HashMap<String, u64>,
+    /// Bumped by [`clear`]; part of every key's generation, so it also
+    /// covers fetches for keys that were never cached.
+    epoch: u64,
     total: usize,
+}
+
+impl Store {
+    fn generation(&self, key: &str) -> u64 {
+        self.epoch + self.generation.get(key).copied().unwrap_or(0)
+    }
 }
 
 static STORE: Mutex<Option<Store>> = Mutex::new(None);
@@ -47,13 +56,13 @@ pub fn get(key: &str) -> Option<Vec<Track>> {
 }
 
 pub fn generation(key: &str) -> u64 {
-    with(|s| s.generation.get(key).copied().unwrap_or(0))
+    with(|s| s.generation(key))
 }
 
 /// Stores a full list unless it was invalidated since `generation` was read.
 pub fn put(key: &str, generation_at_start: u64, tracks: Vec<Track>) -> bool {
     with(|s| {
-        if s.generation.get(key).copied().unwrap_or(0) != generation_at_start {
+        if s.generation(key) != generation_at_start {
             return false;
         }
         let new_total = s.total - s.lists.get(key).map_or(0, Vec::len) + tracks.len();
@@ -69,9 +78,7 @@ pub fn put(key: &str, generation_at_start: u64, tracks: Vec<Track>) -> bool {
 /// Drops every cached list (e.g. when the country changes).
 pub fn clear() {
     with(|s| {
-        for k in s.lists.keys() {
-            *s.generation.entry(k.clone()).or_default() += 1;
-        }
+        s.epoch += 1;
         s.lists.clear();
         s.total = 0;
     });
@@ -116,3 +123,17 @@ pub fn foreground_busy() -> bool {
     FOREGROUND.load(Ordering::SeqCst) > 0
 }
 
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn clear_rejects_fetches_for_keys_never_cached() {
+        let key = "test:never-cached";
+        let g = generation(key);
+        clear();
+        assert!(!put(key, g, Vec::new()), "a fetch started before clear() must not be stored");
+        assert!(put(key, generation(key), Vec::new()));
+    }
+}

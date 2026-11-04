@@ -441,13 +441,23 @@ fn sign_in(window: &adw::ApplicationWindow) {
                 if let Err(e) = saved {
                     log::error!("failed to store refresh token error={e:#}");
                 }
-                tonearm_core::auth::session_changed();
+                session_changed().await;
                 state::notify_signed_in_changed();
                 toast(&trf("Signed in as %s", &[&resp.user.email]));
                 router::refresh();
             }
         }
     });
+}
+
+/// Off the UI thread: busting a favourites cache waits for any fetch of it
+/// in flight.
+async fn session_changed() {
+    drop(api::run(|| {
+        tonearm_core::auth::session_changed();
+        anyhow::Ok(())
+    })
+    .await);
 }
 
 fn install_actions(app: &adw::Application, window: &adw::ApplicationWindow) {
@@ -540,7 +550,7 @@ fn install_actions(app: &adw::Application, window: &adw::ApplicationWindow) {
             if let Err(e) = api::run(secrets::delete_refresh_token).await {
                 log::error!("failed to delete refresh token error={e:#}");
             }
-            tonearm_core::auth::session_changed();
+            session_changed().await;
             state::notify_signed_in_changed();
             toast(&tr("Signed out"));
             router::refresh();
