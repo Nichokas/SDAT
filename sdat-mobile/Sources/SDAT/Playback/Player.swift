@@ -172,6 +172,15 @@ final class Player {
         invalidatePreload()
     }
 
+    /// Inserts `track` `offset` entries after the current one (clamped to the
+    /// user queue, which plays before the rest).
+    func insertUpNext(_ track: Track, at offset: Int) {
+        defer { persist() }
+        if current == nil { play([track]); return }
+        userQueue.insert(track, at: min(max(offset, 0), userQueue.count))
+        invalidatePreload()
+    }
+
     func addToQueue(_ track: Track) {
         defer { persist() }
         if current == nil { play([track]); return }

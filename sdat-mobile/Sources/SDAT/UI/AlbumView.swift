@@ -208,7 +208,7 @@ struct DetailPage: View {
             }
             Menu {
                 Button("Play Next", systemImage: "text.line.first.and.arrowtriangle.forward") {
-                    if !Live.shared.userEnqueue(tracks) { for t in tracks.reversed() { player.playNext(t) } }
+                    if !Live.shared.userPlayNext(tracks) { for t in tracks.reversed() { player.playNext(t) } }
                 }
                 Button("Add to Queue", systemImage: "text.line.last.and.arrowtriangle.forward") {
                     if !Live.shared.userEnqueue(tracks) { for t in tracks { player.addToQueue(t) } }
