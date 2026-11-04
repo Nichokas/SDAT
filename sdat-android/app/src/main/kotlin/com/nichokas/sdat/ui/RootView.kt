@@ -37,7 +37,10 @@ import androidx.compose.foundation.layout.calculateEndPadding
 import androidx.compose.foundation.layout.calculateStartPadding
 import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.ui.platform.LocalLayoutDirection
+import com.nichokas.sdat.core.Preferences
+import com.nichokas.sdat.core.Secrets
 import com.nichokas.sdat.core.Session
+import androidx.compose.foundation.layout.statusBarsPadding
 import io.github.neoruaa.glasmio.core.GlasmioTheme
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.mutableFloatStateOf
@@ -59,7 +62,7 @@ private val capsule = RoundedCornerShape(percent = 50)
 
 /** Login until signed in, then the three root tabs and the bottom chrome (tab bar beside the circular mini-player). */
 @Composable
-fun RootView(session: Session, playback: Playback) {
+fun RootView(session: Session, playback: Playback, prefs: Preferences, secrets: Secrets) {
     LaunchedEffect(session.signedIn) { if (!session.signedIn) playback.stop() }
     val colors = GlasmioTheme.colors
     if (!session.signedIn) {
@@ -71,11 +74,14 @@ fun RootView(session: Session, playback: Playback) {
         )
     }
     var tab by rememberSaveable { mutableStateOf(AppTab.Discover) }
+    var settings by rememberSaveable { mutableStateOf(false) }
     val expanded = remember { mutableFloatStateOf(0f) }
     GlasmioBackdropHost(
         modifier = Modifier.fillMaxSize(),
         sampledContent = {
-            if (tab == AppTab.Discover) {
+            if (settings) {
+                SettingsView(session, prefs, secrets, onBack = { settings = false })
+            } else if (tab == AppTab.Discover) {
                 DiscoverView(session, onPlay = playback::play)
             } else {
                 Column(Modifier.fillMaxSize().background(colors.groupedBackground).safeDrawingPadding().padding(20.dp)) {
@@ -84,6 +90,7 @@ fun RootView(session: Session, playback: Playback) {
             }
         },
         overlayContent = {
+            if (!settings) ProfileButton(prefs, { settings = true }, Modifier.align(Alignment.TopEnd).statusBarsPadding().padding(end = 16.dp, top = 4.dp))
             Row(
                 Modifier.align(Alignment.BottomCenter).navigationBarsPadding().padding(horizontal = 24.dp, vertical = 12.dp),
                 horizontalArrangement = Arrangement.spacedBy(12.dp),
@@ -92,13 +99,13 @@ fun RootView(session: Session, playback: Playback) {
                 GlasmioNavigationBar(
                     items = tabItems,
                     selectedKey = tab,
-                    onSelected = { tab = it },
+                    onSelected = { tab = it; settings = false },
                     onExpand = {},
                     compactProgress = expanded,
                     compactSize = 62.dp,
                     modifier = Modifier.weight(1f),
                 )
-                MiniPlayer(playback)
+                if (!settings) MiniPlayer(playback)
             }
         },
     )

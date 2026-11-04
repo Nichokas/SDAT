@@ -52,13 +52,13 @@ class Session(context: Context) : TokenStore {
     }
 }
 
-class Settings(private val configDir: String) : AppConfig {
-    override fun streamingQuality() = Quality.HI_FI
+class Settings(private val configDir: String, private val prefs: Preferences) : AppConfig {
+    override fun streamingQuality() = prefs.streamingQuality
 
     override fun configDir() = configDir
 }
 
-private object Vault {
+internal object Vault {
     private const val ALIAS = "sdat-session"
     private const val IV_BYTES = 12
 
