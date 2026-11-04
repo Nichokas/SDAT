@@ -441,7 +441,7 @@ fn sign_in(window: &adw::ApplicationWindow) {
                 if let Err(e) = saved {
                     log::error!("failed to store refresh token error={e:#}");
                 }
-                api::reset_user_token();
+                tonearm_core::auth::session_changed();
                 state::notify_signed_in_changed();
                 toast(&trf("Signed in as %s", &[&resp.user.email]));
                 router::refresh();
@@ -540,7 +540,7 @@ fn install_actions(app: &adw::Application, window: &adw::ApplicationWindow) {
             if let Err(e) = api::run(secrets::delete_refresh_token).await {
                 log::error!("failed to delete refresh token error={e:#}");
             }
-            api::reset_user_token();
+            tonearm_core::auth::session_changed();
             state::notify_signed_in_changed();
             toast(&tr("Signed out"));
             router::refresh();
