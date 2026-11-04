@@ -287,6 +287,7 @@ pub fn current() -> Option<HistoryEntry> {
 
 /// Drops the Back entries (sign in/out) so the previous account's pages are unreachable.
 pub fn clear_back_history() {
+    GENERATION.with(|g| g.set(g.get() + 1));
     HISTORY.with(|h| h.borrow_mut().entries.clear());
     notify_history();
 }
