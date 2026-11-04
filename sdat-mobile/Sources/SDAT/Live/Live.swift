@@ -341,7 +341,7 @@ final class Live {
             return true
         }
         let supported = guest?.hostSupportsPlayNext() ?? false
-        return send(tracks, next: true, flash: supported ? "Sent to play next on the host" : "The host's app is too old for Play Next, added to the end of the queue")
+        return send(tracks, next: supported, flash: supported ? "Sent to play next on the host" : "The host's app is too old for Play Next, added to the end of the queue")
     }
 
     private func send(_ tracks: [Track], next: Bool, flash: String) -> Bool {
