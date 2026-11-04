@@ -50,6 +50,8 @@ fn http() -> &'static Client {
 struct CachedToken {
     token: String,
     expiry: Option<Instant>,
+    /// Bumped by a reset, so a request started before it can't store its token.
+    generation: u64,
 }
 
 impl CachedToken {
@@ -61,13 +63,14 @@ impl CachedToken {
     }
 }
 
-static USER_TOKEN: Mutex<CachedToken> = Mutex::new(CachedToken { token: String::new(), expiry: None });
-static OPENAPI_TOKEN: Mutex<CachedToken> = Mutex::new(CachedToken { token: String::new(), expiry: None });
+static USER_TOKEN: Mutex<CachedToken> = Mutex::new(CachedToken { token: String::new(), expiry: None, generation: 0 });
+static OPENAPI_TOKEN: Mutex<CachedToken> = Mutex::new(CachedToken { token: String::new(), expiry: None, generation: 0 });
 static COUNTRY: std::sync::Mutex<Option<String>> = std::sync::Mutex::new(None);
 
 /// Forget the cached user access token (after sign-in/out).
 pub fn reset_user_token() {
-    *USER_TOKEN.lock().unwrap_or_else(std::sync::PoisonError::into_inner) = CachedToken::default();
+    let mut t = USER_TOKEN.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+    *t = CachedToken { generation: t.generation + 1, ..CachedToken::default() };
 }
 
 #[derive(Deserialize)]
@@ -85,7 +88,10 @@ fn token_request(form: &[(&str, &str)]) -> Result<Response> {
 
 fn fetch_access_token(cache: &Mutex<CachedToken>, form: &[(&str, &str)]) -> Result<String> {
     // Release the lock before the (slow) token request.
-    let cached = cache.lock().unwrap_or_else(std::sync::PoisonError::into_inner).valid();
+    let (cached, generation) = {
+        let c = cache.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        (c.valid(), c.generation)
+    };
     if let Some(t) = cached {
         return Ok(t);
     }
@@ -94,7 +100,10 @@ fn fetch_access_token(cache: &Mutex<CachedToken>, form: &[(&str, &str)]) -> Resu
         bail_http!(resp.status().as_u16(), "failed to get token: {}", resp.status());
     }
     let t: AccessToken = resp.json()?;
-    *cache.lock().unwrap_or_else(std::sync::PoisonError::into_inner) = CachedToken { token: t.access_token.clone(), expiry: Some(Instant::now() + Duration::from_secs(t.expires_in)) };
+    let mut c = cache.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+    if c.generation == generation {
+        *c = CachedToken { token: t.access_token.clone(), expiry: Some(Instant::now() + Duration::from_secs(t.expires_in)), generation };
+    }
     Ok(t.access_token)
 }
 

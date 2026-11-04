@@ -4,7 +4,7 @@
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 
-use tonearm_core::{api, auth, config, state};
+use tonearm_core::{api, auth, config};
 
 use crate::{FfiError, Quality, run};
 
@@ -57,14 +57,10 @@ pub fn initialize(tokens: Arc<dyn TokenStore>, config: Arc<dyn AppConfig>) {
 }
 
 /// Call after the token store changed (login or logout): drops the cached
-/// access token and the favourites.
+/// access token, country, favourites and cached lists.
 #[uniffi::export]
 pub fn session_changed() {
-    api::reset_user_token();
-    api::reset_country_code();
-    for c in [&state::ALBUMS, &state::ARTISTS, &state::MIXES, &state::PLAYLISTS, &state::TRACKS] {
-        c.bust();
-    }
+    auth::session_changed();
 }
 
 /// Tokens to store in the Keychain after a successful login.

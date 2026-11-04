@@ -40,3 +40,16 @@ pub fn install(t: Box<dyn TokenStore>) -> bool {
 pub fn tokens() -> &'static dyn TokenStore {
     TOKENS.get_or_init(|| Box::new(SignedOut)).as_ref()
 }
+
+/// Call after login, logout or an account switch.
+///
+/// Drops the cached access token, country, favourites and cached lists
+/// (My Tracks) so nothing from the previous account leaks into the next.
+pub fn session_changed() {
+    crate::api::reset_user_token();
+    crate::api::reset_country_code();
+    for c in [&crate::state::ALBUMS, &crate::state::ARTISTS, &crate::state::MIXES, &crate::state::PLAYLISTS, &crate::state::TRACKS] {
+        c.reset();
+    }
+    crate::cache::clear();
+}

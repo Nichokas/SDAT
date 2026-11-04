@@ -97,13 +97,20 @@ impl FavouriteCache {
         self.inner.lock().unwrap_or_else(std::sync::PoisonError::into_inner).last_fetched = None;
     }
 
+    /// Forgets the cached ids and `ETag` (another account's).
+    pub fn reset(&self) {
+        *self.inner.lock().unwrap_or_else(std::sync::PoisonError::into_inner) = Inner { etag: String::new(), items: None, last_fetched: None };
+    }
+
     pub fn get(&self) -> Result<Vec<String>> {
+        // Read the account under the lock, so a `reset` for an account switch
+        // either waits for this fetch or happens before it.
+        let mut inner = self.inner.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
         let uid = crate::auth::tokens().user_id();
         if uid.is_empty() {
             log::debug!("not logged in, ignoring favourite fetch");
             return Ok(vec![]);
         }
-        let mut inner = self.inner.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
         if let (Some(items), Some(t)) = (&inner.items, inner.last_fetched)
             && t.elapsed() < TTL {
                 return Ok(items.clone());
