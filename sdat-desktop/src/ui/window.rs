@@ -379,9 +379,8 @@ fn queue_param(param: &str, next: bool) {
         let ticket = player::play_next_ticket();
         spawn_logged("play next", async move {
             let r = queue_target_tracks(kind, id).await;
-            // A Listen Together guest can't reorder the host's queue, so
-            // complete_play_next sends the batch to the host as an enqueue.
-            player::complete_play_next(ticket, r.as_ref().map(Clone::clone).unwrap_or_default());
+            // A Listen Together guest sends the batch to the host instead.
+            player::complete_play_next(ticket, r.as_ref().map(Clone::clone).unwrap_or_default(), None);
             r.map(drop)
         });
     } else if kind == "track" {
@@ -400,13 +399,13 @@ fn ids(t: &[model::Track]) -> Vec<String> {
 
 /// Queues one track; a Listen Together guest asks the host instead.
 fn queue_track(id: String) {
-    if !crate::live::user_enqueue(vec![id.clone()]) {
+    if !crate::live::user_enqueue(std::slice::from_ref(&id)) {
         spawn_logged("queue track", async move { player::add_track_to_user_queue(&id).await });
     }
 }
 
 fn queue_tracks(t: Vec<model::Track>) {
-    if !crate::live::user_enqueue(ids(&t)) {
+    if !crate::live::user_enqueue(&ids(&t)) {
         player::add_tracklist_to_user_queue(t);
     }
 }
