@@ -196,6 +196,9 @@ fn navigate_inner(path: String, off_record: bool) {
         if !should_cache {
             entry.expires_at = Some(Instant::now());
         }
+        // A newer navigation superseded this one: keep it out of history too,
+        // so Back does not land on a page the user never saw.
+        let superseded = GENERATION.with(std::cell::Cell::get) != generation;
         if should_cache && is_kept_route(&path) {
             KEPT.with(|k| k.borrow_mut().insert(path.clone(), entry.clone()));
         }
@@ -207,11 +210,10 @@ fn navigate_inner(path: String, off_record: bool) {
                     c.expires_at = entry.expires_at;
                 }
             });
-        } else {
+        } else if !superseded {
             push(entry.clone());
         }
-        // A newer navigation superseded this one: keep history but do not show it.
-        if GENERATION.with(std::cell::Cell::get) != generation {
+        if superseded {
             return;
         }
         complete(entry);
@@ -282,6 +284,12 @@ pub fn refresh() {
 
 pub fn current() -> Option<HistoryEntry> {
     HISTORY.with(|h| h.borrow().current.clone())
+}
+
+/// Drops the Back entries (sign in/out) so the previous account's pages are unreachable.
+pub fn clear_back_history() {
+    HISTORY.with(|h| h.borrow_mut().entries.clear());
+    notify_history();
 }
 
 pub fn clear() {

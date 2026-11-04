@@ -152,7 +152,10 @@ pub fn new_window(app: &adw::Application) -> adw::ApplicationWindow {
     window.connect_default_height_notify(save);
 
     // Kept top-level pages hold per-account data; reload them after sign in/out.
-    on_state(state::signed_in_changed(), &window, |_, _| router::invalidate_kept_pages());
+    on_state(state::signed_in_changed(), &window, |_, _| {
+        router::invalidate_kept_pages();
+        router::clear_back_history();
+    });
     router::navigate(&settings::default_page());
 
     if !is_stable(VERSION, COMMIT) {
@@ -437,12 +440,14 @@ fn sign_in(window: &adw::ApplicationWindow) {
             Ok(resp) => {
                 let token = resp.refresh_token.clone();
                 let saved = api::run(move || secrets::set_refresh_token(&token)).await;
-                if let Err(e) = saved {
-                    log::error!("failed to store refresh token error={e:#}");
-                }
                 session_changed().await;
                 state::notify_signed_in_changed();
-                toast(&trf("Signed in as %s", &[&resp.user.email]));
+                if let Err(e) = saved {
+                    log::error!("failed to store refresh token error={e:#}");
+                    toast(&trf("Signed in as %s, but the sign-in could not be saved; you will need to sign in again next time", &[&resp.user.email]));
+                } else {
+                    toast(&trf("Signed in as %s", &[&resp.user.email]));
+                }
                 router::refresh();
             }
         }
@@ -549,6 +554,8 @@ fn install_actions(app: &adw::Application, window: &adw::ApplicationWindow) {
         glib::spawn_future_local(async {
             if let Err(e) = api::run(secrets::delete_refresh_token).await {
                 log::error!("failed to delete refresh token error={e:#}");
+                toast(&tr("Sign out failed"));
+                return;
             }
             session_changed().await;
             state::notify_signed_in_changed();
