@@ -19,6 +19,8 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.lazy.LazyListScope
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Text
@@ -276,9 +278,8 @@ fun TrackMenuRow(
     }
 }
 
-/** Plays a track list and offers per-row actions. */
-@Composable
-fun TrackList(
+/** Plays a track list and offers per-row actions, as lazy items so off-screen rows don't check favourites. */
+fun LazyListScope.trackList(
     tracks: List<Track>,
     source: String? = null,
     showCover: Boolean = true,
@@ -286,8 +287,9 @@ fun TrackList(
     ownPlaylistId: String? = null,
     onRemoved: ((Track) -> Unit)? = null,
 ) {
-    val player = LocalTrackPlayer.current
-    tracks.forEachIndexed { i, t ->
+    // The index keeps duplicate tracks apart; a shifted row gets fresh menu state instead of another track's.
+    itemsIndexed(tracks, key = { i, t -> "${t.id}#$i" }) { i, t ->
+        val player = LocalTrackPlayer.current
         TrackMenuRow(t, onClick = { player.play(tracks, i, source) }, ownPlaylistId = ownPlaylistId, onRemoved = { onRemoved?.invoke(t) }) {
             TrackRow(t, Modifier.padding(vertical = 6.dp), showCover = showCover, number = if (numbered) i + 1 else null)
         }

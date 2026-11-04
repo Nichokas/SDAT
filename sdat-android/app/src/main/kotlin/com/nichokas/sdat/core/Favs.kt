@@ -39,7 +39,8 @@ object Favs {
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
-                tracks[id] = !target
+                // A newer toggle owns the state now.
+                if (tracks[id] == target) tracks[id] = !target
                 Chrome.flash(friendlyMessage(e))
             }
         }
