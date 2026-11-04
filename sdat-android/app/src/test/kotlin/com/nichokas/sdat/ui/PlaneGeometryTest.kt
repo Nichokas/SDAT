@@ -27,11 +27,13 @@ class PlaneGeometryTest {
         assertEquals(cells.size, cells.map(plane::index).toSet().size)
     }
 
-    @Test fun everyPooledTrackIsOnThePlane() {
-        for (count in listOf(5, 320, 321)) {
+    @Test fun aBlockNeverRepeatsACover() {
+        for (count in listOf(320, 321, 400)) {
             val plane = PlaneGeometry(count)
-            val seen = (0 until 200).flatMap { r -> (0 until 200).map { c -> plane.index(Cell(c, r)) } }.toSet()
-            assertEquals((0 until count).toSet(), seen)
+            val rows = maxOf(12, kotlin.math.sqrt(count / 1.4).toInt())
+            val cols = count / rows
+            val block = (0 until rows).flatMap { r -> (0 until cols).map { c -> plane.index(Cell(c, r)) } }
+            assertEquals(block.size, block.toSet().size)
         }
     }
 

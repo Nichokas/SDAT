@@ -31,6 +31,7 @@ import androidx.compose.ui.unit.sp
 import com.nichokas.sdat.core.Session
 import io.github.neoruaa.glasmio.core.IosTypography
 import kotlin.coroutines.cancellation.CancellationException
+import uniffi.tonearm_ffi.Mix
 import uniffi.tonearm_ffi.Shuffle
 import uniffi.tonearm_ffi.Track
 import uniffi.tonearm_ffi.homeMixes
@@ -39,15 +40,17 @@ private const val POOL_TARGET = 320
 
 /** The iOS Discover: the home mixes' covers on an endless plane, filled batch by batch. */
 @Composable
-fun DiscoverView(session: Session, onPlay: (Track) -> Unit) {
+fun DiscoverView(session: Session, onPlay: (Track, List<Track>, List<Mix>) -> Unit) {
     var tracks by remember { mutableStateOf(emptyList<Track>()) }
+    var mixes by remember { mutableStateOf(emptyList<Mix>()) }
     var error by remember { mutableStateOf<String?>(null) }
     var attempt by remember { mutableIntStateOf(0) }
     LaunchedEffect(attempt) {
         error = null
         try {
             val pool = CoverPool()
-            Shuffle(homeMixes()).use { source ->
+            mixes = homeMixes()
+            Shuffle(mixes).use { source ->
                 repeat(10) {
                     pool.add(source.nextBatch(if (pool.tracks.isEmpty()) 30u else 80u))
                     tracks = pool.tracks.toList()
@@ -62,7 +65,7 @@ fun DiscoverView(session: Session, onPlay: (Track) -> Unit) {
         }
     }
     Box(Modifier.fillMaxSize().background(Color.Black)) {
-        CoverPlane(tracks, onTap = onPlay)
+        CoverPlane(tracks, onTap = { onPlay(it, tracks, mixes) })
         // Scrims keep the title and the bottom bar legible over bright covers, as on iOS.
         Box(
             Modifier.fillMaxWidth().background(
