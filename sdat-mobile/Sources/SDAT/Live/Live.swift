@@ -244,8 +244,10 @@ final class Live {
                 let track = try? await liveTrack(id: id)
                 guard let track, !Task.isCancelled, guestRequestValid(e), let host else { continue }
                 if next {
-                    // Asked right before inserting and published right after,
-                    // so the core's Play Next run sees each insertion.
+                    // Publish before asking (playback may have moved on since
+                    // the last tick) and after inserting, so the core's Play
+                    // Next run matches the queue.
+                    hostTick()
                     player.insertUpNext(track, at: Int(host.playNextOffset(trackIds: [id])))
                     hostTick()
                 } else {
