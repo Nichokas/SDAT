@@ -15,6 +15,7 @@ import kotlin.coroutines.cancellation.CancellationException
 import kotlinx.coroutines.Deferred
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.async
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.MainScope
 import kotlinx.coroutines.launch
 import uniffi.tonearm_ffi.Mix
@@ -47,12 +48,25 @@ class Playback(context: Context, private val quality: Quality) {
     val loading get() = fetching || buffering
     var error by mutableStateOf<String?>(null)
         private set
+    var position by mutableStateOf(0.0)
+        private set
+    var duration by mutableStateOf(0.0)
+        private set
+    val progress get() = progress(position, duration)
+    private var ticker: Job? = null
 
     init {
         player.addListener(object : Player.Listener {
             // The requested state, so the icon matches what a tap does even while audio focus suppresses output.
             override fun onEvents(player: Player, events: Player.Events) {
                 playing = player.playWhenReady && player.playbackState != Player.STATE_ENDED
+                tick()
+            }
+
+            override fun onIsPlayingChanged(isPlaying: Boolean) {
+                ticker?.cancel()
+                // iOS's periodic time observer runs every 0.25 s.
+                if (isPlaying) ticker = scope.launch { while (true) { tick(); delay(250) } }
             }
 
             override fun onPlaybackStateChanged(state: Int) {
@@ -132,8 +146,15 @@ class Playback(context: Context, private val quality: Quality) {
         old?.let { scope.launch { pending?.join(); it.close() } }
     }
 
+    private fun tick() {
+        position = player.currentPosition / 1000.0
+        if (player.duration != C.TIME_UNSET && player.duration > 0) duration = player.duration / 1000.0
+    }
+
     private fun start(t: Track) {
         request?.cancel()
+        position = 0.0
+        duration = t.durationSecs.toDouble()
         player.stop()
         track = t
         error = null
@@ -175,12 +196,16 @@ class Playback(context: Context, private val quality: Quality) {
         player.stop()
         player.clearMediaItems()
         track = null
+        position = 0.0
+        duration = 0.0
         queue.clear()
         replaceInfinite(null)
         error = null
         fetching = false
     }
 }
+
+internal fun progress(position: Double, duration: Double) = if (duration > 0) minOf(position / duration, 1.0) else 0.0
 
 internal enum class Tap { Retry, Replay, Pause, Resume }
 
