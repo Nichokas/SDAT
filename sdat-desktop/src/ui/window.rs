@@ -11,7 +11,7 @@ use crate::i18n::{tr, trf};
 use crate::ui::accels::PRIMARY;
 use crate::ui::components::sidebar::{lyrics, player_view, queue};
 use crate::ui::components::{RouteButton, linking, media_viewer};
-use crate::ui::dsl::{on_signal, clamp, W, spacing, hstack, on_state, vstack};
+use crate::ui::dsl::{on_signal, clamp, W, spacing, hstack, on_state, on_state_lazy, vstack};
 use crate::{api, model, player, router, secrets, settings, state};
 
 thread_local! {
@@ -152,7 +152,7 @@ pub fn new_window(app: &adw::Application) -> adw::ApplicationWindow {
     window.connect_default_height_notify(save);
 
     // Kept top-level pages hold per-account data; reload them after sign in/out.
-    on_state(state::signed_in_changed(), &window, |_, _| {
+    on_state_lazy(state::signed_in_changed(), &window, |_, _| {
         router::invalidate_kept_pages();
         router::clear_back_history();
     });
