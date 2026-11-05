@@ -1,0 +1,34 @@
+scripts/review_bot.py
+  s_f1b54711450c1f::t_423fbbc1e23024 28-29,73-80,83-84,105-108,114-115,118-119,129,141,184,219-223,227,248-250,256,262-280,282,285-287
+  s_f1b54711450c1f::t_c9dc2add95477f 1-21,23-27,30-72,81-82,85-104,109-113,116-117,120-128,130,133-135,137,140,142-183,185-207,209-218,224-226,228-229,233,235-247,251-255,257-261,281,283-284,288-373
+  s_f1b54711450c1f::t_b1d8b9832f829a 374-378
+  s_f1b54711450c1f::t_4827cfa2fad15f 22,131-132,136,138-139,208,230-232,234
+AGENTS.md
+  s_f1b54711450c1f::t_53f141977852a9 29,60-62
+scripts/test_review_bot.py
+  s_f1b54711450c1f::t_8c5d4dc87f7d07 79
+  s_f1b54711450c1f::t_4dea7a15fec45b 115-123
+  s_f1b54711450c1f::t_423fbbc1e23024 1-78,80-114
+.github/workflows/review-bot-test.yml
+  s_f1b54711450c1f::t_423fbbc1e23024 1-20
+.github/workflows/review-bot.yml
+  s_f1b54711450c1f::t_423fbbc1e23024 13-15
+  s_f1b54711450c1f::t_3ed184d59e0c9d 130-133
+  s_f1b54711450c1f::t_6543ebb3a2e001 1-12,16-129
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "0c2716128a1b79cec027e7c8567862a0f1cf01f9",
+  "prompts": {},
+  "sessions": {
+    "s_f1b54711450c1f": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "bffbfadd-2061-4798-84e1-05fde4f86ef3",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": null
+    }
+  }
+}
