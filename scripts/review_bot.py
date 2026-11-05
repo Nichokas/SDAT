@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Run cubic, CodeRabbit and Macroscope on a pull request and publish one comment.
+"""Run cubic, CodeRabbit and Macroscope on a pull request and publish their findings.
 
   review_bot.py run <reviewer> --base main --out result.json
   review_bot.py publish --pr 12 --sha abc --base main --results dir --run-url url
@@ -11,9 +11,11 @@ from __future__ import annotations
 import argparse
 import base64
 import dataclasses
+import hashlib
 import io
 import json
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -322,6 +324,68 @@ def upsert_comment(pr: int, body: str) -> None:
     gh_api("-X", "POST", f"repos/{REPO}/issues/{pr}/comments", "--input", "-", body={"body": body})
 
 
+def commentable_lines(patch: str) -> set[int]:
+    """New-side lines GitHub accepts review comments on: added and context lines of the hunks."""
+    lines = set()
+    line = 0
+    for row in patch.splitlines():
+        if hunk := re.match(r"@@ -\d+(?:,\d+)? \+(\d+)", row):
+            line = int(hunk.group(1))
+        elif not row.startswith(("-", "\\")):
+            lines.add(line)
+            line += 1
+    return lines
+
+
+def inline_key(reviewer: str, finding: Finding) -> str:
+    # Lines move between pushes, so the key leaves them out to avoid reposting the same finding.
+    return hashlib.sha256(f"{reviewer}\0{finding.file}\0{finding.title}".encode()).hexdigest()[:16]
+
+
+def inline_comments(
+    results: list[Result], diff: dict[str, set[int]], posted: set[str]
+) -> list[dict]:
+    comments = []
+    for result in results:
+        label = REVIEWERS[result.reviewer].label
+        for finding in result.findings:
+            key = inline_key(result.reviewer, finding)
+            if finding.line not in diff.get(finding.file, set()) or key in posted:
+                continue
+            posted.add(key)
+            text = f"**{finding.severity}** · {label} · {finding.title}\n\n{finding.body}\n"
+            comments.append(
+                {
+                    "path": finding.file,
+                    "line": finding.line,
+                    "side": "RIGHT",
+                    "body": text.replace("@", "@\u200b") + f"\n<!-- review-bot:{key} -->",
+                }
+            )
+    return comments
+
+
+def post_inline(pr: int, sha: str, results: list[Result]) -> None:
+    pages = json.loads(gh_api("--paginate", "--slurp", f"repos/{REPO}/pulls/{pr}/files?per_page=100"))
+    diff = {f["filename"]: commentable_lines(f.get("patch", "")) for page in pages for f in page}
+    pages = json.loads(
+        gh_api("--paginate", "--slurp", f"repos/{REPO}/pulls/{pr}/comments?per_page=100")
+    )
+    posted = {
+        match.group(1)
+        for page in pages
+        for comment in page
+        if comment["user"]["login"] == BOT_LOGIN
+        and (match := re.search(r"<!-- review-bot:(\w+) -->", comment["body"]))
+    }
+    comments = inline_comments(results, diff, posted)
+    if comments:
+        gh_api(
+            "-X", "POST", f"repos/{REPO}/pulls/{pr}/reviews", "--input", "-",
+            body={"commit_id": sha, "event": "COMMENT", "comments": comments},
+        )
+
+
 def set_account(name: str) -> None:
     reviewer = REVIEWERS[name]
     if name == "macroscope":
@@ -373,6 +437,7 @@ def main() -> None:
     elif args.command == "publish":
         results = load_results(args.results)
         upsert_comment(args.pr, render(results, args.sha, args.base, args.run_url))
+        post_inline(args.pr, args.sha, results)
     else:
         set_account(args.reviewer)
 

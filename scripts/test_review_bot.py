@@ -13,6 +13,9 @@ from review_bot import (
     Finding,
     Output,
     Result,
+    commentable_lines,
+    inline_comments,
+    inline_key,
     parse_coderabbit,
     parse_cubic,
     parse_macroscope,
@@ -133,6 +136,27 @@ class UpsertTests(unittest.TestCase):
     def test_quoted_marker_from_a_person_is_left_alone(self):
         call = self.upsert([{"id": 42, "user": {"login": "someone"}, "body": review_bot.MARKER}])
         self.assertIn("POST", call)
+
+
+class InlineTests(unittest.TestCase):
+    def test_only_new_side_lines_of_hunks_are_commentable(self):
+        patch = "@@ -1,3 +1,4 @@\n keep\n-old\n+new\n+added\n keep\n@@ -20 +21,2 @@ fn x\n ctx\n+tail\n\\ No newline at end of file"
+        self.assertEqual(commentable_lines(patch), {1, 2, 3, 4, 21, 22})
+
+    def test_findings_outside_the_diff_or_already_posted_are_skipped(self):
+        on_diff = Finding("major", "a.rs", 3, "on diff", "ping @someone")
+        off_diff = Finding("major", "a.rs", 9, "off diff", "b")
+        other_file = Finding("major", "b.rs", 3, "other file", "b")
+        no_line = Finding("major", "a.rs", None, "no line", "b")
+        old = Finding("major", "a.rs", 3, "already posted", "b")
+        results = [Result("cubic", True, [on_diff, off_diff, other_file, no_line, old, on_diff])]
+
+        comments = inline_comments(results, {"a.rs": {3}}, {inline_key("cubic", old)})
+
+        self.assertEqual(len(comments), 1)
+        self.assertEqual((comments[0]["path"], comments[0]["line"]), ("a.rs", 3))
+        self.assertIn(f"<!-- review-bot:{inline_key('cubic', on_diff)} -->", comments[0]["body"])
+        self.assertNotIn("@someone", comments[0]["body"])
 
 
 class MacroscopeRestoreTests(unittest.TestCase):
