@@ -367,4 +367,45 @@ mod kept_tests {
         pump();
         assert_eq!(builds.get(), 3);
     }
+
+    #[test]
+    fn a_superseded_load_stays_out_of_history() {
+        let ctx = glib::MainContext::new();
+        let pump = || {
+            while ctx.iteration(false) {}
+        };
+        ctx.with_thread_default(|| {
+            let released = Rc::new(Cell::new(false));
+            let waker = Rc::new(RefCell::new(None::<std::task::Waker>));
+            let (r, w) = (Rc::clone(&released), Rc::clone(&waker));
+            register("home", move |_| {
+                let (r, w) = (Rc::clone(&r), Rc::clone(&w));
+                async move {
+                    std::future::poll_fn(|cx| {
+                        if r.get() {
+                            return std::task::Poll::Ready(());
+                        }
+                        *w.borrow_mut() = Some(cx.waker().clone());
+                        std::task::Poll::Pending
+                    })
+                    .await;
+                    Response::default()
+                }
+            });
+            register("album/1", |_| async { Response::default() });
+
+            navigate("home");
+            pump();
+            navigate("album/1");
+            pump();
+            released.set(true);
+            waker.borrow_mut().take().expect("home is loading").wake();
+            pump();
+
+            assert_eq!(current().map(|c| c.path).as_deref(), Some("album/1"));
+            assert!(HISTORY.with(|h| h.borrow().entries.is_empty()));
+            assert!(KEPT.with(|k| k.borrow().is_empty()));
+        })
+        .expect("thread-default context");
+    }
 }
