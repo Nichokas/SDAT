@@ -430,7 +430,7 @@ fn sign_in(window: &adw::ApplicationWindow) {
         let dialog = linking::new_linking(win.clone().map(gtk::prelude::Cast::upcast), &dlc.user_code, &dlc.verification_uri_complete, Rc::new(move || c.store(true, Ordering::SeqCst)));
         dialog.present(win.as_ref());
         let c = Arc::clone(&cancelled);
-        let r = api::run(move || api::poll_device_linking_status(&dlc.device_code, dlc.interval, &|| c.load(Ordering::SeqCst))).await;
+        let r = api::run(move || api::poll_device_linking_status(&dlc.device_code, dlc.interval, dlc.expires_in, &|| c.load(Ordering::SeqCst))).await;
         dialog.force_close();
         match r {
             Err(e) => {

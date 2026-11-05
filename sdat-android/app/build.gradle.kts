@@ -16,7 +16,22 @@ android {
         targetSdk = 37
         versionCode = 1
         versionName = "0.1.0"
-        ndk { abiFilters += listOf("arm64-v8a", "x86_64") }
+    }
+    // One APK per ABI (the only two the Rust core is built for): a phone installs just its own copy of the core.
+    splits {
+        abi {
+            isEnable = true
+            reset()
+            include("arm64-v8a", "x86_64")
+            isUniversalApk = false
+        }
+    }
+    buildTypes {
+        release {
+            isMinifyEnabled = true
+            isShrinkResources = true
+            proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
+        }
     }
     buildFeatures { compose = true }
     compileOptions {
@@ -56,12 +71,10 @@ val buildRustCore = tasks.register<BuildRustCore>("buildRustCore") {
     bindings.set(layout.buildDirectory.dir("generated/rust/kotlin"))
 }
 
-val localAssets = rootProject.file("local-assets")
 androidComponents {
     onVariants { variant ->
         variant.sources.jniLibs?.addGeneratedSourceDirectory(buildRustCore, BuildRustCore::jniLibs)
         variant.sources.kotlin?.addGeneratedSourceDirectory(buildRustCore, BuildRustCore::bindings)
-        if (localAssets.isDirectory) variant.sources.assets?.addStaticSourceDirectory(localAssets.path)
     }
 }
 
