@@ -159,6 +159,25 @@ class InlineTests(unittest.TestCase):
         self.assertNotIn("@someone", comments[0]["body"])
 
 
+    def test_same_title_on_two_lines_gets_two_comments(self):
+        findings = [Finding("major", "a.rs", 3, "same", "b"), Finding("major", "a.rs", 4, "same", "b")]
+        comments = inline_comments([Result("cubic", True, findings)], {"a.rs": {3, 4}}, set())
+        self.assertEqual([c["line"] for c in comments], [3, 4])
+
+
+class PublishTests(unittest.TestCase):
+    def test_stale_run_does_not_publish(self):
+        calls = []
+
+        def fake(*args, body=None):
+            calls.append(args)
+            return json.dumps({"head": {"sha": "newer"}})
+
+        with mock.patch.object(review_bot, "gh_api", fake):
+            review_bot.publish(7, "older", "main", [Result("cubic", True)], "url")
+        self.assertEqual(calls, [(f"repos/{review_bot.REPO}/pulls/7",)])
+
+
 class MacroscopeRestoreTests(unittest.TestCase):
     def test_credentials_directory_keeps_owner_only_mode(self):
         with tempfile.TemporaryDirectory() as login, tempfile.TemporaryDirectory() as home:

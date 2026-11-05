@@ -88,7 +88,9 @@ jobs:
           BASE: ${{ needs.resolve.outputs.base }}
         run: |
           git switch -c review-head
-          git branch -f "$BASE" "origin/$BASE"
+          # Some reviewers diff against the branch tip; the merge base keeps commits that landed
+          # on the base after the PR branched out of the review, as GitHub's own diff does.
+          git branch -f "$BASE" "$(git merge-base HEAD "origin/$BASE")"
       - name: Run ${{ matrix.reviewer }}
         working-directory: pr
         env:

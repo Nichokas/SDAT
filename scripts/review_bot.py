@@ -338,8 +338,8 @@ def commentable_lines(patch: str) -> set[int]:
 
 
 def inline_key(reviewer: str, finding: Finding) -> str:
-    # Lines move between pushes, so the key leaves them out to avoid reposting the same finding.
-    return hashlib.sha256(f"{reviewer}\0{finding.file}\0{finding.title}".encode()).hexdigest()[:16]
+    key = f"{reviewer}\0{finding.file}\0{finding.line}\0{finding.title}"
+    return hashlib.sha256(key.encode()).hexdigest()[:16]
 
 
 def inline_comments(
@@ -384,6 +384,15 @@ def post_inline(pr: int, sha: str, results: list[Result]) -> None:
             "-X", "POST", f"repos/{REPO}/pulls/{pr}/reviews", "--input", "-",
             body={"commit_id": sha, "event": "COMMENT", "comments": comments},
         )
+
+
+def publish(pr: int, sha: str, base: str, results: list[Result], run_url: str) -> None:
+    # Runs for older commits can still be publishing; they must not replace a newer review.
+    if json.loads(gh_api(f"repos/{REPO}/pulls/{pr}"))["head"]["sha"] != sha:
+        print(f"{sha[:7]} is no longer the head of #{pr}; skipping.")
+        return
+    upsert_comment(pr, render(results, sha, base, run_url))
+    post_inline(pr, sha, results)
 
 
 def set_account(name: str) -> None:
@@ -435,9 +444,7 @@ def main() -> None:
         result = run_review(args.reviewer, args.base)
         args.out.write_text(json.dumps(dataclasses.asdict(result)))
     elif args.command == "publish":
-        results = load_results(args.results)
-        upsert_comment(args.pr, render(results, args.sha, args.base, args.run_url))
-        post_inline(args.pr, args.sha, results)
+        publish(args.pr, args.sha, args.base, load_results(args.results), args.run_url)
     else:
         set_account(args.reviewer)
 
