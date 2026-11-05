@@ -73,6 +73,8 @@ dependencies {
     implementation(libs.coroutines.android)
     implementation(libs.coil.compose)
     implementation(libs.coil.network)
+    implementation(libs.media3.exoplayer)
+    implementation(libs.media3.hls)
     implementation(libs.jna) { artifact { type = "aar" } }
     testImplementation(libs.junit)
 }

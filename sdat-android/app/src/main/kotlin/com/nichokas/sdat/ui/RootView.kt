@@ -1,6 +1,10 @@
 package com.nichokas.sdat.ui
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
+import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.runtime.LaunchedEffect
+import com.nichokas.sdat.core.Playback
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -55,7 +59,8 @@ private val capsule = RoundedCornerShape(percent = 50)
 
 /** Login until signed in, then the three root tabs and the bottom chrome (tab bar beside the circular mini-player). */
 @Composable
-fun RootView(session: Session) {
+fun RootView(session: Session, playback: Playback) {
+    LaunchedEffect(session.signedIn) { if (!session.signedIn) playback.stop() }
     val colors = GlasmioTheme.colors
     if (!session.signedIn) {
         // Glass controls throw outside a backdrop host.
@@ -71,7 +76,7 @@ fun RootView(session: Session) {
         modifier = Modifier.fillMaxSize(),
         sampledContent = {
             if (tab == AppTab.Discover) {
-                DiscoverView(session)
+                DiscoverView(session, onPlay = playback::play)
             } else {
                 Column(Modifier.fillMaxSize().background(colors.groupedBackground).safeDrawingPadding().padding(20.dp)) {
                     Text(tab.label, style = IosTypography.largeTitle)
@@ -93,7 +98,7 @@ fun RootView(session: Session) {
                     compactSize = 62.dp,
                     modifier = Modifier.weight(1f),
                 )
-                MiniPlayer()
+                MiniPlayer(playback)
             }
         },
     )
@@ -102,12 +107,26 @@ fun RootView(session: Session) {
 
 private val tabItems = AppTab.entries.map { GlasmioTabItem(it, it.label, it.symbol) }
 
-/** Circle state of the iOS mini-player; morphing into the capsule comes with playback. */
+/** Circle state of the iOS mini-player: play/pause for the current track; the capsule morph comes later. */
 @Composable
-private fun MiniPlayer() {
+private fun MiniPlayer(playback: Playback) {
+    val track = playback.track
+    val (symbol, label) = when {
+        playback.error != null -> "exclamationmark.triangle.fill" to "Playback failed, tap to retry"
+        playback.playing -> "pause.fill" to "Pause"
+        else -> "play.fill" to "Play"
+    }
     GlassSurface(Modifier.size(62.dp), shape = capsule) {
-        Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-            SdatIcon("play.fill", contentDescription = "Play", size = 24.dp)
+        Box(
+            Modifier.fillMaxSize().clickable(enabled = track != null, role = Role.Button, onClick = playback::toggle),
+            contentAlignment = Alignment.Center,
+        ) {
+            if (playback.loading) {
+                CircularProgressIndicator(Modifier.size(24.dp), strokeWidth = 2.dp)
+            } else {
+                val tint = if (track == null) GlasmioTheme.colors.tertiaryContent else GlasmioTheme.colors.content
+                SdatIcon(symbol, contentDescription = track?.let { "$label ${it.title}" } ?: label, size = 24.dp, tint = tint)
+            }
         }
     }
 }

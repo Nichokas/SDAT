@@ -4,6 +4,7 @@ import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.VectorConverter
 import androidx.compose.animation.core.exponentialDecay
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
@@ -35,7 +36,7 @@ import uniffi.tonearm_ffi.Track
 
 /** iOS Discover's endless 2D plane: staggered rows of one size each, panned freely with inertia. */
 @Composable
-fun CoverPlane(tracks: List<Track>, modifier: Modifier = Modifier) {
+fun CoverPlane(tracks: List<Track>, onTap: (Track) -> Unit, modifier: Modifier = Modifier) {
     var pan by remember { mutableStateOf(Offset.Zero) }
     var fling by remember { mutableStateOf<Job?>(null) }
     val scope = rememberCoroutineScope()
@@ -76,7 +77,8 @@ fun CoverPlane(tracks: List<Track>, modifier: Modifier = Modifier) {
                     modifier = Modifier
                         .offset { IntOffset(((frame.x - view.x) * px).roundToInt(), ((frame.y - view.y) * px).roundToInt()) }
                         .size(frame.size.dp)
-                        .background(Color.White.copy(alpha = 0.07f)),
+                        .background(Color.White.copy(alpha = 0.07f))
+                        .clickable(enabled = track.streamable) { onTap(track) },
                 )
             }
         }
