@@ -88,9 +88,12 @@ jobs:
           BASE: ${{ needs.resolve.outputs.base }}
         run: |
           git switch -c review-head
-          # Some reviewers diff against the branch tip; the merge base keeps commits that landed
-          # on the base after the PR branched out of the review, as GitHub's own diff does.
-          git branch -f "$BASE" "$(git merge-base HEAD "origin/$BASE")"
+          # Reviewers diff against the branch tip, and cubic prefers origin/<base> over <base>.
+          # Pointing both at the merge base keeps commits that landed on the base after the PR
+          # branched out of the review, as GitHub's own diff does.
+          merge_base=$(git merge-base HEAD "origin/$BASE")
+          git branch -f "$BASE" "$merge_base"
+          git update-ref "refs/remotes/origin/$BASE" "$merge_base"
       - name: Run ${{ matrix.reviewer }}
         working-directory: pr
         env:
@@ -111,6 +114,10 @@ jobs:
 
   publish:
     needs: [resolve, review]
+    # Publishers queue per PR, so the head check in the script and the write happen together.
+    concurrency:
+      group: review-bot-publish-${{ needs.resolve.outputs.pr }}
+      cancel-in-progress: false
     # A failed reviewer must still appear in the comment instead of hiding the others.
     if: always() && needs.resolve.result == 'success' && needs.review.result != 'cancelled'
     runs-on: ubuntu-latest

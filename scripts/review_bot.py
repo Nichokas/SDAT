@@ -305,8 +305,12 @@ def gh_api(*args: str, body: dict | None = None) -> str:
         input=json.dumps(body) if body else None,
         capture_output=True,
         text=True,
-        check=True,
+        check=False,
     )
+    if process.returncode:
+        # CalledProcessError leaves stderr out of its message, which hides GitHub's error text.
+        print(process.stderr, file=sys.stderr)
+        process.check_returncode()
     return process.stdout
 
 
