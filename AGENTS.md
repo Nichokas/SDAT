@@ -26,7 +26,7 @@ Notes for coding agents working on SDAT, a TIDAL player for Fedora (GTK), iPhone
 - `android-build.yml` – Gradle build, lint and unit tests.
 - `feather-source.yml` – after an iOS release, opens a PR updating `feather/source.json`.
 - `desktop-fedora.yml` / `desktop-copr.yml` – vendor archive for `desktop-v*` releases and the COPR rebuild.
-- `review-bot.yml` – runs the three reviewers on a PR and keeps one comment with the findings; `review-bot-test.yml` tests its script.
+- `review-bot.yml` – runs the three reviewers on a PR and keeps one comment with the findings, and approves the PR when they are clean; `review-bot-test.yml` tests its script.
 - CI must use caches (`Swatinem/rust-cache`, `actions/cache`); PRs restore main's cache without saving their own.
 
 ## Releases
@@ -57,7 +57,7 @@ Notes for coding agents working on SDAT, a TIDAL player for Fedora (GTK), iPhone
 
 ## Pull requests
 
-- The review bot runs on non-draft PRs and on every push to them; each run spends reviewer quota, so push finished batches. Comment `/review` to rerun it without a push. Fix the findings.
+- The review bot runs on non-draft PRs and on every push to them; each run spends reviewer quota, so push finished batches. Comment `/review` to rerun it without a push. Fix the findings. It approves when every reviewer that ran is clean, and withdraws that approval on a later run that is not; a rate-limited CodeRabbit is skipped and does not block it.
 - For a fork PR, or to review before pushing, run the CLIs: Macroscope (`--mode precise`), CodeRabbit (`coderabbit review --agent --committed --base main --deep`) and cubic (`cubic review --base main`).
 - Bot accounts are repository secrets of this repo only. Change one with `python3 scripts/review_bot.py set-account <cubic|coderabbit|macroscope>`.
 - Squash-merge when reviewers are clean, CI is green and review threads are resolved.
