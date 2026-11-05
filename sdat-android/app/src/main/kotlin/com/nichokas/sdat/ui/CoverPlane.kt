@@ -12,9 +12,12 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.size
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
@@ -27,13 +30,15 @@ import androidx.compose.ui.unit.dp
 import coil3.compose.AsyncImage
 import kotlin.math.floor
 import kotlin.math.roundToInt
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
 import uniffi.tonearm_ffi.Track
 
 /** iOS Discover's endless 2D plane: staggered rows of one size each, panned freely with inertia. */
 @Composable
 fun CoverPlane(tracks: List<Track>, onTap: (Track) -> Unit, modifier: Modifier = Modifier) {
-    val pan = remember { Animatable(Offset.Zero, Offset.VectorConverter) }
+    var pan by remember { mutableStateOf(Offset.Zero) }
+    var fling by remember { mutableStateOf<Job?>(null) }
     val scope = rememberCoroutineScope()
     val density = LocalDensity.current
     BoxWithConstraints(
@@ -42,22 +47,24 @@ fun CoverPlane(tracks: List<Track>, onTap: (Track) -> Unit, modifier: Modifier =
             detectDragGestures(
                 onDragStart = {
                     velocity.resetTracking()
-                    scope.launch { pan.stop() }
+                    fling?.cancel()
                 },
                 onDragEnd = {
                     val v = velocity.calculateVelocity()
-                    scope.launch { pan.animateDecay(Offset(-v.x, -v.y), exponentialDecay()) }
+                    fling = scope.launch {
+                        Animatable(pan, Offset.VectorConverter).animateDecay(Offset(-v.x, -v.y), exponentialDecay()) { pan = value }
+                    }
                 },
             ) { change, drag ->
                 velocity.addPosition(change.uptimeMillis, change.position)
-                scope.launch { pan.snapTo(pan.value - drag) }
+                pan -= drag
             }
         },
     ) {
         if (tracks.isEmpty()) return@BoxWithConstraints
         val plane = remember(tracks.size) { PlaneGeometry(tracks.size) }
         val px = density.density
-        val view = pan.value / px
+        val view = pan / px
         val margin = 75f
         for (cell in plane.cells(view.x - margin, view.y - margin, view.x + maxWidth.value + margin, view.y + maxHeight.value + margin)) {
             val frame = plane.frame(cell)
