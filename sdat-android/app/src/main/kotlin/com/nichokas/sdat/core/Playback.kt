@@ -98,6 +98,7 @@ class Playback(context: Context, private val quality: Quality) {
 
     fun stop() {
         request?.cancel()
+        player.pause()
         player.stop()
         player.clearMediaItems()
         track = null
