@@ -166,7 +166,9 @@ def restore_macroscope() -> None:
     target.mkdir(mode=0o700, exist_ok=True)
     archive = base64.b64decode(os.environ["MACROSCOPE_AUTH"])
     with tarfile.open(fileobj=io.BytesIO(archive)) as tar:
-        tar.extractall(target, filter="data")
+        # The "data" filter drops directory modes, and Macroscope refuses a credentials
+        # directory that is not 0700. The archive is our own secret, so "tar" is safe.
+        tar.extractall(target, filter="tar")
 
 
 @dataclass(frozen=True)

@@ -1,5 +1,11 @@
+import base64
+import io
 import json
+import os
+import tarfile
+import tempfile
 import unittest
+from pathlib import Path
 from unittest import mock
 
 import review_bot
@@ -127,6 +133,27 @@ class UpsertTests(unittest.TestCase):
     def test_quoted_marker_from_a_person_is_left_alone(self):
         call = self.upsert([{"id": 42, "user": {"login": "someone"}, "body": review_bot.MARKER}])
         self.assertIn("POST", call)
+
+
+class MacroscopeRestoreTests(unittest.TestCase):
+    def test_credentials_directory_keeps_owner_only_mode(self):
+        with tempfile.TemporaryDirectory() as login, tempfile.TemporaryDirectory() as home:
+            credentials = Path(login) / "credentials"
+            credentials.mkdir(mode=0o700)
+            (credentials / "session").write_text("token")
+            (Path(login) / "config.yaml").write_text("workspace: x")
+            archive = io.BytesIO()
+            with tarfile.open(fileobj=archive, mode="w:gz") as tar:
+                for name in ("credentials", "config.yaml"):
+                    tar.add(Path(login) / name, arcname=name)
+            auth = base64.b64encode(archive.getvalue()).decode()
+
+            with mock.patch.dict(os.environ, {"HOME": home, "MACROSCOPE_AUTH": auth}):
+                review_bot.restore_macroscope()
+
+            restored = Path(home) / ".macroscope" / "credentials"
+            self.assertEqual(restored.stat().st_mode & 0o777, 0o700)
+            self.assertEqual((restored / "session").read_text(), "token")
 
 
 if __name__ == "__main__":
