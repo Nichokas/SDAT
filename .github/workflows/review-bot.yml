@@ -1,0 +1,133 @@
+name: Review bot
+
+on:
+  pull_request:
+    types: [opened, reopened, ready_for_review]
+  issue_comment:
+    types: [created]
+
+permissions: {}
+
+jobs:
+  resolve:
+    # Reviewers are agents that read the diff and hold a credential, so fork PRs never run.
+    # Same-repo PRs run this file and the script from their own branch: anyone who can push
+    # such a branch already has that power, so a checkout of main would add no protection.
+    if: >-
+      github.repository == 'Nichokas/SDAT' && (
+        (github.event_name == 'pull_request'
+          && !github.event.pull_request.draft
+          && github.event.pull_request.head.repo.full_name == github.repository)
+        || (github.event_name == 'issue_comment'
+          && github.event.issue.pull_request
+          && github.event.comment.body == '/review'
+          && contains(fromJSON('["OWNER","MEMBER","COLLABORATOR"]'), github.event.comment.author_association))
+      )
+    runs-on: ubuntu-latest
+    permissions:
+      pull-requests: write
+    outputs:
+      pr: ${{ steps.pr.outputs.pr }}
+      sha: ${{ steps.pr.outputs.sha }}
+      base: ${{ steps.pr.outputs.base }}
+    steps:
+      - name: Acknowledge the command
+        if: github.event_name == 'issue_comment'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          COMMENT_ID: ${{ github.event.comment.id }}
+        run: gh api -X POST "repos/$GITHUB_REPOSITORY/issues/comments/$COMMENT_ID/reactions" -f content=eyes
+      - name: Read the pull request
+        id: pr
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR: ${{ github.event.pull_request.number || github.event.issue.number }}
+        run: |
+          gh api "repos/$GITHUB_REPOSITORY/pulls/$PR" > pr.json
+          if [ "$(jq -r .head.repo.full_name pr.json)" != "$GITHUB_REPOSITORY" ]; then
+            echo "::error::The review bot does not run on fork pull requests."
+            exit 1
+          fi
+          {
+            echo "pr=$PR"
+            echo "sha=$(jq -r .head.sha pr.json)"
+            echo "base=$(jq -r .base.ref pr.json)"
+          } >> "$GITHUB_OUTPUT"
+
+  review:
+    needs: resolve
+    runs-on: ubuntu-latest
+    # Macroscope reviews can take about 20 minutes.
+    timeout-minutes: 45
+    # A newer run replaces an older one, so a slow old review cannot overwrite the comment.
+    concurrency:
+      group: review-bot-${{ needs.resolve.outputs.pr }}-${{ matrix.reviewer }}
+      cancel-in-progress: true
+    permissions:
+      contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        reviewer: [cubic, coderabbit, macroscope]
+    steps:
+      - name: Check out the bot
+        uses: actions/checkout@v4
+        with:
+          path: bot
+          persist-credentials: false
+      - name: Check out the pull request
+        uses: actions/checkout@v4
+        with:
+          path: pr
+          ref: ${{ needs.resolve.outputs.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Prepare the branches
+        working-directory: pr
+        env:
+          BASE: ${{ needs.resolve.outputs.base }}
+        run: |
+          git switch -c review-head
+          git branch -f "$BASE" "origin/$BASE"
+      - name: Run ${{ matrix.reviewer }}
+        working-directory: pr
+        env:
+          BASE: ${{ needs.resolve.outputs.base }}
+          REVIEWER: ${{ matrix.reviewer }}
+          # Each reviewer process sees only its own credential.
+          CUBIC_API_KEY: ${{ matrix.reviewer == 'cubic' && secrets.CUBIC_API_KEY || '' }}
+          CODERABBIT_API_KEY: ${{ matrix.reviewer == 'coderabbit' && secrets.CODERABBIT_API_KEY || '' }}
+          MACROSCOPE_AUTH: ${{ matrix.reviewer == 'macroscope' && secrets.MACROSCOPE_AUTH || '' }}
+        run: python3 ../bot/scripts/review_bot.py run "$REVIEWER" --base "$BASE" --out "../$REVIEWER.json"
+      - name: Upload the result
+        uses: actions/upload-artifact@v4
+        with:
+          name: review-${{ matrix.reviewer }}
+          path: ${{ matrix.reviewer }}.json
+          if-no-files-found: ignore
+          retention-days: 7
+
+  publish:
+    needs: [resolve, review]
+    # A failed reviewer must still appear in the comment instead of hiding the others.
+    if: always() && needs.resolve.result == 'success' && needs.review.result != 'cancelled'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/download-artifact@v4
+        with:
+          path: results
+          merge-multiple: true
+      - name: Publish the comment
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR: ${{ needs.resolve.outputs.pr }}
+          SHA: ${{ needs.resolve.outputs.sha }}
+          BASE: ${{ needs.resolve.outputs.base }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: python3 scripts/review_bot.py publish --pr "$PR" --sha "$SHA" --base "$BASE" --results results --run-url "$RUN_URL"
