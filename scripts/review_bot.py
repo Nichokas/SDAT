@@ -431,7 +431,7 @@ def update_approval(pr: int, sha: str, clean: bool) -> None:
     for review in approvals:
         gh_api(
             "-X", "PUT", f"repos/{REPO}/pulls/{pr}/reviews/{review['id']}/dismissals", "--input", "-",
-            body={"message": f"`{sha[:7]}` is not clean.", "event": "DISMISS"},
+            body={"message": f"`{sha[:7]}` is not clean."},
         )
 
 

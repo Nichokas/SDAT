@@ -245,7 +245,7 @@ class ApprovalTests(unittest.TestCase):
     def test_unclean_run_dismisses_only_the_bot_approvals(self):
         [(args, body)] = self.update(False, [self.approval("older"), self.approval("x", "someone")])
         self.assertIn(f"repos/{review_bot.REPO}/pulls/7/reviews/5/dismissals", args)
-        self.assertEqual(body["event"], "DISMISS")
+        self.assertIn("abc", body["message"])
 
     def test_status_survives_the_result_artifact(self):
         with tempfile.TemporaryDirectory() as directory:
