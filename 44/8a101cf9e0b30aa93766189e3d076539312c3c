@@ -1,0 +1,21 @@
+.github/workflows/review-bot.yml
+  s_f1b54711450c1f::t_6543ebb3a2e001 1-128
+scripts/review_bot.py
+  s_f1b54711450c1f::t_c9dc2add95477f 1-377
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "448a101cf9e0b30aa93766189e3d076539312c3c",
+  "prompts": {},
+  "sessions": {
+    "s_f1b54711450c1f": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "bffbfadd-2061-4798-84e1-05fde4f86ef3",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Nicolas Rodriguez-Alvarez <me@nichokas.eu>"
+    }
+  }
+}
