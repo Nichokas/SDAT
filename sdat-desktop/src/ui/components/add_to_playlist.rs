@@ -22,6 +22,8 @@ enum Cache {
     #[default]
     Empty,
     Loading,
+    /// The session is being reset: a load now could still use the old access token.
+    Switching,
     Ready(Vec<OwnPlaylist>),
 }
 
@@ -32,11 +34,16 @@ thread_local! {
     static ACCOUNT_EPOCH: Cell<u64> = const { Cell::new(0) };
 }
 
-/// Forgets the previous account's playlists (sign in/out).
-pub fn reset() {
+/// Forgets the previous account's playlists and holds back new loads (sign in/out).
+pub fn begin_account_change() {
     ACCOUNT_EPOCH.set(ACCOUNT_EPOCH.get() + 1);
-    CACHE.with_borrow_mut(|c| *c = Cache::Empty);
+    CACHE.with_borrow_mut(|c| *c = Cache::Switching);
     WAITING.with_borrow_mut(Vec::clear);
+}
+
+/// The session now belongs to the new account: the next menu loads its playlists.
+pub fn end_account_change() {
+    CACHE.with_borrow_mut(|c| *c = Cache::Empty);
 }
 
 /// What the submenu should show.
@@ -92,7 +99,7 @@ pub fn submenu(track_id: &str) -> gio::Menu {
 /// Starts loading the playlists if needed and refreshes `menu` when done.
 pub fn ensure_loaded(menu: &gio::Menu, track_id: &str) {
     let start = CACHE.with_borrow_mut(|c| match c {
-        Cache::Ready(_) => false,
+        Cache::Ready(_) | Cache::Switching => false,
         Cache::Loading => {
             WAITING.with_borrow_mut(|w| w.push((menu.downgrade(), track_id.to_owned())));
             false
@@ -170,14 +177,26 @@ mod tests {
     fn account_switch_forgets_the_playlists() {
         finish_load(ACCOUNT_EPOCH.get(), Ok(vec![pl("a", "Old account")]));
         assert_eq!(labels(&submenu("t")), ["Old account"]);
-        reset();
+        begin_account_change();
         assert_eq!(labels(&submenu("t")), [tr("Loading…")]);
+    }
+
+    #[test]
+    fn no_load_starts_during_an_account_change() {
+        begin_account_change();
+        let menu = submenu("t");
+        ensure_loaded(&menu, "t");
+        assert!(CACHE.with_borrow(|c| matches!(c, Cache::Switching)));
+        assert!(WAITING.with_borrow(Vec::is_empty));
+        end_account_change();
+        assert!(CACHE.with_borrow(|c| matches!(c, Cache::Empty)));
     }
 
     #[test]
     fn a_load_from_the_previous_account_is_dropped() {
         let previous = ACCOUNT_EPOCH.get();
-        reset();
+        begin_account_change();
+        end_account_change();
         let menu = submenu("t");
         WAITING.with_borrow_mut(|w| w.push((menu.downgrade(), "t".to_owned())));
         finish_load(previous, Ok(vec![pl("a", "Old account")]));

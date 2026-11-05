@@ -456,16 +456,14 @@ fn sign_in(window: &adw::ApplicationWindow) {
 /// Off the UI thread: busting a favourites cache waits for any fetch of it
 /// in flight.
 async fn session_changed() {
-    // Twice: the old list must not show during the wait, and a load started
-    // during the wait can still use the old access token.
-    crate::ui::components::add_to_playlist::reset();
+    crate::ui::components::add_to_playlist::begin_account_change();
     drop(api::run(|| {
         tonearm_core::auth::session_changed();
         anyhow::Ok(())
     })
     .await);
     crate::cache::allow_prefetch_again();
-    crate::ui::components::add_to_playlist::reset();
+    crate::ui::components::add_to_playlist::end_account_change();
 }
 
 fn install_actions(app: &adw::Application, window: &adw::ApplicationWindow) {
