@@ -1,0 +1,22 @@
+scripts/test_review_bot.py
+  s_f1b54711450c1f::t_1d1969f3f15c03 16-18,141-159
+  s_f1b54711450c1f::t_3d12d5178983f4 160-161
+scripts/review_bot.py
+  s_f1b54711450c1f::t_91671ca059a04f 2,14,18,327-388,440
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "0e43093180dc3e43d852548c057143e6679f7c10",
+  "prompts": {},
+  "sessions": {
+    "s_f1b54711450c1f": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "bffbfadd-2061-4798-84e1-05fde4f86ef3",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Nicolas Rodriguez-Alvarez <me@nichokas.eu>"
+    }
+  }
+}
