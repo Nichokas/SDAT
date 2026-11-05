@@ -26,11 +26,6 @@ class Session(context: Context) : TokenStore {
     var signedIn by mutableStateOf(refreshToken() != null)
         private set
 
-    // A token the Keystore can no longer open leaves no session; drop its leftovers too.
-    init {
-        if (!signedIn) prefs.edit { clear() }
-    }
-
     override fun refreshToken(): String? = prefs.getString(REFRESH, null)?.let(Vault::decrypt)
 
     override fun userId(): String? = prefs.getString(USER, null)
