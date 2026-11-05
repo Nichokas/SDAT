@@ -41,6 +41,7 @@ Notes for coding agents working on SDAT, a TIDAL player for Fedora (GTK), iPhone
 - Never change playback rate or pitch to correct drift. A few seconds of divergence is fine; a stable, slower join beats a fast, glitchy one.
 - Policy in `tonearm-core/src/live/drift.rs`: 3 s tolerance, at most one corrective seek per 10 s, 5 s settle after start or seek.
 - The host sends an anchor every 5 s and on every status change; a guest seek goes through the host.
+- Player positions (GStreamer, AVPlayer) already are what is heard: guests add only the user's manual delay, never the system output latency.
 
 ## Android
 

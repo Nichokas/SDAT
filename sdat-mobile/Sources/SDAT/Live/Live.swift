@@ -1,5 +1,4 @@
 import os
-import AVFoundation
 import Observation
 import UIKit
 
@@ -23,10 +22,7 @@ final class Live {
     private(set) var guestControl = false
     var showSheet = false
     var showScanner = false
-    /// Manual extra output delay (e.g. Bluetooth), in ms.
-    /// Stored (so views observe it) and persisted.
-    /// Manual output delay. A new key: offsets saved before the Bluetooth and
-    /// AirPlay floors existed would now be counted twice.
+    /// Manual extra output delay, in ms. Stored (so views observe it) and persisted.
     var extraLatencyMs: Int = UserDefaults.standard.integer(forKey: "liveExtraLatencyMsV2") {
         didSet { UserDefaults.standard.set(extraLatencyMs, forKey: "liveExtraLatencyMsV2") }
     }
@@ -410,20 +406,10 @@ final class Live {
 
     // MARK: guest
 
-    /// System output latency, raised to a calibrated floor on Bluetooth and
-    /// AirPlay (iOS often under-reports those), plus the manual offset.
-    private var latencyMs: Int64 {
-        let session = AVAudioSession.sharedInstance()
-        let reported = Int64(session.outputLatency * 1000)
-        return liveOutputLatencyMs(reportedMs: reported, route: Self.route(session.currentRoute)) + Int64(extraLatencyMs)
-    }
-
-    private static func route(_ r: AVAudioSessionRouteDescription) -> LiveOutputRoute {
-        let ports = r.outputs.map(\.portType)
-        if ports.contains(.airPlay) { return .airPlay }
-        if ports.contains(where: { [.bluetoothA2DP, .bluetoothLE, .bluetoothHFP].contains($0) }) { return .bluetooth }
-        return .wired
-    }
+    /// Only the manual offset: AVPlayer's position already is what is heard
+    /// (it compensates Bluetooth and AirPlay itself), as desktop's is, so
+    /// adding the system output latency put this guest ahead of the host.
+    private var latencyMs: Int64 { Int64(extraLatencyMs) }
 
     private static func ms(_ v: Int64?) -> String { v.map(String.init) ?? "none" }
 
@@ -477,8 +463,12 @@ final class Live {
         // user or the system to resume instead of restarting on the speaker.
         if t.playing && !player.isPlaying && player.systemPaused { return }
         if t.playing != player.isPlaying {
-            player.toggle()
-            if !t.playing { player.seek(to: Double(t.positionMs) / 1000) }
+            if t.playing {
+                player.liveResume()
+            } else {
+                player.toggle()
+                player.seek(to: Double(t.positionMs) / 1000)
+            }
             return
         }
         guard t.playing else {
@@ -494,8 +484,8 @@ final class Live {
         let now = Date()
         if let s = player.liveSeekEndedAt, now.timeIntervalSince(s) < Self.seekSettle { return }
         let actual = Int64(player.livePosition * 1000)
-        // An output route change (e.g. to AirPlay) can move the target by
-        // more than core's tolerance: realign once instead of staying off.
+        // A change of the manual delay stays below core's tolerance: realign
+        // once instead of never applying it.
         let lat = latencyMs
         let previous = alignedLatencyMs
         if previous == nil { alignedLatencyMs = lat }

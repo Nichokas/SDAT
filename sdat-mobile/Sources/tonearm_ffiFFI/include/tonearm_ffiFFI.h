@@ -882,11 +882,6 @@ uint64_t uniffi_tonearm_ffi_fn_func_set_favourite(RustBuffer kind, RustBuffer id
 int8_t uniffi_tonearm_ffi_fn_func_live_is_invite(RustBuffer text, RustCallStatus *_Nonnull out_status
 );
 #endif
-#ifndef UNIFFI_FFIDEF_UNIFFI_TONEARM_FFI_FN_FUNC_LIVE_OUTPUT_LATENCY_MS
-#define UNIFFI_FFIDEF_UNIFFI_TONEARM_FFI_FN_FUNC_LIVE_OUTPUT_LATENCY_MS
-int64_t uniffi_tonearm_ffi_fn_func_live_output_latency_ms(int64_t reported_ms, RustBuffer route, RustCallStatus *_Nonnull out_status
-);
-#endif
 #ifndef UNIFFI_FFIDEF_UNIFFI_TONEARM_FFI_FN_FUNC_LIVE_TRACK
 #define UNIFFI_FFIDEF_UNIFFI_TONEARM_FFI_FN_FUNC_LIVE_TRACK
 uint64_t uniffi_tonearm_ffi_fn_func_live_track(RustBuffer id
@@ -1373,12 +1368,6 @@ uint16_t uniffi_tonearm_ffi_checksum_func_set_favourite(void
 #ifndef UNIFFI_FFIDEF_UNIFFI_TONEARM_FFI_CHECKSUM_FUNC_LIVE_IS_INVITE
 #define UNIFFI_FFIDEF_UNIFFI_TONEARM_FFI_CHECKSUM_FUNC_LIVE_IS_INVITE
 uint16_t uniffi_tonearm_ffi_checksum_func_live_is_invite(void
-    
-);
-#endif
-#ifndef UNIFFI_FFIDEF_UNIFFI_TONEARM_FFI_CHECKSUM_FUNC_LIVE_OUTPUT_LATENCY_MS
-#define UNIFFI_FFIDEF_UNIFFI_TONEARM_FFI_CHECKSUM_FUNC_LIVE_OUTPUT_LATENCY_MS
-uint16_t uniffi_tonearm_ffi_checksum_func_live_output_latency_ms(void
     
 );
 #endif
