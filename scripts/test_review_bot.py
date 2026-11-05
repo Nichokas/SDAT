@@ -30,6 +30,16 @@ class ParseTests(unittest.TestCase):
     def test_cubic_error_is_not_clean(self):
         self.assertFalse(parse_cubic("cubic", Output("Unauthorized", "", 1)).completed)
 
+    def test_cubic_logged_out_is_not_clean(self):
+        stdout = json.dumps({"issues": [], "error": "No AI provider is configured."})
+        self.assertFalse(parse_cubic("cubic", Output(stdout, "", 1)).completed)
+
+    def test_cubic_empty_issues_with_exit_one_is_not_clean(self):
+        self.assertFalse(parse_cubic("cubic", Output('{"issues": []}', "", 1)).completed)
+
+    def test_cubic_clean_review_is_clean(self):
+        self.assertTrue(parse_cubic("cubic", Output('{"issues": []}', "", 0)).completed)
+
     def test_coderabbit_needs_the_completion_event(self):
         event = {"type": "finding", "severity": "major", "fileName": "a.rs", "startLine": 3,
                  "title": "t", "comment": "**t**\n\nd"}

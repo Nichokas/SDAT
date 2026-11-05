@@ -80,13 +80,14 @@ def json_object(text: str) -> dict | None:
 
 
 def parse_cubic(reviewer: str, output: Output) -> Result:
-    # cubic exits 1 when it reports findings, so only the JSON proves completion.
-    issues = (json_object(output.stdout) or {}).get("issues")
+    report = json_object(output.stdout) or {}
+    issues = report.get("issues")
     if not isinstance(issues, list):
         return Result(reviewer, completed=False)
     return Result(
         reviewer,
-        completed=True,
+        # Exit 1 means findings or an error, and a logged-out run reports `"issues": []` with `error`.
+        completed=not report.get("error") and (output.exit_code == 0 or bool(issues)),
         findings=[
             Finding(
                 severity=severity(issue.get("priority")),
