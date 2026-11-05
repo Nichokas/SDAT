@@ -1,0 +1,33 @@
+scripts/test_review_bot.py
+  s_f1b54711450c1f::t_8c5d4dc87f7d07 75
+  s_f1b54711450c1f::t_423fbbc1e23024 1-74,76-110
+  s_f1b54711450c1f::t_4dea7a15fec45b 111-119
+AGENTS.md
+  s_f1b54711450c1f::t_53f141977852a9 29,60-62
+.github/workflows/review-bot-test.yml
+  s_f1b54711450c1f::t_423fbbc1e23024 1-20
+scripts/review_bot.py
+  s_f1b54711450c1f::t_423fbbc1e23024 28-29,73-80,83-84,105-108,114-115,118-119,129,141,184,219-223,227,248-250,256,262-280,282,285-287
+  s_f1b54711450c1f::t_c9dc2add95477f 1-27,30-72,81-82,85-104,109-113,116-117,120-128,130-140,142-183,185-218,224-226,228-247,251-255,257-261,281,283-284,288-373
+  s_f1b54711450c1f::t_b1d8b9832f829a 374-378
+.github/workflows/review-bot.yml
+  s_f1b54711450c1f::t_423fbbc1e23024 13-15
+  s_f1b54711450c1f::t_6543ebb3a2e001 1-12,16-129
+  s_f1b54711450c1f::t_3ed184d59e0c9d 130-133
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "1fa09b97791e88977ba8213e7d861ca9802675d5",
+  "prompts": {},
+  "sessions": {
+    "s_f1b54711450c1f": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "bffbfadd-2061-4798-84e1-05fde4f86ef3",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": null
+    }
+  }
+}
