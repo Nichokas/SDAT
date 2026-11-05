@@ -424,20 +424,20 @@ def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     commands = parser.add_subparsers(dest="command", required=True)
 
-    run = commands.add_parser("run")
-    run.add_argument("reviewer", choices=REVIEWERS)
-    run.add_argument("--base", required=True)
-    run.add_argument("--out", type=Path, required=True)
+    run_cmd = commands.add_parser("run")
+    run_cmd.add_argument("reviewer", choices=REVIEWERS)
+    run_cmd.add_argument("--base", required=True)
+    run_cmd.add_argument("--out", type=Path, required=True)
 
-    publish = commands.add_parser("publish")
-    publish.add_argument("--pr", type=int, required=True)
-    publish.add_argument("--sha", required=True)
-    publish.add_argument("--base", required=True)
-    publish.add_argument("--results", type=Path, required=True)
-    publish.add_argument("--run-url", required=True)
+    publish_cmd = commands.add_parser("publish")
+    publish_cmd.add_argument("--pr", type=int, required=True)
+    publish_cmd.add_argument("--sha", required=True)
+    publish_cmd.add_argument("--base", required=True)
+    publish_cmd.add_argument("--results", type=Path, required=True)
+    publish_cmd.add_argument("--run-url", required=True)
 
-    account = commands.add_parser("set-account")
-    account.add_argument("reviewer", choices=REVIEWERS)
+    account_cmd = commands.add_parser("set-account")
+    account_cmd.add_argument("reviewer", choices=REVIEWERS)
 
     args = parser.parse_args()
     if args.command == "run":

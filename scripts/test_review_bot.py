@@ -177,6 +177,17 @@ class PublishTests(unittest.TestCase):
             review_bot.publish(7, "older", "main", [Result("cubic", True)], "url")
         self.assertEqual(calls, [(f"repos/{review_bot.REPO}/pulls/7",)])
 
+    def test_publish_command_reaches_publish(self):
+        with tempfile.TemporaryDirectory() as results, mock.patch.object(
+            review_bot, "publish"
+        ) as publish, mock.patch(
+            "sys.argv",
+            ["review_bot.py", "publish", "--pr", "7", "--sha", "abc", "--base", "main",
+             "--results", results, "--run-url", "url"],
+        ):
+            review_bot.main()
+        self.assertEqual(publish.call_args.args[:3], (7, "abc", "main"))
+
 
 class MacroscopeRestoreTests(unittest.TestCase):
     def test_credentials_directory_keeps_owner_only_mode(self):
