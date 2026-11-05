@@ -23,7 +23,7 @@ use playqueue::{DurableQueue, HistoryQueue, Queue};
 pub use quality::audio_stream_quality;
 use statemachine::{Hooks, Machine, Trigger};
 pub use statemachine::{
-    playback_quality_changed, playback_state_changed, track_changed, PlaybackState, PlaybackStatus,
+    playback_quality_changed, playback_state_changed, track_changed, track_repeated, PlaybackState, PlaybackStatus,
 };
 
 // ---------------------------------------------------------------- signals
@@ -244,7 +244,6 @@ pub fn init() -> Result<()> {
         CONTINUE
     });
     enqueued_track_hook();
-    mpris::init();
     Ok(())
 }
 
