@@ -38,12 +38,16 @@ thread_local! {
 pub fn begin_account_change() {
     ACCOUNT_EPOCH.set(ACCOUNT_EPOCH.get() + 1);
     CACHE.with_borrow_mut(|c| *c = Cache::Switching);
-    WAITING.with_borrow_mut(Vec::clear);
 }
 
-/// The session now belongs to the new account: the next menu loads its playlists.
+/// The session now belongs to the new account: loads its playlists for any menu
+/// still waiting, or leaves that to the next menu.
 pub fn end_account_change() {
-    CACHE.with_borrow_mut(|c| *c = Cache::Empty);
+    let waiting = WAITING.with_borrow(|w| !w.is_empty());
+    CACHE.with_borrow_mut(|c| *c = if waiting { Cache::Loading } else { Cache::Empty });
+    if waiting {
+        start_load();
+    }
 }
 
 /// What the submenu should show.
@@ -99,8 +103,8 @@ pub fn submenu(track_id: &str) -> gio::Menu {
 /// Starts loading the playlists if needed and refreshes `menu` when done.
 pub fn ensure_loaded(menu: &gio::Menu, track_id: &str) {
     let start = CACHE.with_borrow_mut(|c| match c {
-        Cache::Ready(_) | Cache::Switching => false,
-        Cache::Loading => {
+        Cache::Ready(_) => false,
+        Cache::Loading | Cache::Switching => {
             WAITING.with_borrow_mut(|w| w.push((menu.downgrade(), track_id.to_owned())));
             false
         }
@@ -110,9 +114,12 @@ pub fn ensure_loaded(menu: &gio::Menu, track_id: &str) {
             true
         }
     });
-    if !start {
-        return;
+    if start {
+        start_load();
     }
+}
+
+fn start_load() {
     let epoch = ACCOUNT_EPOCH.get();
     glib::spawn_future_local(async move {
         finish_load(epoch, api::run(api::client::own_playlists).await);
@@ -182,12 +189,31 @@ mod tests {
     }
 
     #[test]
-    fn no_load_starts_during_an_account_change() {
+    fn menus_waiting_across_an_account_change_get_the_new_list() {
+        // The spawned loads are never polled, so they stay off the network.
+        glib::MainContext::new()
+            .with_thread_default(|| {
+                let before = submenu("t");
+                ensure_loaded(&before, "t");
+                let previous = ACCOUNT_EPOCH.get();
+                begin_account_change();
+                let during = submenu("t");
+                ensure_loaded(&during, "t");
+                assert!(CACHE.with_borrow(|c| matches!(c, Cache::Switching)));
+                end_account_change();
+                assert!(CACHE.with_borrow(|c| matches!(c, Cache::Loading)));
+                finish_load(previous, Ok(vec![pl("a", "Old account")]));
+                assert_eq!(labels(&before), [tr("Loading…")]);
+                finish_load(ACCOUNT_EPOCH.get(), Ok(vec![pl("b", "New account")]));
+                assert_eq!(labels(&before), ["New account"]);
+                assert_eq!(labels(&during), ["New account"]);
+            })
+            .expect("thread-default context");
+    }
+
+    #[test]
+    fn with_no_menu_waiting_the_next_menu_loads() {
         begin_account_change();
-        let menu = submenu("t");
-        ensure_loaded(&menu, "t");
-        assert!(CACHE.with_borrow(|c| matches!(c, Cache::Switching)));
-        assert!(WAITING.with_borrow(Vec::is_empty));
         end_account_change();
         assert!(CACHE.with_borrow(|c| matches!(c, Cache::Empty)));
     }
