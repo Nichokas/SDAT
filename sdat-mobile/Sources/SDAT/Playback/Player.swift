@@ -430,7 +430,8 @@ final class Player {
     /// there (a host already past it is caught up by skipping ahead). A plain
     /// `play()` starts after a variable AVPlayer delay that nothing measures,
     /// and core leaves errors that small alone, so the guest stayed behind for
-    /// the whole song. Returns `false` when the host is not playing.
+    /// the whole song. Returns `false` when the host is not playing (or
+    /// paused before the start, which then leaves the player paused).
     private func startInSync() async -> Bool {
         guard avPlayer.currentItem != nil, let host = liveTarget?(), host.playing else { return false }
         let clock = CMClockGetHostTimeClock()
@@ -439,9 +440,16 @@ final class Player {
         // playing: with it off, a stall pauses the player instead of waiting.
         avPlayer.automaticallyWaitsToMinimizeStalling = false
         avPlayer.setRate(1, time: .invalid, atHostTime: startAt)
-        let wait = (startAt - CMClockGetTime(clock)).seconds
-        if wait > 0 { try? await Task.sleep(for: .seconds(wait)) }
-        avPlayer.automaticallyWaitsToMinimizeStalling = true
+        defer { avPlayer.automaticallyWaitsToMinimizeStalling = true }
+        // Polled, not slept: callers block `Live.guestTick` meanwhile, so a
+        // host pause before the start has to be honored here.
+        while (startAt - CMClockGetTime(clock)).seconds > 0, !Task.isCancelled {
+            guard let now = liveTarget?(), now.playing else {
+                avPlayer.pause()
+                return false
+            }
+            try? await Task.sleep(for: .milliseconds(50))
+        }
         return true
     }
 
@@ -459,10 +467,14 @@ final class Player {
         updateNowPlaying()
         liveSeeking = true
         liveSeekTask = Task {
-            _ = await startInSync()
+            let started = await startInSync()
             guard !Task.isCancelled else { return }
             liveSeeking = false
             liveSeekEndedAt = Date()
+            if !started {
+                isPlaying = false
+                updateNowPlaying()
+            }
         }
     }
 
