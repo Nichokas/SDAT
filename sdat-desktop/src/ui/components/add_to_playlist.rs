@@ -3,7 +3,7 @@
 //! The user's own playlists are fetched lazily the first time a track menu
 //! opens and then cached for the session.
 
-use std::cell::RefCell;
+use std::cell::{Cell, RefCell};
 
 use gtk::gio;
 use gtk::prelude::*;
@@ -28,6 +28,15 @@ enum Cache {
 thread_local! {
     static CACHE: RefCell<Cache> = RefCell::default();
     static WAITING: RefCell<Vec<(glib::WeakRef<gio::Menu>, String)>> = const { RefCell::new(Vec::new()) };
+    /// Bumped on sign in/out; a load started before it fetched the previous account's list.
+    static ACCOUNT_EPOCH: Cell<u64> = const { Cell::new(0) };
+}
+
+/// Forgets the previous account's playlists (sign in/out).
+pub fn reset() {
+    ACCOUNT_EPOCH.set(ACCOUNT_EPOCH.get() + 1);
+    CACHE.with_borrow_mut(|c| *c = Cache::Empty);
+    WAITING.with_borrow_mut(Vec::clear);
 }
 
 /// What the submenu should show.
@@ -97,22 +106,30 @@ pub fn ensure_loaded(menu: &gio::Menu, track_id: &str) {
     if !start {
         return;
     }
+    let epoch = ACCOUNT_EPOCH.get();
     glib::spawn_future_local(async move {
-        let list = match api::run(api::client::own_playlists).await {
-            Ok(l) => Some(l),
-            Err(e) => {
-                log::error!("loading own playlists failed error={e:#}");
-                player::toasts().notify(&tr("Could not load your playlists"));
-                None
-            }
-        };
-        CACHE.with_borrow_mut(|c| *c = list.map_or(Cache::Empty, Cache::Ready));
-        for (m, track) in WAITING.with_borrow_mut(std::mem::take) {
-            if let Some(m) = m.upgrade() {
-                fill(&m, &track);
-            }
-        }
+        finish_load(epoch, api::run(api::client::own_playlists).await);
     });
+}
+
+fn finish_load(epoch: u64, result: anyhow::Result<Vec<OwnPlaylist>>) {
+    if ACCOUNT_EPOCH.get() != epoch {
+        return;
+    }
+    let list = match result {
+        Ok(l) => Some(l),
+        Err(e) => {
+            log::error!("loading own playlists failed error={e:#}");
+            player::toasts().notify(&tr("Could not load your playlists"));
+            None
+        }
+    };
+    CACHE.with_borrow_mut(|c| *c = list.map_or(Cache::Empty, Cache::Ready));
+    for (m, track) in WAITING.with_borrow_mut(std::mem::take) {
+        if let Some(m) = m.upgrade() {
+            fill(&m, &track);
+        }
+    }
 }
 
 /// Adds a track to a playlist and reports the result with a toast.
@@ -141,6 +158,32 @@ mod tests {
 
     fn pl(id: &str, name: &str) -> OwnPlaylist {
         OwnPlaylist { id: id.into(), name: name.into(), number_of_items: 3 }
+    }
+
+    fn labels(menu: &gio::Menu) -> Vec<String> {
+        (0..menu.n_items())
+            .filter_map(|i| menu.item_attribute_value(i, "label", None)?.get())
+            .collect()
+    }
+
+    #[test]
+    fn account_switch_forgets_the_playlists() {
+        finish_load(ACCOUNT_EPOCH.get(), Ok(vec![pl("a", "Old account")]));
+        assert_eq!(labels(&submenu("t")), ["Old account"]);
+        reset();
+        assert_eq!(labels(&submenu("t")), [tr("Loading…")]);
+    }
+
+    #[test]
+    fn a_load_from_the_previous_account_is_dropped() {
+        let previous = ACCOUNT_EPOCH.get();
+        reset();
+        let menu = submenu("t");
+        WAITING.with_borrow_mut(|w| w.push((menu.downgrade(), "t".to_owned())));
+        finish_load(previous, Ok(vec![pl("a", "Old account")]));
+        assert_eq!(labels(&menu), [tr("Loading…")]);
+        finish_load(ACCOUNT_EPOCH.get(), Ok(vec![pl("b", "New account")]));
+        assert_eq!(labels(&menu), ["New account"]);
     }
 
     #[test]

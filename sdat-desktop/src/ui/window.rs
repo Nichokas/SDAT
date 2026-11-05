@@ -462,6 +462,7 @@ async fn session_changed() {
     })
     .await);
     crate::cache::allow_prefetch_again();
+    crate::ui::components::add_to_playlist::reset();
 }
 
 fn install_actions(app: &adw::Application, window: &adw::ApplicationWindow) {
