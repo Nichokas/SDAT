@@ -364,6 +364,11 @@ final class Player {
     /// tolerates a few seconds); later than that, park again further ahead.
     private static let liveLateTolerance: Double = 1
     private static let liveAlignAttempts = 3
+    /// How long before the host reaches the parked point the start is
+    /// scheduled, so a main actor that wakes up late doesn't delay it.
+    private static let liveScheduleAhead: Double = 0.5
+    /// Largest guest-host gap a resume is synchronized over (see `liveResume`).
+    private static let liveResumeWindow: Double = 3
 
     /// Joins the host's playback without audible corrections: parks the item
     /// paused a little ahead of the host, waits until AVPlayer has a healthy
@@ -389,16 +394,16 @@ final class Player {
                 continue
             }
             await waitForBuffer(item, from: startAt)
-            // Wait for the host to reach the parked point. If the host jumped
-            // back (seek, restart), the wait would be longer than the lead:
-            // park again near its new position instead of staying silent.
+            if stillOurs(), avPlayer.status == .readyToPlay { _ = await avPlayer.preroll(atRate: 1) }
+            // Wait until the host is about to reach the parked point. If the
+            // host jumped back (seek, restart), the wait would be longer than
+            // the lead: park again near its new position instead of staying silent.
             let hostDeadline = Date().addingTimeInterval(Self.liveJoinLead + Self.liveBufferTimeout)
-            while stillOurs(), let now = liveTarget?(), now.playing, now.secs < startAt - 0.01 {
+            while stillOurs(), let now = liveTarget?(), now.playing, now.secs < startAt - Self.liveScheduleAhead {
                 // The host stopped advancing (e.g. it is buffering): re-park.
                 if Date() > hostDeadline { continue attempt }
                 if startAt - now.secs > Self.liveJoinLead + Self.liveLateTolerance { continue attempt }
-                // Poll often near the start point: a late check is a late start.
-                try? await Task.sleep(for: .milliseconds(Int(min(max((startAt - now.secs) * 500, 5), 50))))
+                try? await Task.sleep(for: .milliseconds(50))
             }
             guard stillOurs(), let now = liveTarget?() else { return false }
             guard now.playing else {
@@ -408,8 +413,7 @@ final class Player {
             if now.secs - startAt > Self.liveLateTolerance { continue } // buffering took too long
             if systemPaused { return false } // call / headphones unplugged meanwhile
             try? AVAudioSession.sharedInstance().setActive(true)
-            avPlayer.play()
-            return true
+            return await startInSync()
         }
         // Very slow network: start where the host is and let AVPlayer buffer.
         guard stillOurs(), let t = liveTarget?() else { return false }
@@ -419,6 +423,47 @@ final class Player {
         try? AVAudioSession.sharedInstance().setActive(true)
         avPlayer.play()
         return true
+    }
+
+    /// Starts the paused item in step with the host: its timebase is tied to
+    /// the system clock so the parked position plays exactly when the host is
+    /// there (a host already past it is caught up by skipping ahead). A plain
+    /// `play()` starts after a variable AVPlayer delay that nothing measures,
+    /// and core leaves errors that small alone, so the guest stayed behind for
+    /// the whole song. Returns `false` when the host is not playing.
+    private func startInSync() async -> Bool {
+        guard avPlayer.currentItem != nil, let host = liveTarget?(), host.playing else { return false }
+        let clock = CMClockGetHostTimeClock()
+        let startAt = CMClockGetTime(clock) + CMTime(seconds: livePosition - host.secs, preferredTimescale: 1_000_000_000)
+        // `setRate(_:time:atHostTime:)` requires it off. It goes back on once
+        // playing: with it off, a stall pauses the player instead of waiting.
+        avPlayer.automaticallyWaitsToMinimizeStalling = false
+        avPlayer.setRate(1, time: .invalid, atHostTime: startAt)
+        let wait = (startAt - CMClockGetTime(clock)).seconds
+        if wait > 0 { try? await Task.sleep(for: .seconds(wait)) }
+        avPlayer.automaticallyWaitsToMinimizeStalling = true
+        return true
+    }
+
+    /// The host resumed after a pause: resume in step with it (see
+    /// `startInSync`). Too far from the host (more than the buffer kept while
+    /// paused can cover) it plays normally and drift correction takes over.
+    func liveResume() {
+        guard !isPlaying else { return }
+        guard !needsStart, avPlayer.currentItem != nil, let host = liveTarget?(), host.playing,
+              abs(livePosition - host.secs) <= Self.liveResumeWindow else { toggle(); return }
+        resumeAfterInterruption = false
+        systemPaused = false
+        try? AVAudioSession.sharedInstance().setActive(true)
+        isPlaying = true
+        updateNowPlaying()
+        liveSeeking = true
+        liveSeekTask = Task {
+            _ = await startInSync()
+            guard !Task.isCancelled else { return }
+            liveSeeking = false
+            liveSeekEndedAt = Date()
+        }
     }
 
     /// Waits (up to `liveBufferTimeout`) until AVPlayer has `liveMinBuffer`
