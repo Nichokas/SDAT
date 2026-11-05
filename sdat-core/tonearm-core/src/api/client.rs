@@ -43,7 +43,7 @@ pub fn client_secret() -> &'static str {
 fn http() -> &'static Client {
     static C: OnceLock<Client> = OnceLock::new();
     C.get_or_init(|| // Go's net/http sends this UA by default; TIDAL's CDN rejects requests without one.
-        Client::builder().user_agent("Go-http-client/1.1").build().expect("failed to build http client"))
+        crate::http::client_builder().user_agent("Go-http-client/1.1").build().expect("failed to build http client"))
 }
 
 #[derive(Default)]
@@ -79,11 +79,12 @@ struct AccessToken {
     expires_in: u64,
 }
 
-fn token_request(form: &[(&str, &str)]) -> Result<Response> {
-    Ok(http()
-        .post(format!("{}/v1/oauth2/token", crate::config::get().auth_base_url()))
-        .form(form)
-        .send()?)
+fn token_request(form: &[(&str, &str)]) -> reqwest::Result<Response> {
+    token_request_with(http(), form)
+}
+
+fn token_request_with(client: &Client, form: &[(&str, &str)]) -> reqwest::Result<Response> {
+    client.post(format!("{}/v1/oauth2/token", crate::config::get().auth_base_url())).form(form).send()
 }
 
 fn fetch_access_token(cache: &Mutex<CachedToken>, form: &[(&str, &str)]) -> Result<String> {
@@ -740,8 +741,18 @@ pub fn request_device_linking_challenge() -> Result<DeviceLinkingChallenge> {
     Ok(resp.json()?)
 }
 
-/// Polls until the user approved the device. `cancelled` is checked between polls.
-pub fn poll_device_linking_status(device_code: &str, interval: i64, cancelled: &dyn Fn() -> bool) -> Result<TokenResponse> {
+/// Polls until the user approves the code, it expires (`expires_in` seconds) or `cancelled` returns true.
+pub fn poll_device_linking_status(device_code: &str, interval: i64, expires_in: i64, cancelled: &dyn Fn() -> bool) -> Result<TokenResponse> {
+    let deadline = Instant::now() + Duration::from_secs(expires_in.max(1) as u64);
+    // The user is in the browser meanwhile, so the app is in the background: the OS may kill an idle
+    // keep-alive socket or hold back data for a while. Every poll opens a fresh connection with a
+    // bounded timeout, and failed sends are retried until the code itself expires.
+    let client = crate::http::client_builder()
+        .user_agent("Go-http-client/1.1")
+        .pool_max_idle_per_host(0)
+        .connect_timeout(Duration::from_secs(10))
+        .timeout(Duration::from_secs(20))
+        .build()?;
     let form = [
         ("client_id", client_id()),
         ("client_secret", client_secret()),
@@ -749,23 +760,38 @@ pub fn poll_device_linking_status(device_code: &str, interval: i64, cancelled: &
         ("grant_type", "urn:ietf:params:oauth:grant-type:device_code"),
         ("scope", SCOPE),
     ];
+    // Sleeps in small steps so cancellation is responsive.
+    let pause = || {
+        let until = deadline.min(Instant::now() + Duration::from_secs(interval.max(1) as u64));
+        while Instant::now() < until {
+            if cancelled() {
+                return Err(CoreError::Cancelled("linking canceled".into()));
+            }
+            std::thread::sleep(Duration::from_millis(200));
+        }
+        Ok(())
+    };
     loop {
         if cancelled() {
             return Err(CoreError::Cancelled("linking canceled".into()));
         }
-        let resp = token_request(&form)?;
+        if Instant::now() >= deadline {
+            bail!("linking session expired");
+        }
+        let resp = match token_request_with(&client, &form) {
+            Ok(r) => r,
+            Err(e) if !(e.is_status() || e.is_redirect() || e.is_builder()) => {
+                log::warn!("device login poll failed, retrying: {e}");
+                pause()?;
+                continue;
+            }
+            Err(e) => return Err(e.into()),
+        };
         if resp.status() != StatusCode::OK {
             let e: TokenError = resp.json()?;
             match e.error.as_str() {
                 "authorization_pending" => {
-                    // sleep in small steps so cancellation is responsive
-                    let until = Instant::now() + Duration::from_secs(interval.max(1) as u64);
-                    while Instant::now() < until {
-                        if cancelled() {
-                            return Err(CoreError::Cancelled("linking canceled".into()));
-                        }
-                        std::thread::sleep(Duration::from_millis(200));
-                    }
+                    pause()?;
                     continue;
                 }
                 "expired_token" => bail!("linking session expired"),
