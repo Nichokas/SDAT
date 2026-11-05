@@ -605,6 +605,12 @@ msgstr "Desconectar"
 msgid "Sign in failed or aborted"
 msgstr "Conexão falhou ou abortada"
 
+msgid "Sign in failed: the keyring could not store the session"
+msgstr "Conexão falhou: o chaveiro não pôde salvar a sessão"
+
+msgid "Sign out failed"
+msgstr "Falha ao desconectar"
+
 msgid "Signed in as %s"
 msgstr "Conectou como %s%"
 

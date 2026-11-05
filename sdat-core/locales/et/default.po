@@ -603,6 +603,12 @@ msgstr "Logi välja"
 msgid "Sign in failed or aborted"
 msgstr "Sisselogimine ei õnnestunud või on katkestatud"
 
+msgid "Sign in failed: the keyring could not store the session"
+msgstr "Sisselogimine ei õnnestunud: võtmehoidja ei saanud seanssi salvestada"
+
+msgid "Sign out failed"
+msgstr "Väljalogimine ei õnnestunud"
+
 msgid "Signed in as %s"
 msgstr "Sisseloginud kasutajana %s"
 
