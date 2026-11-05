@@ -1,0 +1,21 @@
+.github/workflows/review-bot.yml
+  s_f1b54711450c1f::t_354dec5191fd8d 5
+AGENTS.md
+  s_f1b54711450c1f::t_ee01fc51eefb5b 60
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "bda8ae045b5b9f10169507cc8c9ba21292549a1c",
+  "prompts": {},
+  "sessions": {
+    "s_f1b54711450c1f": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "bffbfadd-2061-4798-84e1-05fde4f86ef3",
+        "model": "unknown"
+      },
+      "human_author": "Nicolas Rodriguez-Alvarez <me@nichokas.eu>"
+    }
+  }
+}
