@@ -23,6 +23,7 @@ import tarfile
 import tempfile
 from collections.abc import Callable
 from dataclasses import dataclass, field
+from enum import StrEnum
 from pathlib import Path
 
 REPO = "Nichokas/SDAT"
@@ -42,10 +43,17 @@ class Finding:
     body: str
 
 
+class Status(StrEnum):
+    COMPLETED = "completed"
+    # The reviewer could not run for a reason outside this PR, so it neither passes nor blocks it.
+    SKIPPED = "skipped"
+    FAILED = "failed"
+
+
 @dataclass(frozen=True)
 class Result:
     reviewer: str
-    completed: bool
+    status: Status
     findings: list[Finding] = field(default_factory=list)
     note: str = ""
 
@@ -85,11 +93,12 @@ def parse_cubic(reviewer: str, output: Output) -> Result:
     report = json_object(output.stdout) or {}
     issues = report.get("issues")
     if not isinstance(issues, list):
-        return Result(reviewer, completed=False)
+        return Result(reviewer, Status.FAILED)
+    # Exit 1 means findings or an error, and a logged-out run reports `"issues": []` with `error`.
+    completed = not report.get("error") and (output.exit_code == 0 or bool(issues))
     return Result(
         reviewer,
-        # Exit 1 means findings or an error, and a logged-out run reports `"issues": []` with `error`.
-        completed=not report.get("error") and (output.exit_code == 0 or bool(issues)),
+        Status.COMPLETED if completed else Status.FAILED,
         findings=[
             Finding(
                 severity=severity(issue.get("priority")),
@@ -106,8 +115,12 @@ def parse_cubic(reviewer: str, output: Output) -> Result:
 def parse_coderabbit(reviewer: str, output: Output) -> Result:
     findings = []
     completed = False
-    for line in output.stdout.splitlines():
+    for line in [*output.stdout.splitlines(), *output.stderr.splitlines()]:
         event = json_object(line) or {}
+        if event.get("type") == "error" and event.get("errorType") == "rate_limit":
+            wait = (event.get("metadata") or {}).get("waitTime")
+            note = f"Out of included reviews; the next one is in {wait}." if wait else "Out of included reviews."
+            return Result(reviewer, Status.SKIPPED, note=note)
         if event.get("type") == "finding":
             title = event.get("title", "")
             findings.append(
@@ -121,7 +134,8 @@ def parse_coderabbit(reviewer: str, output: Output) -> Result:
             )
         elif event.get("type") == "complete":
             completed = event.get("status") in ("review_completed", "review_skipped")
-    return Result(reviewer, completed=completed and output.exit_code == 0, findings=findings)
+    status = Status.COMPLETED if completed and output.exit_code == 0 else Status.FAILED
+    return Result(reviewer, status, findings=findings)
 
 
 def parse_macroscope(reviewer: str, output: Output) -> Result:
@@ -149,7 +163,7 @@ def parse_macroscope(reviewer: str, output: Output) -> Result:
     # A late failure keeps the findings that already arrived, as the CLI contract says.
     return Result(
         reviewer,
-        completed=status == "completed" and output.exit_code == 0,
+        Status.COMPLETED if status == "completed" and output.exit_code == 0 else Status.FAILED,
         findings=findings,
         note=note,
     )
@@ -245,9 +259,10 @@ def load_results(directory: Path) -> list[Result]:
     for name in REVIEWERS:
         path = directory / f"{name}.json"
         if not path.exists():
-            results.append(Result(name, completed=False))
+            results.append(Result(name, Status.FAILED))
             continue
         data = json.loads(path.read_text())
+        data["status"] = Status(data["status"])
         data["findings"] = [Finding(**finding) for finding in data["findings"]]
         results.append(Result(**data))
     return results
@@ -268,8 +283,10 @@ def render(results: list[Result], sha: str, base: str, run_url: str) -> str:
         label = REVIEWERS[result.reviewer].label
         count = len(result.findings)
         outcome = f"{count} finding{'' if count == 1 else 's'}" if count else "clean"
-        if not result.completed:
+        if result.status is Status.FAILED:
             outcome = f"**failed** after {outcome}" if count else "**failed**, no review"
+        elif result.status is Status.SKIPPED:
+            outcome = "skipped"
 
         # Dropping whole findings keeps the HTML valid, which a cut at a character count would not.
         kept = []
@@ -390,6 +407,34 @@ def post_inline(pr: int, sha: str, results: list[Result]) -> None:
         )
 
 
+def is_clean(results: list[Result]) -> bool:
+    ran = [result for result in results if result.status is not Status.SKIPPED]
+    return bool(ran) and all(r.status is Status.COMPLETED and not r.findings for r in ran)
+
+
+def update_approval(pr: int, sha: str, clean: bool) -> None:
+    pages = json.loads(gh_api("--paginate", "--slurp", f"repos/{REPO}/pulls/{pr}/reviews?per_page=100"))
+    approvals = [
+        review
+        for page in pages
+        for review in page
+        if review["user"]["login"] == BOT_LOGIN and review["state"] == "APPROVED"
+    ]
+    if clean:
+        if not any(review["commit_id"] == sha for review in approvals):
+            gh_api(
+                "-X", "POST", f"repos/{REPO}/pulls/{pr}/reviews", "--input", "-",
+                body={"commit_id": sha, "event": "APPROVE", "body": "Every reviewer that ran is clean."},
+            )
+        return
+    # Without branch protection GitHub keeps an approval across pushes, so a new finding has to retract it.
+    for review in approvals:
+        gh_api(
+            "-X", "PUT", f"repos/{REPO}/pulls/{pr}/reviews/{review['id']}/dismissals", "--input", "-",
+            body={"message": f"`{sha[:7]}` is not clean.", "event": "DISMISS"},
+        )
+
+
 def publish(pr: int, sha: str, base: str, results: list[Result], run_url: str) -> None:
     # Runs for older commits can still be publishing; they must not replace a newer review.
     if json.loads(gh_api(f"repos/{REPO}/pulls/{pr}"))["head"]["sha"] != sha:
@@ -397,6 +442,7 @@ def publish(pr: int, sha: str, base: str, results: list[Result], run_url: str) -
         return
     upsert_comment(pr, render(results, sha, base, run_url))
     post_inline(pr, sha, results)
+    update_approval(pr, sha, is_clean(results))
 
 
 def set_account(name: str) -> None:

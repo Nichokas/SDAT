@@ -132,7 +132,7 @@ jobs:
         with:
           path: results
           merge-multiple: true
-      - name: Publish the comment
+      - name: Publish the review
         env:
           GH_TOKEN: ${{ github.token }}
           PR: ${{ needs.resolve.outputs.pr }}
