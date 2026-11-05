@@ -430,27 +430,29 @@ final class Player {
     /// there (a host already past it is caught up by skipping ahead). A plain
     /// `play()` starts after a variable AVPlayer delay that nothing measures,
     /// and core leaves errors that small alone, so the guest stayed behind for
-    /// the whole song. Returns `false` when the host is not playing (or
-    /// paused before the start, which then leaves the player paused).
+    /// the whole song. Returns `false` when the host is not playing, or when
+    /// it paused or the start was cancelled before it, leaving the player paused.
     private func startInSync() async -> Bool {
         guard avPlayer.currentItem != nil, let host = liveTarget?(), host.playing else { return false }
         let clock = CMClockGetHostTimeClock()
         let startAt = CMClockGetTime(clock) + CMTime(seconds: livePosition - host.secs, preferredTimescale: 1_000_000_000)
-        // `setRate(_:time:atHostTime:)` requires it off. It goes back on once
-        // playing: with it off, a stall pauses the player instead of waiting.
+        // `setRate(_:time:atHostTime:)` requires it off; it goes back on once
+        // the start is due.
         avPlayer.automaticallyWaitsToMinimizeStalling = false
         avPlayer.setRate(1, time: .invalid, atHostTime: startAt)
-        defer { avPlayer.automaticallyWaitsToMinimizeStalling = true }
         // Polled, not slept: callers block `Live.guestTick` meanwhile, so a
-        // host pause before the start has to be honored here.
-        while (startAt - CMClockGetTime(clock)).seconds > 0, !Task.isCancelled {
-            guard let now = liveTarget?(), now.playing else {
-                avPlayer.pause()
-                return false
-            }
+        // host pause or a cancelled start has to revoke the scheduled rate here.
+        var started = true
+        while (startAt - CMClockGetTime(clock)).seconds > 0 {
+            guard !Task.isCancelled, let now = liveTarget?(), now.playing else { started = false; break }
             try? await Task.sleep(for: .milliseconds(50))
         }
-        return true
+        if !started { avPlayer.pause() }
+        avPlayer.automaticallyWaitsToMinimizeStalling = true
+        // Without waiting, a stall drops the rate to 0 for good: hand it back
+        // to AVPlayer, which resumes once it has buffered.
+        if started, avPlayer.rate == 0 { avPlayer.play() }
+        return started
     }
 
     /// The host resumed after a pause: resume in step with it (see
