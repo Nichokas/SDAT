@@ -753,7 +753,7 @@ pub fn poll_device_linking_status(device_code: &str, interval: i64, expires_in: 
     ];
     // Sleeps in small steps so cancellation is responsive.
     let pause = || {
-        let until = Instant::now() + Duration::from_secs(interval.max(1) as u64);
+        let until = deadline.min(Instant::now() + Duration::from_secs(interval.max(1) as u64));
         while Instant::now() < until {
             if cancelled() {
                 return Err(CoreError::Cancelled("linking canceled".into()));
