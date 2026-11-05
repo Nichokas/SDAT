@@ -16,7 +16,7 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         setContent {
             GlasmioTheme(typography = glasmioTypography(inter)) {
-                GlasmioIconProvider { RootView((application as SdatApp).session) }
+                GlasmioIconProvider { (application as SdatApp).let { RootView(it.session, it.playback) } }
             }
         }
     }
