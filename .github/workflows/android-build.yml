@@ -9,6 +9,7 @@ on:
       - "Cargo.toml"
       - "Cargo.lock"
       - "scripts/build-rust-android.sh"
+      - "scripts/fetch-sf-pro.sh"
       - ".github/workflows/android-build.yml"
   pull_request:
     paths: *paths
@@ -55,6 +56,9 @@ jobs:
         uses: taiki-e/install-action@v2
         with:
           tool: cargo-ndk
+      - uses: astral-sh/setup-uv@v6
+      - name: Fetch SF Pro
+        run: scripts/fetch-sf-pro.sh
       - uses: gradle/actions/setup-gradle@v4
       - name: Build, lint and test
         working-directory: sdat-android

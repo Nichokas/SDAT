@@ -46,7 +46,7 @@ Notes for coding agents working on SDAT, a TIDAL player for Fedora (GTK), iPhone
 ## Android
 
 - `minSdk` 33; ABIs `arm64-v8a` and `x86_64` only.
-- Never commit SF Pro. Local fonts go in the gitignored `sdat-android/local-assets/`; fall back to Inter/Material.
+- Never commit SF Pro. `scripts/fetch-sf-pro.sh` (also run by CI) downloads it from Apple and puts a subset in the gitignored `sdat-android/local-assets/`; without it the app falls back to Inter/Material Symbols.
 - Keep the APK small; no unused native libraries.
 
 ## Conventions
