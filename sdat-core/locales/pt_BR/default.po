@@ -612,13 +612,13 @@ msgid "Sign out failed"
 msgstr "Falha ao desconectar"
 
 msgid "Signed in as %s"
-msgstr "Conectou como %s%"
+msgstr "Conectou como %s"
 
 msgid "Signed out"
 msgstr "Desconectou"
 
 msgid "Single by %s"
-msgstr "Single de %s%"
+msgstr "Single de %s"
 
 msgid ""
 "Start typing in the search bar to search for songs, artists, albums or "
