@@ -8,6 +8,7 @@ jna = "5.19.1"
 coroutines = "1.11.0"
 junit = "4.13.2"
 coil = "3.6.3"
+media3 = "1.11.1"
 
 [libraries]
 compose-bom = { module = "androidx.compose:compose-bom", version.ref = "composeBom" }
@@ -18,6 +19,8 @@ jna = { module = "net.java.dev.jna:jna", version.ref = "jna" }
 coroutines-android = { module = "org.jetbrains.kotlinx:kotlinx-coroutines-android", version.ref = "coroutines" }
 coil-compose = { module = "io.coil-kt.coil3:coil-compose", version.ref = "coil" }
 coil-network = { module = "io.coil-kt.coil3:coil-network-okhttp", version.ref = "coil" }
+media3-exoplayer = { module = "androidx.media3:media3-exoplayer", version.ref = "media3" }
+media3-hls = { module = "androidx.media3:media3-exoplayer-hls", version.ref = "media3" }
 junit = { module = "junit:junit", version.ref = "junit" }
 
 [plugins]

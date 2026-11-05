@@ -39,7 +39,7 @@ private const val POOL_TARGET = 320
 
 /** The iOS Discover: the home mixes' covers on an endless plane, filled batch by batch. */
 @Composable
-fun DiscoverView(session: Session) {
+fun DiscoverView(session: Session, onPlay: (Track) -> Unit) {
     var tracks by remember { mutableStateOf(emptyList<Track>()) }
     var error by remember { mutableStateOf<String?>(null) }
     var attempt by remember { mutableIntStateOf(0) }
@@ -65,7 +65,7 @@ fun DiscoverView(session: Session) {
         tracks = pool.tracks.toList()
     }
     Box(Modifier.fillMaxSize().background(Color.Black)) {
-        CoverPlane(tracks)
+        CoverPlane(tracks, onTap = onPlay)
         // Scrims keep the title and the bottom bar legible over bright covers, as on iOS.
         Box(
             Modifier.fillMaxWidth().background(
