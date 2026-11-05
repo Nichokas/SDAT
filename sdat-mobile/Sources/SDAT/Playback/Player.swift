@@ -434,7 +434,7 @@ final class Player {
     /// it paused, the system paused us or the start was cancelled before it,
     /// leaving the player paused.
     private func startInSync() async -> Bool {
-        guard avPlayer.currentItem != nil, let host = liveTarget?(), host.playing else { return false }
+        guard let item = avPlayer.currentItem, let host = liveTarget?(), host.playing else { return false }
         let clock = CMClockGetHostTimeClock()
         let startAt = CMClockGetTime(clock) + CMTime(seconds: livePosition - host.secs, preferredTimescale: 1_000_000_000)
         // `setRate(_:time:atHostTime:)` requires it off; it goes back on once
@@ -446,10 +446,12 @@ final class Player {
         // scheduled rate here.
         var started = true
         while (startAt - CMClockGetTime(clock)).seconds > 0 {
-            guard !Task.isCancelled, !systemPaused, let now = liveTarget?(), now.playing else { started = false; break }
+            guard !Task.isCancelled, avPlayer.currentItem === item, !systemPaused,
+                  let now = liveTarget?(), now.playing else { started = false; break }
             try? await Task.sleep(for: .milliseconds(50))
         }
-        if !started { avPlayer.pause() }
+        // Another item (e.g. local playback after leaving) is not ours to pause.
+        if !started, avPlayer.currentItem === item { avPlayer.pause() }
         avPlayer.automaticallyWaitsToMinimizeStalling = true
         // Without waiting, a stall drops the rate to 0 for good: hand it back
         // to AVPlayer, which resumes once it has buffered.
@@ -470,12 +472,13 @@ final class Player {
         isPlaying = true
         updateNowPlaying()
         liveSeeking = true
+        let item = avPlayer.currentItem
         liveSeekTask = Task {
             let started = await startInSync()
             guard !Task.isCancelled else { return }
             liveSeeking = false
             liveSeekEndedAt = Date()
-            if !started {
+            if !started, avPlayer.currentItem === item {
                 isPlaying = false
                 updateNowPlaying()
             }
