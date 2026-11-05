@@ -602,6 +602,12 @@ msgstr "Tanca la sessió"
 msgid "Sign in failed or aborted"
 msgstr "L'inici de sessió ha fallat o s'ha cancel·lat"
 
+msgid "Sign in failed: the keyring could not store the session"
+msgstr "L'inici de sessió ha fallat: el clauer no ha pogut desar la sessió"
+
+msgid "Sign out failed"
+msgstr "No s'ha pogut tancar la sessió"
+
 msgid "Signed in as %s"
 msgstr "S'ha iniciat la sessió com a %s"
 

@@ -607,6 +607,12 @@ msgstr "Wyloguj"
 msgid "Sign in failed or aborted"
 msgstr "Logowanie nieudane lub przerwane"
 
+msgid "Sign in failed: the keyring could not store the session"
+msgstr "Logowanie nieudane: pęk kluczy nie mógł zapisać sesji"
+
+msgid "Sign out failed"
+msgstr "Wylogowanie nieudane"
+
 msgid "Signed in as %s"
 msgstr "Zalogowano jako %s"
 

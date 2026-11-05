@@ -66,6 +66,8 @@ thread_local! {
     static ROUTES: RefCell<Vec<(Regex, Handler)>> = const { RefCell::new(Vec::new()) };
     static HISTORY: RefCell<History> = RefCell::new(History::default());
     static GENERATION: std::cell::Cell<u64> = const { std::cell::Cell::new(0) };
+    /// Bumped on sign in/out; a load started before it belongs to the previous account.
+    static ACCOUNT_EPOCH: std::cell::Cell<u64> = const { std::cell::Cell::new(0) };
     /// Loaded top-level pages, reused on revisit so switching tabs shows no spinner.
     static KEPT: RefCell<std::collections::HashMap<String, HistoryEntry>> = RefCell::default();
 }
@@ -167,6 +169,7 @@ fn navigate_inner(path: String, off_record: bool) {
         g.get()
     });
     let started = Instant::now();
+    let epoch = ACCOUNT_EPOCH.with(std::cell::Cell::get);
     let found = find_handler(&path);
     glib::spawn_future_local(async move {
         let (response, should_cache) = match found {
@@ -196,6 +199,15 @@ fn navigate_inner(path: String, off_record: bool) {
         if !should_cache {
             entry.expires_at = Some(Instant::now());
         }
+        // A newer navigation superseded this one: drop the result so neither
+        // history nor the kept pages hold a page (or account) the user never saw.
+        if GENERATION.with(std::cell::Cell::get) != generation {
+            return;
+        }
+        if ACCOUNT_EPOCH.with(std::cell::Cell::get) != epoch {
+            navigate_inner(path, off_record);
+            return;
+        }
         if should_cache && is_kept_route(&path) {
             KEPT.with(|k| k.borrow_mut().insert(path.clone(), entry.clone()));
         }
@@ -209,10 +221,6 @@ fn navigate_inner(path: String, off_record: bool) {
             });
         } else {
             push(entry.clone());
-        }
-        // A newer navigation superseded this one: keep history but do not show it.
-        if GENERATION.with(std::cell::Cell::get) != generation {
-            return;
         }
         complete(entry);
     });
@@ -282,6 +290,14 @@ pub fn refresh() {
 
 pub fn current() -> Option<HistoryEntry> {
     HISTORY.with(|h| h.borrow().current.clone())
+}
+
+/// Sign in/out: drops the Back entries and reloads in-flight pages so the previous
+/// account's pages are unreachable.
+pub fn clear_back_history() {
+    ACCOUNT_EPOCH.with(|e| e.set(e.get() + 1));
+    HISTORY.with(|h| h.borrow_mut().entries.clear());
+    notify_history();
 }
 
 pub fn clear() {
