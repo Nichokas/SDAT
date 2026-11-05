@@ -71,12 +71,10 @@ val buildRustCore = tasks.register<BuildRustCore>("buildRustCore") {
     bindings.set(layout.buildDirectory.dir("generated/rust/kotlin"))
 }
 
-val localAssets = rootProject.file("local-assets")
 androidComponents {
     onVariants { variant ->
         variant.sources.jniLibs?.addGeneratedSourceDirectory(buildRustCore, BuildRustCore::jniLibs)
         variant.sources.kotlin?.addGeneratedSourceDirectory(buildRustCore, BuildRustCore::bindings)
-        if (localAssets.isDirectory) variant.sources.assets?.addStaticSourceDirectory(localAssets.path)
     }
 }
 
