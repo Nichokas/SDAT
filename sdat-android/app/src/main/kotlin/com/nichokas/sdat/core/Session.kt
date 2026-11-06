@@ -45,6 +45,7 @@ class Session(context: Context) : TokenStore {
             putString(REFRESH, Vault.encrypt(tokens.refreshToken))
             putString(USER, tokens.userId)
         }
+        Favs.clear()
         sessionChanged()
         signedIn = true
     }
@@ -53,6 +54,7 @@ class Session(context: Context) : TokenStore {
     fun signOut() {
         prefs.edit { clear() }
         picture.value = null
+        Favs.clear()
         sessionChanged()
         signedIn = false
     }
