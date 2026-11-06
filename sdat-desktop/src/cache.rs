@@ -135,6 +135,11 @@ pub fn set_preload_enabled(on: bool) {
     }
 }
 
+/// Lets the next Home visit prefetch again (the account changed).
+pub fn allow_prefetch_again() {
+    STARTED.store(0, Ordering::SeqCst);
+}
+
 /// Starts the background prefetcher once (after login, when Home is shown).
 pub fn start_prefetch() {
     if !preload_enabled() {

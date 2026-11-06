@@ -605,14 +605,20 @@ msgstr "Desconectar"
 msgid "Sign in failed or aborted"
 msgstr "Conexão falhou ou abortada"
 
+msgid "Sign in failed: the keyring could not store the session"
+msgstr "Falha no login: o chaveiro não pôde salvar a sessão"
+
+msgid "Sign out failed"
+msgstr "Falha ao desconectar"
+
 msgid "Signed in as %s"
-msgstr "Conectou como %s%"
+msgstr "Conectou como %s"
 
 msgid "Signed out"
 msgstr "Desconectou"
 
 msgid "Single by %s"
-msgstr "Single de %s%"
+msgstr "Single de %s"
 
 msgid ""
 "Start typing in the search bar to search for songs, artists, albums or "

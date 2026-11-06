@@ -602,6 +602,12 @@ msgstr "Cerrar sesión"
 msgid "Sign in failed or aborted"
 msgstr "El inicio de sesión falló o fue cancelado"
 
+msgid "Sign in failed: the keyring could not store the session"
+msgstr "El inicio de sesión falló: el llavero no pudo guardar la sesión"
+
+msgid "Sign out failed"
+msgstr "No se pudo cerrar la sesión"
+
 msgid "Signed in as %s"
 msgstr "Sesión iniciada como %s"
 

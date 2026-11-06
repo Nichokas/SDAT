@@ -596,6 +596,12 @@ msgstr "Sign Out"
 msgid "Sign in failed or aborted"
 msgstr "Sign in failed or aborted"
 
+msgid "Sign in failed: the keyring could not store the session"
+msgstr "Sign in failed: the keyring could not store the session"
+
+msgid "Sign out failed"
+msgstr "Sign out failed"
+
 msgid "Signed in as %s"
 msgstr "Signed in as %s"
 

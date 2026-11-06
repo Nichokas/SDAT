@@ -157,7 +157,7 @@ struct TrackMenu: View {
         }
         Divider()
         Button("Play Next", systemImage: "text.line.first.and.arrowtriangle.forward") {
-            if !Live.shared.userEnqueue([track]) { player.playNext(track); Chrome.shared.flash("Playing next") }
+            if !Live.shared.userPlayNext([track]) { player.playNext(track); Chrome.shared.flash("Playing next") }
         }
         Button("Add to Queue", systemImage: "text.line.last.and.arrowtriangle.forward") {
             if !Live.shared.userEnqueue([track]) { player.addToQueue(track); Chrome.shared.flash("Added to queue") }

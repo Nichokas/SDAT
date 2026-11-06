@@ -64,13 +64,14 @@ class Playback(context: Context, private val quality: Quality) {
         track = t
         error = null
         fetching = true
+        // Requested before the fetch so a pause tapped while the URL loads still holds after prepare().
+        player.playWhenReady = true
         request = scope.launch {
             try {
                 val url = stream(t.id, quality).url
                 // The core only hands out HLS manifests.
                 player.setMediaItem(MediaItem.Builder().setUri(url).setMimeType(MimeTypes.APPLICATION_M3U8).build())
                 player.prepare()
-                player.play()
                 fetching = false
             } catch (e: CancellationException) {
                 throw e
@@ -97,6 +98,7 @@ class Playback(context: Context, private val quality: Quality) {
 
     fun stop() {
         request?.cancel()
+        player.pause()
         player.stop()
         player.clearMediaItems()
         track = null

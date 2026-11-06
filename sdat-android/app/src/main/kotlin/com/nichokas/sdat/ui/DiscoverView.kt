@@ -45,12 +45,14 @@ fun DiscoverView(session: Session, onPlay: (Track) -> Unit) {
     var attempt by remember { mutableIntStateOf(0) }
     LaunchedEffect(attempt) {
         error = null
+        val pool = CoverPool()
         try {
-            val pool = CoverPool()
             Shuffle(homeMixes()).use { source ->
                 repeat(10) {
                     pool.add(source.nextBatch(if (pool.tracks.isEmpty()) 30u else 80u))
-                    tracks = pool.tracks.toList()
+                    // The plane's layout depends on the pool size, so only the first covers and the
+                    // final pool are published: tiles on screen change at most once, as on iOS.
+                    if (tracks.isEmpty()) tracks = pool.tracks.toList()
                     if (pool.tracks.size >= POOL_TARGET) return@use
                 }
             }
@@ -58,8 +60,9 @@ fun DiscoverView(session: Session, onPlay: (Track) -> Unit) {
         } catch (e: CancellationException) {
             throw e
         } catch (e: Exception) {
-            if (tracks.isEmpty()) error = e.message ?: e.javaClass.simpleName
+            if (pool.tracks.isEmpty()) error = e.message ?: e.javaClass.simpleName
         }
+        tracks = pool.tracks.toList()
     }
     Box(Modifier.fillMaxSize().background(Color.Black)) {
         CoverPlane(tracks, onTap = onPlay)

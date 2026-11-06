@@ -20,7 +20,7 @@ use crate::model::Track;
 /// If the TLS backend cannot be initialised.
 pub fn http() -> &'static reqwest::blocking::Client {
     static C: OnceLock<reqwest::blocking::Client> = OnceLock::new();
-    C.get_or_init(|| reqwest::blocking::Client::builder().user_agent("Go-http-client/1.1").timeout(Duration::from_secs(30)).build().expect("http client"))
+    C.get_or_init(|| crate::http::client_builder().user_agent("Go-http-client/1.1").timeout(Duration::from_secs(30)).build().expect("http client"))
 }
 
 pub fn now_unix() -> i64 {
@@ -122,7 +122,7 @@ pub const LISTENBRAINZ_USER_AGENT: &str =
 fn lb_http() -> &'static reqwest::blocking::Client {
     static C: OnceLock<reqwest::blocking::Client> = OnceLock::new();
     C.get_or_init(|| {
-        reqwest::blocking::Client::builder().user_agent(LISTENBRAINZ_USER_AGENT).timeout(Duration::from_secs(30)).build().expect("http client")
+        crate::http::client_builder().user_agent(LISTENBRAINZ_USER_AGENT).timeout(Duration::from_secs(30)).build().expect("http client")
     })
 }
 
