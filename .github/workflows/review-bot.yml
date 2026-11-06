@@ -5,7 +5,9 @@ on:
     types: [opened, reopened, ready_for_review, synchronize]
   issue_comment:
     types: [created]
-  # Other repositories call this workflow with `secrets: inherit`; see the checkout steps.
+  # Other repositories call this workflow with `secrets: inherit` and must grant the calling job
+  # `contents: read` and `pull-requests: write`: a called workflow cannot raise the caller's token.
+  # The checkout steps below explain which bot version they run.
   workflow_call:
 
 permissions: {}
