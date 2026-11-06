@@ -464,6 +464,9 @@ def macroscope_login() -> str:
         env = {**os.environ, "HOME": home, "MACROSCOPE_CREDENTIAL_STORE": "file"}
         subprocess.run(["macroscope", "setup"], env=env, check=True)
         state = Path(home) / ".macroscope"
+        if not (state / "credentials").is_dir():
+            # Releases before file storage ignore MACROSCOPE_CREDENTIAL_STORE and use the keyring.
+            sys.exit("Macroscope did not save a file session; run `macroscope update` and retry.")
         archive = io.BytesIO()
         with tarfile.open(fileobj=archive, mode="w:gz") as tar:
             for file in ("credentials", "config.yaml"):
