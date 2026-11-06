@@ -27,6 +27,7 @@ object Favs {
         generation++
         tracks.clear()
         confirmed.clear()
+        writes.values.forEach { it.cancel() }
         writes.clear()
     }
 
@@ -58,13 +59,15 @@ object Favs {
             if (gen != generation) return@launch
             try {
                 setFavourite(FavouriteKind.TRACK, id, target)
-                if (gen == generation) confirmed[id] = target
+                if (gen != generation) return@launch
+                confirmed[id] = target
                 Chrome.flash(if (target) "Added to favourites" else "Removed from favourites")
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
+                if (gen != generation) return@launch
                 // Only the newest write of this session decides what the cache shows.
-                if (gen == generation && writes[id] == coroutineContext.job) {
+                if (writes[id] == coroutineContext.job) {
                     val last = confirmed[id]
                     if (last == null) tracks.remove(id) else tracks[id] = last
                 }
