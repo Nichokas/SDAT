@@ -13,6 +13,7 @@ jobs:
     # Reviewers are agents that read the diff and hold a credential, so fork PRs never run.
     # Same-repo PRs run this file and the script from their own branch: anyone who can push
     # such a branch already has that power, so a checkout of main would add no protection.
+    # A /review comment may carry a footer after the command line, as agents' comments do.
     if: >-
       github.repository == 'Nichokas/SDAT' && (
         (github.event_name == 'pull_request'
@@ -20,7 +21,7 @@ jobs:
           && github.event.pull_request.head.repo.full_name == github.repository)
         || (github.event_name == 'issue_comment'
           && github.event.issue.pull_request
-          && github.event.comment.body == '/review'
+          && (github.event.comment.body == '/review' || startsWith(github.event.comment.body, format('/review{0}', fromJSON('"\n"'))))
           && contains(fromJSON('["OWNER","MEMBER","COLLABORATOR"]'), github.event.comment.author_association))
       )
     runs-on: ubuntu-latest
