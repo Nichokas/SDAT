@@ -26,7 +26,8 @@ from dataclasses import dataclass, field
 from enum import StrEnum
 from pathlib import Path
 
-REPO = "Nichokas/SDAT"
+# Set by Actions, so the bot works in any repository that calls the workflow.
+REPO = os.environ.get("GITHUB_REPOSITORY", "Nichokas/SDAT")
 MARKER = "<!-- review-bot -->"
 BOT_LOGIN = "github-actions[bot]"
 # GitHub rejects comments over 65536 characters; the margin holds the table and footer.
