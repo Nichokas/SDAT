@@ -23,7 +23,7 @@ use playqueue::{DurableQueue, HistoryQueue, Queue};
 pub use quality::audio_stream_quality;
 use statemachine::{Hooks, Machine, Trigger};
 pub use statemachine::{
-    playback_quality_changed, playback_state_changed, track_changed, PlaybackState, PlaybackStatus,
+    playback_quality_changed, playback_state_changed, track_changed, track_repeated, PlaybackState, PlaybackStatus,
 };
 
 // ---------------------------------------------------------------- signals
@@ -51,7 +51,7 @@ global_signal!(pub fn history() -> HistoryQueue = HistoryQueue::default());
 thread_local! {
     /// Entries at the front of the user queue that were added with "play next".
     static PLAY_NEXT_PINNED: Cell<usize> = const { Cell::new(0) };
-    static PLAY_NEXT_ORDER: std::cell::RefCell<play_next::Sequencer<Track>> = std::cell::RefCell::default();
+    static PLAY_NEXT_ORDER: std::cell::RefCell<play_next::Sequencer<(Option<u64>, Vec<Track>)>> = std::cell::RefCell::default();
     /// Bumped when the queues are replaced, so pending "play next" fetches are discarded.
     static PLAY_NEXT_GENERATION: Cell<u64> = const { Cell::new(0) };
     /// Id of the gapless-prepared track moved from the base queue to the head
@@ -83,15 +83,20 @@ pub fn play_next_ticket() -> PlayNextTicket {
 /// Delivers the tracks for a "play next" request (empty if fetching failed);
 /// requests are applied in the order their tickets were taken. Requests taken
 /// before the queues were replaced are dropped. A Listen Together guest sends
-/// each batch to the host as a normal enqueue, in the same order.
-pub fn complete_play_next(ticket: PlayNextTicket, tracks: Vec<Track>) {
+/// each batch to the host as a Play Next, in the same order. `guest` is the
+/// Listen Together session of a guest's request, rechecked on release since
+/// control may be revoked while it waits behind an earlier request.
+pub fn complete_play_next(ticket: PlayNextTicket, tracks: Vec<Track>, guest: Option<u64>) {
     if ticket.generation != PLAY_NEXT_GENERATION.with(Cell::get) {
         return;
     }
-    let batches = PLAY_NEXT_ORDER.with(|s| s.borrow_mut().complete(ticket.seq, tracks));
+    let batches = PLAY_NEXT_ORDER.with(|s| s.borrow_mut().complete(ticket.seq, vec![(guest, tracks)]));
     let mut queued = false;
-    for b in batches {
-        if b.is_empty() || crate::live::user_enqueue(b.iter().map(|t| t.id().to_string()).collect()) {
+    for (guest, b) in batches.into_iter().flatten() {
+        if guest.is_some_and(|g| !crate::live::guest_request_still_valid(g)) {
+            continue;
+        }
+        if b.is_empty() || crate::live::user_play_next(&b.iter().map(|t| t.id().to_string()).collect::<Vec<_>>()) {
             continue;
         }
         insert_tracklist_next(b);
@@ -239,7 +244,6 @@ pub fn init() -> Result<()> {
         CONTINUE
     });
     enqueued_track_hook();
-    mpris::init();
     Ok(())
 }
 

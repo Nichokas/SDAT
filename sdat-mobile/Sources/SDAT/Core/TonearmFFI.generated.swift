@@ -5135,6 +5135,7 @@ public func FfiConverterTypeFavouriteKind_lower(_ value: FavouriteKind) -> RustB
 
 /**
  * Error returned by every fallible exported function.
+ * No field is named `message`: it would clash with `Throwable.message` in the Kotlin bindings.
  */
 public 
 enum FfiError: Swift.Error, Equatable, Hashable, Foundation.LocalizedError {
@@ -5145,16 +5146,16 @@ enum FfiError: Swift.Error, Equatable, Hashable, Foundation.LocalizedError {
      * No TIDAL session: show the login screen.
      */
     case NotSignedIn
-    case Network(message: String
+    case Network(detail: String
     )
-    case Http(status: UInt16, message: String
+    case Http(status: UInt16, detail: String
     )
-    case Decode(message: String
+    case Decode(detail: String
     )
-    case LastFm(code: Int64, message: String
+    case LastFm(code: Int64, detail: String
     )
     case Cancelled
-    case Other(message: String
+    case Other(detail: String
     )
 
     
@@ -5187,22 +5188,22 @@ public struct FfiConverterTypeFfiError: FfiConverterRustBuffer {
         
         case 1: return .NotSignedIn
         case 2: return .Network(
-            message: try FfiConverterString.read(from: &buf)
+            detail: try FfiConverterString.read(from: &buf)
             )
         case 3: return .Http(
             status: try FfiConverterUInt16.read(from: &buf), 
-            message: try FfiConverterString.read(from: &buf)
+            detail: try FfiConverterString.read(from: &buf)
             )
         case 4: return .Decode(
-            message: try FfiConverterString.read(from: &buf)
+            detail: try FfiConverterString.read(from: &buf)
             )
         case 5: return .LastFm(
             code: try FfiConverterInt64.read(from: &buf), 
-            message: try FfiConverterString.read(from: &buf)
+            detail: try FfiConverterString.read(from: &buf)
             )
         case 6: return .Cancelled
         case 7: return .Other(
-            message: try FfiConverterString.read(from: &buf)
+            detail: try FfiConverterString.read(from: &buf)
             )
 
          default: throw UniffiInternalError.unexpectedEnumCase
@@ -5220,35 +5221,35 @@ public struct FfiConverterTypeFfiError: FfiConverterRustBuffer {
             writeInt(&buf, Int32(1))
         
         
-        case let .Network(message):
+        case let .Network(detail):
             writeInt(&buf, Int32(2))
-            FfiConverterString.write(message, into: &buf)
+            FfiConverterString.write(detail, into: &buf)
             
         
-        case let .Http(status,message):
+        case let .Http(status,detail):
             writeInt(&buf, Int32(3))
             FfiConverterUInt16.write(status, into: &buf)
-            FfiConverterString.write(message, into: &buf)
+            FfiConverterString.write(detail, into: &buf)
             
         
-        case let .Decode(message):
+        case let .Decode(detail):
             writeInt(&buf, Int32(4))
-            FfiConverterString.write(message, into: &buf)
+            FfiConverterString.write(detail, into: &buf)
             
         
-        case let .LastFm(code,message):
+        case let .LastFm(code,detail):
             writeInt(&buf, Int32(5))
             FfiConverterInt64.write(code, into: &buf)
-            FfiConverterString.write(message, into: &buf)
+            FfiConverterString.write(detail, into: &buf)
             
         
         case .Cancelled:
             writeInt(&buf, Int32(6))
         
         
-        case let .Other(message):
+        case let .Other(detail):
             writeInt(&buf, Int32(7))
-            FfiConverterString.write(message, into: &buf)
+            FfiConverterString.write(detail, into: &buf)
             
         }
     }
@@ -5553,88 +5554,6 @@ public func FfiConverterTypeLiveEnd_lift(_ buf: RustBuffer) throws -> LiveEnd {
 #endif
 public func FfiConverterTypeLiveEnd_lower(_ value: LiveEnd) -> RustBuffer {
     return FfiConverterTypeLiveEnd.lower(value)
-}
-
-
-
-/**
- * Where audio leaves the device, for [`live_output_latency_ms`].
- */
-
-public enum LiveOutputRoute: Equatable, Hashable {
-    
-    /**
-     * Built-in speaker, wired headphones, USB, HDMI…
-     */
-    case wired
-    /**
-     * Bluetooth (A2DP, LE, HFP).
-     */
-    case bluetooth
-    case airPlay
-
-
-
-
-
-}
-
-#if compiler(>=6)
-extension LiveOutputRoute: Sendable {}
-#endif
-
-#if swift(>=5.8)
-@_documentation(visibility: private)
-#endif
-public struct FfiConverterTypeLiveOutputRoute: FfiConverterRustBuffer {
-    typealias SwiftType = LiveOutputRoute
-
-    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> LiveOutputRoute {
-        let variant: Int32 = try readInt(&buf)
-        switch variant {
-        
-        case 1: return .wired
-        
-        case 2: return .bluetooth
-        
-        case 3: return .airPlay
-        
-        default: throw UniffiInternalError.unexpectedEnumCase
-        }
-    }
-
-    public static func write(_ value: LiveOutputRoute, into buf: inout [UInt8]) {
-        switch value {
-        
-        
-        case .wired:
-            writeInt(&buf, Int32(1))
-        
-        
-        case .bluetooth:
-            writeInt(&buf, Int32(2))
-        
-        
-        case .airPlay:
-            writeInt(&buf, Int32(3))
-        
-        }
-    }
-}
-
-
-#if swift(>=5.8)
-@_documentation(visibility: private)
-#endif
-public func FfiConverterTypeLiveOutputRoute_lift(_ buf: RustBuffer) throws -> LiveOutputRoute {
-    return try FfiConverterTypeLiveOutputRoute.lift(buf)
-}
-
-#if swift(>=5.8)
-@_documentation(visibility: private)
-#endif
-public func FfiConverterTypeLiveOutputRoute_lower(_ value: LiveOutputRoute) -> RustBuffer {
-    return FfiConverterTypeLiveOutputRoute.lower(value)
 }
 
 
@@ -6695,7 +6614,7 @@ public func initialize(tokens: TokenStore, config: AppConfig)  {try! rustCall() 
 }
 /**
  * Call after the token store changed (login or logout): drops the cached
- * access token and the favourites.
+ * access token, country, favourites and cached lists.
  */
 public func sessionChanged()  {try! rustCall() {
         uniffiCallStatus in
@@ -7027,23 +6946,6 @@ public func liveIsInvite(text: String) -> Bool  {
 })
 }
 /**
- * Output latency to aim ahead by.
- *
- * The system value, raised to a calibrated
- * floor on wireless routes where the system tends to under-report. Never
- * lowers what the system reports. The manual offset is added on top by the
- * app.
- */
-public func liveOutputLatencyMs(reportedMs: Int64, route: LiveOutputRoute) -> Int64  {
-    return try!  FfiConverterInt64.lift(try! rustCall() {
-        uniffiCallStatus in
-    uniffi_tonearm_ffi_fn_func_live_output_latency_ms(
-        FfiConverterInt64.lower(reportedMs),
-        FfiConverterTypeLiveOutputRoute_lower(route),uniffiCallStatus
-    )
-})
-}
-/**
  * One track by id (guests resolve the shared queue's ids with their own account).
  */
 public func liveTrack(id: String)async throws  -> Track  {
@@ -7255,7 +7157,7 @@ private let initializationResult: InitializationResult = {
     if (uniffi_tonearm_ffi_checksum_func_initialize() != 14287) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_tonearm_ffi_checksum_func_session_changed() != 53676) {
+    if (uniffi_tonearm_ffi_checksum_func_session_changed() != 28805) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_tonearm_ffi_checksum_func_start_device_login() != 8078) {
@@ -7331,9 +7233,6 @@ private let initializationResult: InitializationResult = {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_tonearm_ffi_checksum_func_live_is_invite() != 42431) {
-        return InitializationResult.apiChecksumMismatch
-    }
-    if (uniffi_tonearm_ffi_checksum_func_live_output_latency_ms() != 34904) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_tonearm_ffi_checksum_func_live_track() != 11805) {

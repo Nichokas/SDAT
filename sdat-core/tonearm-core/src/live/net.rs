@@ -580,8 +580,9 @@ impl LiveGuest {
         Ok(Self { path, state, tx, stop, left: AtomicBool::new(false) })
     }
 
-    /// Where the local player should be (`latency_ms`: output latency +
-    /// manual offset). `None` until the clock is calibrated.
+    /// Where the local player should be (`latency_ms`: output delay the
+    /// player's position leaves out, i.e. the manual offset). `None` until the
+    /// clock is calibrated.
     pub fn target(&self, latency_ms: i64) -> Option<Target> {
         self.state.lock().unwrap_or_else(PoisonError::into_inner).target(mono_now_ns(), latency_ms)
     }

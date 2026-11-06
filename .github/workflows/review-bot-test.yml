@@ -1,0 +1,20 @@
+name: Review bot tests
+
+on:
+  pull_request:
+    paths:
+      - "scripts/review_bot.py"
+      - "scripts/test_review_bot.py"
+      - ".github/workflows/review-bot-test.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - run: python3 scripts/test_review_bot.py

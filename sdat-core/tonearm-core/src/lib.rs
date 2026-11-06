@@ -14,6 +14,7 @@ pub mod config;
 pub mod country;
 pub mod discover;
 pub mod explore;
+mod http;
 pub mod error;
 pub mod i18n;
 pub mod live;

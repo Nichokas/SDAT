@@ -11,7 +11,7 @@ use crate::i18n::{tr, trf};
 use crate::ui::accels::PRIMARY;
 use crate::ui::components::sidebar::{lyrics, player_view, queue};
 use crate::ui::components::{RouteButton, linking, media_viewer};
-use crate::ui::dsl::{on_signal, clamp, W, spacing, hstack, on_state, vstack};
+use crate::ui::dsl::{on_signal, clamp, W, spacing, hstack, on_state, on_state_lazy, vstack};
 use crate::{api, model, player, router, secrets, settings, state};
 
 thread_local! {
@@ -152,7 +152,10 @@ pub fn new_window(app: &adw::Application) -> adw::ApplicationWindow {
     window.connect_default_height_notify(save);
 
     // Kept top-level pages hold per-account data; reload them after sign in/out.
-    on_state(state::signed_in_changed(), &window, |_, _| router::invalidate_kept_pages());
+    on_state_lazy(state::signed_in_changed(), &window, |_, _| {
+        router::invalidate_kept_pages();
+        router::clear_back_history();
+    });
     router::navigate(&settings::default_page());
 
     if !is_stable(VERSION, COMMIT) {
@@ -379,9 +382,8 @@ fn queue_param(param: &str, next: bool) {
         let ticket = player::play_next_ticket();
         spawn_logged("play next", async move {
             let r = queue_target_tracks(kind, id).await;
-            // A Listen Together guest can't reorder the host's queue, so
-            // complete_play_next sends the batch to the host as an enqueue.
-            player::complete_play_next(ticket, r.as_ref().map(Clone::clone).unwrap_or_default());
+            // A Listen Together guest sends the batch to the host instead.
+            player::complete_play_next(ticket, r.as_ref().map(Clone::clone).unwrap_or_default(), None);
             r.map(drop)
         });
     } else if kind == "track" {
@@ -400,13 +402,13 @@ fn ids(t: &[model::Track]) -> Vec<String> {
 
 /// Queues one track; a Listen Together guest asks the host instead.
 fn queue_track(id: String) {
-    if !crate::live::user_enqueue(vec![id.clone()]) {
+    if !crate::live::user_enqueue(std::slice::from_ref(&id)) {
         spawn_logged("queue track", async move { player::add_track_to_user_queue(&id).await });
     }
 }
 
 fn queue_tracks(t: Vec<model::Track>) {
-    if !crate::live::user_enqueue(ids(&t)) {
+    if !crate::live::user_enqueue(&ids(&t)) {
         player::add_tracklist_to_user_queue(t);
     }
 }
@@ -428,7 +430,7 @@ fn sign_in(window: &adw::ApplicationWindow) {
         let dialog = linking::new_linking(win.clone().map(gtk::prelude::Cast::upcast), &dlc.user_code, &dlc.verification_uri_complete, Rc::new(move || c.store(true, Ordering::SeqCst)));
         dialog.present(win.as_ref());
         let c = Arc::clone(&cancelled);
-        let r = api::run(move || api::poll_device_linking_status(&dlc.device_code, dlc.interval, &|| c.load(Ordering::SeqCst))).await;
+        let r = api::run(move || api::poll_device_linking_status(&dlc.device_code, dlc.interval, dlc.expires_in, &|| c.load(Ordering::SeqCst))).await;
         dialog.force_close();
         match r {
             Err(e) => {
@@ -437,17 +439,31 @@ fn sign_in(window: &adw::ApplicationWindow) {
             }
             Ok(resp) => {
                 let token = resp.refresh_token.clone();
-                let saved = api::run(move || secrets::set_refresh_token(&token)).await;
-                if let Err(e) = saved {
+                if let Err(e) = api::run(move || secrets::set_refresh_token(&token)).await {
                     log::error!("failed to store refresh token error={e:#}");
+                    toast(&tr("Sign in failed: the keyring could not store the session"));
+                    return;
                 }
-                api::reset_user_token();
+                session_changed().await;
                 state::notify_signed_in_changed();
                 toast(&trf("Signed in as %s", &[&resp.user.email]));
                 router::refresh();
             }
         }
     });
+}
+
+/// Off the UI thread: busting a favourites cache waits for any fetch of it
+/// in flight.
+async fn session_changed() {
+    crate::ui::components::add_to_playlist::begin_account_change();
+    drop(api::run(|| {
+        tonearm_core::auth::session_changed();
+        anyhow::Ok(())
+    })
+    .await);
+    crate::cache::allow_prefetch_again();
+    crate::ui::components::add_to_playlist::end_account_change();
 }
 
 fn install_actions(app: &adw::Application, window: &adw::ApplicationWindow) {
@@ -539,8 +555,10 @@ fn install_actions(app: &adw::Application, window: &adw::ApplicationWindow) {
         glib::spawn_future_local(async {
             if let Err(e) = api::run(secrets::delete_refresh_token).await {
                 log::error!("failed to delete refresh token error={e:#}");
+                toast(&tr("Sign out failed"));
+                return;
             }
-            api::reset_user_token();
+            session_changed().await;
             state::notify_signed_in_changed();
             toast(&tr("Signed out"));
             router::refresh();

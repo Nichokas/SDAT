@@ -1058,8 +1058,10 @@ impl GuestSession {
         (out, ev)
     }
 
-    /// Where the player should be now (`latency_ms`: audio output latency
-    /// plus the user's manual offset). `None` until the clock is calibrated.
+    /// Where the player should be now (`latency_ms`: output delay the
+    /// player's position leaves out, i.e. the user's manual offset; `GStreamer`
+    /// and `AVPlayer` positions already are what is heard). `None` until the
+    /// clock is calibrated.
     pub fn target(&self, now_ns: i64, latency_ms: i64) -> Option<Target> {
         let a = self.anchor.as_ref()?;
         let host_now = self.clock.to_host(now_ns)?;

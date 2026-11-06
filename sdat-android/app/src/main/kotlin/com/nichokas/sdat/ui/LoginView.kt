@@ -28,6 +28,8 @@ import io.github.neoruaa.glasmio.core.GlasmioTheme
 import io.github.neoruaa.glasmio.core.IosTypography
 import io.github.neoruaa.glasmio.ui.GlasmioButton
 import kotlin.coroutines.cancellation.CancellationException
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.launch
 import uniffi.tonearm_ffi.DeviceLogin
 import uniffi.tonearm_ffi.FfiException
@@ -41,6 +43,7 @@ fun LoginView(session: Session) {
     var login by remember { mutableStateOf<DeviceLogin?>(null) }
     var error by remember { mutableStateOf<String?>(null) }
     var busy by remember { mutableStateOf(false) }
+    var attempt by remember { mutableStateOf<Job?>(null) }
     val colors = GlasmioTheme.colors
     // Centered when it fits, scrollable in short (landscape, split-screen) windows.
     BoxWithConstraints(Modifier.fillMaxSize().safeDrawingPadding()) {
@@ -57,14 +60,17 @@ fun LoginView(session: Session) {
                     if (busy) return@GlasmioButton
                     busy = true
                     error = null
-                    scope.launch {
+                    attempt = scope.launch {
                         try {
                             startDeviceLogin().use { l ->
                                 login = l
                                 // No browser on this device: the code can still be approved from another one.
                                 runCatching { uri.openUri(l.verificationUrl()) }
                                 try {
-                                    session.signIn(l.wait())
+                                    val tokens = l.wait()
+                                    // Cancel may land after the native poll's last check; never store tokens it declined.
+                                    ensureActive()
+                                    session.signIn(tokens)
                                 } catch (e: CancellationException) {
                                     // The native poll outlives the coroutine unless told to stop.
                                     l.cancel()
@@ -86,7 +92,7 @@ fun LoginView(session: Session) {
                 Text("Approve this code on link.tidal.com", style = IosTypography.body, color = colors.secondaryContent)
                 Text(pending.userCode(), fontSize = 34.sp, fontWeight = FontWeight.Bold, letterSpacing = 4.sp)
                 GlasmioButton(onClick = { runCatching { uri.openUri(pending.verificationUrl()) } }) { Text("Open link.tidal.com") }
-                GlasmioButton(onClick = { pending.cancel() }) { Text("Cancel") }
+                GlasmioButton(onClick = { pending.cancel(); attempt?.cancel() }) { Text("Cancel") }
             }
             error?.let { Text(it, style = IosTypography.footnote, color = colors.secondaryContent) }
         }

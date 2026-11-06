@@ -583,6 +583,12 @@ msgstr "登出"
 msgid "Sign in failed or aborted"
 msgstr "登录失败或已取消"
 
+msgid "Sign in failed: the keyring could not store the session"
+msgstr "登录失败：密钥环无法保存会话"
+
+msgid "Sign out failed"
+msgstr "退出登录失败"
+
 msgid "Signed in as %s"
 msgstr "已登录为 %s"
 
