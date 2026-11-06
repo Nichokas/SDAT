@@ -13,7 +13,7 @@ use std::sync::mpsc;
 use std::time::Duration;
 
 use crate::model::{Track, TrackManifest, TrackQuality};
-use crate::signals::State as Sig;
+use crate::signals::{Signal, State as Sig};
 use crate::{api, global_signal, service, settings};
 
 // ---------------------------------------------------------------- signals
@@ -43,6 +43,8 @@ pub struct TrackChangedEvent {
 global_signal!(pub fn playback_state_changed() -> Sig<PlaybackState> = Sig::new(PlaybackState::default()));
 global_signal!(pub fn playback_quality_changed() -> Sig<TrackQuality> = Sig::new(TrackQuality::HighResLossless));
 global_signal!(pub fn track_changed() -> Sig<Option<TrackChangedEvent>> = Sig::new(None));
+// Gapless repeat-one replays the same track without a `track_changed`.
+global_signal!(pub fn track_repeated() -> Signal<Track> = Signal::default());
 global_signal!(pub fn enqueued_track() -> Sig<Option<TrackManifest>> = Sig::new(None));
 
 // ---------------------------------------------------------------- playbin
@@ -186,6 +188,7 @@ pub fn on_playing_gapless_exit(track: Track, manifest: &TrackManifest, did_repea
         s
     });
     if did_repeat {
+        track_repeated().notify(&track);
         return;
     }
     track_changed().set(Some(TrackChangedEvent { track, skip_history: false }));

@@ -41,6 +41,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.foundation.layout.PaddingValues
@@ -130,11 +131,13 @@ private fun MiniPlayer(playback: Playback) {
         playback.playing -> "pause.fill" to "Pause"
         else -> "play.fill" to "Play"
     }
+    val description = track?.let { "$label ${it.title}" } ?: label
     GlassSurface(Modifier.size(62.dp), shape = capsule) {
         Box(
             Modifier.fillMaxSize()
                 .semantics {
                     role = Role.Button
+                    contentDescription = description
                     if (track == null) disabled()
                     onClick("Open player") { showPlayer = true; true }
                     onLongClick(label) { playback.toggle(); true }

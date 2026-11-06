@@ -60,14 +60,17 @@ jobs:
         working-directory: sdat-android
         env:
           ANDROID_NDK_HOME: ${{ env.ANDROID_HOME }}/ndk/${{ env.NDK_VERSION }}
-        run: ./gradlew assembleDebug lintDebug testDebugUnitTest
-      - name: Check both ABIs carry the Rust core
+        run: ./gradlew assembleDebug assembleRelease lintDebug testDebugUnitTest
+      - name: Check both ABIs carry the Rust core and no iroh cdylibs
         run: |
-          apk=sdat-android/app/build/outputs/apk/debug/app-debug.apk
-          for abi in arm64-v8a x86_64; do unzip -l "$apk" | grep -q "lib/$abi/libtonearm_ffi.so"; done
+          for abi in arm64-v8a x86_64; do
+            apk=sdat-android/app/build/outputs/apk/debug/app-$abi-debug.apk
+            unzip -l "$apk" | grep -q "lib/$abi/libtonearm_ffi.so"
+            if unzip -l "$apk" | grep -q "/libiroh"; then echo "iroh cdylib in $apk"; exit 1; fi
+          done
       - uses: actions/upload-artifact@v4
         with:
           name: sdat-android-debug
-          path: sdat-android/app/build/outputs/apk/debug/app-debug.apk
+          path: sdat-android/app/build/outputs/apk/debug/app-*-debug.apk
           retention-days: 3
           if-no-files-found: error

@@ -198,7 +198,7 @@ impl DurableQueue {
             if shuffled {
                 let mut rng = rand::rng();
                 for t in new {
-                    let i = rand::Rng::random_range(&mut rng, 0..=v.len());
+                    let i = rand::RngExt::random_range(&mut rng, 0..=v.len());
                     v.insert(i, t);
                 }
             } else {

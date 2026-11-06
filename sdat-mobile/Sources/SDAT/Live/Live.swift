@@ -1,5 +1,4 @@
 import os
-import AVFoundation
 import Observation
 import UIKit
 
@@ -23,10 +22,7 @@ final class Live {
     private(set) var guestControl = false
     var showSheet = false
     var showScanner = false
-    /// Manual extra output delay (e.g. Bluetooth), in ms.
-    /// Stored (so views observe it) and persisted.
-    /// Manual output delay. A new key: offsets saved before the Bluetooth and
-    /// AirPlay floors existed would now be counted twice.
+    /// Manual extra output delay, in ms. Stored (so views observe it) and persisted.
     var extraLatencyMs: Int = UserDefaults.standard.integer(forKey: "liveExtraLatencyMsV2") {
         didSet { UserDefaults.standard.set(extraLatencyMs, forKey: "liveExtraLatencyMsV2") }
     }
@@ -50,12 +46,12 @@ final class Live {
     private var cache: [String: Track] = [:]
     private var switching: String?
     /// Guest: queue requests waiting for room in the command budget.
-    private var outbox: [[String]] = []
+    private var outbox: [(ids: [String], next: Bool)] = []
     private var outboxFailures = 0
     private var outboxTask: Task<Void, Never>?
 
     // host: accepted guest track ids, fetched one at a time in arrival order
-    private var hostEnqueue: [(epoch: Int, id: String)] = []
+    private var hostEnqueue: [(epoch: Int, id: String, next: Bool)] = []
     private var hostEnqueueTask: Task<Void, Never>?
     /// Bumped when a session ends or control is turned off: requests (and the
     /// worker) from an older epoch are dropped, even mid-fetch.
@@ -79,6 +75,7 @@ final class Live {
             host = h
             guestControl = false
             h.setControlObserver(observer: LiveControlBridge(generation: gen))
+            h.setPlayNextObserver(observer: LiveControlBridge(generation: gen))
             invite = h.inviteUrl()
             mode = .hosting
             sentTrackIds = []; sent = nil
@@ -127,6 +124,7 @@ final class Live {
         lastPath = nil; lastDiagAt = .distantPast; lastDriftLogAt = .distantPast; alignedLatencyMs = nil
         loop?.cancel(); loop = nil
         host?.setControlObserver(observer: nil)
+        host?.setPlayNextObserver(observer: nil)
         guest?.setControlObserver(observer: nil)
         host = nil; guest = nil
         guestControl = false
@@ -207,9 +205,16 @@ final class Live {
         // hostTick republishes on the next tick (0.5 s): the jump is sent at once.
         case .seek(let ms): player.seek(to: Double(max(ms, 0)) / 1000)
         case .enqueue(let ids):
-            hostEnqueue += ids.map { (enqueueEpoch, $0) }
+            hostEnqueue += ids.map { (enqueueEpoch, $0, false) }
             pumpHostEnqueue()
         }
+    }
+
+    /// Host: a guest's Play Next (accepted only while control is on).
+    fileprivate func guestPlayNext(_ ids: [String], generation gen: Int) {
+        guard gen == generation, let host, host.guestControl() else { return }
+        hostEnqueue += ids.map { (enqueueEpoch, $0, true) }
+        pumpHostEnqueue()
     }
 
     private func dropGuestEnqueues() {
@@ -230,11 +235,20 @@ final class Live {
         let epoch = enqueueEpoch
         hostEnqueueTask = Task {
             while epoch == enqueueEpoch, !Task.isCancelled, !hostEnqueue.isEmpty {
-                let (e, id) = hostEnqueue.removeFirst()
+                let (e, id, next) = hostEnqueue.removeFirst()
                 guard guestRequestValid(e) else { continue }
                 let track = try? await liveTrack(id: id)
-                guard let track, !Task.isCancelled, guestRequestValid(e) else { continue }
-                player.addToQueue(track)
+                guard let track, !Task.isCancelled, guestRequestValid(e), let host else { continue }
+                if next {
+                    // Publish before asking (playback may have moved on since
+                    // the last tick) and after inserting, so the core's Play
+                    // Next run matches the queue.
+                    hostTick()
+                    player.insertUpNext(track, at: Int(host.playNextOffset(trackIds: [id])))
+                    hostTick()
+                } else {
+                    player.addToQueue(track)
+                }
             }
             if epoch == enqueueEpoch { hostEnqueueTask = nil }
         }
@@ -300,15 +314,39 @@ final class Live {
         return true
     }
 
-    /// "Add to Queue" / "Play Next". Guests ask the host to append the songs;
-    /// returns `false` when the caller should queue locally.
+    /// "Add to Queue". Guests ask the host to append the songs; returns
+    /// `false` when the caller should queue locally.
     func userEnqueue(_ tracks: [Track]) -> Bool {
+        send(tracks, next: false, flash: "Sent to the host's queue")
+    }
+
+    /// "Play Next". Guests ask the host to play the songs after the current
+    /// one (a host without Play Next appends them); a host inserts them after
+    /// earlier Play Next songs. Returns `false` when the caller should queue
+    /// locally.
+    func userPlayNext(_ tracks: [Track]) -> Bool {
+        if let host {
+            // The host's own Play Next joins the same run as the guests', so
+            // neither jumps ahead of the other.
+            for t in tracks {
+                hostTick()
+                player.insertUpNext(t, at: Int(host.playNextOffset(trackIds: [t.id])))
+            }
+            hostTick()
+            Chrome.shared.flash("Playing next")
+            return true
+        }
+        let supported = guest?.hostSupportsPlayNext() ?? false
+        return send(tracks, next: supported, flash: supported ? "Sent to play next on the host" : "The host's app is too old for Play Next, added to the end of the queue")
+    }
+
+    private func send(_ tracks: [Track], next: Bool, flash: String) -> Bool {
         guard guest != nil else { return false }
         guard guestControl else { refuse(); return true }
         let ids = tracks.map(\.id)
-        outbox += stride(from: 0, to: ids.count, by: Self.maxEnqueue).map { Array(ids[$0..<min($0 + Self.maxEnqueue, ids.count)]) }
+        outbox += stride(from: 0, to: ids.count, by: Self.maxEnqueue).map { (ids: Array(ids[$0..<min($0 + Self.maxEnqueue, ids.count)]), next: next) }
         pumpOutbox()
-        Chrome.shared.flash("Sent to the host's queue")
+        Chrome.shared.flash(flash)
         return true
     }
 
@@ -322,7 +360,8 @@ final class Live {
         let gen = generation
         outboxTask = Task {
             while let chunk = outbox.first, gen == generation, let guest, guestControl {
-                if guest.sendCommand(command: .enqueue(trackIds: chunk)) {
+                let accepted = chunk.next ? guest.sendPlayNext(trackIds: chunk.ids) : guest.sendCommand(command: .enqueue(trackIds: chunk.ids))
+                if accepted {
                     outbox.removeFirst(); outboxFailures = 0
                     continue
                 }
@@ -367,20 +406,10 @@ final class Live {
 
     // MARK: guest
 
-    /// System output latency, raised to a calibrated floor on Bluetooth and
-    /// AirPlay (iOS often under-reports those), plus the manual offset.
-    private var latencyMs: Int64 {
-        let session = AVAudioSession.sharedInstance()
-        let reported = Int64(session.outputLatency * 1000)
-        return liveOutputLatencyMs(reportedMs: reported, route: Self.route(session.currentRoute)) + Int64(extraLatencyMs)
-    }
-
-    private static func route(_ r: AVAudioSessionRouteDescription) -> LiveOutputRoute {
-        let ports = r.outputs.map(\.portType)
-        if ports.contains(.airPlay) { return .airPlay }
-        if ports.contains(where: { [.bluetoothA2DP, .bluetoothLE, .bluetoothHFP].contains($0) }) { return .bluetooth }
-        return .wired
-    }
+    /// Only the manual offset: AVPlayer's position already is what is heard
+    /// (it compensates Bluetooth and AirPlay itself), as desktop's is, so
+    /// adding the system output latency put this guest ahead of the host.
+    private var latencyMs: Int64 { Int64(extraLatencyMs) }
 
     private static func ms(_ v: Int64?) -> String { v.map(String.init) ?? "none" }
 
@@ -434,8 +463,12 @@ final class Live {
         // user or the system to resume instead of restarting on the speaker.
         if t.playing && !player.isPlaying && player.systemPaused { return }
         if t.playing != player.isPlaying {
-            player.toggle()
-            if !t.playing { player.seek(to: Double(t.positionMs) / 1000) }
+            if t.playing {
+                player.liveResume()
+            } else {
+                player.toggle()
+                player.seek(to: Double(t.positionMs) / 1000)
+            }
             return
         }
         guard t.playing else {
@@ -451,8 +484,8 @@ final class Live {
         let now = Date()
         if let s = player.liveSeekEndedAt, now.timeIntervalSince(s) < Self.seekSettle { return }
         let actual = Int64(player.livePosition * 1000)
-        // An output route change (e.g. to AirPlay) can move the target by
-        // more than core's tolerance: realign once instead of staying off.
+        // A change of the manual delay stays below core's tolerance: realign
+        // once instead of never applying it.
         let lat = latencyMs
         let previous = alignedLatencyMs
         if previous == nil { alignedLatencyMs = lat }
@@ -525,7 +558,7 @@ struct LiveRow: Identifiable {
 }
 
 /// Guest-control callbacks, also from core threads.
-final class LiveControlBridge: LiveControlObserver, @unchecked Sendable {
+final class LiveControlBridge: LiveControlObserver, LivePlayNextObserver, @unchecked Sendable {
     private let generation: Int
     init(generation: Int) { self.generation = generation }
     func onControlChanged(allowed: Bool) {
@@ -535,6 +568,10 @@ final class LiveControlBridge: LiveControlObserver, @unchecked Sendable {
     func onGuestCommand(peer: String, name: String, command: LiveCommand) {
         let gen = generation
         Task { @MainActor in Live.shared.guestCommand(command, generation: gen) }
+    }
+    func onGuestPlayNext(peer: String, name: String, trackIds: [String]) {
+        let gen = generation
+        Task { @MainActor in Live.shared.guestPlayNext(trackIds, generation: gen) }
     }
 }
 
