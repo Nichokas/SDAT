@@ -1,7 +1,9 @@
 package com.nichokas.sdat.ui
 
 import android.content.Context
+import android.content.ActivityNotFoundException
 import android.content.Intent
+import android.widget.Toast
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.clickable
@@ -146,7 +148,7 @@ fun SettingsView(session: Session, prefs: Preferences, secrets: Secrets, onBack:
                                         val auth = lastfmBeginAuth()
                                         browserOpened = false
                                         lastFmPending = auth.token
-                                        context.open(auth.url)
+                                        if (!context.open(auth.url)) lastFmPending = null
                                     } catch (e: CancellationException) {
                                         throw e
                                     } catch (e: Exception) {
@@ -202,7 +204,7 @@ fun SettingsView(session: Session, prefs: Preferences, secrets: Secrets, onBack:
 
     if (confirmErase) {
         Confirm("Erase all app data?", "This cannot be undone.", "Erase everything", onDismiss = { confirmErase = false }) {
-            scope.launch { eraseAll(context, session, prefs, secrets) }
+            eraseAll(context, session, prefs, secrets)
         }
     }
     if (confirmLogout) {
@@ -273,6 +275,12 @@ private fun Confirm(title: String, message: String?, action: String, onDismiss: 
     )
 }
 
-private fun Context.open(url: String) = startActivity(Intent(Intent.ACTION_VIEW, url.toUri()))
+private fun Context.open(url: String): Boolean = try {
+    startActivity(Intent(Intent.ACTION_VIEW, url.toUri()))
+    true
+} catch (_: ActivityNotFoundException) {
+    Toast.makeText(this, "No app can open this link", Toast.LENGTH_LONG).show()
+    false
+}
 
 private fun Context.versionName() = packageManager.getPackageInfo(packageName, 0).versionName ?: "dev"

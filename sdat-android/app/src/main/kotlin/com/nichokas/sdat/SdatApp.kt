@@ -25,6 +25,6 @@ class SdatApp : Application() {
         secrets = Secrets(this)
         val settings = Settings(filesDir.path, prefs)
         initialize(session, settings)
-        playback = Playback(this, settings.streamingQuality())
+        playback = Playback(this, settings::streamingQuality)
     }
 }

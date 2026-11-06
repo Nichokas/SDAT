@@ -20,7 +20,8 @@ import uniffi.tonearm_ffi.Track
 import uniffi.tonearm_ffi.stream
 
 /** The app's single player: one track at a time from the core's stream URL (no queue yet). */
-class Playback(context: Context, private val quality: Quality) {
+/** Reads [quality] per request so a change in Settings applies to the next track. */
+class Playback(context: Context, private val quality: () -> Quality) {
     private val scope = MainScope()
     private val player = ExoPlayer.Builder(context)
         .setAudioAttributes(
@@ -68,7 +69,7 @@ class Playback(context: Context, private val quality: Quality) {
         player.playWhenReady = true
         request = scope.launch {
             try {
-                val url = stream(t.id, quality).url
+                val url = stream(t.id, quality()).url
                 // The core only hands out HLS manifests.
                 player.setMediaItem(MediaItem.Builder().setUri(url).setMimeType(MimeTypes.APPLICATION_M3U8).build())
                 player.prepare()

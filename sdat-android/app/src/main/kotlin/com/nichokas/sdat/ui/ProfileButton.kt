@@ -30,7 +30,7 @@ import uniffi.tonearm_ffi.profilePictureUrl
 /** iOS ProfileButton: the circular TIDAL profile photo (generic glyph as a fallback) that opens Settings. */
 @Composable
 fun ProfileButton(prefs: Preferences, onClick: () -> Unit, modifier: Modifier = Modifier) {
-    LaunchedEffect(Unit) { runCatching { profilePictureUrl() }.getOrNull()?.let { prefs.profilePicture = it } }
+    LaunchedEffect(Unit) { runCatching { profilePictureUrl() }.onSuccess { prefs.profilePicture = it } }
     GlassSurface(modifier.size(44.dp), shape = CircleShape) {
         Box(Modifier.fillMaxSize().clickable(role = Role.Button, onClickLabel = "Settings", onClick = onClick).padding(4.dp)) {
             Avatar(prefs.profilePicture)

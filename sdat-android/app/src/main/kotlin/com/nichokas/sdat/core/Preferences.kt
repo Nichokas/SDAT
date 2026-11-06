@@ -4,7 +4,8 @@ import android.content.Context
 import androidx.compose.runtime.mutableStateOf
 import androidx.core.content.edit
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.withContext
+import kotlinx.coroutines.MainScope
+import kotlinx.coroutines.launch
 import uniffi.tonearm_ffi.Quality
 
 /** Picker order, keys and copy as on iOS. */
@@ -96,12 +97,18 @@ class Secrets(context: Context) {
     }
 }
 
-/** Erase all app data: TIDAL session, Last.fm and ListenBrainz tokens, settings, caches and stored files. */
-suspend fun eraseAll(context: Context, session: Session, prefs: Preferences, secrets: Secrets) {
+// Outlives Settings, which leaves the composition as soon as the sign-out lands.
+private val eraseScope = MainScope()
+
+/**
+ * Erase all app data: TIDAL session, Last.fm and ListenBrainz tokens, settings, caches and stored files.
+ * Signs out first, so nothing in the core still uses the files when they go.
+ */
+fun eraseAll(context: Context, session: Session, prefs: Preferences, secrets: Secrets) {
     secrets.clear()
     prefs.clear()
-    withContext(Dispatchers.IO) {
+    session.signOut()
+    eraseScope.launch(Dispatchers.IO) {
         listOf(context.cacheDir, context.filesDir).forEach { dir -> dir.listFiles()?.forEach { it.deleteRecursively() } }
     }
-    session.signOut()
 }
