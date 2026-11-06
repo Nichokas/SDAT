@@ -229,8 +229,15 @@ fun trackMenuItems(
         }
         add(GlasmioCascadingMenuItem("Start Radio", "dot.radiowaves.left.and.right", separatorBefore = true, onClick = {
             scope.launch {
-                val list = runCatching { trackRadio(track.id)?.nextPage() }.getOrNull() ?: return@launch
-                player.play(listOf(track) + list, from = "${track.title} Radio")
+                try {
+                    val list = trackRadio(track.id)?.nextPage()
+                    if (list.isNullOrEmpty()) Chrome.flash("No radio for this track")
+                    else player.play(listOf(track) + list, from = "${track.title} Radio")
+                } catch (e: CancellationException) {
+                    throw e
+                } catch (e: Exception) {
+                    Chrome.flash(friendlyMessage(e))
+                }
             }
         }))
         track.album?.let { a ->
