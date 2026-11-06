@@ -31,7 +31,6 @@ import androidx.compose.runtime.mutableDoubleStateOf
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.runtime.withFrameMillis
@@ -66,7 +65,7 @@ import io.github.neoruaa.glasmio.ui.GlasmioCascadingMenuItem
 import kotlin.coroutines.cancellation.CancellationException
 import kotlin.math.abs
 import kotlin.math.sin
-import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.MainScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import uniffi.tonearm_ffi.Track
@@ -194,11 +193,13 @@ fun TrackRow(track: Track, modifier: Modifier = Modifier, showCover: Boolean = t
     }
 }
 
+// Menu actions outlive their row, which a lazy list disposes as soon as it scrolls away.
+private val menuScope = MainScope()
+
 /** Long-press menu items shared by every track row. */
 @Composable
 fun trackMenuItems(
     track: Track,
-    scope: CoroutineScope,
     ownPlaylistId: String? = null,
     onRemoved: (() -> Unit)? = null,
 ): List<GlasmioCascadingMenuItem> {
@@ -214,7 +215,7 @@ fun trackMenuItems(
         }))
         if (ownPlaylistId != null) {
             add(GlasmioCascadingMenuItem("Remove from Playlist", "minus.circle", destructive = true, onClick = {
-                scope.launch {
+                menuScope.launch {
                     try {
                         removeFromPlaylist(ownPlaylistId, track.id)
                         onRemoved?.invoke()
@@ -228,7 +229,7 @@ fun trackMenuItems(
             }))
         }
         add(GlasmioCascadingMenuItem("Start Radio", "dot.radiowaves.left.and.right", separatorBefore = true, onClick = {
-            scope.launch {
+            menuScope.launch {
                 try {
                     val list = trackRadio(track.id)?.nextPage()
                     if (list.isNullOrEmpty()) Chrome.flash("No radio for this track")
@@ -262,8 +263,6 @@ fun TrackMenuRow(
 ) {
     var bounds by remember { mutableStateOf<Rect?>(null) }
     var open by remember { mutableStateOf(false) }
-    // Outlives the menu: Glasmio dismisses it before running the chosen action.
-    val scope = rememberCoroutineScope()
     LaunchedEffect(track.id) {
         delay(600)
         Favs.check(track.id)
@@ -276,7 +275,7 @@ fun TrackMenuRow(
     if (open) {
         GlasmioCascadingMenu(
             anchorBounds = bounds,
-            items = trackMenuItems(track, scope, ownPlaylistId, onRemoved),
+            items = trackMenuItems(track, ownPlaylistId, onRemoved),
             title = track.displayTitle,
             expandedDescription = "Expanded",
             collapsedDescription = "Collapsed",

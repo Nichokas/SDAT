@@ -69,7 +69,12 @@ object Favs {
                 // Only the newest write of this session decides what the cache shows.
                 if (writes[id] == coroutineContext.job) {
                     val last = confirmed[id]
-                    if (last == null) tracks.remove(id) else tracks[id] = last
+                    if (last == null) {
+                        tracks.remove(id)
+                        check(id)
+                    } else {
+                        tracks[id] = last
+                    }
                 }
                 Chrome.flash(friendlyMessage(e))
             }
