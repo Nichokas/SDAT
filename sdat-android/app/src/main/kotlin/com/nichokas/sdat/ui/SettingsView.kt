@@ -9,7 +9,9 @@ import androidx.compose.foundation.Image
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.runtime.Composable
@@ -77,7 +79,8 @@ fun SettingsView(session: Session, prefs: Preferences, secrets: Secrets, onBack:
     BackHandler(onBack = onBack)
 
     // iOS finishes the Last.fm handshake when its Safari sheet closes; here, when the browser hands back.
-    LifecycleResumeEffect(lastFmPending) {
+    // Reads the state live: the browser can pause the app before a recomposition would restart a keyed effect.
+    LifecycleResumeEffect(Unit) {
         val pending = lastFmPending
         if (pending != null && browserOpened) {
             browserOpened = false
@@ -102,7 +105,7 @@ fun SettingsView(session: Session, prefs: Preferences, secrets: Secrets, onBack:
                 }
             }
         }
-        onPauseOrDispose { if (pending != null) browserOpened = true }
+        onPauseOrDispose { if (lastFmPending != null) browserOpened = true }
     }
 
     GlasmioPinnedListPage(title = "Settings", showsLargeTitle = false, onNavigateBack = onBack) {
@@ -178,9 +181,13 @@ fun SettingsView(session: Session, prefs: Preferences, secrets: Secrets, onBack:
                             keyboardActions = KeyboardActions(onDone = {
                                 val t = listenBrainzToken.trim()
                                 if (t.isNotEmpty()) {
-                                    secrets.set(Secrets.LISTENBRAINZ_TOKEN, t)
-                                    listenBrainzToken = ""
-                                    hasListenBrainz = true
+                                    try {
+                                        secrets.set(Secrets.LISTENBRAINZ_TOKEN, t)
+                                        listenBrainzToken = ""
+                                        hasListenBrainz = true
+                                    } catch (_: Exception) {
+                                        Toast.makeText(context, "Couldn't save the ListenBrainz token", Toast.LENGTH_LONG).show()
+                                    }
                                 }
                             }),
                         )
@@ -200,6 +207,8 @@ fun SettingsView(session: Session, prefs: Preferences, secrets: Secrets, onBack:
                 GlasmioListRow("Source code", titleColor = GlasmioTheme.colors.accent, showDisclosure = false, onClick = { context.open("https://github.com/nichokas/Tonearm") })
             }
         }
+        // Room for the floating tab bar, which stays over Settings as on iOS.
+        item { Spacer(Modifier.navigationBarsPadding().height(86.dp)) }
     }
 
     if (confirmErase) {
