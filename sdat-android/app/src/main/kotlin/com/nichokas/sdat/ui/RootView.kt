@@ -92,7 +92,7 @@ fun RootView(session: Session, playback: Playback, prefs: Preferences, secrets: 
             }
         },
         overlayContent = {
-            if (!settings) ProfileButton(prefs, { settings = true }, Modifier.align(Alignment.TopEnd).statusBarsPadding().padding(end = 16.dp, top = 4.dp))
+            if (!settings) ProfileButton(session, { settings = true }, Modifier.align(Alignment.TopEnd).statusBarsPadding().padding(end = 16.dp, top = 4.dp))
             Row(
                 Modifier.align(Alignment.BottomCenter).navigationBarsPadding().padding(horizontal = 24.dp, vertical = 12.dp),
                 horizontalArrangement = Arrangement.spacedBy(12.dp),

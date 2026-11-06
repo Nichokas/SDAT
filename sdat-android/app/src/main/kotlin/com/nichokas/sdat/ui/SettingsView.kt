@@ -217,7 +217,7 @@ fun SettingsView(session: Session, prefs: Preferences, secrets: Secrets, onBack:
         }
     }
     if (confirmLogout) {
-        Confirm("Log out of TIDAL?", null, "Log out", onDismiss = { confirmLogout = false }, onConfirm = { prefs.profilePicture = null; session.signOut() })
+        Confirm("Log out of TIDAL?", null, "Log out", onDismiss = { confirmLogout = false }, onConfirm = session::signOut)
     }
 }
 

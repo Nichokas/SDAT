@@ -26,12 +26,22 @@ class Session(context: Context) : TokenStore {
     var signedIn by mutableStateOf(refreshToken() != null)
         private set
 
+    private val picture = mutableStateOf(prefs.getString(PICTURE, null))
+
+    /** Kept with the session so it never outlives the account; cached so the button doesn't flash the placeholder. */
+    var profilePicture: String?
+        get() = picture.value
+        set(url) { picture.value = url; prefs.edit { putString(PICTURE, url) } }
+
     override fun refreshToken(): String? = prefs.getString(REFRESH, null)?.let(Vault::decrypt)
 
     override fun userId(): String? = prefs.getString(USER, null)
 
     fun signIn(tokens: LoginTokens) {
+        picture.value = null
+        // A session that failed to restore leaves the previous account's entries behind.
         prefs.edit {
+            clear()
             putString(REFRESH, Vault.encrypt(tokens.refreshToken))
             putString(USER, tokens.userId)
         }
@@ -42,6 +52,7 @@ class Session(context: Context) : TokenStore {
     /** Also the way out of a session TIDAL no longer accepts. */
     fun signOut() {
         prefs.edit { clear() }
+        picture.value = null
         sessionChanged()
         signedIn = false
     }
@@ -49,6 +60,7 @@ class Session(context: Context) : TokenStore {
     private companion object {
         const val REFRESH = "refresh_token"
         const val USER = "user_id"
+        const val PICTURE = "profile_picture"
     }
 }
 
@@ -61,6 +73,8 @@ class Settings(private val configDir: String, private val prefs: Preferences) : 
 internal object Vault {
     private const val ALIAS = "sdat-session"
     private const val IV_BYTES = 12
+
+    fun forget() = KeyStore.getInstance("AndroidKeyStore").apply { load(null) }.deleteEntry(ALIAS)
 
     private fun key(): SecretKey {
         val store = KeyStore.getInstance("AndroidKeyStore").apply { load(null) }

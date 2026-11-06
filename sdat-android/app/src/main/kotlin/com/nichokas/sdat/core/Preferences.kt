@@ -43,7 +43,6 @@ class Preferences(context: Context) {
     private val preload = mutableStateOf(true)
     private val lastFm = mutableStateOf(false)
     private val listenBrainz = mutableStateOf(false)
-    private val picture = mutableStateOf<String?>(null)
 
     var streamingQuality: Quality
         get() = quality.value
@@ -61,11 +60,6 @@ class Preferences(context: Context) {
         get() = listenBrainz.value
         set(on) { listenBrainz.value = on; d.edit { putBoolean("scrobbleListenBrainz", on) } }
 
-    /** Cached across launches so the profile button doesn't flash the placeholder. */
-    var profilePicture: String?
-        get() = picture.value
-        set(url) { picture.value = url; d.edit { putString("profilePicture320", url) } }
-
     init { load() }
 
     private fun load() {
@@ -74,7 +68,6 @@ class Preferences(context: Context) {
         preload.value = d.getBoolean("preloadNext", true)
         lastFm.value = d.getBoolean("scrobbleLastFm", false)
         listenBrainz.value = d.getBoolean("scrobbleListenBrainz", false)
-        picture.value = d.getString("profilePicture320", null)
     }
 
     fun clear() { d.edit(commit = true) { clear() }; load() }
@@ -101,13 +94,14 @@ class Secrets(context: Context) {
 private val eraseScope = MainScope()
 
 /**
- * Erase all app data: TIDAL session, Last.fm and ListenBrainz tokens, settings, caches and stored files.
+ * Erase all app data: TIDAL session, Last.fm and ListenBrainz tokens, their Keystore key, settings, caches and stored files.
  * Signs out first, so nothing in the core still uses the files when they go.
  */
 fun eraseAll(context: Context, session: Session, prefs: Preferences, secrets: Secrets) {
+    session.signOut()
     secrets.clear()
     prefs.clear()
-    session.signOut()
+    Vault.forget()
     eraseScope.launch(Dispatchers.IO) {
         listOf(context.cacheDir, context.filesDir).forEach { dir -> dir.listFiles()?.forEach { it.deleteRecursively() } }
     }
