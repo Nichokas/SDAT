@@ -205,7 +205,7 @@ fun trackMenuItems(
     val player = LocalTrackPlayer.current
     val fav = Favs.known(track.id) ?: false
     return buildList {
-        add(GlasmioCascadingMenuItem(if (fav) "Remove from Favourites" else "Add to Favourites", if (fav) "star.slash" else "star", onClick = { Favs.toggle(track.id) }))
+        add(GlasmioCascadingMenuItem(if (fav) "Remove from Favourites" else "Add to Favourites", if (fav) "star.slash" else "star", onClick = { Favs.set(track.id, !fav) }))
         add(GlasmioCascadingMenuItem("Play Next", "text.line.first.and.arrowtriangle.forward", separatorBefore = true, onClick = {
             player.playNext(track); Chrome.flash("Playing next")
         }))

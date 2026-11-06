@@ -51,15 +51,8 @@ object Favs {
         }
     }
 
-    fun toggle(id: String) {
-        if (tracks[id] == null) {
-            scope.launch {
-                check(id)
-                if (tracks[id] != null) toggle(id) else Chrome.flash("Couldn't load favourite state")
-            }
-            return
-        }
-        val target = !tracks.getValue(id)
+    /** Writes the state the menu advertised, which stays right even if the cached state was unknown or stale. */
+    fun set(id: String, target: Boolean) {
         tracks[id] = target
         val gen = generation
         // The core doesn't order concurrent writes, so a fast second toggle waits for the first.
@@ -77,7 +70,8 @@ object Favs {
             } catch (e: Exception) {
                 // Only the newest write of this session decides what the cache shows.
                 if (gen == generation && writes[id] == coroutineContext.job) {
-                    confirmed[id]?.let { tracks[id] = it }
+                    val last = confirmed[id]
+                    if (last == null) tracks.remove(id) else tracks[id] = last
                 }
                 Chrome.flash(friendlyMessage(e))
             }
