@@ -35,6 +35,7 @@ class Session(context: Context) : TokenStore {
             putString(REFRESH, Vault.encrypt(tokens.refreshToken))
             putString(USER, tokens.userId)
         }
+        Favs.clear()
         sessionChanged()
         signedIn = true
     }

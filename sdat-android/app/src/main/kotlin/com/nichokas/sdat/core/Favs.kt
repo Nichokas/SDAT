@@ -23,11 +23,6 @@ object Favs {
     private var generation = 0
 
     fun known(id: String): Boolean? = tracks[id]
-    fun mark(ids: List<String>, v: Boolean) = ids.forEach {
-        tracks[it] = v
-        confirmed[it] = v
-    }
-
     fun clear() {
         generation++
         tracks.clear()
