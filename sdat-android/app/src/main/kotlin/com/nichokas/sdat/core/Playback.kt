@@ -83,7 +83,7 @@ class Playback(context: Context, private val quality: () -> Quality) {
 
     /** Tapping a Discover cover: that song, the rest of the visible pool, then the endless Discover shuffle. */
     fun playDiscover(t: Track, pool: List<Track>, mixes: List<Mix>) {
-        queue.discover(t, pool)
+        queue.discover(t, pool.filter { it.streamable })
         replaceInfinite(if (mixes.isEmpty()) null else Shuffle(mixes))
         start(t)
     }
@@ -102,6 +102,8 @@ class Playback(context: Context, private val quality: () -> Quality) {
             val more = fetchMore(source)
             if (infinite !== source) return@launch
             fetching = false
+            // A Replay tapped during the fetch wins; that track's next end advances again.
+            if (player.playbackState != Player.STATE_ENDED) return@launch
             if (more) advance() else stopAtEnd()
         }
     }
@@ -125,7 +127,7 @@ class Playback(context: Context, private val quality: () -> Quality) {
             repeat(3) {
                 val batch = try { source.nextBatch(10u) } catch (e: CancellationException) { throw e } catch (e: Exception) { return@async false }
                 if (infinite !== source) return@async false
-                if (queue.append(batch)) return@async true
+                if (queue.append(batch.filter { it.streamable })) return@async true
             }
             false
         }
@@ -156,7 +158,9 @@ class Playback(context: Context, private val quality: () -> Quality) {
         request?.cancel()
         position = 0.0
         duration = t.durationSecs.toDouble()
+        // Cleared, not just stopped, so tick() can't read the previous item's duration while the URL loads.
         player.stop()
+        player.clearMediaItems()
         track = t
         error = null
         fetching = true

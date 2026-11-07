@@ -8,6 +8,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.ui.draw.alpha
+import androidx.compose.ui.input.pointer.PointerInputChange
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.semantics.disabled
 import androidx.compose.ui.semantics.onClick
@@ -154,8 +155,10 @@ private fun MiniPlayer(playback: Playback) {
                     awaitEachGesture {
                         awaitFirstDown()
                         // iOS PressRecognizer.miniHold: released within 0.12 s is a tap, otherwise a hold.
-                        val up = withTimeoutOrNull(120) { waitForUpOrCancellation() }
-                        if (up != null) showPlayer = true else playback.toggle()
+                        var up: PointerInputChange? = null
+                        val released = withTimeoutOrNull(120) { up = waitForUpOrCancellation(); true }
+                        // A cancelled gesture (finger slid off, or consumed by another gesture) does nothing.
+                        if (released == null) playback.toggle() else if (up != null) showPlayer = true
                     }
                 },
             contentAlignment = Alignment.Center,

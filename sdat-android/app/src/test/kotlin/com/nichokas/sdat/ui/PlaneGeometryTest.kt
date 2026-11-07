@@ -28,12 +28,20 @@ class PlaneGeometryTest {
     }
 
     @Test fun aBlockNeverRepeatsACover() {
-        for (count in listOf(320, 321, 400)) {
+        for (count in listOf(5, 320, 321, 400)) {
             val plane = PlaneGeometry(count)
-            val rows = maxOf(12, kotlin.math.sqrt(count / 1.4).toInt())
-            val cols = count / rows
-            val block = (0 until rows).flatMap { r -> (0 until cols).map { c -> plane.index(Cell(c, r)) } }
+            val rows = minOf(count, maxOf(12, kotlin.math.sqrt(count / 1.4).toInt()))
+            val stride = maxOf(1, count / maxOf(12, kotlin.math.sqrt(count / 1.4).toInt()))
+            val block = (0 until rows).flatMap { r -> (0 until stride).map { c -> plane.index(Cell(c, r)) } }
             assertEquals(block.size, block.toSet().size)
+        }
+    }
+
+    @Test fun everyCoverIsOnThePlane() {
+        for (count in listOf(5, 320, 321, 400)) {
+            val plane = PlaneGeometry(count)
+            val seen = (0 until 30).flatMap { r -> (0 until 30).map { c -> plane.index(Cell(c, r)) } }.toSet()
+            assertEquals((0 until count).toSet(), seen)
         }
     }
 

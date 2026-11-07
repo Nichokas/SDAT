@@ -33,8 +33,13 @@ fun ProgressRing(progress: Double, spinning: Boolean, modifier: Modifier = Modif
         tween(250, easing = LinearEasing),
         label = "progress",
     )
-    val turn by rememberInfiniteTransition(label = "spin").animateFloat(0f, 360f, infiniteRepeatable(tween(1000, easing = LinearEasing)), label = "turn")
-    Canvas(modifier.rotate(if (spinning) turn else 0f)) {
+    // Composed only while spinning: an idle infinite transition would keep animating unseen.
+    val turn = if (spinning) {
+        rememberInfiniteTransition(label = "spin").animateFloat(0f, 360f, infiniteRepeatable(tween(1000, easing = LinearEasing)), label = "turn").value
+    } else {
+        0f
+    }
+    Canvas(modifier.rotate(turn)) {
         val d = size.minDimension
         val w = lineWidth.toPx()
         // Like iOS, the dash period fits a whole number of dashes so the pattern never shifts.
