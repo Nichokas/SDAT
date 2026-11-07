@@ -272,9 +272,9 @@ struct CoverBackdrop: View {
                         // One slow breath per 4-beat bar: TIDAL gives the tempo but not where the beats fall.
                         let breath = 0.5 - 0.5 * cos(b * .pi / 2)
                         ZStack {
-                            Image(uiImage: art).resizable().frame(width: side, height: side)
+                            Image(uiImage: art).resizable().scaledToFill().frame(width: side, height: side)
                                 .rotationEffect(.degrees(b * 4.5))
-                            Image(uiImage: art).resizable().frame(width: side * 0.9, height: side * 0.9)
+                            Image(uiImage: art).resizable().scaledToFill().frame(width: side * 0.9, height: side * 0.9)
                                 .rotationEffect(.degrees(180 - b * 7))
                                 .offset(x: sin(b * 0.18) * 40, y: cos(b * 0.15) * 60)
                                 .opacity(0.6)
@@ -286,6 +286,8 @@ struct CoverBackdrop: View {
                         .overlay(light ? Color.white.opacity(0.14 + 0.05 * breath) : Color.black.opacity(0.32 - 0.07 * breath))
                     }
                 }
+                // A new identity per cover, so a cover change crossfades instead of swapping in place.
+                .id(art)
                 .transition(.opacity)
             }
             LinearGradient(colors: [.clear, .black.opacity(light ? 0.35 : 0.55)], startPoint: .center, endPoint: .bottom)
