@@ -1,8 +1,22 @@
 package com.nichokas.sdat.ui
 
 import androidx.compose.foundation.background
-import androidx.compose.foundation.clickable
-import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
+import androidx.compose.foundation.gestures.waitForUpOrCancellation
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.ModalBottomSheet
+import androidx.compose.ui.draw.alpha
+import androidx.compose.ui.input.pointer.PointerInputChange
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.semantics.disabled
+import androidx.compose.ui.semantics.onClick
+import androidx.compose.ui.semantics.onLongClick
+import androidx.compose.ui.semantics.role
+import androidx.compose.ui.semantics.semantics
+import kotlinx.coroutines.withTimeoutOrNull
+import uniffi.tonearm_ffi.Track
 import androidx.compose.runtime.LaunchedEffect
 import com.nichokas.sdat.core.Playback
 import androidx.compose.foundation.layout.Arrangement
@@ -29,7 +43,6 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
-import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.foundation.layout.PaddingValues
@@ -84,7 +97,7 @@ fun RootView(session: Session, playback: Playback, prefs: Preferences, secrets: 
             if (settings) {
                 SettingsView(session, prefs, secrets, onBack = { settings = false })
             } else if (tab == AppTab.Discover) {
-                DiscoverView(session, onPlay = playback::play)
+                DiscoverView(session, onPlay = playback::playDiscover)
             } else {
                 Column(Modifier.fillMaxSize().background(colors.groupedBackground).safeDrawingPadding().padding(20.dp)) {
                     Text(tab.label, style = IosTypography.largeTitle)
@@ -116,28 +129,57 @@ fun RootView(session: Session, playback: Playback, prefs: Preferences, secrets: 
 
 private val tabItems = AppTab.entries.map { GlasmioTabItem(it, it.label, it.symbol) }
 
-/** Circle state of the iOS mini-player: play/pause for the current track; the capsule morph comes later. */
+/** Circle state of the iOS mini-player: tap opens the player, a short hold toggles play/pause; the capsule morph comes later. */
 @Composable
 private fun MiniPlayer(playback: Playback) {
     val track = playback.track
+    var showPlayer by remember { mutableStateOf(false) }
     val (symbol, label) = when {
-        playback.error != null -> "exclamationmark.triangle.fill" to "Playback failed, tap to retry"
+        playback.error != null -> "exclamationmark.triangle.fill" to "Playback failed, hold to retry"
         playback.playing -> "pause.fill" to "Pause"
         else -> "play.fill" to "Play"
     }
     val description = track?.let { "$label ${it.title}" } ?: label
     GlassSurface(Modifier.size(62.dp), shape = capsule) {
         Box(
-            Modifier.fillMaxSize().clickable(enabled = track != null, role = Role.Button, onClick = playback::toggle)
-                .semantics { contentDescription = description },
+            Modifier.fillMaxSize()
+                .semantics {
+                    role = Role.Button
+                    contentDescription = description
+                    if (track == null) disabled()
+                    onClick("Open player") { showPlayer = true; true }
+                    onLongClick(label) { playback.toggle(); true }
+                }
+                .pointerInput(track != null) {
+                    if (track == null) return@pointerInput
+                    awaitEachGesture {
+                        awaitFirstDown()
+                        // iOS PressRecognizer.miniHold: released within 0.12 s is a tap, otherwise a hold.
+                        var up: PointerInputChange? = null
+                        val released = withTimeoutOrNull(120) { up = waitForUpOrCancellation(); true }
+                        // A cancelled gesture (finger slid off, or consumed by another gesture) does nothing.
+                        if (released == null) playback.toggle() else if (up != null) showPlayer = true
+                    }
+                },
             contentAlignment = Alignment.Center,
         ) {
-            if (playback.loading) {
-                CircularProgressIndicator(Modifier.size(24.dp), strokeWidth = 2.dp)
-            } else {
-                val tint = if (track == null) GlasmioTheme.colors.tertiaryContent else GlasmioTheme.colors.content
-                SdatIcon(symbol, contentDescription = null, size = 24.dp, tint = tint)
-            }
+            val tint = if (track == null) GlasmioTheme.colors.tertiaryContent else GlasmioTheme.colors.content
+            // Hidden, not removed, while loading: the ring spins instead of a spinner.
+            SdatIcon(symbol, contentDescription = null, size = 20.dp, tint = tint, modifier = Modifier.alpha(if (playback.loading) 0f else 1f))
+            ProgressRing(playback.progress, playback.loading, Modifier.fillMaxSize().padding(62.dp * 0.14f))
+        }
+    }
+    if (showPlayer && track != null) PlayerSheet(track) { showPlayer = false }
+}
+
+/** Placeholder for the iOS player sheet until it is ported. */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun PlayerSheet(track: Track, onDismiss: () -> Unit) {
+    ModalBottomSheet(onDismissRequest = onDismiss) {
+        Column(Modifier.fillMaxWidth().padding(24.dp)) {
+            Text(track.title, style = IosTypography.headline)
+            Text(track.artists.joinToString { it.name }, style = IosTypography.footnote)
         }
     }
 }

@@ -16,4 +16,10 @@ class PlaybackTest {
         assertEquals(Tap.Pause, tapAction(failed = false, ended = false, playWhenReady = true))
         assertEquals(Tap.Resume, tapAction(failed = false, ended = false, playWhenReady = false))
     }
+
+    @Test fun progressIsPositionOverDurationCappedAtOne() {
+        assertEquals(0.25, progress(30.0, 120.0), 1e-9)
+        assertEquals(1.0, progress(130.0, 120.0), 1e-9)
+        assertEquals(0.0, progress(30.0, 0.0), 1e-9)
+    }
 }

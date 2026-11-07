@@ -12,15 +12,20 @@ import androidx.media3.common.PlaybackException
 import androidx.media3.common.Player
 import androidx.media3.exoplayer.ExoPlayer
 import kotlin.coroutines.cancellation.CancellationException
+import kotlinx.coroutines.Deferred
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.async
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.MainScope
 import kotlinx.coroutines.launch
+import uniffi.tonearm_ffi.Mix
 import uniffi.tonearm_ffi.Quality
+import uniffi.tonearm_ffi.Shuffle
 import uniffi.tonearm_ffi.Track
 import uniffi.tonearm_ffi.stream
 
-/** The app's single player: one track at a time from the core's stream URL (no queue yet). */
-/** Reads [quality] per request so a change in Settings applies to the next track. */
+/** The app's single player: the iOS Player's Discover queue, one track at a time from the core's stream URL.
+ * Reads [quality] per request so a change in Settings applies to the next track. */
 class Playback(context: Context, private val quality: () -> Quality) {
     private val scope = MainScope()
     private val player = ExoPlayer.Builder(context)
@@ -31,6 +36,9 @@ class Playback(context: Context, private val quality: () -> Quality) {
         .setHandleAudioBecomingNoisy(true)
         .build()
     private var request: Job? = null
+    private val queue = PlayQueue<Track> { it.id }
+    private var infinite: Shuffle? = null
+    private var refilling: Deferred<Boolean>? = null
 
     var track by mutableStateOf<Track?>(null)
         private set
@@ -41,16 +49,30 @@ class Playback(context: Context, private val quality: () -> Quality) {
     val loading get() = fetching || buffering
     var error by mutableStateOf<String?>(null)
         private set
+    var position by mutableStateOf(0.0)
+        private set
+    var duration by mutableStateOf(0.0)
+        private set
+    val progress get() = progress(position, duration)
+    private var ticker: Job? = null
 
     init {
         player.addListener(object : Player.Listener {
             // The requested state, so the icon matches what a tap does even while audio focus suppresses output.
             override fun onEvents(player: Player, events: Player.Events) {
                 playing = player.playWhenReady && player.playbackState != Player.STATE_ENDED
+                tick()
+            }
+
+            override fun onIsPlayingChanged(isPlaying: Boolean) {
+                ticker?.cancel()
+                // iOS's periodic time observer runs every 0.25 s.
+                if (isPlaying) ticker = scope.launch { while (true) { tick(); delay(250) } }
             }
 
             override fun onPlaybackStateChanged(state: Int) {
                 buffering = state == Player.STATE_BUFFERING
+                if (state == Player.STATE_ENDED) advance()
             }
 
             override fun onPlayerError(e: PlaybackException) {
@@ -59,9 +81,87 @@ class Playback(context: Context, private val quality: () -> Quality) {
         })
     }
 
-    fun play(t: Track) {
+    /** Tapping a Discover cover: that song, the rest of the visible pool, then the endless Discover shuffle. */
+    fun playDiscover(t: Track, pool: List<Track>, mixes: List<Mix>) {
+        queue.discover(t, pool.filter { it.streamable })
+        replaceInfinite(Shuffle(mixes))
+        start(t)
+    }
+
+    private fun advance() {
+        val t = queue.next
+        if (t != null) {
+            queue.index = queue.index!! + 1
+            start(t)
+            return
+        }
+        // Endless queue ran dry before the refill landed: fetch, then go on.
+        val source = infinite ?: return stopAtEnd()
+        fetching = true
+        scope.launch {
+            val more = fetchMore(source)
+            if (infinite !== source) return@launch
+            fetching = false
+            // A Replay tapped during the fetch wins; that track's next end advances again.
+            if (player.playbackState != Player.STATE_ENDED) return@launch
+            if (more) advance() else stopAtEnd()
+        }
+    }
+
+    /** End of a finite queue: rewound and paused. */
+    private fun stopAtEnd() {
+        player.pause()
+        player.seekToDefaultPosition()
+    }
+
+    private fun refillIfNeeded() {
+        val source = infinite ?: return
+        if (queue.needsRefill) scope.launch { fetchMore(source) }
+    }
+
+    /** Appends a new endless batch, skipping tracks already queued; one fetch at a time. */
+    private suspend fun fetchMore(source: Shuffle): Boolean {
+        if (infinite !== source) return false
+        refilling?.let { return it.await() }
+        val job = scope.async {
+            // The fresh Shuffle starts on the pages the Discover pool came from, so batches can be all
+            // already-queued tracks for a while; only an empty batch means the source is exhausted.
+            do {
+                val batch = try { source.nextBatch(10u) } catch (e: CancellationException) { throw e } catch (e: Exception) { return@async false }
+                if (infinite !== source || batch.isEmpty()) return@async false
+            } while (!queue.append(batch.filter { it.streamable }))
+            true
+        }
+        refilling = job
+        try {
+            return job.await()
+        } finally {
+            if (refilling === job) refilling = null
+        }
+    }
+
+    private fun replaceInfinite(source: Shuffle?) {
+        val old = infinite
+        infinite = source
+        val pending = refilling
+        pending?.cancel()
+        refilling = null
+        // A cancelled fetch may still be inside the core; free the source once it returns.
+        old?.let { scope.launch { pending?.join(); it.close() } }
+    }
+
+    private fun tick() {
+        position = player.currentPosition / 1000.0
+        if (player.duration != C.TIME_UNSET && player.duration > 0) duration = player.duration / 1000.0
+    }
+
+    private fun start(t: Track) {
         request?.cancel()
+        position = 0.0
+        duration = t.durationSecs.toDouble()
+        // Cleared, not just stopped, so tick() can't read the previous item's duration while the URL loads.
         player.stop()
+        player.clearMediaItems()
         track = t
         error = null
         fetching = true
@@ -74,6 +174,7 @@ class Playback(context: Context, private val quality: () -> Quality) {
                 player.setMediaItem(MediaItem.Builder().setUri(url).setMimeType(MimeTypes.APPLICATION_M3U8).build())
                 player.prepare()
                 fetching = false
+                refillIfNeeded()
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
@@ -87,7 +188,7 @@ class Playback(context: Context, private val quality: () -> Quality) {
     fun toggle() {
         val t = track ?: return
         when (tapAction(error != null, player.playbackState == Player.STATE_ENDED, player.playWhenReady)) {
-            Tap.Retry -> play(t)
+            Tap.Retry -> start(t)
             Tap.Replay -> {
                 player.seekToDefaultPosition()
                 player.play()
@@ -103,10 +204,16 @@ class Playback(context: Context, private val quality: () -> Quality) {
         player.stop()
         player.clearMediaItems()
         track = null
+        position = 0.0
+        duration = 0.0
+        queue.clear()
+        replaceInfinite(null)
         error = null
         fetching = false
     }
 }
+
+internal fun progress(position: Double, duration: Double) = if (duration > 0) minOf(position / duration, 1.0) else 0.0
 
 internal enum class Tap { Retry, Replay, Pause, Resume }
 

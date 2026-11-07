@@ -95,7 +95,7 @@ class PlaneGeometry(private val count: Int) {
     private val gap = 12f
     private val period = sizes.sum() + gap * sizes.size
     private val rows = maxOf(12, kotlin.math.sqrt(count / 1.4).toInt())
-    private val cols = maxOf(1, (count + rows - 1) / rows)
+    private val stride = maxOf(1, count / rows)
 
     fun rowSize(r: Int) = sizes[r.mod(sizes.size)]
 
@@ -134,9 +134,9 @@ class PlaneGeometry(private val count: Int) {
         return out
     }
 
-    /** The pool tiles the plane as one cols×rows block, so a repeat is a block away. */
-    // Rounding cols up and wrapping keeps every pooled track on the plane.
-    fun index(cell: Cell) = (cell.r.mod(rows) * cols + cell.c.mod(cols)) % count
+    /** Each row continues the pool [stride] covers on, wrapping, so every cover is on the plane (iOS's clamped
+     * cols×rows block drops the remainder) and a repeat is still at least [stride] columns or [rows] rows away. */
+    fun index(cell: Cell) = (cell.c + cell.r.toLong() * stride).mod(count.toLong()).toInt()
 }
 
 private val tidalSize = Regex("""/\d+x\d+\.jpg$""")
