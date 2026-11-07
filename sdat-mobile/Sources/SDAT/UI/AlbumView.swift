@@ -267,7 +267,8 @@ struct CoverBackdrop: View {
                 GeometryReader { g in
                     // Well past the screen diagonal: only the cover's centre shows, never a corner.
                     let side = hypot(g.size.width, g.size.height) * 2.2
-                    TimelineView(.animation(minimumInterval: 1 / 30, paused: !animated)) { ctx in
+                    // The full-screen blur is the per-frame cost; under 1° of turn per frame, 20 fps looks as smooth as 30.
+                    TimelineView(.animation(minimumInterval: 1 / 20, paused: !animated)) { ctx in
                         let b = beats + (run.map { max(0, ctx.date.timeIntervalSince($0.start)) * $0.beatsPerSecond } ?? 0)
                         // One slow breath per 4-beat bar: TIDAL gives the tempo but not where the beats fall.
                         let breath = 0.5 - 0.5 * cos(b * .pi / 2)
