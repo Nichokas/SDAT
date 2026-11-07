@@ -5,6 +5,10 @@ on:
     types: [opened, reopened, ready_for_review, synchronize]
   issue_comment:
     types: [created]
+  # Other repositories call this workflow with `secrets: inherit` and must grant the calling job
+  # `contents: read` and `pull-requests: write`: a called workflow cannot raise the caller's token.
+  # The checkout steps below explain which bot version they run.
+  workflow_call:
 
 permissions: {}
 
@@ -13,16 +17,15 @@ jobs:
     # Reviewers are agents that read the diff and hold a credential, so fork PRs never run.
     # Same-repo PRs run this file and the script from their own branch: anyone who can push
     # such a branch already has that power, so a checkout of main would add no protection.
+    # A /review comment may carry a footer after the command line, as agents' comments do.
     if: >-
-      github.repository == 'Nichokas/SDAT' && (
-        (github.event_name == 'pull_request'
-          && !github.event.pull_request.draft
-          && github.event.pull_request.head.repo.full_name == github.repository)
-        || (github.event_name == 'issue_comment'
-          && github.event.issue.pull_request
-          && github.event.comment.body == '/review'
-          && contains(fromJSON('["OWNER","MEMBER","COLLABORATOR"]'), github.event.comment.author_association))
-      )
+      (github.event_name == 'pull_request'
+        && !github.event.pull_request.draft
+        && github.event.pull_request.head.repo.full_name == github.repository)
+      || (github.event_name == 'issue_comment'
+        && github.event.issue.pull_request
+        && (github.event.comment.body == '/review' || startsWith(github.event.comment.body, format('/review{0}', fromJSON('"\n"'))))
+        && contains(fromJSON('["OWNER","MEMBER","COLLABORATOR"]'), github.event.comment.author_association))
     runs-on: ubuntu-latest
     permissions:
       pull-requests: write
@@ -73,6 +76,9 @@ jobs:
       - name: Check out the bot
         uses: actions/checkout@v4
         with:
+          # SDAT runs its own copy, so a PR can change the bot; callers always get main.
+          repository: Nichokas/SDAT
+          ref: ${{ github.repository == 'Nichokas/SDAT' && github.sha || 'main' }}
           path: bot
           persist-credentials: false
       - name: Check out the pull request
@@ -127,6 +133,8 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
+          repository: Nichokas/SDAT
+          ref: ${{ github.repository == 'Nichokas/SDAT' && github.sha || 'main' }}
           persist-credentials: false
       - uses: actions/download-artifact@v4
         with:
