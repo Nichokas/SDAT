@@ -124,12 +124,13 @@ class Playback(context: Context, private val quality: () -> Quality) {
         if (infinite !== source) return false
         refilling?.let { return it.await() }
         val job = scope.async {
-            repeat(3) {
+            // The fresh Shuffle starts on the pages the Discover pool came from, so batches can be all
+            // already-queued tracks for a while; only an empty batch means the source is exhausted.
+            do {
                 val batch = try { source.nextBatch(10u) } catch (e: CancellationException) { throw e } catch (e: Exception) { return@async false }
-                if (infinite !== source) return@async false
-                if (queue.append(batch.filter { it.streamable })) return@async true
-            }
-            false
+                if (infinite !== source || batch.isEmpty()) return@async false
+            } while (!queue.append(batch.filter { it.streamable }))
+            true
         }
         refilling = job
         try {
