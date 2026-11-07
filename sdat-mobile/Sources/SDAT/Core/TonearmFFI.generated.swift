@@ -4974,13 +4974,14 @@ public struct Track: Equatable, Hashable {
     public var streamable: Bool
     public var artists: [ArtistRef]
     public var album: AlbumRef?
+    public var bpm: Double?
 
     // Default memberwise initializers are never public by default, so we
     // declare one manually.
     public init(id: String, title: String, 
         /**
          * "(Remastered)" etc., empty if none.
-         */version: String, durationSecs: UInt32, explicit: Bool, streamable: Bool, artists: [ArtistRef], album: AlbumRef?) {
+         */version: String, durationSecs: UInt32, explicit: Bool, streamable: Bool, artists: [ArtistRef], album: AlbumRef?, bpm: Double? = nil) {
         self.id = id
         self.title = title
         self.version = version
@@ -4989,6 +4990,7 @@ public struct Track: Equatable, Hashable {
         self.streamable = streamable
         self.artists = artists
         self.album = album
+        self.bpm = bpm
     }
 
     
@@ -5014,7 +5016,8 @@ public struct FfiConverterTypeTrack: FfiConverterRustBuffer {
                 explicit: FfiConverterBool.read(from: &buf), 
                 streamable: FfiConverterBool.read(from: &buf), 
                 artists: FfiConverterSequenceTypeArtistRef.read(from: &buf), 
-                album: FfiConverterOptionTypeAlbumRef.read(from: &buf)
+                album: FfiConverterOptionTypeAlbumRef.read(from: &buf), 
+                bpm: FfiConverterOptionDouble.read(from: &buf)
         )
     }
 
@@ -5027,6 +5030,7 @@ public struct FfiConverterTypeTrack: FfiConverterRustBuffer {
         FfiConverterBool.write(value.streamable, into: &buf)
         FfiConverterSequenceTypeArtistRef.write(value.artists, into: &buf)
         FfiConverterOptionTypeAlbumRef.write(value.album, into: &buf)
+        FfiConverterOptionDouble.write(value.bpm, into: &buf)
     }
 }
 
@@ -5926,6 +5930,30 @@ fileprivate struct FfiConverterOptionInt64: FfiConverterRustBuffer {
         switch try readInt(&buf) as Int8 {
         case 0: return nil
         case 1: return try FfiConverterInt64.read(from: &buf)
+        default: throw UniffiInternalError.unexpectedOptionalTag
+        }
+    }
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+fileprivate struct FfiConverterOptionDouble: FfiConverterRustBuffer {
+    typealias SwiftType = Double?
+
+    public static func write(_ value: SwiftType, into buf: inout [UInt8]) {
+        guard let value = value else {
+            writeInt(&buf, Int8(0))
+            return
+        }
+        writeInt(&buf, Int8(1))
+        FfiConverterDouble.write(value, into: &buf)
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> SwiftType {
+        switch try readInt(&buf) as Int8 {
+        case 0: return nil
+        case 1: return try FfiConverterDouble.read(from: &buf)
         default: throw UniffiInternalError.unexpectedOptionalTag
         }
     }
