@@ -342,6 +342,7 @@ enum DiscoverCache {
         var artists: [[String]]
         var albumId, albumTitle: String?
         var cover, coverLarge: String?
+        var bpm: Double?
     }
     private static var url: URL {
         FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask)[0].appendingPathComponent("discover.json")
@@ -353,7 +354,7 @@ enum DiscoverCache {
         tracks.map { t in
             T(id: t.id, title: t.title, version: t.version, dur: t.durationSecs, explicit: t.explicit, streamable: t.streamable,
               artists: t.artists.map { [$0.id, $0.name] }, albumId: t.album?.id, albumTitle: t.album?.title,
-              cover: t.album?.coverUrl, coverLarge: t.album?.coverUrlLarge)
+              cover: t.album?.coverUrl, coverLarge: t.album?.coverUrlLarge, bpm: t.bpm)
         }
     }
     static func load() -> [Track] {
@@ -364,7 +365,8 @@ enum DiscoverCache {
         list.map { c in
             Track(id: c.id, title: c.title, version: c.version, durationSecs: c.dur, explicit: c.explicit, streamable: c.streamable,
                   artists: c.artists.map { ArtistRef(id: $0[0], name: $0.count > 1 ? $0[1] : "", pictureUrl: nil) },
-                  album: c.albumId.map { AlbumRef(id: $0, title: c.albumTitle ?? "", coverUrl: c.cover, coverUrlLarge: c.coverLarge) })
+                  album: c.albumId.map { AlbumRef(id: $0, title: c.albumTitle ?? "", coverUrl: c.cover, coverUrlLarge: c.coverLarge) },
+                  bpm: c.bpm)
         }
     }
 }

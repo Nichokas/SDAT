@@ -82,6 +82,8 @@ pub struct Track {
     pub streamable: bool,
     pub artists: Vec<ArtistRef>,
     pub album: Option<AlbumRef>,
+    #[uniffi(default = None)]
+    pub bpm: Option<f64>,
 }
 
 impl From<&model::Track> for Track {
@@ -95,6 +97,7 @@ impl From<&model::Track> for Track {
             streamable: t.info.streamable,
             artists: t.artists.iter().map(ArtistRef::from).collect(),
             album: t.album.as_ref().map(AlbumRef::from),
+            bpm: t.info.bpm,
         }
     }
 }

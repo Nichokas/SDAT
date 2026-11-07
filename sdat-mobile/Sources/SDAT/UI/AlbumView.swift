@@ -247,67 +247,94 @@ struct DetailPage: View {
     }
 }
 
-/// Smooth, dark backdrop with the cover's colours.
+/// The cover itself, zoomed in and blurred into colour fields that turn and breathe with the
+/// track's tempo while `animated` (still under Reduce Motion). `light` washes it lighter instead of darker.
 struct CoverBackdrop: View {
     let url: String?
     var animated = false
-    @State private var colors: [Color] = []
+    var bpm: Double?
+    var light = false
+    @State private var art: UIImage?
+    // Phase is counted in beats and only advances while moving, so pausing or a new tempo
+    // changes the speed instead of making the backdrop jump.
+    @State private var beats: Double = 0
+    @State private var run: (start: Date, beatsPerSecond: Double)?
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    private var moving: Bool { animated && !reduceMotion }
 
     var body: some View {
         ZStack {
             Color.black
-            if colors.count == 4 {
-                TimelineView(.animation(minimumInterval: 1 / 30, paused: !animated)) { ctx in
-                    let t = animated ? ctx.date.timeIntervalSinceReferenceDate : 0
-                    let dx = Float(sin(t * 0.25)) * 0.12, dy = Float(cos(t * 0.2)) * 0.12
-                    MeshGradient(width: 3, height: 3, points: [
-                        [0, 0], [0.5, 0], [1, 0],
-                        [0, 0.5], [0.5 + dx, 0.45 + dy], [1, 0.5],
-                        [0, 1], [0.5, 1], [1, 1],
-                    ], colors: [
-                        colors[0], colors[1], colors[1],
-                        colors[2], mix(colors[0], colors[3]), colors[1],
-                        colors[3], colors[2], colors[3],
-                    ], smoothsColors: true)
+            if let art {
+                GeometryReader { g in
+                    // Well past the screen diagonal: only the cover's centre shows, never a corner.
+                    let side = hypot(g.size.width, g.size.height) * 2.2
+                    // The full-screen blur is the per-frame cost; under 1° of turn per frame, 20 fps looks as smooth as 30.
+                    TimelineView(.animation(minimumInterval: 1 / 20, paused: !moving)) { ctx in
+                        let b = beats + (run.map { max(0, ctx.date.timeIntervalSince($0.start)) * $0.beatsPerSecond } ?? 0)
+                        // One slow breath per 4-beat bar: TIDAL gives the tempo but not where the beats fall.
+                        let breath = 0.5 - 0.5 * cos(b * .pi / 2)
+                        ZStack {
+                            Image(uiImage: art).resizable().scaledToFill().frame(width: side, height: side)
+                                .rotationEffect(.degrees(b * 4.5))
+                            Image(uiImage: art).resizable().scaledToFill().frame(width: side * 0.9, height: side * 0.9)
+                                .rotationEffect(.degrees(180 - b * 7))
+                                .offset(x: sin(b * 0.18) * 40, y: cos(b * 0.15) * 60)
+                                .opacity(0.6)
+                        }
+                        .scaleEffect(1 + 0.06 * breath)
+                        .frame(width: g.size.width, height: g.size.height)
+                        .clipped()
+                        .blur(radius: 50, opaque: true)
+                        .overlay(light ? Color.white.opacity(0.14 + 0.05 * breath) : Color.black.opacity(0.32 - 0.07 * breath))
+                    }
                 }
+                // A new identity per cover, so a cover change crossfades instead of swapping in place.
+                .id(art)
                 .transition(.opacity)
             }
-            LinearGradient(colors: [.black.opacity(0.15), .black.opacity(0.55), .black.opacity(0.9)], startPoint: .top, endPoint: .bottom)
+            LinearGradient(colors: [.clear, .black.opacity(light ? 0.35 : 0.55)], startPoint: .center, endPoint: .bottom)
         }
         .ignoresSafeArea()
-        .animation(.easeInOut(duration: 0.8), value: colors)
+        .animation(.easeInOut(duration: 0.8), value: art)
+        .onChange(of: moving, initial: true) { fold() }
+        .onChange(of: bpm) { fold() }
         .task(id: url) {
-            guard let url, let img = await ImageStore.shared.image(url) else { return }
-            let c = await Task.detached { CoverColors.palette(img) }.value
-            colors = c.map { Color(uiColor: $0) }
+            // The old art stays up while the new one loads, so covers crossfade instead of flashing black.
+            var next: UIImage?
+            if let url, let img = await ImageStore.shared.image(url) {
+                next = await Task.detached { BackdropArt.render(img) }.value
+            }
+            // A load for the previous cover can finish after this task was replaced.
+            if !Task.isCancelled { art = next }
         }
     }
 
-    private func mix(_ a: Color, _ b: Color) -> Color { a.mix(with: b, by: 0.5) }
+    /// Clamped so very fast or very slow tracks still move calmly; unknown tempo moves like 100 BPM.
+    private static func beatsPerSecond(_ bpm: Double?) -> Double { min(max(bpm ?? 100, 60), 160) / 60 }
+
+    /// Banks the beats played so far at the tempo they ran at, then restarts the clock if still moving.
+    private func fold() {
+        if let run { beats += Date.now.timeIntervalSince(run.start) * run.beatsPerSecond }
+        run = moving ? (Date.now, Self.beatsPerSecond(bpm)) : nil
+    }
 }
 
-enum CoverColors {
-    /// Four quadrant averages, saturation/brightness clamped so they stay rich but dark.
-    static func palette(_ image: UIImage) -> [UIColor] {
-        guard let cg = image.cgImage else { return [] }
+enum BackdropArt {
+    /// A 32 px blurred copy: scaled up it reads as smooth colour and is cheap to redraw every frame.
+    static func render(_ image: UIImage) -> UIImage? {
+        guard let cg = image.cgImage else { return nil }
         let ci = CIImage(cgImage: cg)
-        let ctx = CIContext(options: [.workingColorSpace: NSNull()])
-        let e = ci.extent
-        let rects = [
-            CGRect(x: e.minX, y: e.midY, width: e.width / 2, height: e.height / 2),
-            CGRect(x: e.midX, y: e.midY, width: e.width / 2, height: e.height / 2),
-            CGRect(x: e.minX, y: e.minY, width: e.width / 2, height: e.height / 2),
-            CGRect(x: e.midX, y: e.minY, width: e.width / 2, height: e.height / 2),
-        ]
-        return rects.map { r in
-            let f = CIFilter(name: "CIAreaAverage", parameters: [kCIInputImageKey: ci, kCIInputExtentKey: CIVector(cgRect: r)])!
-            var px = [UInt8](repeating: 0, count: 4)
-            ctx.render(f.outputImage!, toBitmap: &px, rowBytes: 4, bounds: CGRect(x: 0, y: 0, width: 1, height: 1), format: .RGBA8, colorSpace: nil)
-            var h: CGFloat = 0, s: CGFloat = 0, b: CGFloat = 0, a: CGFloat = 0
-            UIColor(red: CGFloat(px[0]) / 255, green: CGFloat(px[1]) / 255, blue: CGFloat(px[2]) / 255, alpha: 1)
-                .getHue(&h, saturation: &s, brightness: &b, alpha: &a)
-            return UIColor(hue: h, saturation: min(max(s * 1.1, 0.25), 0.75), brightness: min(max(b, 0.3), 0.6), alpha: 1)
-        }
+        let small = ci.applyingFilter("CILanczosScaleTransform", parameters: [
+            kCIInputScaleKey: 32 / max(ci.extent.width, ci.extent.height),
+            kCIInputAspectRatioKey: 1,
+        ])
+        let out = small.clampedToExtent()
+            .applyingGaussianBlur(sigma: 2)
+            .applyingFilter("CIColorControls", parameters: [kCIInputSaturationKey: 1.8])
+            .cropped(to: small.extent)
+        guard let res = CIContext().createCGImage(out, from: out.extent) else { return nil }
+        return UIImage(cgImage: res)
     }
 }
 

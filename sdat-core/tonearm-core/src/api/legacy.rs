@@ -362,6 +362,7 @@ pub struct TrackItemData {
     pub allow_streaming: bool,
     #[serde(deserialize_with = "de_null_default")]
     pub artists: Vec<ArtistItemData>,
+    pub bpm: Option<f64>,
     #[serde(deserialize_with = "de_null_default")]
     pub duration: i64,
     pub explicit: bool,

@@ -3,13 +3,16 @@ import SwiftUI
 /// Full player. Swipe left (or tap the queue hint) for the queue.
 struct PlayerSheet: View {
     @Environment(Player.self) private var player
+    @Environment(\.scenePhase) private var phase
     @State private var page = 0
+    @State private var systemLight = false
 
     var body: some View {
         // Read in body so Observation re-renders this view when either flag changes.
         let showLive = Live.shared.showSheet && Chrome.shared.showPlayer
         ZStack {
-            CoverBackdrop(url: player.current?.album?.coverUrlLarge ?? player.current?.album?.coverUrl, animated: player.isPlaying)
+            CoverBackdrop(url: player.current?.album?.coverUrlLarge ?? player.current?.album?.coverUrl,
+                          animated: player.isPlaying, bpm: player.current?.bpm, light: systemLight)
                 .ignoresSafeArea()
             TabView(selection: $page) {
                 NowPlayingPage(showQueue: { withAnimation { page = 1 } }).tag(0)
@@ -25,6 +28,12 @@ struct PlayerSheet: View {
         .presentationDragIndicator(.visible)
         .presentationBackground(.black)
         .preferredColorScheme(.dark)
+        // The app forces dark, which hides the iPhone's setting from the environment; the screen's
+        // traits still carry it. Toggling it in Control Center makes the app inactive, then active.
+        .onChange(of: phase, initial: true) {
+            let screen = UIApplication.shared.connectedScenes.compactMap { ($0 as? UIWindowScene)?.screen }.first
+            systemLight = screen?.traitCollection.userInterfaceStyle == .light
+        }
     }
 }
 

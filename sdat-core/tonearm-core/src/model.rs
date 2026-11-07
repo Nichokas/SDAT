@@ -223,6 +223,7 @@ pub struct TrackInfo {
     pub duration: Duration,
     pub flags: TrackFlag,
     pub streamable: bool,
+    pub bpm: Option<f64>,
 }
 
 impl TrackInfo {
@@ -449,6 +450,7 @@ pub fn track_info_from_openapi(t: &openapi::Track) -> TrackInfo {
         duration: a.duration,
         flags: TrackFlag(flags),
         streamable: a.availability.iter().any(|x| x == openapi::TRACK_AVAILABILITY_STREAM),
+        bpm: (a.bpm > 0.0).then_some(a.bpm),
     }
 }
 
@@ -533,6 +535,7 @@ pub fn track_from_v2(t: &legacy::TrackItemData) -> Track {
             duration: Duration::from_secs(t.duration.max(0) as u64),
             flags: TrackFlag(flags),
             streamable: t.allow_streaming,
+            bpm: t.bpm.filter(|b| *b > 0.0),
         },
         artists: t.artists.iter().map(artist_from_v2).collect(),
         album: Some(AlbumInfo {
@@ -584,6 +587,17 @@ mod tests {
         assert_eq!(t.formatted_title(), "Song (Live)");
         t.flags = TrackFlag(TrackFlag::AI | TrackFlag::EXPLICIT);
         assert_eq!(t.formatted_title(), "Song \u{1F170} \u{1F174}");
+    }
+    #[test]
+    fn bpm_is_none_when_unknown() {
+        let v1 = |j: &str| track_from_v2(&serde_json::from_str::<legacy::TrackItemData>(j).unwrap()).info.bpm;
+        assert_eq!(v1(r#"{"id":1,"bpm":128}"#), Some(128.0));
+        assert_eq!(v1(r#"{"id":1,"bpm":null}"#), None);
+        assert_eq!(v1(r#"{"id":1}"#), None);
+        let mut t = openapi::Track::default();
+        assert_eq!(track_info_from_openapi(&t).bpm, None);
+        t.data.attributes.bpm = 94.0;
+        assert_eq!(track_info_from_openapi(&t).bpm, Some(94.0));
     }
 }
 
