@@ -248,11 +248,12 @@ struct DetailPage: View {
 }
 
 /// The cover itself, zoomed in and blurred into colour fields that turn and breathe with the
-/// track's tempo while `animated`.
+/// track's tempo while `animated`. `light` washes it lighter instead of darker.
 struct CoverBackdrop: View {
     let url: String?
     var animated = false
     var bpm: Double?
+    var light = false
     @State private var art: UIImage?
     // Phase is counted in beats and only advances while animated, so pausing or a new tempo
     // changes the speed instead of making the backdrop jump.
@@ -282,12 +283,12 @@ struct CoverBackdrop: View {
                         .frame(width: g.size.width, height: g.size.height)
                         .clipped()
                         .blur(radius: 50, opaque: true)
-                        .overlay(Color.black.opacity(0.22 - 0.07 * breath))
+                        .overlay(light ? Color.white.opacity(0.14 + 0.05 * breath) : Color.black.opacity(0.32 - 0.07 * breath))
                     }
                 }
                 .transition(.opacity)
             }
-            LinearGradient(colors: [.clear, .black.opacity(0.45)], startPoint: .center, endPoint: .bottom)
+            LinearGradient(colors: [.clear, .black.opacity(light ? 0.35 : 0.55)], startPoint: .center, endPoint: .bottom)
         }
         .ignoresSafeArea()
         .animation(.easeInOut(duration: 0.8), value: art)
