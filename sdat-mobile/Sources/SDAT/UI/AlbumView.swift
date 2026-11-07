@@ -295,8 +295,13 @@ struct CoverBackdrop: View {
         .onChange(of: animated, initial: true) { fold() }
         .onChange(of: bpm) { fold() }
         .task(id: url) {
-            guard let url, let img = await ImageStore.shared.image(url) else { return }
-            art = await Task.detached { BackdropArt.render(img) }.value
+            // The old art stays up while the new one loads, so covers crossfade instead of flashing black.
+            var next: UIImage?
+            if let url, let img = await ImageStore.shared.image(url) {
+                next = await Task.detached { BackdropArt.render(img) }.value
+            }
+            // A load for the previous cover can finish after this task was replaced.
+            if !Task.isCancelled { art = next }
         }
     }
 
