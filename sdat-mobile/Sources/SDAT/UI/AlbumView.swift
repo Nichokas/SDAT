@@ -247,67 +247,69 @@ struct DetailPage: View {
     }
 }
 
-/// Smooth, dark backdrop with the cover's colours.
+/// The cover itself, blurred and saturated, slowly turning while `animated`.
 struct CoverBackdrop: View {
     let url: String?
     var animated = false
-    @State private var colors: [Color] = []
+    @State private var art: UIImage?
+    // Spin time only advances while animated, so pausing freezes the backdrop instead of snapping it.
+    @State private var spun: TimeInterval = 0
+    @State private var runStart: Date?
 
     var body: some View {
         ZStack {
             Color.black
-            if colors.count == 4 {
-                TimelineView(.animation(minimumInterval: 1 / 30, paused: !animated)) { ctx in
-                    let t = animated ? ctx.date.timeIntervalSinceReferenceDate : 0
-                    let dx = Float(sin(t * 0.25)) * 0.12, dy = Float(cos(t * 0.2)) * 0.12
-                    MeshGradient(width: 3, height: 3, points: [
-                        [0, 0], [0.5, 0], [1, 0],
-                        [0, 0.5], [0.5 + dx, 0.45 + dy], [1, 0.5],
-                        [0, 1], [0.5, 1], [1, 1],
-                    ], colors: [
-                        colors[0], colors[1], colors[1],
-                        colors[2], mix(colors[0], colors[3]), colors[1],
-                        colors[3], colors[2], colors[3],
-                    ], smoothsColors: true)
+            if let art {
+                GeometryReader { g in
+                    // Wider than the screen diagonal so the turning squares never show a corner.
+                    let side = hypot(g.size.width, g.size.height) * 1.25
+                    TimelineView(.animation(minimumInterval: 1 / 30, paused: !animated)) { ctx in
+                        let t = spun + max(0, runStart.map { ctx.date.timeIntervalSince($0) } ?? 0)
+                        ZStack {
+                            Image(uiImage: art).resizable().frame(width: side, height: side)
+                                .rotationEffect(.degrees(t * 7))
+                            Image(uiImage: art).resizable().frame(width: side * 0.9, height: side * 0.9)
+                                .rotationEffect(.degrees(180 - t * 11))
+                                .offset(x: sin(t * 0.3) * 40, y: cos(t * 0.25) * 60)
+                                .opacity(0.6)
+                        }
+                        .frame(width: g.size.width, height: g.size.height)
+                        .clipped()
+                        .blur(radius: 24, opaque: true)
+                    }
                 }
                 .transition(.opacity)
             }
-            LinearGradient(colors: [.black.opacity(0.15), .black.opacity(0.55), .black.opacity(0.9)], startPoint: .top, endPoint: .bottom)
+            Color.black.opacity(0.2)
+            LinearGradient(colors: [.clear, .black.opacity(0.45)], startPoint: .center, endPoint: .bottom)
         }
         .ignoresSafeArea()
-        .animation(.easeInOut(duration: 0.8), value: colors)
+        .animation(.easeInOut(duration: 0.8), value: art)
+        .onChange(of: animated, initial: true) {
+            if animated { runStart = .now } else if let s = runStart { spun += Date.now.timeIntervalSince(s); runStart = nil }
+        }
         .task(id: url) {
             guard let url, let img = await ImageStore.shared.image(url) else { return }
-            let c = await Task.detached { CoverColors.palette(img) }.value
-            colors = c.map { Color(uiColor: $0) }
+            art = await Task.detached { BackdropArt.render(img) }.value
         }
     }
-
-    private func mix(_ a: Color, _ b: Color) -> Color { a.mix(with: b, by: 0.5) }
 }
 
-enum CoverColors {
-    /// Four quadrant averages, saturation/brightness clamped so they stay rich but dark.
-    static func palette(_ image: UIImage) -> [UIColor] {
-        guard let cg = image.cgImage else { return [] }
+enum BackdropArt {
+    /// A 64 px blurred copy: scaled up it reads as smooth colour and is cheap to redraw every frame.
+    static func render(_ image: UIImage) -> UIImage? {
+        guard let cg = image.cgImage else { return nil }
         let ci = CIImage(cgImage: cg)
-        let ctx = CIContext(options: [.workingColorSpace: NSNull()])
-        let e = ci.extent
-        let rects = [
-            CGRect(x: e.minX, y: e.midY, width: e.width / 2, height: e.height / 2),
-            CGRect(x: e.midX, y: e.midY, width: e.width / 2, height: e.height / 2),
-            CGRect(x: e.minX, y: e.minY, width: e.width / 2, height: e.height / 2),
-            CGRect(x: e.midX, y: e.minY, width: e.width / 2, height: e.height / 2),
-        ]
-        return rects.map { r in
-            let f = CIFilter(name: "CIAreaAverage", parameters: [kCIInputImageKey: ci, kCIInputExtentKey: CIVector(cgRect: r)])!
-            var px = [UInt8](repeating: 0, count: 4)
-            ctx.render(f.outputImage!, toBitmap: &px, rowBytes: 4, bounds: CGRect(x: 0, y: 0, width: 1, height: 1), format: .RGBA8, colorSpace: nil)
-            var h: CGFloat = 0, s: CGFloat = 0, b: CGFloat = 0, a: CGFloat = 0
-            UIColor(red: CGFloat(px[0]) / 255, green: CGFloat(px[1]) / 255, blue: CGFloat(px[2]) / 255, alpha: 1)
-                .getHue(&h, saturation: &s, brightness: &b, alpha: &a)
-            return UIColor(hue: h, saturation: min(max(s * 1.1, 0.25), 0.75), brightness: min(max(b, 0.3), 0.6), alpha: 1)
-        }
+        let small = ci.applyingFilter("CILanczosScaleTransform", parameters: [
+            kCIInputScaleKey: 64 / max(ci.extent.width, ci.extent.height),
+            kCIInputAspectRatioKey: 1,
+        ])
+        let out = small.clampedToExtent()
+            .applyingGaussianBlur(sigma: 3)
+            .applyingFilter("CIColorControls", parameters: [kCIInputSaturationKey: 1.8])
+            .cropped(to: small.extent)
+        guard let res = CIContext().createCGImage(out, from: out.extent) else { return nil }
+        return UIImage(cgImage: res)
     }
 }
 
