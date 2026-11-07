@@ -248,17 +248,19 @@ struct DetailPage: View {
 }
 
 /// The cover itself, zoomed in and blurred into colour fields that turn and breathe with the
-/// track's tempo while `animated`. `light` washes it lighter instead of darker.
+/// track's tempo while `animated` (still under Reduce Motion). `light` washes it lighter instead of darker.
 struct CoverBackdrop: View {
     let url: String?
     var animated = false
     var bpm: Double?
     var light = false
     @State private var art: UIImage?
-    // Phase is counted in beats and only advances while animated, so pausing or a new tempo
+    // Phase is counted in beats and only advances while moving, so pausing or a new tempo
     // changes the speed instead of making the backdrop jump.
     @State private var beats: Double = 0
     @State private var run: (start: Date, beatsPerSecond: Double)?
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    private var moving: Bool { animated && !reduceMotion }
 
     var body: some View {
         ZStack {
@@ -268,7 +270,7 @@ struct CoverBackdrop: View {
                     // Well past the screen diagonal: only the cover's centre shows, never a corner.
                     let side = hypot(g.size.width, g.size.height) * 2.2
                     // The full-screen blur is the per-frame cost; under 1° of turn per frame, 20 fps looks as smooth as 30.
-                    TimelineView(.animation(minimumInterval: 1 / 20, paused: !animated)) { ctx in
+                    TimelineView(.animation(minimumInterval: 1 / 20, paused: !moving)) { ctx in
                         let b = beats + (run.map { max(0, ctx.date.timeIntervalSince($0.start)) * $0.beatsPerSecond } ?? 0)
                         // One slow breath per 4-beat bar: TIDAL gives the tempo but not where the beats fall.
                         let breath = 0.5 - 0.5 * cos(b * .pi / 2)
@@ -295,7 +297,7 @@ struct CoverBackdrop: View {
         }
         .ignoresSafeArea()
         .animation(.easeInOut(duration: 0.8), value: art)
-        .onChange(of: animated, initial: true) { fold() }
+        .onChange(of: moving, initial: true) { fold() }
         .onChange(of: bpm) { fold() }
         .task(id: url) {
             // The old art stays up while the new one loads, so covers crossfade instead of flashing black.
@@ -311,10 +313,10 @@ struct CoverBackdrop: View {
     /// Clamped so very fast or very slow tracks still move calmly; unknown tempo moves like 100 BPM.
     private static func beatsPerSecond(_ bpm: Double?) -> Double { min(max(bpm ?? 100, 60), 160) / 60 }
 
-    /// Banks the beats played so far at the tempo they ran at, then restarts the clock if still animated.
+    /// Banks the beats played so far at the tempo they ran at, then restarts the clock if still moving.
     private func fold() {
         if let run { beats += Date.now.timeIntervalSince(run.start) * run.beatsPerSecond }
-        run = animated ? (Date.now, Self.beatsPerSecond(bpm)) : nil
+        run = moving ? (Date.now, Self.beatsPerSecond(bpm)) : nil
     }
 }
 
