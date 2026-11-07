@@ -84,7 +84,7 @@ class Playback(context: Context, private val quality: () -> Quality) {
     /** Tapping a Discover cover: that song, the rest of the visible pool, then the endless Discover shuffle. */
     fun playDiscover(t: Track, pool: List<Track>, mixes: List<Mix>) {
         queue.discover(t, pool.filter { it.streamable })
-        replaceInfinite(if (mixes.isEmpty()) null else Shuffle(mixes))
+        replaceInfinite(Shuffle(mixes))
         start(t)
     }
 
