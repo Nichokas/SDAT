@@ -247,65 +247,79 @@ struct DetailPage: View {
     }
 }
 
-/// The cover itself, blurred and saturated, slowly turning while `animated`.
+/// The cover itself, zoomed in and blurred into colour fields that turn and breathe with the
+/// track's tempo while `animated`.
 struct CoverBackdrop: View {
     let url: String?
     var animated = false
+    var bpm: Double?
     @State private var art: UIImage?
-    // Spin time only advances while animated, so pausing freezes the backdrop instead of snapping it.
-    @State private var spun: TimeInterval = 0
-    @State private var runStart: Date?
+    // Phase is counted in beats and only advances while animated, so pausing or a new tempo
+    // changes the speed instead of making the backdrop jump.
+    @State private var beats: Double = 0
+    @State private var run: (start: Date, beatsPerSecond: Double)?
 
     var body: some View {
         ZStack {
             Color.black
             if let art {
                 GeometryReader { g in
-                    // Wider than the screen diagonal so the turning squares never show a corner.
-                    let side = hypot(g.size.width, g.size.height) * 1.25
+                    // Well past the screen diagonal: only the cover's centre shows, never a corner.
+                    let side = hypot(g.size.width, g.size.height) * 2.2
                     TimelineView(.animation(minimumInterval: 1 / 30, paused: !animated)) { ctx in
-                        let t = spun + max(0, runStart.map { ctx.date.timeIntervalSince($0) } ?? 0)
+                        let b = beats + (run.map { max(0, ctx.date.timeIntervalSince($0.start)) * $0.beatsPerSecond } ?? 0)
+                        // One slow breath per 4-beat bar: TIDAL gives the tempo but not where the beats fall.
+                        let breath = 0.5 - 0.5 * cos(b * .pi / 2)
                         ZStack {
                             Image(uiImage: art).resizable().frame(width: side, height: side)
-                                .rotationEffect(.degrees(t * 7))
+                                .rotationEffect(.degrees(b * 4.5))
                             Image(uiImage: art).resizable().frame(width: side * 0.9, height: side * 0.9)
-                                .rotationEffect(.degrees(180 - t * 11))
-                                .offset(x: sin(t * 0.3) * 40, y: cos(t * 0.25) * 60)
+                                .rotationEffect(.degrees(180 - b * 7))
+                                .offset(x: sin(b * 0.18) * 40, y: cos(b * 0.15) * 60)
                                 .opacity(0.6)
                         }
+                        .scaleEffect(1 + 0.06 * breath)
                         .frame(width: g.size.width, height: g.size.height)
                         .clipped()
-                        .blur(radius: 24, opaque: true)
+                        .blur(radius: 50, opaque: true)
+                        .overlay(Color.black.opacity(0.22 - 0.07 * breath))
                     }
                 }
                 .transition(.opacity)
             }
-            Color.black.opacity(0.2)
             LinearGradient(colors: [.clear, .black.opacity(0.45)], startPoint: .center, endPoint: .bottom)
         }
         .ignoresSafeArea()
         .animation(.easeInOut(duration: 0.8), value: art)
-        .onChange(of: animated, initial: true) {
-            if animated { runStart = .now } else if let s = runStart { spun += Date.now.timeIntervalSince(s); runStart = nil }
-        }
+        .onChange(of: animated, initial: true) { fold() }
+        .onChange(of: bpm) { fold() }
         .task(id: url) {
             guard let url, let img = await ImageStore.shared.image(url) else { return }
             art = await Task.detached { BackdropArt.render(img) }.value
         }
     }
+
+    /// Clamped so very fast or very slow tracks still move calmly; unknown tempo moves like 100 BPM.
+    private static func beatsPerSecond(_ bpm: Double?) -> Double { min(max(bpm ?? 100, 60), 160) / 60 }
+
+    /// Banks the beats played so far at the tempo they ran at, then restarts the clock if still animated.
+    private func fold() {
+        if let run { beats += Date.now.timeIntervalSince(run.start) * run.beatsPerSecond }
+        run = animated ? (Date.now, Self.beatsPerSecond(bpm)) : nil
+    }
 }
 
 enum BackdropArt {
-    /// A 64 px blurred copy: scaled up it reads as smooth colour and is cheap to redraw every frame.
+    /// A 32 px blurred copy: scaled up it reads as smooth colour and is cheap to redraw every frame.
     static func render(_ image: UIImage) -> UIImage? {
         guard let cg = image.cgImage else { return nil }
         let ci = CIImage(cgImage: cg)
         let small = ci.applyingFilter("CILanczosScaleTransform", parameters: [
-            kCIInputScaleKey: 64 / max(ci.extent.width, ci.extent.height),
+            kCIInputScaleKey: 32 / max(ci.extent.width, ci.extent.height),
             kCIInputAspectRatioKey: 1,
         ])
         let out = small.clampedToExtent()
-            .applyingGaussianBlur(sigma: 3)
+            .applyingGaussianBlur(sigma: 2)
             .applyingFilter("CIColorControls", parameters: [kCIInputSaturationKey: 1.8])
             .cropped(to: small.extent)
         guard let res = CIContext().createCGImage(out, from: out.extent) else { return nil }

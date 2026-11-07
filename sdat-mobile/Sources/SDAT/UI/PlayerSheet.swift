@@ -9,7 +9,8 @@ struct PlayerSheet: View {
         // Read in body so Observation re-renders this view when either flag changes.
         let showLive = Live.shared.showSheet && Chrome.shared.showPlayer
         ZStack {
-            CoverBackdrop(url: player.current?.album?.coverUrlLarge ?? player.current?.album?.coverUrl, animated: player.isPlaying)
+            CoverBackdrop(url: player.current?.album?.coverUrlLarge ?? player.current?.album?.coverUrl,
+                          animated: player.isPlaying, bpm: player.current?.bpm)
                 .ignoresSafeArea()
             TabView(selection: $page) {
                 NowPlayingPage(showQueue: { withAnimation { page = 1 } }).tag(0)
