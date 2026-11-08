@@ -2,6 +2,7 @@ package com.nichokas.sdat.core
 
 import android.content.Context
 import android.net.Uri
+import androidx.annotation.OptIn
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
@@ -13,6 +14,7 @@ import androidx.media3.common.MediaMetadata
 import androidx.media3.common.MimeTypes
 import androidx.media3.common.PlaybackException
 import androidx.media3.common.Player
+import androidx.media3.common.util.UnstableApi
 import androidx.media3.exoplayer.ExoPlayer
 import com.google.common.util.concurrent.Futures
 import com.google.common.util.concurrent.ListenableFuture
@@ -31,6 +33,8 @@ import uniffi.tonearm_ffi.stream
 
 /** The app's single player: the iOS Player's Discover queue, one track at a time from the core's stream URL.
  * Reads [quality] per request so a change in Settings applies to the next track. */
+// ForwardingSimpleBasePlayer, which the session player is built on, is still marked unstable.
+@OptIn(UnstableApi::class)
 class Playback(context: Context, private val quality: () -> Quality) {
     private val scope = MainScope()
     private val player = ExoPlayer.Builder(context)
