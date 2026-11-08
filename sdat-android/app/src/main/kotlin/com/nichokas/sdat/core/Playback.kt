@@ -151,6 +151,7 @@ class Playback(context: Context, private val quality: () -> Quality) {
         // Like a skip to a queued track: the old one goes quiet, and a play or pause tapped while the refill loads
         // decides how the next one starts.
         if (!auto) {
+            request?.cancel()
             player.stop()
             player.playWhenReady = true
         }
@@ -161,7 +162,12 @@ class Playback(context: Context, private val quality: () -> Quality) {
             fetching = false
             // A Replay tapped during the fetch wins; that track's next end advances again.
             if (auto && player.playbackState != Player.STATE_ENDED) return@launch
-            if (more) advance(auto, play = player.playWhenReady) else stopAtEnd()
+            when {
+                more -> advance(auto, play = player.playWhenReady)
+                auto -> stopAtEnd()
+                // The skip found nothing; the player may hold a stale item, so the track is loaded again, paused.
+                else -> from?.let { start(it, play = false) }
+            }
         }
     }
 
@@ -169,8 +175,6 @@ class Playback(context: Context, private val quality: () -> Quality) {
     private fun stopAtEnd() {
         player.pause()
         player.seekToDefaultPosition()
-        // A skip that found nothing left the track stopped; it must be prepared to play again.
-        player.prepare()
     }
 
     private fun refillIfNeeded() {
