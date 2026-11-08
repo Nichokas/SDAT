@@ -133,20 +133,21 @@ class Playback(context: Context, private val quality: () -> Quality) {
             player.seekTo(0)
         } else {
             queue.index = i - 1
-            start(queue.current!!)
+            queue.current?.let { start(it) }
         }
     }
 
-    private fun advance(auto: Boolean) {
+    private fun advance(auto: Boolean, play: Boolean = true) {
         val t = queue.next
         if (t != null) {
             queue.index = queue.index!! + 1
-            start(t)
+            start(t, play)
             return
         }
         // Endless queue ran dry before the refill landed: fetch, then go on.
         val source = infinite ?: return stopAtEnd()
         val from = track
+        val wasPlaying = player.playWhenReady
         fetching = true
         scope.launch {
             val more = fetchMore(source)
@@ -155,7 +156,8 @@ class Playback(context: Context, private val quality: () -> Quality) {
             fetching = false
             // A Replay tapped during the fetch wins; that track's next end advances again.
             if (auto && player.playbackState != Player.STATE_ENDED) return@launch
-            if (more) advance(auto) else stopAtEnd()
+            // A pause tapped during the fetch holds; Next from a paused track still plays, as it does without a fetch.
+            if (more) advance(auto, play = player.playWhenReady || !wasPlaying) else stopAtEnd()
         }
     }
 
