@@ -1,16 +1,21 @@
 package com.nichokas.sdat.core
 
 import android.content.Context
+import android.net.Uri
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.media3.common.AudioAttributes
 import androidx.media3.common.C
+import androidx.media3.common.ForwardingSimpleBasePlayer
 import androidx.media3.common.MediaItem
+import androidx.media3.common.MediaMetadata
 import androidx.media3.common.MimeTypes
 import androidx.media3.common.PlaybackException
 import androidx.media3.common.Player
 import androidx.media3.exoplayer.ExoPlayer
+import com.google.common.util.concurrent.Futures
+import com.google.common.util.concurrent.ListenableFuture
 import kotlin.coroutines.cancellation.CancellationException
 import kotlinx.coroutines.Deferred
 import kotlinx.coroutines.Job
@@ -56,6 +61,31 @@ class Playback(context: Context, private val quality: () -> Quality) {
     val progress get() = progress(position, duration)
     private var ticker: Job? = null
 
+    /** What the MediaSession drives: the player, with next/previous going through this queue (ExoPlayer only ever
+     * holds the current track). */
+    val sessionPlayer: Player = object : ForwardingSimpleBasePlayer(player) {
+        override fun getState(): State {
+            val state = super.getState()
+            return state.buildUpon().setAvailableCommands(state.availableCommands.buildUpon().addAll(*queueCommands).build()).build()
+        }
+
+        override fun handleSeek(mediaItemIndex: Int, positionMs: Long, seekCommand: Int): ListenableFuture<*> {
+            when (seekCommand) {
+                Player.COMMAND_SEEK_TO_NEXT, Player.COMMAND_SEEK_TO_NEXT_MEDIA_ITEM -> next()
+                Player.COMMAND_SEEK_TO_PREVIOUS, Player.COMMAND_SEEK_TO_PREVIOUS_MEDIA_ITEM -> previous()
+                else -> return super.handleSeek(mediaItemIndex, positionMs, seekCommand)
+            }
+            return Futures.immediateVoidFuture()
+        }
+
+        // The session prepares a stopped player when play is pressed. Stopped means the stream failed, and the
+        // item left in the player may still be the previous track's stream, so start the current track afresh.
+        override fun handlePrepare(): ListenableFuture<*> {
+            if (!fetching) track?.let(::start)
+            return Futures.immediateVoidFuture()
+        }
+    }
+
     init {
         player.addListener(object : Player.Listener {
             // The requested state, so the icon matches what a tap does even while audio focus suppresses output.
@@ -72,7 +102,7 @@ class Playback(context: Context, private val quality: () -> Quality) {
 
             override fun onPlaybackStateChanged(state: Int) {
                 buffering = state == Player.STATE_BUFFERING
-                if (state == Player.STATE_ENDED) advance()
+                if (state == Player.STATE_ENDED) advance(auto = true)
             }
 
             override fun onPlayerError(e: PlaybackException) {
@@ -88,7 +118,21 @@ class Playback(context: Context, private val quality: () -> Quality) {
         start(t)
     }
 
-    private fun advance() {
+    fun next() {
+        if (track != null) advance(auto = false)
+    }
+
+    fun previous() {
+        val i = queue.index ?: return
+        if (restartsOnPrevious(position, i)) {
+            player.seekTo(0)
+        } else {
+            queue.index = i - 1
+            start(queue.current!!)
+        }
+    }
+
+    private fun advance(auto: Boolean) {
         val t = queue.next
         if (t != null) {
             queue.index = queue.index!! + 1
@@ -103,8 +147,8 @@ class Playback(context: Context, private val quality: () -> Quality) {
             if (infinite !== source) return@launch
             fetching = false
             // A Replay tapped during the fetch wins; that track's next end advances again.
-            if (player.playbackState != Player.STATE_ENDED) return@launch
-            if (more) advance() else stopAtEnd()
+            if (auto && player.playbackState != Player.STATE_ENDED) return@launch
+            if (more) advance(auto) else stopAtEnd()
         }
     }
 
@@ -151,6 +195,8 @@ class Playback(context: Context, private val quality: () -> Quality) {
     }
 
     private fun tick() {
+        // The player keeps the previous track's item until the new stream URL arrives, or if fetching it failed.
+        if (fetching || player.currentMediaItem?.mediaId != track?.id) return
         position = player.currentPosition / 1000.0
         if (player.duration != C.TIME_UNSET && player.duration > 0) duration = player.duration / 1000.0
     }
@@ -159,19 +205,20 @@ class Playback(context: Context, private val quality: () -> Quality) {
         request?.cancel()
         position = 0.0
         duration = t.durationSecs.toDouble()
-        // Cleared, not just stopped, so tick() can't read the previous item's duration while the URL loads.
+        fetching = true
+        // Stopped, not cleared: an empty player drops the media notification and with it the foreground service,
+        // which can't be started again while the app is in the background.
         player.stop()
-        player.clearMediaItems()
+        player.currentMediaItem?.let { player.replaceMediaItem(player.currentMediaItemIndex, it.buildUpon().setMediaMetadata(metadata(t)).build()) }
         track = t
         error = null
-        fetching = true
         // Requested before the fetch so a pause tapped while the URL loads still holds after prepare().
         player.playWhenReady = true
         request = scope.launch {
             try {
                 val url = stream(t.id, quality()).url
                 // The core only hands out HLS manifests.
-                player.setMediaItem(MediaItem.Builder().setUri(url).setMimeType(MimeTypes.APPLICATION_M3U8).build())
+                player.setMediaItem(MediaItem.Builder().setMediaId(t.id).setUri(url).setMimeType(MimeTypes.APPLICATION_M3U8).setMediaMetadata(metadata(t)).build())
                 player.prepare()
                 fetching = false
                 refillIfNeeded()
@@ -213,7 +260,24 @@ class Playback(context: Context, private val quality: () -> Quality) {
     }
 }
 
+private val queueCommands = intArrayOf(
+    Player.COMMAND_SEEK_TO_NEXT,
+    Player.COMMAND_SEEK_TO_NEXT_MEDIA_ITEM,
+    Player.COMMAND_SEEK_TO_PREVIOUS,
+    Player.COMMAND_SEEK_TO_PREVIOUS_MEDIA_ITEM,
+)
+
+private fun metadata(t: Track) = MediaMetadata.Builder()
+    .setTitle(t.displayTitle)
+    .setArtist(t.artistLine)
+    .setAlbumTitle(t.album?.title)
+    .setArtworkUri(t.album?.coverUrlLarge?.let(Uri::parse))
+    .build()
+
 internal fun progress(position: Double, duration: Double) = if (duration > 0) minOf(position / duration, 1.0) else 0.0
+
+/** Like iOS: past 3 s, or on the first track, previous goes back to its start; otherwise to the track before. */
+internal fun restartsOnPrevious(position: Double, index: Int) = position > 3 || index == 0
 
 internal enum class Tap { Retry, Replay, Pause, Resume }
 

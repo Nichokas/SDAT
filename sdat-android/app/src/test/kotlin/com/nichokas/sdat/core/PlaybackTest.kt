@@ -1,6 +1,8 @@
 package com.nichokas.sdat.core
 
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class PlaybackTest {
@@ -15,6 +17,12 @@ class PlaybackTest {
     @Test fun pausesWhileBufferingAndResumesWhenPaused() {
         assertEquals(Tap.Pause, tapAction(failed = false, ended = false, playWhenReady = true))
         assertEquals(Tap.Resume, tapAction(failed = false, ended = false, playWhenReady = false))
+    }
+
+    @Test fun previousRestartsPastThreeSecondsOrOnTheFirstTrack() {
+        assertTrue(restartsOnPrevious(position = 3.5, index = 2))
+        assertTrue(restartsOnPrevious(position = 0.0, index = 0))
+        assertFalse(restartsOnPrevious(position = 3.0, index = 2))
     }
 
     @Test fun progressIsPositionOverDurationCappedAtOne() {
