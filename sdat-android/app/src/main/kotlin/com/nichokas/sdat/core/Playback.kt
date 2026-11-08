@@ -70,6 +70,7 @@ class Playback(context: Context, private val quality: () -> Quality) {
     val sessionPlayer: Player = object : ForwardingSimpleBasePlayer(player) {
         override fun getState(): State {
             val state = super.getState()
+            if (state.playlist.isEmpty()) return state
             return state.buildUpon().setAvailableCommands(state.availableCommands.buildUpon().addAll(*queueCommands).build()).build()
         }
 
@@ -85,7 +86,7 @@ class Playback(context: Context, private val quality: () -> Quality) {
         // The session prepares a stopped player when play is pressed. Stopped means the stream failed, and the
         // item left in the player may still be the previous track's stream, so start the current track afresh.
         override fun handlePrepare(): ListenableFuture<*> {
-            if (!fetching) track?.let(::start)
+            if (!fetching) track?.let { start(it, play = player.playWhenReady) }
             return Futures.immediateVoidFuture()
         }
     }
@@ -145,10 +146,12 @@ class Playback(context: Context, private val quality: () -> Quality) {
         }
         // Endless queue ran dry before the refill landed: fetch, then go on.
         val source = infinite ?: return stopAtEnd()
+        val from = track
         fetching = true
         scope.launch {
             val more = fetchMore(source)
-            if (infinite !== source) return@launch
+            // A track picked during the fetch owns playback now.
+            if (infinite !== source || track !== from) return@launch
             fetching = false
             // A Replay tapped during the fetch wins; that track's next end advances again.
             if (auto && player.playbackState != Player.STATE_ENDED) return@launch
@@ -205,7 +208,7 @@ class Playback(context: Context, private val quality: () -> Quality) {
         if (player.duration != C.TIME_UNSET && player.duration > 0) duration = player.duration / 1000.0
     }
 
-    private fun start(t: Track) {
+    private fun start(t: Track, play: Boolean = true) {
         request?.cancel()
         position = 0.0
         duration = t.durationSecs.toDouble()
@@ -217,7 +220,7 @@ class Playback(context: Context, private val quality: () -> Quality) {
         track = t
         error = null
         // Requested before the fetch so a pause tapped while the URL loads still holds after prepare().
-        player.playWhenReady = true
+        player.playWhenReady = play
         request = scope.launch {
             try {
                 val url = stream(t.id, quality()).url

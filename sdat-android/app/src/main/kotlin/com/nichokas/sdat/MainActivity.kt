@@ -20,6 +20,7 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         enableEdgeToEdge()
         super.onCreate(savedInstanceState)
+        controller = MediaController.Builder(this, SessionToken(this, ComponentName(this, PlaybackService::class.java))).buildAsync()
         setContent {
             GlasmioTheme(typography = glasmioTypography(inter)) {
                 GlasmioIconProvider { (application as SdatApp).let { RootView(it.session, it.playback, it.prefs, it.secrets) } }
@@ -27,16 +28,12 @@ class MainActivity : ComponentActivity() {
         }
     }
 
-    // A connected controller is what creates PlaybackService; once playback starts the service keeps itself in the
-    // foreground, so releasing it when the activity stops does not stop the music.
-    override fun onStart() {
-        super.onStart()
-        controller = MediaController.Builder(this, SessionToken(this, ComponentName(this, PlaybackService::class.java))).buildAsync()
-    }
-
-    override fun onStop() {
+    // A connected controller is what creates PlaybackService, and the service goes foreground only once a stream
+    // buffers. Held until destroy, not stop, so a first track still fetching when the app is backgrounded keeps its
+    // service; once playing, the service keeps itself in the foreground.
+    override fun onDestroy() {
         controller?.let(MediaController::releaseFuture)
         controller = null
-        super.onStop()
+        super.onDestroy()
     }
 }
