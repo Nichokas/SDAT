@@ -147,8 +147,13 @@ class Playback(context: Context, private val quality: () -> Quality) {
         // Endless queue ran dry before the refill landed: fetch, then go on.
         val source = infinite ?: return stopAtEnd()
         val from = track
-        val wasPlaying = player.playWhenReady
         fetching = true
+        // Like a skip to a queued track: the old one goes quiet, and a play or pause tapped while the refill loads
+        // decides how the next one starts.
+        if (!auto) {
+            player.stop()
+            player.playWhenReady = true
+        }
         scope.launch {
             val more = fetchMore(source)
             // A track picked during the fetch owns playback now.
@@ -156,8 +161,7 @@ class Playback(context: Context, private val quality: () -> Quality) {
             fetching = false
             // A Replay tapped during the fetch wins; that track's next end advances again.
             if (auto && player.playbackState != Player.STATE_ENDED) return@launch
-            // A pause tapped during the fetch holds; Next from a paused track still plays, as it does without a fetch.
-            if (more) advance(auto, play = player.playWhenReady || !wasPlaying) else stopAtEnd()
+            if (more) advance(auto, play = player.playWhenReady) else stopAtEnd()
         }
     }
 
@@ -165,6 +169,8 @@ class Playback(context: Context, private val quality: () -> Quality) {
     private fun stopAtEnd() {
         player.pause()
         player.seekToDefaultPosition()
+        // A skip that found nothing left the track stopped; it must be prepared to play again.
+        player.prepare()
     }
 
     private fun refillIfNeeded() {
