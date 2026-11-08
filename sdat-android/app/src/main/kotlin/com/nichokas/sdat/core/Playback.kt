@@ -83,11 +83,21 @@ class Playback(context: Context, private val quality: () -> Quality) {
             return Futures.immediateVoidFuture()
         }
 
-        // The session prepares a stopped player when play is pressed. Stopped means the stream failed, and the
-        // item left in the player may still be the previous track's stream, so start the current track afresh.
+        // The session prepares a stopped player when play is pressed. Stopped means the stream failed or a controller
+        // stopped it; the item left in the player may still be the previous track's stream, so start the current
+        // track afresh.
         override fun handlePrepare(): ListenableFuture<*> {
             if (!fetching) track?.let { start(it, play = player.playWhenReady) }
             return Futures.immediateVoidFuture()
+        }
+
+        // A stream still being fetched would prepare() and play after the stop; a pending refill starts its track
+        // paused.
+        override fun handleStop(): ListenableFuture<*> {
+            request?.cancel()
+            fetching = false
+            player.playWhenReady = false
+            return super.handleStop()
         }
     }
 
@@ -250,10 +260,11 @@ class Playback(context: Context, private val quality: () -> Quality) {
         }
     }
 
-    /** After a failure there is nothing prepared, so this starts the track again. */
+    /** After a failure or a controller's stop there is nothing prepared, so this starts the track again. */
     fun toggle() {
         val t = track ?: return
-        when (tapAction(error != null, player.playbackState == Player.STATE_ENDED, player.playWhenReady)) {
+        val unprepared = error != null || !fetching && player.playbackState == Player.STATE_IDLE
+        when (tapAction(unprepared, player.playbackState == Player.STATE_ENDED, player.playWhenReady)) {
             Tap.Retry -> start(t)
             Tap.Replay -> {
                 player.seekToDefaultPosition()
@@ -301,8 +312,8 @@ internal fun restartsOnPrevious(position: Double, index: Int) = position > 3 || 
 internal enum class Tap { Retry, Replay, Pause, Resume }
 
 /** Pauses on `playWhenReady`, not `isPlaying`, so a tap while buffering still pauses. */
-internal fun tapAction(failed: Boolean, ended: Boolean, playWhenReady: Boolean) = when {
-    failed -> Tap.Retry
+internal fun tapAction(unprepared: Boolean, ended: Boolean, playWhenReady: Boolean) = when {
+    unprepared -> Tap.Retry
     ended -> Tap.Replay
     playWhenReady -> Tap.Pause
     else -> Tap.Resume
