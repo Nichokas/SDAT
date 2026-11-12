@@ -19,8 +19,8 @@ struct MiniPlayer: View {
         // ONE hierarchy; the parent sizes it from the shared progress, content opacities
         // are computed from that same value (capsule in late, circle out early).
         // Trailing-anchored: the circle's ring sits where the capsule's own ring ends up,
-        // never centred in the growing capsule. Circle content is gone within the first 6%
-        // of the morph (6%); capsule content only appears once the shape is 60% grown.
+        // never centred in the growing capsule. The two contents crossfade on the schedule
+        // in `Morph.outAlpha` / `Morph.inAlpha`.
         // Fixed-size base + overlays: contents can never resize the shape. Before, the
         // ~130 pt capsule content made the flexible frame report 130 pt for a 62 pt circle,
         // pushing it off the right edge with the ring off-centre. The circle content is

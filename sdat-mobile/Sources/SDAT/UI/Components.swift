@@ -83,6 +83,9 @@ struct CachedImage: View {
                 if let img = await ImageStore.shared.image(t) { image = img }
                 // Size missing on the server: fall back to the original URL.
                 else if image == nil, let u = url, u != t, let img = await ImageStore.shared.image(u) { image = img }
+                // Offline, and the download index was not loaded yet on the first check above.
+                if image == nil, let u = url, let f = Downloads.shared.coverFile(forRemote: u),
+                   let img = await ImageStore.shared.image(f.absoluteString, maxPixel: px) { image = img }
             }
     }
 }
