@@ -18,6 +18,7 @@ import androidx.media3.common.util.UnstableApi
 import androidx.media3.exoplayer.ExoPlayer
 import com.google.common.util.concurrent.Futures
 import com.google.common.util.concurrent.ListenableFuture
+import com.nichokas.sdat.ui.TrackPlayer
 import kotlin.coroutines.cancellation.CancellationException
 import kotlinx.coroutines.Deferred
 import kotlinx.coroutines.Job
@@ -28,14 +29,15 @@ import kotlinx.coroutines.launch
 import uniffi.tonearm_ffi.Mix
 import uniffi.tonearm_ffi.Quality
 import uniffi.tonearm_ffi.Shuffle
+import uniffi.tonearm_ffi.Stream
 import uniffi.tonearm_ffi.Track
 import uniffi.tonearm_ffi.stream
 
-/** The app's single player: the iOS Player's Discover queue, one track at a time from the core's stream URL.
+/** The app's single player: the iOS Player's queues, one track at a time from the core's stream URL.
  * Reads [quality] per request so a change in Settings applies to the next track. */
 // ForwardingSimpleBasePlayer, which the session player is built on, is still marked unstable.
 @OptIn(UnstableApi::class)
-class Playback(context: Context, private val quality: () -> Quality) {
+class Playback(context: Context, private val quality: () -> Quality) : TrackPlayer {
     private val scope = MainScope()
     private val player = ExoPlayer.Builder(context)
         .setAudioAttributes(
@@ -49,10 +51,19 @@ class Playback(context: Context, private val quality: () -> Quality) {
     private var infinite: Shuffle? = null
     private var refilling: Deferred<Boolean>? = null
 
-    var track by mutableStateOf<Track?>(null)
-        private set
+    val track get() = queue.current
+    override val current get() = track
     var playing by mutableStateOf(false)
         private set
+    override val isPlaying get() = playing
+    val userQueue get() = queue.userQueue
+    val upNext get() = queue.upNext
+    val shuffle get() = queue.shuffle
+    val repeat get() = queue.repeat
+    val source get() = queue.source
+    /** Keeps the previous track's value until the new stream's real quality is known. */
+    private var shownQuality by mutableStateOf<Quality?>(null)
+    val badgeQuality get() = shownQuality ?: quality()
     private var fetching by mutableStateOf(false)
     private var buffering by mutableStateOf(false)
     val loading get() = fetching || buffering
@@ -126,6 +137,19 @@ class Playback(context: Context, private val quality: () -> Quality) {
         })
     }
 
+    override fun play(tracks: List<Track>, startAt: Int, from: String?) {
+        val t = queue.play(tracks, startAt, from) ?: return
+        replaceInfinite(null)
+        start(t)
+    }
+
+    /** Shuffle buttons; shuffle stays on for later lists, like iOS. */
+    fun playShuffled(tracks: List<Track>, from: String? = null) {
+        val t = queue.playShuffled(tracks, from) ?: return
+        replaceInfinite(null)
+        start(t)
+    }
+
     /** Tapping a Discover cover: that song, the rest of the visible pool, then the endless Discover shuffle. */
     fun playDiscover(t: Track, pool: List<Track>, mixes: List<Mix>) {
         queue.discover(t, pool.filter { it.streamable })
@@ -133,24 +157,73 @@ class Playback(context: Context, private val quality: () -> Quality) {
         start(t)
     }
 
+    /** Discover's shuffle: the endless queue alone. The current track plays on until its first batch arrives. */
+    fun playInfinite(mixes: List<Mix>) {
+        val source = Shuffle(mixes)
+        replaceInfinite(source)
+        // Held as the pending refill, so a refill for the old queue waits for it and a later replace frees the
+        // source only after it returns.
+        val job = scope.async {
+            val batch = try {
+                source.nextBatch(10u).filter { it.streamable }
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                if (infinite === source) error = friendlyMessage(e)
+                return@async false
+            }
+            if (infinite !== source) return@async false
+            queue.startInfinite(batch)?.let { start(it) } != null
+        }
+        refilling = job
+        job.invokeOnCompletion { if (refilling === job) refilling = null }
+    }
+
+    override fun playNext(track: Track) {
+        if (this.track == null) play(listOf(track)) else queue.playNext(track)
+    }
+
+    override fun addToQueue(track: Track) {
+        if (this.track == null) play(listOf(track)) else queue.addToQueue(track)
+    }
+
+    fun jumpToUpNext(offset: Int) {
+        queue.jumpToUpNext(offset)?.let { start(it) }
+    }
+
+    fun jumpToUser(offset: Int) {
+        queue.jumpToUser(offset)?.let { start(it) }
+    }
+
+    fun removeUpNext(offset: Int) = queue.removeUpNext(offset)
+
+    fun removeUser(offset: Int) = queue.removeUser(offset)
+
+    /** An endless queue keeps the source's order. */
+    fun setShuffle(on: Boolean) = queue.setShuffle(on, reorder = infinite == null)
+
+    fun cycleRepeat() = queue.cycleRepeat()
+
     fun next() {
         if (track != null) advance(auto = false)
     }
 
     fun previous() {
         val i = queue.index ?: return
-        if (restartsOnPrevious(position, i)) {
-            player.seekTo(0)
-        } else {
-            queue.index = i - 1
-            queue.current?.let { start(it) }
-        }
+        if (restartsOnPrevious(position, i)) seek(0.0) else queue.select(i - 1)?.let { start(it) }
+    }
+
+    /** Ignored while the stream URL loads: the new item starts from its beginning. */
+    fun seek(secs: Double) {
+        if (track == null || fetching) return
+        val to = clampSeek(secs, duration)
+        player.seekTo((to * 1000).toLong())
+        position = to
     }
 
     private fun advance(auto: Boolean, play: Boolean = true) {
-        val t = queue.next
+        val t = queue.advance(manual = !auto)
         if (t != null) {
-            queue.index = queue.index!! + 1
             start(t, play)
             return
         }
@@ -239,15 +312,15 @@ class Playback(context: Context, private val quality: () -> Quality) {
         // which can't be started again while the app is in the background.
         player.stop()
         player.currentMediaItem?.let { player.replaceMediaItem(player.currentMediaItemIndex, it.buildUpon().setMediaMetadata(metadata(t)).build()) }
-        track = t
         error = null
         // Requested before the fetch so a pause tapped while the URL loads still holds after prepare().
         player.playWhenReady = play
         request = scope.launch {
             try {
-                val url = stream(t.id, quality()).url
+                val s = stream(t.id, quality())
+                shownQuality = s.actualQuality
                 // The core only hands out HLS manifests.
-                player.setMediaItem(MediaItem.Builder().setMediaId(t.id).setUri(url).setMimeType(MimeTypes.APPLICATION_M3U8).setMediaMetadata(metadata(t)).build())
+                player.setMediaItem(MediaItem.Builder().setMediaId(t.id).setUri(s.url).setMimeType(MimeTypes.APPLICATION_M3U8).setMediaMetadata(metadata(t)).build())
                 player.prepare()
                 fetching = false
                 refillIfNeeded()
@@ -280,7 +353,6 @@ class Playback(context: Context, private val quality: () -> Quality) {
         player.pause()
         player.stop()
         player.clearMediaItems()
-        track = null
         position = 0.0
         duration = 0.0
         queue.clear()
@@ -303,6 +375,22 @@ private fun metadata(t: Track) = MediaMetadata.Builder()
     .setAlbumTitle(t.album?.title)
     .setArtworkUri(t.album?.coverUrlLarge?.let(Uri::parse))
     .build()
+
+internal fun clampSeek(secs: Double, duration: Double) = if (duration > 0) secs.coerceIn(0.0, duration) else maxOf(secs, 0.0)
+
+/** The tier the stream's formats deliver; [Stream.quality] only when it lists none. */
+val Stream.actualQuality get() = when {
+    "FLAC_HIRES" in formats -> Quality.HI_FI
+    "FLAC" in formats -> Quality.CD
+    formats.isEmpty() -> quality
+    else -> Quality.AAC
+}
+
+val Quality.badgeText get() = when (this) {
+    Quality.HI_FI -> "Hi-Res Lossless"
+    Quality.CD -> "CD Quality"
+    Quality.AAC -> "AAC"
+}
 
 internal fun progress(position: Double, duration: Double) = if (duration > 0) minOf(position / duration, 1.0) else 0.0
 

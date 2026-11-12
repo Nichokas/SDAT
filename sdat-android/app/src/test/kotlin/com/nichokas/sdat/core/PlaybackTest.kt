@@ -4,6 +4,8 @@ import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
+import uniffi.tonearm_ffi.Quality
+import uniffi.tonearm_ffi.Stream
 
 class PlaybackTest {
     @Test fun retriesAfterFailureBeforeAnythingElse() {
@@ -29,5 +31,21 @@ class PlaybackTest {
         assertEquals(0.25, progress(30.0, 120.0), 1e-9)
         assertEquals(1.0, progress(130.0, 120.0), 1e-9)
         assertEquals(0.0, progress(30.0, 0.0), 1e-9)
+    }
+
+    @Test fun seekStaysInsideTheTrack() {
+        assertEquals(0.0, clampSeek(-4.0, 120.0), 1e-9)
+        assertEquals(120.0, clampSeek(130.0, 120.0), 1e-9)
+        assertEquals(42.0, clampSeek(42.0, 120.0), 1e-9)
+        assertEquals(42.0, clampSeek(42.0, 0.0), 1e-9)
+    }
+
+    @Test fun badgeShowsTheDeliveredQuality() {
+        fun stream(asked: Quality, vararg formats: String) = Stream("u", asked, formats.toList(), null, null)
+        assertEquals(Quality.HI_FI, stream(Quality.CD, "FLAC", "FLAC_HIRES").actualQuality)
+        assertEquals(Quality.CD, stream(Quality.HI_FI, "FLAC").actualQuality)
+        assertEquals(Quality.AAC, stream(Quality.HI_FI, "AACLC").actualQuality)
+        assertEquals(Quality.CD, stream(Quality.CD).actualQuality)
+        assertEquals("Hi-Res Lossless", Quality.HI_FI.badgeText)
     }
 }
