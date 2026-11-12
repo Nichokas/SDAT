@@ -196,7 +196,7 @@ private struct TabBar: View {
 
     @ViewBuilder private var circle: some View {
             let cur = items.first { $0.0 == chrome.tab } ?? items[0]
-            Button { chrome.setCollapsed(false) } label: {
+            Button { chrome.holdsOpen = true; chrome.setCollapsed(false) } label: {
                 Image(systemName: cur.2).font(.system(size: 21, weight: .medium)).foregroundStyle(.blue)
                     .frame(width: 54)
                     .frame(maxHeight: .infinity)
@@ -325,7 +325,11 @@ extension View {
             g.contentOffset.y + g.contentInsets.top
         } action: { _, y in
             // Two thresholds, so a finger resting around one does not reverse the morph.
-            if y >= 50 { Chrome.shared.setCollapsed(true) } else if y < 20 { Chrome.shared.setCollapsed(false) }
+            let c = Chrome.shared
+            if y >= 50 { if !c.holdsOpen { c.setCollapsed(true) } } else if y < 20 { c.setCollapsed(false) }
+        }
+        .onScrollPhaseChange { _, phase in
+            if phase == .interacting { Chrome.shared.holdsOpen = false }
         }
     }
 

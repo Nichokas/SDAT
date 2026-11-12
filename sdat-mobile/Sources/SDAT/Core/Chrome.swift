@@ -25,6 +25,9 @@ final class Chrome {
     private(set) var collapsed = false
     /// Animated morph progress (0 expanded ... 1 collapsed); `Morph` derives the layout from it.
     private(set) var morphT: CGFloat = 0
+    /// Set by a tap on the collapsed tab circle: a list still decelerating must not collapse
+    /// the bar again. Cleared when the next drag starts.
+    @ObservationIgnored var holdsOpen = false
     func setCollapsed(_ on: Bool) {
         guard on != collapsed else { return }
         collapsed = on
