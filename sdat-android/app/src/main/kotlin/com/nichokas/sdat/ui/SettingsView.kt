@@ -4,7 +4,6 @@ import android.content.Context
 import android.content.ActivityNotFoundException
 import android.content.Intent
 import android.widget.Toast
-import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -75,8 +74,6 @@ fun SettingsView(session: Session, prefs: Preferences, secrets: Secrets, onBack:
     var hasListenBrainz by remember { mutableStateOf(secrets.get(Secrets.LISTENBRAINZ_TOKEN) != null) }
     var browserOpened by rememberSaveable { mutableStateOf(false) }
     val destructive = GlasmioTheme.colors.destructive
-
-    BackHandler(onBack = onBack)
 
     // iOS finishes the Last.fm handshake when its Safari sheet closes; here, when the browser hands back.
     // Reads the state live: the browser can pause the app before a recomposition would restart a keyed effect.
