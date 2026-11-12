@@ -1,3 +1,4 @@
+import ImageIO
 import SwiftUI
 import UIKit
 
@@ -144,24 +145,39 @@ final class ImageStore: @unchecked Sendable {
 
     func cached(_ url: String) -> UIImage? { cache.object(forKey: url as NSString) }
 
-    func image(_ url: String) async -> UIImage? {
-        if let i = cached(url) { return i }
+    /// `maxPixel` decodes a downsampled copy: a saved cover is the largest rendition, and
+    /// keeping its full bitmap cached for a 44 pt row costs megabytes each.
+    func image(_ url: String, maxPixel: Int? = nil) async -> UIImage? {
+        let key = maxPixel.map { "\(url)#\($0)" } ?? url
+        if let i = cached(key) { return i }
         // Scoped locking (async-safe): dedupe in-flight downloads per URL.
         let task: Task<UIImage?, Never> = lock.withLock {
-            if let t = tasks[url] { return t }
+            if let t = tasks[key] { return t }
             let t = Task.detached(priority: .userInitiated) { [session] in
                 guard let u = URL(string: url) else { return nil as UIImage? }
                 let data: Data?
                 if u.isFileURL { data = try? Data(contentsOf: u) } else { data = try? await session.data(from: u).0 }
-                guard let data, let img = UIImage(data: data) else { return nil as UIImage? }
+                guard let data else { return nil as UIImage? }
+                if let maxPixel {
+                    let opts: [CFString: Any] = [
+                        kCGImageSourceCreateThumbnailFromImageAlways: true,
+                        kCGImageSourceCreateThumbnailWithTransform: true,
+                        kCGImageSourceShouldCacheImmediately: true,
+                        kCGImageSourceThumbnailMaxPixelSize: maxPixel,
+                    ]
+                    guard let src = CGImageSourceCreateWithData(data as CFData, nil),
+                          let cg = CGImageSourceCreateThumbnailAtIndex(src, 0, opts as CFDictionary) else { return nil as UIImage? }
+                    return UIImage(cgImage: cg)
+                }
+                guard let img = UIImage(data: data) else { return nil as UIImage? }
                 return img.preparingForDisplay() ?? img
             }
-            tasks[url] = t
+            tasks[key] = t
             return t
         }
         let img = await task.value
-        lock.withLock { tasks[url] = nil }
-        if let img { cache.setObject(img, forKey: url as NSString) }
+        lock.withLock { tasks[key] = nil }
+        if let img { cache.setObject(img, forKey: key as NSString) }
         return img
     }
 

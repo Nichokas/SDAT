@@ -71,9 +71,10 @@ struct CachedImage: View {
             .task(id: target) {
                 guard let t = target, width > 0 else { if url == nil { image = nil }; return }
                 // Downloaded artwork first: no network and works offline. Through the store, so
-                // the file is decoded off the main thread and only once.
+                // the file is decoded off the main thread and only once, at the size shown.
+                let px = kind.sizes.first { $0 >= Int(width * 3) } ?? kind.sizes.last!
                 if let u = url, let f = Downloads.shared.coverFile(forRemote: u),
-                   let img = await ImageStore.shared.image(f.absoluteString) {
+                   let img = await ImageStore.shared.image(f.absoluteString, maxPixel: px) {
                     image = img
                     return
                 }
