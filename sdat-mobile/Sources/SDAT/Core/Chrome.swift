@@ -21,44 +21,14 @@ final class Chrome {
     var tab: AppTab = .discover
     var paths: [AppTab: [Route]] = [.discover: [], .search: [], .collection: []]
     /// Root list scrolled down: tab bar shrinks to a circle, miniplayer grows to a capsule.
-    /// 0 = expanded, 1 = collapsed. Driven continuously by the finger, settled on idle.
-    var progress: CGFloat = 0
-    var collapsed: Bool { progress >= 0.5 }
-    /// Per-component drivers derived from `progress`: equal to it while the finger drives,
-    /// animated separately on settle (the shrinking one snaps, the growing one spreads).
-    /// Single morph clock (0 expanded ... 1 collapsed), animated linearly; widths and
-    /// fades are all derived from it in `Morph`, so the shapes can never overlap.
-    var morphT: CGFloat = 0
-    var morphCollapsing = true
-    /// Finger-driven update: all three move together, un-animated.
-    func setDirect(_ p: CGFloat) {
-        var t = Transaction(); t.disablesAnimations = true
-        withTransaction(t) { progress = p; morphT = p }
-    }
-    /// Direction-specific: collapse is quick, expand is deliberately ~2x slower.
+    private(set) var collapsed = false
+    /// Animated morph progress (0 expanded ... 1 collapsed); `Morph` derives the layout from it.
+    private(set) var morphT: CGFloat = 0
     func setCollapsed(_ on: Bool) {
-        // The expand lock is released by a timer, not the animation completion: the
-        // completion is skipped when the transaction is superseded or the value doesn't
-        // change, which left `expanding` stuck true (collapse dead until a push/pop).
-        expandToken &+= 1
-        let token = expandToken
-        expanding = true
-        let v: CGFloat = on ? 1 : 0
-        progress = v
-        // Collapsing: tab bar shrinks (snappy), miniplayer grows (soft). Expanding: swapped.
-        // One linear clock; the per-role snappy/soft curves live in Morph.frame.
-        morphCollapsing = on
-        withAnimation(.linear(duration: Morph.duration(collapsing: on))) { morphT = v }
-        do {
-            Task { @MainActor in
-                try? await Task.sleep(for: .milliseconds(Int(Morph.duration(collapsing: on) * 1000) + 20))
-                if self.expandToken == token { self.expanding = false }
-            }
-        }
+        guard on != collapsed else { return }
+        collapsed = on
+        withAnimation(Morph.animation) { morphT = on ? 1 : 0 }
     }
-    /// An animated expand is running; finger-driven updates must not cut it short.
-    @ObservationIgnored var expanding = false
-    @ObservationIgnored private var expandToken = 0
     /// Round miniplayer is being pressed (drives its scale + glass highlight).
     var miniPressed = false
     var showPlayer = false
@@ -156,6 +126,7 @@ final class Favs {
 }
 
 /// Memory-cached image loader with request coalescing (Discover canvas, covers, artwork).
+/// Takes remote URLs and `file://` URLs of downloaded covers.
 final class ImageStore: @unchecked Sendable {
     static let shared = ImageStore()
     private let cache = NSCache<NSString, UIImage>()
@@ -179,8 +150,10 @@ final class ImageStore: @unchecked Sendable {
         let task: Task<UIImage?, Never> = lock.withLock {
             if let t = tasks[url] { return t }
             let t = Task.detached(priority: .userInitiated) { [session] in
-                guard let u = URL(string: url), let (data, _) = try? await session.data(from: u),
-                      let img = UIImage(data: data) else { return nil as UIImage? }
+                guard let u = URL(string: url) else { return nil as UIImage? }
+                let data: Data?
+                if u.isFileURL { data = try? Data(contentsOf: u) } else { data = try? await session.data(from: u).0 }
+                guard let data, let img = UIImage(data: data) else { return nil as UIImage? }
                 return img.preparingForDisplay() ?? img
             }
             tasks[url] = t
