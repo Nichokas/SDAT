@@ -151,7 +151,7 @@ final class ImageStore: @unchecked Sendable {
     /// `maxPixel` decodes a downsampled copy: a saved cover is the largest rendition, and
     /// keeping its full bitmap cached for a 44 pt row costs megabytes each.
     func image(_ url: String, maxPixel: Int? = nil) async -> UIImage? {
-        let key = maxPixel.map { "\(url)#\($0)" } ?? url
+        let key = maxPixel.map { "\(url) \($0)" } ?? url
         if let i = cached(key) { return i }
         // Scoped locking (async-safe): dedupe in-flight downloads per URL.
         let task: Task<UIImage?, Never> = lock.withLock {
