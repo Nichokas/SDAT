@@ -10,7 +10,7 @@ import androidx.compose.foundation.Canvas
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.rotate
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
@@ -25,21 +25,24 @@ import kotlin.math.roundToInt
 /** iOS dark-mode system blue, SwiftUI's `.blue`. */
 private val iosBlue = Color(0xFF0A84FF)
 
-/** iOS ProgressRing: blue arc from 12 o'clock clockwise over a static dashed white ring; spins once a second while loading. */
+/**
+ * iOS ProgressRing: blue arc from 12 o'clock clockwise over a static dashed white ring; spins once a second while loading.
+ * [progress] is a lambda so the player's position ticks recompose the ring, not its caller.
+ */
 @Composable
-fun ProgressRing(progress: Double, spinning: Boolean, modifier: Modifier = Modifier, lineWidth: Dp = 2.5.dp) {
+fun ProgressRing(progress: () -> Double, spinning: Boolean, modifier: Modifier = Modifier, lineWidth: Dp = 2.5.dp) {
     val q by animateFloatAsState(
-        if (spinning) 0f else progress.coerceIn(0.0, 1.0).toFloat(),
+        if (spinning) 0f else progress().coerceIn(0.0, 1.0).toFloat(),
         tween(250, easing = LinearEasing),
         label = "progress",
     )
     // Composed only while spinning: an idle infinite transition would keep animating unseen.
     val turn = if (spinning) {
-        rememberInfiniteTransition(label = "spin").animateFloat(0f, 360f, infiniteRepeatable(tween(1000, easing = LinearEasing)), label = "turn").value
+        rememberInfiniteTransition(label = "spin").animateFloat(0f, 360f, infiniteRepeatable(tween(1000, easing = LinearEasing)), label = "turn")
     } else {
-        0f
+        null
     }
-    Canvas(modifier.rotate(turn)) {
+    Canvas(modifier.graphicsLayer { rotationZ = turn?.value ?: 0f }) {
         val d = size.minDimension
         val w = lineWidth.toPx()
         // Like iOS, the dash period fits a whole number of dashes so the pattern never shifts.
