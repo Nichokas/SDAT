@@ -255,6 +255,21 @@ fn host_ticket(state: &HostSession, addr: String) -> Ticket {
     Ticket { v: PROTO_VERSION, addr, secret: state.secret.clone(), name: Some(state.name.clone()) }
 }
 
+/// The guest list last handed to the listener, shared by every connection.
+type Reported = Arc<Mutex<Vec<GuestInfo>>>;
+
+/// Tells the listener the guest list if it differs from the last one told.
+/// The list is read and delivered under the `reported` lock, so concurrent
+/// connections cannot deliver an older list after a newer one.
+fn report_guests(reported: &Reported, state: &Mutex<HostSession>, listener: &dyn LiveListener) {
+    let mut last = reported.lock().unwrap_or_else(PoisonError::into_inner);
+    let guests = state.lock().unwrap_or_else(PoisonError::into_inner).guests();
+    if *last != guests {
+        last.clone_from(&guests);
+        listener.on_event(LiveEvent::Guests(guests));
+    }
+}
+
 /// Removes `peer` only if `token` still owns it. Returns whether it did.
 fn unregister(peers: &Peers, peer: &str, token: u64) -> bool {
     let mut p = peers.lock().unwrap_or_else(PoisonError::into_inner);
@@ -281,14 +296,15 @@ impl LiveHost {
             // Accept loop.
             {
                 let (ep, state, peers, listener, stop) = (endpoint.clone(), state.clone(), peers.clone(), listener.clone(), stop.clone());
+                let reported = Reported::default();
                 tokio::spawn(async move {
                     loop {
                         let inc = tokio::select! { i = ep.accept() => i, () = stop.wait() => None };
                         let Some(inc) = inc else { break };
-                        let (state, peers, listener) = (state.clone(), peers.clone(), listener.clone());
+                        let (state, peers, reported, listener) = (state.clone(), peers.clone(), reported.clone(), listener.clone());
                         tokio::spawn(async move {
                             if let Ok(conn) = inc.await {
-                                serve_guest(conn, state, peers, listener).await;
+                                serve_guest(conn, state, peers, reported, listener).await;
                             }
                         });
                     }
@@ -385,7 +401,7 @@ impl LiveHost {
     }
 }
 
-async fn serve_guest(conn: Connection, state: Arc<Mutex<HostSession>>, peers: Peers, listener: Arc<dyn LiveListener>) {
+async fn serve_guest(conn: Connection, state: Arc<Mutex<HostSession>>, peers: Peers, reported: Reported, listener: Arc<dyn LiveListener>) {
     let peer = conn.remote_id().to_string();
     let Ok(Ok((mut send, mut recv))) = tokio::time::timeout(HELLO_TIMEOUT, conn.accept_bi()).await else { return };
     let (tx, mut rx) = Outbox::new();
@@ -403,7 +419,6 @@ async fn serve_guest(conn: Connection, state: Arc<Mutex<HostSession>>, peers: Pe
             }
         }
     });
-    let mut known = 0;
     loop {
         // Dropping a half-read frame is fine here: a kicked guest is gone.
         // Until its Hello is accepted a connection must speak within
@@ -424,26 +439,21 @@ async fn serve_guest(conn: Connection, state: Arc<Mutex<HostSession>>, peers: Pe
         // Snapshot (Welcome), registration and routing happen under the
         // state lock, and every other sender routes under it too, so no
         // queue or playback update can fall between them.
-        let guests = {
+        let cmds = {
             let mut s = state.lock().unwrap_or_else(PoisonError::into_inner);
             let outs = s.on_message(&peer, m, now);
-            let guests = s.guests();
             // Broadcasts reach a connection only once its Hello is accepted.
-            if !registered && guests.iter().any(|g| g.peer == peer) {
+            if !registered && s.guests().iter().any(|g| g.peer == peer) {
                 registered = true;
                 peers.lock().unwrap_or_else(PoisonError::into_inner).insert(peer.clone(), (token, tx.clone()));
             }
             route_from(&peers, outs, Some((&peer, &tx)));
-            (guests, s.take_commands())
+            s.take_commands()
         };
-        let (guests, cmds) = guests;
         for c in cmds {
             listener.on_event(LiveEvent::Command(c));
         }
-        if guests.len() != known {
-            known = guests.len();
-            listener.on_event(LiveEvent::Guests(guests));
-        }
+        report_guests(&reported, &state, &*listener);
     }
     if tx.kicked.is_set() {
         conn.close(1u32.into(), b"too slow");
@@ -452,7 +462,7 @@ async fn serve_guest(conn: Connection, state: Arc<Mutex<HostSession>>, peers: Pe
     // A newer connection from the same guest may own the entry by now.
     // Both removals happen under the state lock (order state -> peers), so
     // a reconnect's Hello cannot slip in between them.
-    let guests = {
+    {
         let mut s = state.lock().unwrap_or_else(PoisonError::into_inner);
         if !registered || !unregister(&peers, &peer, token) {
             drop(s);
@@ -460,9 +470,8 @@ async fn serve_guest(conn: Connection, state: Arc<Mutex<HostSession>>, peers: Pe
             return;
         }
         s.peer_disconnected(&peer);
-        s.guests()
-    };
-    listener.on_event(LiveEvent::Guests(guests));
+    }
+    report_guests(&reported, &state, &*listener);
     writer.abort();
 }
 
@@ -861,6 +870,35 @@ mod tests {
         fn on_event(&self, ev: LiveEvent) {
             self.0.lock().unwrap().push(ev);
         }
+    }
+
+    #[test]
+    fn guest_list_is_reported_once_per_change() {
+        let state = Mutex::new(HostSession::new("Host".into(), 0));
+        let secret = state.lock().unwrap().secret.clone();
+        let hello = |name: &str| Msg::Hello { proto: PROTO_VERSION, secret: secret.clone(), name: name.into() };
+        let (reported, rec) = (Reported::default(), Rec::default());
+        let names = || -> Vec<Vec<String>> {
+            let evs = rec.0.lock().unwrap();
+            evs.iter().filter_map(|e| if let LiveEvent::Guests(g) = e { Some(g.iter().map(|g| g.name.clone()).collect()) } else { None }).collect()
+        };
+        let step = |peer: &str, m: Msg, now_s: i64| {
+            drop(state.lock().unwrap().on_message(peer, m, now_s * 1_000_000_000));
+            report_guests(&reported, &state, &rec);
+        };
+        // A message before Hello changes nothing and reports nothing.
+        step("x", Msg::Ping { id: 1, t0: 0 }, 0);
+        assert!(names().is_empty());
+        step("a", hello("A"), 1);
+        // Another connection's traffic does not repeat the list.
+        step("a", Msg::Ping { id: 2, t0: 0 }, 2);
+        assert_eq!(names(), [["A"]]);
+        // Same count, other members: one guest leaves, another joins.
+        state.lock().unwrap().peer_disconnected("a");
+        step("b", hello("B"), 3);
+        // Same count, same peer, new name.
+        step("b", hello("B2"), 10);
+        assert_eq!(names(), [vec!["A"], vec!["B"], vec!["B2"]]);
     }
 
     /// Real iroh connection between two endpoints on this machine. Needs
