@@ -73,19 +73,26 @@ struct CachedImage: View {
                 // Downloaded artwork first: no network and works offline. Through the store, so
                 // the file is decoded off the main thread and only once, at the size shown.
                 let px = kind.sizes.first { $0 >= Int(width * 3) } ?? kind.sizes.last!
+                // A cancelled load keeps running past its awaits; it must not overwrite the
+                // artwork of the target that replaced it.
                 if let u = url, let f = Downloads.shared.coverFile(forRemote: u),
                    let img = await ImageStore.shared.image(f.absoluteString, maxPixel: px) {
-                    image = img
+                    if !Task.isCancelled { image = img }
                     return
                 }
+                if Task.isCancelled { return }
                 if let c = ImageStore.shared.cached(t) { image = c; return }
                 if image == nil, let u = url { image = ImageStore.shared.cached(u) }
-                if let img = await ImageStore.shared.image(t) { image = img }
+                var loaded = await ImageStore.shared.image(t)
+                if Task.isCancelled { return }
                 // Size missing on the server: fall back to the original URL.
-                else if image == nil, let u = url, u != t, let img = await ImageStore.shared.image(u) { image = img }
+                if loaded == nil, image == nil, let u = url, u != t { loaded = await ImageStore.shared.image(u) }
                 // Offline, and the download index was not loaded yet on the first check above.
-                if image == nil, let u = url, let f = Downloads.shared.coverFile(forRemote: u),
-                   let img = await ImageStore.shared.image(f.absoluteString, maxPixel: px) { image = img }
+                if loaded == nil, image == nil, !Task.isCancelled, let u = url,
+                   let f = Downloads.shared.coverFile(forRemote: u) {
+                    loaded = await ImageStore.shared.image(f.absoluteString, maxPixel: px)
+                }
+                if let loaded, !Task.isCancelled { image = loaded }
             }
     }
 }

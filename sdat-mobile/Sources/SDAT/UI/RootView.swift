@@ -324,7 +324,8 @@ extension View {
         onScrollGeometryChange(for: CGFloat.self) { g in
             g.contentOffset.y + g.contentInsets.top
         } action: { _, y in
-            Chrome.shared.setCollapsed(y >= 50)
+            // Two thresholds, so a finger resting around one does not reverse the morph.
+            if y >= 50 { Chrome.shared.setCollapsed(true) } else if y < 20 { Chrome.shared.setCollapsed(false) }
         }
     }
 
