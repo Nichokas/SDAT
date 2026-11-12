@@ -5,11 +5,13 @@ import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.media3.session.MediaController
 import androidx.media3.session.SessionToken
 import com.google.common.util.concurrent.ListenableFuture
 import com.nichokas.sdat.core.Chrome
 import com.nichokas.sdat.core.NavState
+import com.nichokas.sdat.ui.LocalTrackPlayer
 import com.nichokas.sdat.ui.RootView
 import com.nichokas.sdat.ui.inter
 import io.github.neoruaa.glasmio.core.GlasmioTheme
@@ -28,7 +30,10 @@ class MainActivity : ComponentActivity() {
         controller = MediaController.Builder(this, SessionToken(this, ComponentName(this, PlaybackService::class.java))).buildAsync()
         setContent {
             GlasmioTheme(typography = glasmioTypography(inter)) {
-                GlasmioIconProvider { (application as SdatApp).let { RootView(it.session, it.playback, it.prefs, it.secrets) } }
+                GlasmioIconProvider {
+                    val app = application as SdatApp
+                    CompositionLocalProvider(LocalTrackPlayer provides app.playback) { RootView(app.session, app.playback, app.prefs, app.secrets) }
+                }
             }
         }
     }
