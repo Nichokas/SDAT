@@ -131,8 +131,7 @@ final class Live {
         outbox = []; outboxFailures = 0; outboxTask?.cancel(); outboxTask = nil
         dropGuestEnqueues()
         switching = nil
-        player.liveFollowing = false
-        player.liveTarget = nil
+        player.liveEnded()
         invite = nil; guests = []; upNext = []; reconnecting = false
         mode = m
     }
