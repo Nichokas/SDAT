@@ -329,7 +329,7 @@ extension View {
             if y >= 50 { if !c.holdsOpen { c.setCollapsed(true) } } else if y < 20 { c.setCollapsed(false) }
         }
         .onScrollPhaseChange { _, phase in
-            if phase == .interacting { Chrome.shared.holdsOpen = false }
+            if phase != .decelerating { Chrome.shared.holdsOpen = false }
         }
     }
 
