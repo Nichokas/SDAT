@@ -51,11 +51,12 @@ data class NavState(
         private const val HEADER = 2
         private const val ENTRY = 5
 
-        fun restore(saved: List<String>): NavState {
+        /** A list saved by another app version may not parse; it then falls back to the Discover root. */
+        fun restore(saved: List<String>): NavState = runCatching {
             val stacks = saved.drop(HEADER).chunked(ENTRY)
                 .groupBy({ AppTab.valueOf(it[0]) }, { Destination(it[1].toLong(), route(it[2], it[3], it[4])) })
-            return NavState(AppTab.valueOf(saved[0]), stacks, saved[1].toLong())
-        }
+            NavState(AppTab.valueOf(saved[0]), stacks, saved[1].toLong())
+        }.getOrDefault(NavState())
     }
 }
 

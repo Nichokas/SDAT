@@ -104,4 +104,17 @@ class NavigationTest {
         assertEquals(9, nav.stackOf(AppTab.Discover).size + nav.stackOf(AppTab.Collection).size)
         assertEquals(nav.push(Route.Downloads).stack, restored.push(Route.Downloads).stack)
     }
+
+    @Test
+    fun malformedSavedStateFallsBackToTheDiscoverRoot() {
+        val saved = NavState().push(Route.Album("a")).select(AppTab.Search).push(Route.Artist("r")).saved()
+        val malformed = listOf(
+            saved.dropLast(1),
+            saved.map { if (it == "artist") "podcast" else it },
+            saved.map { if (it == "Search") "Home" else it },
+            listOf("Discover", "not a number"),
+            emptyList(),
+        )
+        for (list in malformed) assertEquals(list.toString(), NavState(), NavState.restore(list))
+    }
 }
