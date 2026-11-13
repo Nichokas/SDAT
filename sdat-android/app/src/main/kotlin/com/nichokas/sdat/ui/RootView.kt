@@ -39,6 +39,8 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
+import androidx.compose.runtime.saveable.listSaver
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.saveable.rememberSaveableStateHolder
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -105,6 +107,9 @@ private val tabItems = AppTab.entries.map { GlasmioTabItem(it, it.label, it.symb
 /** Login until signed in, then one back stack per tab under the bottom chrome and the toast. */
 @Composable
 fun RootView(session: Session, playback: Playback, prefs: Preferences, secrets: Secrets) {
+    // Chrome outlives a recreated Activity but not process death; restoring here, before the page is chosen, brings back
+    // pages like Settings that finish work when the user returns from the browser.
+    rememberSaveable(saver = navSaver) {}
     LaunchedEffect(session.signedIn) {
         if (!session.signedIn) {
             playback.stop()
@@ -143,6 +148,8 @@ fun RootView(session: Session, playback: Playback, prefs: Preferences, secrets: 
         },
     )
 }
+
+private val navSaver = listSaver<Unit, String>(save = { Chrome.nav.saved() }, restore = { Chrome.restore(NavState.restore(it)) })
 
 private val Route.title get() = when (this) {
     is Route.Album -> "Album"

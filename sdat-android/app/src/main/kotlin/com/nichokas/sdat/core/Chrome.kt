@@ -26,6 +26,8 @@ object Chrome {
 
     fun pop() { nav = nav.pop() }
 
+    fun restore(saved: NavState) { nav = saved }
+
     fun select(tab: AppTab) {
         if (tab != nav.tab && bar.collapsed) setCollapsed(false)
         nav = nav.select(tab)

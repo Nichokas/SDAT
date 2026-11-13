@@ -35,4 +35,53 @@ data class NavState(
 
     /** Re-selecting the current tab returns it to its root, as on iOS; another tab keeps its stack. */
     fun select(tab: AppTab) = if (tab == this.tab) copy(stacks = stacks - tab) else copy(tab = tab)
+
+    /** Strings only, so it fits the saved instance state and survives process death; ids stay, as they key saved pages. */
+    fun saved(): List<String> = buildList {
+        add(tab.name)
+        add(nextId.toString())
+        for ((t, stack) in stacks) for (d in stack) {
+            add(t.name)
+            add(d.id.toString())
+            addAll(d.route.fields())
+        }
+    }
+
+    companion object {
+        private const val HEADER = 2
+        private const val ENTRY = 5
+
+        fun restore(saved: List<String>): NavState {
+            val stacks = saved.drop(HEADER).chunked(ENTRY)
+                .groupBy({ AppTab.valueOf(it[0]) }, { Destination(it[1].toLong(), route(it[2], it[3], it[4])) })
+            return NavState(AppTab.valueOf(saved[0]), stacks, saved[1].toLong())
+        }
+    }
+}
+
+private fun Route.fields(): List<String> = when (this) {
+    is Route.Album -> listOf("album", id, "")
+    is Route.Playlist -> listOf("playlist", id, "")
+    is Route.Artist -> listOf("artist", id, "")
+    is Route.Explore -> listOf("explore", path, title)
+    Route.CollectionTracks -> listOf("collectionTracks", "", "")
+    Route.CollectionAlbums -> listOf("collectionAlbums", "", "")
+    Route.CollectionArtists -> listOf("collectionArtists", "", "")
+    Route.CollectionPlaylists -> listOf("collectionPlaylists", "", "")
+    Route.Downloads -> listOf("downloads", "", "")
+    Route.Settings -> listOf("settings", "", "")
+}
+
+private fun route(kind: String, a: String, b: String): Route = when (kind) {
+    "album" -> Route.Album(a)
+    "playlist" -> Route.Playlist(a)
+    "artist" -> Route.Artist(a)
+    "explore" -> Route.Explore(a, b)
+    "collectionTracks" -> Route.CollectionTracks
+    "collectionAlbums" -> Route.CollectionAlbums
+    "collectionArtists" -> Route.CollectionArtists
+    "collectionPlaylists" -> Route.CollectionPlaylists
+    "downloads" -> Route.Downloads
+    "settings" -> Route.Settings
+    else -> error("Unknown saved route $kind")
 }

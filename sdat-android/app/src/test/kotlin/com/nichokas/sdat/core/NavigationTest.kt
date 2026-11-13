@@ -9,6 +9,7 @@ import org.junit.Test
 
 class NavigationTest {
     private val NavState.routes get() = stack.map { it.route }
+    private fun NavState.stackOf(tab: AppTab) = if (tab == this.tab) stack else select(tab).stack
 
     @Test
     fun startsAtTheDiscoverRoot() {
@@ -82,5 +83,25 @@ class NavigationTest {
         assertTrue(nav.inSettings)
         assertFalse(nav.push(Route.Downloads).inSettings)
         assertFalse(nav.pop().inSettings)
+    }
+
+    @Test
+    fun savedStateRestoresEveryTabStackAndKeepsIds() {
+        val routes = listOf(
+            Route.Album("a"), Route.Playlist("p"), Route.Artist("r"), Route.Explore("pages/x", "Moods, \"and\" more"),
+            Route.CollectionTracks, Route.CollectionAlbums, Route.CollectionArtists, Route.CollectionPlaylists,
+            Route.Downloads, Route.Settings,
+        )
+        var nav = routes.take(5).fold(NavState()) { n, r -> n.push(r) }.pop()
+            .select(AppTab.Collection)
+        nav = routes.drop(5).fold(nav) { n, r -> n.push(r) }
+            .select(AppTab.Search).push(Route.Album("b")).pop()
+
+        val restored = NavState.restore(nav.saved())
+
+        assertEquals(AppTab.Search, restored.tab)
+        for (tab in AppTab.entries) assertEquals(nav.stackOf(tab), restored.stackOf(tab))
+        assertEquals(9, nav.stackOf(AppTab.Discover).size + nav.stackOf(AppTab.Collection).size)
+        assertEquals(nav.push(Route.Downloads).stack, restored.push(Route.Downloads).stack)
     }
 }
