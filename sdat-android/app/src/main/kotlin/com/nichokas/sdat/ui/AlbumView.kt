@@ -8,8 +8,10 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import com.nichokas.sdat.core.Fmt
+import com.nichokas.sdat.core.LocalRecent
 import com.nichokas.sdat.core.OwnPlaylists
 import com.nichokas.sdat.core.PageLoad
+import com.nichokas.sdat.core.Recents
 import com.nichokas.sdat.core.Route
 import com.nichokas.sdat.core.TIMED_OUT
 import com.nichokas.sdat.core.artistLine
@@ -67,6 +69,7 @@ fun AlbumView(id: String) {
     }
     LoadedPage(state, onRetry = { attempt++ }) { d ->
         val a = d.album
+        LaunchedEffect(a.id) { Recents.add(LocalRecent(LocalRecent.Kind.Album, a.id, a.title, a.artistLine, a.coverUrl)) }
         DetailPage(
             title = a.title,
             subtitle = joinDot(a.artistLine, year(a.releaseDate)),
@@ -124,6 +127,9 @@ fun PlaylistView(id: String) {
     LoadedPage(model.state, onRetry = model::load) { page ->
         val pl = page.playlist
         val own = OwnPlaylists.contains(pl.id)
+        LaunchedEffect(pl.id) {
+            Recents.add(LocalRecent(if (pl.isMix) LocalRecent.Kind.Mix else LocalRecent.Kind.Playlist, pl.id, pl.title, pl.creator.orEmpty(), pl.coverUrl))
+        }
         DetailPage(
             title = pl.title,
             subtitle = if (own) "My playlist" else joinDot(pl.creator, if (pl.isMix) "Mix" else "Playlist"),

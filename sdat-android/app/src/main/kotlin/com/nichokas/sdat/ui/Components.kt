@@ -228,6 +228,7 @@ fun trackMenuItems(
         add(GlasmioCascadingMenuItem("Add to Queue", "text.line.last.and.arrowtriangle.forward", onClick = {
             player.addToQueue(listOf(track)); Chrome.flash("Added to queue")
         }))
+        add(GlasmioCascadingMenuItem("Add to Playlist…", "text.badge.plus", onClick = { Chrome.playlistPickerTrack = track }))
         if (ownPlaylistId != null) {
             add(GlasmioCascadingMenuItem("Remove from Playlist", "minus.circle", destructive = true, onClick = {
                 menuScope.launch {

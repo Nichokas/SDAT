@@ -102,7 +102,11 @@ fun RootView(session: Session, playback: Playback, prefs: Preferences, secrets: 
                         is Route.Album -> AlbumView(route.id)
                         is Route.Playlist -> PlaylistView(route.id)
                         is Route.Artist -> ArtistView(route.id)
-                        else -> PlaceholderPage(route.title)
+                        Route.CollectionTracks -> CollectionTracksView()
+                        Route.CollectionAlbums -> CollectionAlbumsView()
+                        Route.CollectionArtists -> CollectionArtistsView()
+                        Route.CollectionPlaylists -> CollectionPlaylistsView()
+                        Route.Downloads -> PlaceholderPage("Downloads")
                     }
                 }
             }
@@ -113,23 +117,12 @@ fun RootView(session: Session, playback: Playback, prefs: Preferences, secrets: 
                 ShuffleButton(mixes.isNotEmpty(), { playback.playInfinite(mixes) }, Modifier.align(Alignment.TopEnd).statusBarsPadding().padding(end = 70.dp, top = 4.dp))
             }
             if (!nav.inSettings) BottomChrome(playback, nav, Modifier.align(Alignment.BottomCenter))
+            // After the bottom chrome, so the picker opens over the player sheet too.
+            Chrome.playlistPickerTrack?.let { PlaylistPicker(it) { Chrome.playlistPickerTrack = null } }
             Toast(Chrome.toast, Modifier.align(Alignment.TopCenter))
             BootLoaderFadeOut()
         },
     )
-}
-
-private val Route.title get() = when (this) {
-    is Route.Album -> "Album"
-    is Route.Playlist -> "Playlist"
-    is Route.Artist -> "Artist"
-    is Route.Explore -> title
-    Route.CollectionTracks -> "Tracks"
-    Route.CollectionAlbums -> "Albums"
-    Route.CollectionArtists -> "Artists"
-    Route.CollectionPlaylists -> "Playlists"
-    Route.Downloads -> "Downloads"
-    Route.Settings -> "Settings"
 }
 
 /** iOS push and pop transitions, swipe back and predictive back for one tab; [page] gets null for the tab root. */
@@ -157,7 +150,7 @@ private fun contentKey(key: Any): Any = if (key is Destination) key.id else key.
 private fun TabRoot(tab: AppTab, session: Session, playback: Playback, onMixes: (List<Mix>) -> Unit) = when (tab) {
     AppTab.Discover -> DiscoverView(session, onPlay = playback::playDiscover, onMixes = onMixes)
     AppTab.Search -> SearchView()
-    AppTab.Collection -> SdatPage(tab.label, collapsesChrome = true) {}
+    AppTab.Collection -> CollectionView()
 }
 
 @Composable

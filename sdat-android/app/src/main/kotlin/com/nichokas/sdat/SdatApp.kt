@@ -3,9 +3,11 @@ package com.nichokas.sdat
 import android.app.Application
 import com.nichokas.sdat.core.Playback
 import com.nichokas.sdat.core.Preferences
+import com.nichokas.sdat.core.Recents
 import com.nichokas.sdat.core.Secrets
 import com.nichokas.sdat.core.Session
 import com.nichokas.sdat.core.Settings
+import java.io.File
 import uniffi.tonearm_ffi.initialize
 
 class SdatApp : Application() {
@@ -23,6 +25,7 @@ class SdatApp : Application() {
         session = Session(this)
         prefs = Preferences(this)
         secrets = Secrets(this)
+        Recents.open(File(filesDir, "recents"))
         val settings = Settings(filesDir.path, prefs)
         initialize(session, settings)
         playback = Playback(this, prefs, secrets)

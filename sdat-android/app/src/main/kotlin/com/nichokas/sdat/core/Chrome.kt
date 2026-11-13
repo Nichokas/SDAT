@@ -8,6 +8,7 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.MainScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import uniffi.tonearm_ffi.Track
 
 /** Navigation, bottom-chrome and transient feedback state shared by every screen. */
 object Chrome {
@@ -21,6 +22,9 @@ object Chrome {
     var bar by mutableStateOf(BarCollapse())
         private set
     var showPlayer by mutableStateOf(false)
+
+    /** Track waiting for the "Add to playlist" picker. */
+    var playlistPickerTrack by mutableStateOf<Track?>(null)
     var toast by mutableStateOf<String?>(null)
         private set
 
@@ -64,6 +68,7 @@ object Chrome {
         showPlayer = false
         toastJob?.cancel()
         toast = null
+        playlistPickerTrack = null
     }
 
     fun flash(text: String) {
