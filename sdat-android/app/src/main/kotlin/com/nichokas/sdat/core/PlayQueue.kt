@@ -100,6 +100,10 @@ class PlayQueue<T>(private val random: Random = Random.Default, private val id: 
         userQueue = list + userQueue
     }
 
+    fun insertUser(t: T, at: Int) {
+        userQueue = userQueue.toMutableList().apply { add(at.coerceIn(0, size), t) }
+    }
+
     fun addToQueue(list: List<T>) {
         userQueue = userQueue + list
     }
