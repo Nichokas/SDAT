@@ -67,9 +67,10 @@ class Playback(context: Context, private val prefs: Preferences, secrets: Secret
     /** A restored Discover queue, until [resumeInfinite] gives it its endless source back. */
     private var restoredEndless = false
     private var queueId = 0
-    /** The lists the saved queue was cut from. PlayQueue replaces a list whenever it changes, so identity tells
-     * whether the queue file is stale. */
+    /** The lists the queue file was cut from. */
     private var savedLists: List<Any?>? = null
+    /** The base-queue indices the queue file holds. */
+    private var savedRange = IntRange.EMPTY
     private var lastSave = 0L
 
     val track get() = queue.current
@@ -137,13 +138,14 @@ class Playback(context: Context, private val prefs: Preferences, secrets: Secret
     private val restore = scope.launch {
         val saved = withContext(io) { store.load() }
         restoring = false
-        // Anything played meanwhile wins.
-        if (saved == null || track != null) return@launch
+        // Anything played meanwhile wins, and is saved now that persisting is on.
+        if (track != null) return@launch persist()
+        if (saved == null) return@launch
         val (state, queued) = saved
         queue.restore(queued, state)
         restoredEndless = queued?.endless == true
+        // The queue file is rewritten on the next persist: the restored index no longer counts from its offset.
         queueId = state.queueId
-        savedLists = queueLists()
         duration = state.current.durationSecs.toDouble()
         position = maxOf(0.0, minOf(state.position, if (duration > 0) duration - 1 else state.position))
     }
@@ -494,9 +496,10 @@ class Playback(context: Context, private val prefs: Preferences, secrets: Secret
             return
         }
         val lists = queueLists()
-        if (savedLists?.zip(lists)?.all { (a, b) -> a === b } != true) {
+        if (queueFileStale(savedLists, lists, savedRange, queue.index)) {
             savedLists = lists
             val saved = queue.saved(++queueId, endless)
+            savedRange = saved.offset until saved.offset + saved.tracks.size
             scope.launch(io) { store.saveQueue(saved) }
         }
         val state = SavedState(queueId, current, queue.index, position, queue.repeat, queue.shuffle)
@@ -556,6 +559,11 @@ private fun metadata(t: Track) = MediaMetadata.Builder()
     .setAlbumTitle(t.album?.title)
     .setArtworkUri(t.album?.coverUrlLarge?.let(Uri::parse))
     .build()
+
+/** The queue file must be rewritten when a list it was cut from was replaced (PlayQueue replaces a list whenever it
+ * changes) or the playing index left the window it holds. */
+internal fun queueFileStale(saved: List<Any?>?, now: List<Any?>, savedRange: IntRange, index: Int?) =
+    saved == null || saved.zip(now).any { (a, b) -> a !== b } || index != null && index !in savedRange
 
 internal fun clampSeek(secs: Double, duration: Double) = if (duration > 0) secs.coerceIn(0.0, duration) else maxOf(secs, 0.0)
 
