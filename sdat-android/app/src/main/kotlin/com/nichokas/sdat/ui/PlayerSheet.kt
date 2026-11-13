@@ -29,6 +29,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyListScope
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.rememberPagerState
@@ -64,6 +65,7 @@ import androidx.compose.ui.unit.dp
 import coil3.compose.AsyncImage
 import com.nichokas.sdat.core.Favs
 import com.nichokas.sdat.core.Fmt
+import com.nichokas.sdat.core.Live
 import com.nichokas.sdat.core.Playback
 import com.nichokas.sdat.core.Repeat
 import com.nichokas.sdat.core.artistLine
@@ -174,8 +176,9 @@ private fun NowPlayingPage(playback: Playback, track: Track, showQueue: () -> Un
                     value = shown.coerceIn(0.0, end).toFloat(),
                     onValueChange = { scrub = it.toDouble() },
                     valueRange = 0f..end.toFloat(),
+                    enabled = !Live.playbackLocked,
                     onValueChangeFinished = {
-                        scrub?.let(playback::seek)
+                        scrub?.let { if (!Live.userSeek(it)) playback.seek(it) }
                         scrub = null
                     },
                 )
@@ -192,9 +195,13 @@ private fun NowPlayingPage(playback: Playback, track: Track, showQueue: () -> Un
             IconTap("shuffle", if (playback.shuffle) "Shuffle: On" else "Shuffle: Off", 22.dp, tint = if (playback.shuffle) GlasmioTheme.colors.accent else Color.White.copy(alpha = 0.8f)) {
                 playback.setShuffle(!playback.shuffle)
             }
-            IconTap("backward.fill", "Previous", 30.dp) { forward = false; playback.previous() }
+            IconTap("backward.fill", "Previous", 30.dp, Modifier.alpha(if (Live.isGuest) 0.4f else 1f)) {
+                forward = false
+                if (!Live.guestRefuses()) playback.previous()
+            }
             Box(
-                Modifier.size(64.dp).clickable(onClickLabel = if (playback.playing) "Pause" else "Play", role = Role.Button) { playback.toggle() },
+                Modifier.size(64.dp).alpha(if (Live.playbackLocked) 0.4f else 1f)
+                    .clickable(onClickLabel = if (playback.playing) "Pause" else "Play", role = Role.Button) { Live.userToggle() },
                 contentAlignment = Alignment.Center,
             ) {
                 if (playback.loading) {
@@ -203,7 +210,7 @@ private fun NowPlayingPage(playback: Playback, track: Track, showQueue: () -> Un
                     SdatIcon(if (playback.playing) "pause.fill" else "play.fill", if (playback.playing) "Pause" else "Play", size = 46.dp, tint = Color.White)
                 }
             }
-            IconTap("forward.fill", "Next", 30.dp) { forward = true; playback.next() }
+            IconTap("forward.fill", "Next", 30.dp, Modifier.alpha(if (Live.playbackLocked) 0.4f else 1f)) { forward = true; Live.userNext() }
             val repeat = playback.repeat
             IconTap(if (repeat == Repeat.One) "repeat.1" else "repeat", "Repeat: " + when (repeat) { Repeat.Off -> "Off"; Repeat.All -> "All"; Repeat.One -> "One" }, 22.dp, tint = if (repeat == Repeat.Off) Color.White.copy(alpha = 0.8f) else GlasmioTheme.colors.accent) {
                 playback.cycleRepeat()
@@ -286,6 +293,9 @@ private fun QueuePage(playback: Playback) {
     LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(start = 20.dp, end = 12.dp, bottom = 24.dp)) {
         item(key = "title") {
             Box(Modifier.fillMaxWidth().heightIn(min = 44.dp), contentAlignment = Alignment.Center) {
+                IconTap("dot.radiowaves.left.and.right", "Listen Together", 20.dp, Modifier.align(Alignment.CenterStart), tint = if (Live.active) colors.accent else colors.content) {
+                    Live.showSheet = true
+                }
                 Text("Queue", style = IosTypography.headline, color = colors.content)
                 IconTap("shuffle", if (playback.shuffle) "Shuffle: On" else "Shuffle: Off", 20.dp, Modifier.align(Alignment.CenterEnd), tint = if (playback.shuffle) colors.accent else colors.content) {
                     playback.setShuffle(!playback.shuffle)
@@ -295,6 +305,23 @@ private fun QueuePage(playback: Playback) {
         playback.track?.let { t ->
             header("Now Playing")
             item(key = "now") { TrackRow(t, Modifier.padding(vertical = 6.dp).padding(end = 8.dp)) }
+        }
+        if (Live.isGuest) {
+            // Guests follow the host's queue; the header opens the session sheet.
+            item(key = "live header") {
+                Row(
+                    Modifier.padding(top = 20.dp, bottom = 4.dp).clickable(role = Role.Button) { Live.showSheet = true },
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    SdatIcon("dot.radiowaves.left.and.right", null, size = 18.dp, tint = colors.accent)
+                    Text("Playing from Listen Together", style = IosTypography.headline, color = colors.accent)
+                }
+            }
+            items(Live.upNext, key = { "live ${it.id}" }) { row ->
+                TrackMenuRow(row.track, onClick = {}, Modifier.animateItem()) { TrackRow(row.track, Modifier.padding(vertical = 6.dp).padding(end = 8.dp)) }
+            }
+            return@LazyColumn
         }
         if (playback.userQueue.isNotEmpty()) {
             header("Next in Queue")

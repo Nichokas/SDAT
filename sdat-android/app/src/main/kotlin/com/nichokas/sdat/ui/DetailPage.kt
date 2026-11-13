@@ -52,6 +52,7 @@ import coil3.compose.AsyncImage
 import com.nichokas.sdat.core.Fav
 import com.nichokas.sdat.core.Favs
 import com.nichokas.sdat.core.Chrome
+import com.nichokas.sdat.core.Live
 import com.nichokas.sdat.core.Route
 import com.nichokas.sdat.core.friendlyMessage
 import io.github.neoruaa.glasmio.core.GlasmioTheme
@@ -178,11 +179,10 @@ fun DetailPage(
                 // An empty list queues nothing, so it offers nothing to confirm.
                 if (tracks.isNotEmpty()) {
                     add(GlasmioCascadingMenuItem("Play Next", "text.line.first.and.arrowtriangle.forward", onClick = {
-                        player.playNext(tracks)
-                        Chrome.flash("Playing next")
+                        if (!Live.userPlayNext(tracks)) { player.playNext(tracks); Chrome.flash("Playing next") }
                     }))
                     add(GlasmioCascadingMenuItem("Add to Queue", "text.line.last.and.arrowtriangle.forward", onClick = {
-                        player.addToQueue(tracks); Chrome.flash("Added to queue")
+                        if (!Live.userEnqueue(tracks)) { player.addToQueue(tracks); Chrome.flash("Added to queue") }
                     }))
                     addAll(downloadMenuItems(tracks))
                 }

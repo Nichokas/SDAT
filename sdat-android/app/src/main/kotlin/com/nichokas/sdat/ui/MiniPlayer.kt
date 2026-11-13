@@ -55,6 +55,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import com.nichokas.sdat.core.Chrome
+import com.nichokas.sdat.core.Live
 import com.nichokas.sdat.core.Morph
 import com.nichokas.sdat.core.NavState
 import com.nichokas.sdat.core.Playback
@@ -179,7 +180,7 @@ private fun CircleContent(playback: Playback, onOpen: () -> Unit, modifier: Modi
                 contentDescription = track?.let { "$label ${it.title}" } ?: label
                 if (track == null) disabled()
                 onClick("Open player") { onOpen(); true }
-                onLongClick(label) { playback.toggle(); true }
+                onLongClick(label) { Live.userToggle(); true }
             }
             // Only while active: the faded circle sits over the capsule's ring and next, and would take their touches.
             .then(if (!active) Modifier else Modifier.onKeyEvent { e ->
@@ -193,7 +194,7 @@ private fun CircleContent(playback: Playback, onOpen: () -> Unit, modifier: Modi
                     var up: PointerInputChange? = null
                     val released = withTimeoutOrNull(120) { up = waitForUpOrCancellation(); true }
                     // A cancelled gesture (finger slid off, or consumed by another gesture) does nothing.
-                    if (released == null) playback.toggle() else if (up != null) onOpen()
+                    if (released == null) Live.userToggle() else if (up != null) onOpen()
                 }
             }),
         contentAlignment = Alignment.Center,
@@ -219,12 +220,14 @@ private fun CapsuleContent(playback: Playback, track: Track, wide: Boolean, onOp
         }
         val label = playLabel(playback)
         Box(
-            Modifier.clickable(enabled = enabled, onClickLabel = label, role = Role.Button, interactionSource = null, indication = null) { playback.toggle() }
+            Modifier.clickable(enabled = enabled, onClickLabel = label, role = Role.Button, interactionSource = null, indication = null) { Live.userToggle() }
+                .alpha(if (Live.playbackLocked) 0.4f else 1f)
                 .semantics { contentDescription = label },
         ) { RingIcon(playback, 40.dp) }
         if (wide) {
             Box(
-                Modifier.size(36.dp, 40.dp).clickable(enabled = enabled, role = Role.Button, interactionSource = null, indication = null) { playback.next() },
+                Modifier.size(36.dp, 40.dp).clickable(enabled = enabled, role = Role.Button, interactionSource = null, indication = null) { Live.userNext() }
+                    .alpha(if (Live.playbackLocked) 0.4f else 1f),
                 contentAlignment = Alignment.Center,
             ) { SdatIcon("forward.fill", contentDescription = "Next", size = 18.dp, tint = colors.content) }
         }

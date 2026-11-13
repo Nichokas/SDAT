@@ -33,6 +33,7 @@ import com.nichokas.sdat.core.Boot
 import com.nichokas.sdat.core.Chrome
 import com.nichokas.sdat.core.Destination
 import com.nichokas.sdat.core.Downloads
+import com.nichokas.sdat.core.Live
 import com.nichokas.sdat.core.PageKey
 import com.nichokas.sdat.core.Playback
 import com.nichokas.sdat.core.Preferences
@@ -126,6 +127,8 @@ fun RootView(session: Session, playback: Playback, prefs: Preferences, secrets: 
             if (!nav.inSettings) BottomChrome(playback, nav, Modifier.align(Alignment.BottomCenter))
             // After the bottom chrome, so the picker opens over the player sheet too.
             Chrome.playlistPickerTrack?.let { PlaylistPicker(it) { Chrome.playlistPickerTrack = null } }
+            if (Live.showSheet) LiveSheet()
+            if (Live.showScanner) ScannerSheet { Live.showScanner = false }
             Toast(Chrome.toast, Modifier.align(Alignment.TopCenter))
             BootLoaderFadeOut()
         },
