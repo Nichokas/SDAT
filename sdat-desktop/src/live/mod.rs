@@ -275,9 +275,7 @@ fn teardown() {
     let loading = LOADS.with(RefCell::take).is_loading();
     LAST_STATUS.with(|l| l.set(None));
     START.with(RefCell::take);
-    if let Some(id) = START_TIMER.with(RefCell::take) {
-        id.remove();
-    }
+    cancel_start_timer();
     LAST_TRACK.with(RefCell::take);
     if was_guest {
         // A host track still loading would start after we left: the player
@@ -944,9 +942,7 @@ fn load_host_track(track: String, attempt: u64) {
 /// tick alone starts up to `GUEST_TICK` late, and an error that small is
 /// never corrected, so the guest stayed behind for the whole track.
 fn start_on_time(wait: Duration) {
-    if let Some(id) = START_TIMER.with(RefCell::take) {
-        id.remove();
-    }
+    cancel_start_timer();
     let generation = current_generation();
     let id = glib::timeout_add_local_once(wait, move || {
         // Taken first: removing the id of a fired one-shot source panics.
@@ -958,6 +954,12 @@ fn start_on_time(wait: Duration) {
     START_TIMER.with(|t| *t.borrow_mut() = Some(id));
 }
 
+fn cancel_start_timer() {
+    if let Some(id) = START_TIMER.with(RefCell::take) {
+        id.remove();
+    }
+}
+
 /// Moves the local player towards the host's anchor.
 fn guest_tick() {
     let Some(g) = guest() else { return };
@@ -966,12 +968,14 @@ fn guest_tick() {
     let ps = player::playback_state_changed().get();
     let local_playing = ps.status == PlaybackStatus::Playing;
     let Some(track) = t.track_id else {
+        cancel_start_timer();
         if local_playing {
             player::pause();
         }
         return;
     };
     if player::current_track_id().as_deref() != Some(track.as_str()) {
+        cancel_start_timer();
         let started = LOADS.with(|l| {
             let mut l = l.borrow_mut();
             l.begin_while(&track, Instant::now(), ps.loading).then(|| l.attempt())
@@ -983,6 +987,9 @@ fn guest_tick() {
     }
     LOADS.with(|l| l.borrow_mut().loaded());
     let step = START.with(|s| s.borrow_mut().step(&track, t.position_ms, t.playing, !ps.loading, Instant::now()));
+    if step != StartStep::Wait {
+        cancel_start_timer();
+    }
     match step {
         StartStep::Follow => {}
         StartStep::Wait => {
