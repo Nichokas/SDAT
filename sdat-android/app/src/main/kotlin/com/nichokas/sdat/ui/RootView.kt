@@ -13,6 +13,9 @@ import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.focusable
+import androidx.compose.foundation.interaction.collectIsFocusedAsState
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.border
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.gestures.waitForUpOrCancellation
@@ -283,8 +286,11 @@ private fun CircleContent(playback: Playback, onOpen: () -> Unit, modifier: Modi
     val track = playback.track
     val label = playLabel(playback)
     val active = enabled && track != null
+    val focus = remember { MutableInteractionSource() }
+    val focused by focus.collectIsFocusedAsState()
     Box(
         modifier.width(Morph.CIRCLE.dp).fillMaxHeight()
+            .then(if (active && focused) Modifier.border(2.dp, GlasmioTheme.colors.content, capsule) else Modifier)
             .semantics {
                 if (!enabled) return@semantics
                 role = Role.Button
@@ -298,7 +304,7 @@ private fun CircleContent(playback: Playback, onOpen: () -> Unit, modifier: Modi
                 val activate = e.key == Key.Enter || e.key == Key.NumPadEnter || e.key == Key.Spacebar
                 if (activate && e.type == KeyEventType.KeyUp) onOpen()
                 activate
-            }.focusable().pointerInput(Unit) {
+            }.focusable(interactionSource = focus).pointerInput(Unit) {
                 awaitEachGesture {
                     awaitFirstDown()
                     // iOS PressRecognizer.miniHold: released within 0.12 s is a tap, otherwise a hold.
