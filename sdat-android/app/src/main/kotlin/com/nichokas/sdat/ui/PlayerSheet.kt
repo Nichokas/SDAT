@@ -77,7 +77,6 @@ import io.github.neoruaa.glasmio.ui.GlasmioSlider
 import kotlinx.coroutines.launch
 import uniffi.tonearm_ffi.Track
 
-private val capsule = RoundedCornerShape(percent = 50)
 private val dimmed = Color.White.copy(alpha = 0.65f)
 private val favouriteYellow = Color(0xFFFFD60A)
 private val removeRed = Color(0xFFFF453A)
