@@ -176,7 +176,7 @@ private fun NowPlayingPage(playback: Playback, track: Track, showQueue: () -> Un
         }
         QualityBadge(playback)
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
-            IconTap("shuffle", "Shuffle", 22.dp, if (playback.shuffle) GlasmioTheme.colors.accent else Color.White.copy(alpha = 0.8f)) {
+            IconTap("shuffle", "Shuffle", 22.dp, tint = if (playback.shuffle) GlasmioTheme.colors.accent else Color.White.copy(alpha = 0.8f)) {
                 playback.setShuffle(!playback.shuffle)
             }
             IconTap("backward.fill", "Previous", 30.dp) { forward = false; playback.previous() }
@@ -192,7 +192,7 @@ private fun NowPlayingPage(playback: Playback, track: Track, showQueue: () -> Un
             }
             IconTap("forward.fill", "Next", 30.dp) { forward = true; playback.next() }
             val repeat = playback.repeat
-            IconTap(if (repeat == Repeat.One) "repeat.1" else "repeat", "Repeat", 22.dp, if (repeat == Repeat.Off) Color.White.copy(alpha = 0.8f) else GlasmioTheme.colors.accent) {
+            IconTap(if (repeat == Repeat.One) "repeat.1" else "repeat", "Repeat", 22.dp, tint = if (repeat == Repeat.Off) Color.White.copy(alpha = 0.8f) else GlasmioTheme.colors.accent) {
                 playback.cycleRepeat()
             }
         }
@@ -225,7 +225,7 @@ private fun TopRow(track: Track) {
                     val send = Intent(Intent.ACTION_SEND).setType("text/plain").putExtra(Intent.EXTRA_TEXT, "https://tidal.com/track/${track.id}")
                     context.startActivity(Intent.createChooser(send, null))
                 }
-                IconTap(if (fav) "star.fill" else "star", if (fav) "Remove from Favourites" else "Add to Favourites", 20.dp, if (fav) favouriteYellow else Color.White) {
+                IconTap(if (fav) "star.fill" else "star", if (fav) "Remove from Favourites" else "Add to Favourites", 20.dp, tint = if (fav) favouriteYellow else Color.White) {
                     Favs.set(track.id, !fav)
                 }
             }
@@ -270,7 +270,7 @@ private fun QueuePage(playback: Playback) {
         item(key = "title") {
             Box(Modifier.fillMaxWidth().heightIn(min = 44.dp), contentAlignment = Alignment.Center) {
                 Text("Queue", style = IosTypography.headline, color = colors.content)
-                IconTap("shuffle", "Shuffle", 20.dp, if (playback.shuffle) colors.accent else colors.content, Modifier.align(Alignment.CenterEnd)) {
+                IconTap("shuffle", "Shuffle", 20.dp, Modifier.align(Alignment.CenterEnd), tint = if (playback.shuffle) colors.accent else colors.content) {
                     playback.setShuffle(!playback.shuffle)
                 }
             }
@@ -299,7 +299,7 @@ private fun LazyListScope.queueRows(section: String, tracks: List<Track>, onTap:
     itemsIndexed(tracks, key = { i, _ -> "$section ${keys[i]}" }) { i, t ->
         Row(Modifier.animateItem(), verticalAlignment = Alignment.CenterVertically) {
             TrackMenuRow(t, onClick = { onTap(i) }, Modifier.weight(1f)) { TrackRow(t, Modifier.padding(vertical = 6.dp)) }
-            IconTap("minus.circle", "Remove ${t.displayTitle}", 20.dp, removeRed) { onRemove(i) }
+            IconTap("minus.circle", "Remove ${t.displayTitle}", 20.dp, tint = removeRed) { onRemove(i) }
         }
     }
 }
@@ -319,8 +319,8 @@ private fun IconTap(
     symbol: String,
     label: String,
     size: Dp,
-    tint: Color = Color.White,
     modifier: Modifier = Modifier,
+    tint: Color = Color.White,
     onClick: () -> Unit,
 ) {
     Box(
