@@ -294,8 +294,8 @@ private fun CircleContent(playback: Playback, onOpen: () -> Unit, modifier: Modi
                 onClick("Open player") { onOpen(); true }
                 onLongClick(label) { playback.toggle(); true }
             }
-            .pointerInput(active) {
-                if (!active) return@pointerInput
+            // Only while active: the faded circle sits over the capsule's ring and next, and would take their touches.
+            .then(if (!active) Modifier else Modifier.pointerInput(Unit) {
                 awaitEachGesture {
                     awaitFirstDown()
                     // iOS PressRecognizer.miniHold: released within 0.12 s is a tap, otherwise a hold.
@@ -304,7 +304,7 @@ private fun CircleContent(playback: Playback, onOpen: () -> Unit, modifier: Modi
                     // A cancelled gesture (finger slid off, or consumed by another gesture) does nothing.
                     if (released == null) playback.toggle() else if (up != null) onOpen()
                 }
-            },
+            }),
         contentAlignment = Alignment.Center,
     ) {
         RingIcon(playback, Morph.CIRCLE.dp)
