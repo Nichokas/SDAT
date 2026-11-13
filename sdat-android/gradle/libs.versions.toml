@@ -7,7 +7,7 @@ glasmio = "0.1.1"
 jna = "5.19.1"
 coroutines = "1.11.0"
 junit = "4.13.2"
-orgJson = "20250517"
+orgJson = "20260814"
 coil = "3.6.3"
 media3 = "1.11.1"
 
