@@ -28,12 +28,22 @@ class PlayQueue<T>(private val random: Random = Random.Default, private val id: 
         private set
 
     /** The base queue in its unshuffled order, restored when shuffle is turned off. */
-    private var original = emptyList<T>()
+    var original = emptyList<T>()
+        private set
     private val recentIDs = HashSet<String>()
     private val recentOrder = ArrayDeque<String>()
 
     val upNext get() = index?.let { tracks.drop(it + 1) } ?: tracks
     val needsRefill get() = index?.let { tracks.size - it <= 5 } ?: false
+
+    /** What a natural end plays next, without taking it: [advance]'s pick, except that repeat-one only loops the
+     * current track, so there is nothing to preload. */
+    val preloadable: T?
+        get() = when {
+            repeat == Repeat.One -> null
+            userQueue.isNotEmpty() -> userQueue.first()
+            else -> index?.let { i -> tracks.getOrNull(i + 1) ?: tracks.firstOrNull()?.takeIf { repeat == Repeat.All } }
+        }
 
     /** With shuffle on, the started track first and the rest shuffled. */
     fun play(list: List<T>, startAt: Int = 0, from: String? = null): T? {
@@ -165,6 +175,33 @@ class PlayQueue<T>(private val random: Random = Random.Default, private val id: 
         return true
     }
 
+    /** The queues cut to a window around the playing track, as iOS saves them. */
+    fun saved(id: Int, endless: Boolean): SavedQueue<T> {
+        val w = savedWindow(tracks.size, index, endless)
+        val unshuffled = if (original == tracks) original.slice(w) else original.take(MAX_SAVED)
+        return SavedQueue(id, w.first, tracks.slice(w), unshuffled, userQueue.take(MAX_SAVED), endless, source)
+    }
+
+    /** iOS restore: without its queue the saved track is the whole queue; an index outside the window is dropped. */
+    fun restore(saved: SavedQueue<T>?, state: SavedState<T>) {
+        clear()
+        if (saved == null) {
+            tracks = listOf(state.current)
+            original = tracks
+            index = 0
+        } else {
+            tracks = saved.tracks
+            original = saved.original
+            userQueue = saved.userQueue
+            source = saved.source
+            index = state.index?.minus(saved.offset)?.takeIf { it in tracks.indices }
+        }
+        current = state.current
+        remember(tracks.map(id))
+        repeat = state.repeat
+        shuffle = state.shuffle
+    }
+
     /** Forgets the queues; shuffle and repeat stay, like iOS. */
     fun clear() {
         clearRecent()
@@ -200,5 +237,24 @@ class PlayQueue<T>(private val random: Random = Random.Default, private val id: 
         const val MAX_PLAYED_HISTORY = 300
         const val MAX_RECENT_IDS = 2000
         const val DISCOVER = "Discover"
+        const val MAX_SAVED = 2000
     }
+}
+
+private const val ENDLESS_BEHIND = 50
+private const val ENDLESS_AHEAD = 200
+
+/** iOS PlaybackStore.window: the part of a base queue of [count] tracks worth saving around [index]. An endless
+ * queue keeps a little history and a few batches ahead; any other queue up to [PlayQueue.MAX_SAVED] tracks. */
+internal fun savedWindow(count: Int, index: Int?, endless: Boolean): IntRange {
+    val i = (index ?: 0).coerceIn(0, maxOf(count - 1, 0))
+    val behind = if (endless) ENDLESS_BEHIND else PlayQueue.MAX_SAVED / 4
+    val ahead = if (endless) ENDLESS_AHEAD else PlayQueue.MAX_SAVED - behind
+    var lo = maxOf(0, i - behind)
+    var hi = minOf(count, i + ahead + 1)
+    if (!endless && hi - lo < PlayQueue.MAX_SAVED) {
+        lo = maxOf(0, minOf(lo, hi - PlayQueue.MAX_SAVED))
+        hi = minOf(count, maxOf(hi, lo + PlayQueue.MAX_SAVED))
+    }
+    return lo until hi
 }

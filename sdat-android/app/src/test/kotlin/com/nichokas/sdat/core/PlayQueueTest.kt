@@ -195,4 +195,80 @@ class PlayQueueTest {
         assertTrue(q.shuffle)
         assertEquals(Repeat.All, q.repeat)
     }
+
+    @Test fun preloadsWhatANaturalEndPlaysWithoutTakingIt() {
+        val q = queue()
+        q.play(abcd, startAt = 2)
+        assertEquals("d", q.preloadable)
+        q.addToQueue("x")
+        assertEquals("x", q.preloadable)
+        assertEquals(listOf("x"), q.userQueue)
+        assertEquals(q.preloadable, q.advance(manual = false))
+        assertEquals("d", q.preloadable)
+        assertEquals(q.preloadable, q.advance(manual = false))
+    }
+
+    @Test fun preloadsNothingAtTheEndOrOnRepeatOneAndWrapsOnRepeatAll() {
+        val q = queue()
+        q.play(abcd, startAt = 3)
+        assertNull(q.preloadable)
+        q.cycleRepeat()
+        assertEquals("a", q.preloadable)
+        q.cycleRepeat()
+        assertNull(q.preloadable)
+        assertEquals("d", q.advance(manual = false))
+        assertNull(queue().preloadable)
+    }
+
+    @Test fun savedQueueRestoresTheSameQueues() {
+        val q = queue()
+        q.play(abcd, startAt = 1, from = "Album")
+        q.setShuffle(true, reorder = true)
+        q.cycleRepeat()
+        q.addToQueue("x")
+        val saved = q.saved(id = 3, endless = false)
+        val restored = queue()
+        restored.restore(saved, SavedState(3, q.current!!, q.index, 42.0, q.repeat, q.shuffle))
+        assertEquals("b", restored.current)
+        assertEquals(q.upNext, restored.upNext)
+        assertEquals(listOf("x"), restored.userQueue)
+        assertEquals("Album", restored.source)
+        assertEquals(Repeat.All, restored.repeat)
+        restored.setShuffle(false, reorder = true)
+        assertEquals(abcd, restored.tracks)
+        assertEquals(1, restored.index)
+    }
+
+    @Test fun restoreWithoutItsQueueKeepsJustTheTrack() {
+        val q = queue()
+        q.restore(null, SavedState(1, "c", 7, 0.0, Repeat.Off, shuffle = false))
+        assertEquals(listOf("c"), q.tracks)
+        assertEquals(0, q.index)
+        assertNull(q.advance(manual = false))
+    }
+
+    @Test fun savesAWindowAroundALongEndlessQueue() {
+        val q = queue()
+        q.discover("t0", emptyList())
+        q.append((1..299).map { "t$it" })
+        q.select(120)
+        val saved = q.saved(id = 1, endless = true)
+        assertEquals(70, saved.offset)
+        assertEquals(listOf("t70", "t299"), listOf(saved.tracks.first(), saved.tracks.last()))
+        assertEquals(saved.tracks, saved.original)
+        val restored = queue()
+        restored.restore(saved, SavedState(1, "t120", 120, 0.0, Repeat.Off, shuffle = false))
+        assertEquals("t121", restored.upNext.first())
+        // The restored window is the dedupe history, as iOS seeds recentIDs from it.
+        assertFalse(restored.append(listOf("t80")))
+    }
+
+    @Test fun windowMatchesIos() {
+        assertEquals(0 until 10, savedWindow(10, 5, endless = false))
+        assertEquals(0 until 2000, savedWindow(5000, 100, endless = false))
+        assertEquals(500 until 2501, savedWindow(5000, 1000, endless = false))
+        assertEquals(3000 until 5000, savedWindow(5000, 4900, endless = false))
+        assertEquals(950 until 1201, savedWindow(5000, 1000, endless = true))
+        assertEquals(0 until 0, savedWindow(0, null, endless = false))
+    }
 }
