@@ -2,7 +2,7 @@ package com.nichokas.sdat.ui
 
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.core.LinearEasing
-import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
@@ -196,10 +196,14 @@ private fun BottomChrome(playback: Playback, nav: NavState, modifier: Modifier) 
     val hasMini = playback.track != null
     val morphs = hasMini && !nav.inDetail
     val bar = Chrome.bar
-    // Held at expanded while the morph is hidden, so a mini-player appearing or a return from a pushed page animates in.
-    val clock by animateFloatAsState(if (bar.collapsed && morphs) 1f else 0f, tween(Morph.DURATION_MS, easing = LinearEasing), label = "morph")
+    // Snapped to expanded while the morph is hidden, so a mini-player appearing or a return from a pushed page animates in
+    // from the start.
+    val clock = remember { Animatable(0f) }
+    LaunchedEffect(morphs, bar.collapsed) {
+        if (morphs) clock.animateTo(if (bar.collapsed) 1f else 0f, tween(Morph.DURATION_MS, easing = LinearEasing)) else clock.snapTo(0f)
+    }
     BoxWithConstraints(modifier.fillMaxWidth().navigationBarsPadding().padding(start = 24.dp, end = 24.dp, bottom = 12.dp)) {
-        val f = Morph.frame(maxWidth.value, if (morphs) clock else 0f, bar.collapsing)
+        val f = Morph.frame(maxWidth.value, if (morphs) clock.value else 0f, bar.collapsing)
         // Glasmio lerps the bar from its width constraint to compactSize, which at tabMax is exactly Morph's tab width.
         val compact = rememberUpdatedState(if (morphs) f.tabFraction else 0f)
         if (!nav.inDetail) {
