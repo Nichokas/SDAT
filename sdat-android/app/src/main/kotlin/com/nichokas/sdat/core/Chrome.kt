@@ -41,6 +41,8 @@ object Chrome {
         nav = NavState()
         bar = BarCollapse()
         showPlayer = false
+        toastJob?.cancel()
+        toast = null
     }
 
     fun flash(text: String) {
