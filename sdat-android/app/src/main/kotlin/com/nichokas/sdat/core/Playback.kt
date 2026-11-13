@@ -2,6 +2,7 @@ package com.nichokas.sdat.core
 
 import android.content.Context
 import android.net.Uri
+import android.os.SystemClock
 import androidx.annotation.OptIn
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -19,13 +20,16 @@ import androidx.media3.exoplayer.ExoPlayer
 import com.google.common.util.concurrent.Futures
 import com.google.common.util.concurrent.ListenableFuture
 import com.nichokas.sdat.ui.TrackPlayer
+import java.util.concurrent.Executors
 import kotlin.coroutines.cancellation.CancellationException
 import kotlinx.coroutines.Deferred
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.async
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.MainScope
+import kotlinx.coroutines.asCoroutineDispatcher
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import uniffi.tonearm_ffi.Mix
 import uniffi.tonearm_ffi.Quality
 import uniffi.tonearm_ffi.Shuffle
@@ -33,11 +37,11 @@ import uniffi.tonearm_ffi.Stream
 import uniffi.tonearm_ffi.Track
 import uniffi.tonearm_ffi.stream
 
-/** The app's single player: the iOS Player's queues, one track at a time from the core's stream URL.
- * Reads [quality] per request so a change in Settings applies to the next track. */
+/** The app's single player: the iOS Player's queues, the current track from the core's stream URL with the next one
+ * preloaded behind it, scrobbling, and the queue saved across restarts. */
 // ForwardingSimpleBasePlayer, which the session player is built on, is still marked unstable.
 @OptIn(UnstableApi::class)
-class Playback(context: Context, private val quality: () -> Quality) : TrackPlayer {
+class Playback(context: Context, private val prefs: Preferences, secrets: Secrets) : TrackPlayer {
     private val scope = MainScope()
     private val player = ExoPlayer.Builder(context)
         .setAudioAttributes(
@@ -50,6 +54,23 @@ class Playback(context: Context, private val quality: () -> Quality) : TrackPlay
     private val queue = PlayQueue<Track> { it.id }
     private var infinite: Shuffle? = null
     private var refilling: Deferred<Boolean>? = null
+    private val scrobbler = Scrobbler(prefs, secrets)
+    private var listen: Listen? = null
+    /** The track whose stream is being fetched or already sits behind the current item; [preloadedQuality] once it
+     * does. */
+    private var preloading: Track? = null
+    private var preloadedQuality: Quality? = null
+    private var preload: Job? = null
+    private val store = PlaybackStore(context.filesDir)
+    private val io = Executors.newSingleThreadExecutor().asCoroutineDispatcher()
+    private var restoring = true
+    /** A restored Discover queue, until [resumeInfinite] gives it its endless source back. */
+    private var restoredEndless = false
+    private var queueId = 0
+    /** The lists the saved queue was cut from. PlayQueue replaces a list whenever it changes, so identity tells
+     * whether the queue file is stale. */
+    private var savedLists: List<Any?>? = null
+    private var lastSave = 0L
 
     val track get() = queue.current
     override val current get() = track
@@ -63,7 +84,8 @@ class Playback(context: Context, private val quality: () -> Quality) : TrackPlay
     val source get() = queue.source
     /** Keeps the previous track's value until the new stream's real quality is known. */
     private var shownQuality by mutableStateOf<Quality?>(null)
-    val badgeQuality get() = shownQuality ?: quality()
+    val badgeQuality get() = shownQuality ?: prefs.streamingQuality
+    val streamingQuality get() = prefs.streamingQuality
     private var fetching by mutableStateOf(false)
     private var buffering by mutableStateOf(false)
     val loading get() = fetching || buffering
@@ -76,8 +98,8 @@ class Playback(context: Context, private val quality: () -> Quality) : TrackPlay
     val progress get() = progress(position, duration)
     private var ticker: Job? = null
 
-    /** What the MediaSession drives: the player, with next/previous going through this queue (ExoPlayer only ever
-     * holds the current track). */
+    /** What the MediaSession drives: the player, with next/previous going through this queue (ExoPlayer holds only
+     * the current track and the preloaded one). */
     val sessionPlayer: Player = object : ForwardingSimpleBasePlayer(player) {
         override fun getState(): State {
             val state = super.getState()
@@ -95,10 +117,10 @@ class Playback(context: Context, private val quality: () -> Quality) : TrackPlay
         }
 
         // The session prepares a stopped player when play is pressed. Stopped means the stream failed or a controller
-        // stopped it; the item left in the player may still be the previous track's stream, so start the current
-        // track afresh.
+        // stopped it; the item left in the player may still be the previous track's stream, so the current track
+        // starts again where it was.
         override fun handlePrepare(): ListenableFuture<*> {
-            if (!fetching) track?.let { start(it, play = player.playWhenReady) }
+            if (!fetching) track?.let { start(it, play = player.playWhenReady, resumeAt = position) }
             return Futures.immediateVoidFuture()
         }
 
@@ -110,6 +132,20 @@ class Playback(context: Context, private val quality: () -> Quality) : TrackPlay
             player.playWhenReady = false
             return super.handleStop()
         }
+    }
+
+    private val restore = scope.launch {
+        val saved = withContext(io) { store.load() }
+        restoring = false
+        // Anything played meanwhile wins.
+        if (saved == null || track != null) return@launch
+        val (state, queued) = saved
+        queue.restore(queued, state)
+        restoredEndless = queued?.endless == true
+        queueId = state.queueId
+        savedLists = queueLists()
+        duration = state.current.durationSecs.toDouble()
+        position = maxOf(0.0, minOf(state.position, if (duration > 0) duration - 1 else state.position))
     }
 
     init {
@@ -124,6 +160,15 @@ class Playback(context: Context, private val quality: () -> Quality) : TrackPlay
                 ticker?.cancel()
                 // iOS's periodic time observer runs every 0.25 s.
                 if (isPlaying) ticker = scope.launch { while (true) { tick(); delay(250) } }
+                persist()
+            }
+
+            override fun onMediaItemTransition(item: MediaItem?, reason: Int) {
+                val next = preloading
+                val quality = preloadedQuality
+                if (reason == Player.MEDIA_ITEM_TRANSITION_REASON_AUTO && next != null && quality != null && item?.mediaId == next.id) {
+                    adopt(next, quality)
+                }
             }
 
             override fun onPlaybackStateChanged(state: Int) {
@@ -180,11 +225,15 @@ class Playback(context: Context, private val quality: () -> Quality) : TrackPlay
     }
 
     override fun playNext(track: Track) {
-        if (this.track == null) play(listOf(track)) else queue.playNext(track)
+        if (this.track == null) return play(listOf(track))
+        queue.playNext(track)
+        changed()
     }
 
     override fun addToQueue(track: Track) {
-        if (this.track == null) play(listOf(track)) else queue.addToQueue(track)
+        if (this.track == null) return play(listOf(track))
+        queue.addToQueue(track)
+        changed()
     }
 
     fun jumpToUpNext(offset: Int) {
@@ -195,14 +244,45 @@ class Playback(context: Context, private val quality: () -> Quality) : TrackPlay
         queue.jumpToUser(offset)?.let { start(it) }
     }
 
-    fun removeUpNext(offset: Int) = queue.removeUpNext(offset)
+    fun removeUpNext(offset: Int) {
+        queue.removeUpNext(offset)
+        changed()
+    }
 
-    fun removeUser(offset: Int) = queue.removeUser(offset)
+    fun removeUser(offset: Int) {
+        queue.removeUser(offset)
+        changed()
+    }
 
     /** An endless queue keeps the source's order. */
-    fun setShuffle(on: Boolean) = queue.setShuffle(on, reorder = infinite == null)
+    fun setShuffle(on: Boolean) {
+        queue.setShuffle(on, reorder = infinite == null)
+        changed()
+    }
 
-    fun cycleRepeat() = queue.cycleRepeat()
+    fun cycleRepeat() {
+        queue.cycleRepeat()
+        changed()
+    }
+
+    /** Settings and the player's quality badge: the playing track switches at once and keeps its place (iOS
+     * reloadQuality), and stays paused if it was. */
+    fun setStreamingQuality(q: Quality) {
+        if (q == prefs.streamingQuality) return
+        prefs.streamingQuality = q
+        val t = track ?: return
+        // The same play goes on, so it keeps what it counted towards its scrobble.
+        val heard = listen
+        start(t, play = player.playWhenReady, resumeAt = position)
+        listen = heard
+    }
+
+    /** Gives a restored Discover queue its endless source back once the home mixes load. */
+    fun resumeInfinite(mixes: List<Mix>) {
+        if (!restoredEndless || infinite != null || mixes.isEmpty()) return
+        replaceInfinite(Shuffle(mixes))
+        refillIfNeeded()
+    }
 
     fun next() {
         if (track != null) advance(auto = false)
@@ -219,6 +299,7 @@ class Playback(context: Context, private val quality: () -> Quality) : TrackPlay
         val to = clampSeek(secs, duration)
         player.seekTo((to * 1000).toLong())
         position = to
+        persist()
     }
 
     private fun advance(auto: Boolean, play: Boolean = true) {
@@ -276,6 +357,7 @@ class Playback(context: Context, private val quality: () -> Quality) : TrackPlay
                 val batch = try { source.nextBatch(10u) } catch (e: CancellationException) { throw e } catch (e: Exception) { return@async false }
                 if (infinite !== source || batch.isEmpty()) return@async false
             } while (!queue.append(batch.filter { it.streamable }))
+            changed()
             true
         }
         refilling = job
@@ -289,6 +371,7 @@ class Playback(context: Context, private val quality: () -> Quality) : TrackPlay
     private fun replaceInfinite(source: Shuffle?) {
         val old = infinite
         infinite = source
+        restoredEndless = false
         val pending = refilling
         pending?.cancel()
         refilling = null
@@ -299,15 +382,20 @@ class Playback(context: Context, private val quality: () -> Quality) : TrackPlay
     private fun tick() {
         // The player keeps the previous track's item until the new stream URL arrives, or if fetching it failed.
         if (fetching || player.currentMediaItem?.mediaId != track?.id) return
+        val from = position
         position = player.currentPosition / 1000.0
         if (player.duration != C.TIME_UNSET && player.duration > 0) duration = player.duration / 1000.0
+        listen?.let { if (it.heard(from, position, player.isPlaying)) scrobbler.scrobble(it) }
+        if (player.isPlaying && SystemClock.elapsedRealtime() - lastSave > 5000) persist()
     }
 
-    private fun start(t: Track, play: Boolean = true) {
+    private fun start(t: Track, play: Boolean = true, resumeAt: Double = 0.0) {
         request?.cancel()
-        position = 0.0
+        dropPreload()
+        position = resumeAt
         duration = t.durationSecs.toDouble()
         fetching = true
+        listen = Listen(t, System.currentTimeMillis() / 1000)
         // Stopped, not cleared: an empty player drops the media notification and with it the foreground service,
         // which can't be started again while the app is in the background.
         player.stop()
@@ -315,15 +403,15 @@ class Playback(context: Context, private val quality: () -> Quality) : TrackPlay
         error = null
         // Requested before the fetch so a pause tapped while the URL loads still holds after prepare().
         player.playWhenReady = play
+        persist()
         request = scope.launch {
             try {
-                val s = stream(t.id, quality())
+                val s = stream(t.id, prefs.streamingQuality)
                 shownQuality = s.actualQuality
-                // The core only hands out HLS manifests.
-                player.setMediaItem(MediaItem.Builder().setMediaId(t.id).setUri(s.url).setMimeType(MimeTypes.APPLICATION_M3U8).setMediaMetadata(metadata(t)).build())
+                player.setMediaItem(mediaItem(t, s), (resumeAt * 1000).toLong())
                 player.prepare()
                 fetching = false
-                refillIfNeeded()
+                started(t)
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
@@ -333,12 +421,95 @@ class Playback(context: Context, private val quality: () -> Quality) : TrackPlay
         }
     }
 
-    /** After a failure or a controller's stop there is nothing prepared, so this starts the track again. */
+    /** A preloaded track the player moved on to by itself: it becomes the current one without a new fetch. */
+    private fun adopt(t: Track, quality: Quality) {
+        preloading = null
+        preloadedQuality = null
+        player.removeMediaItem(0)
+        val next = queue.advance(manual = false)
+        // Preloading follows every queue change, so this is the track it fetched.
+        if (next?.id != t.id) return next?.let { start(it) } ?: stopAtEnd()
+        position = 0.0
+        duration = t.durationSecs.toDouble()
+        shownQuality = quality
+        listen = Listen(t, System.currentTimeMillis() / 1000)
+        persist()
+        started(t)
+    }
+
+    /** iOS afterStart. */
+    private fun started(t: Track) {
+        scrobbler.nowPlaying(t)
+        refillIfNeeded()
+        syncPreload()
+    }
+
+    /** After a queue edit. */
+    private fun changed() {
+        persist()
+        syncPreload()
+    }
+
+    /** Keeps the next track's stream queued behind the playing one, so a natural end flows straight into it (iOS
+     * preloadNext). Idempotent: called after anything that may change what plays next. */
+    private fun syncPreload() {
+        val next = queue.preloadable?.takeIf { prefs.preloadNext && !fetching && player.currentMediaItem?.mediaId == track?.id }
+        if (next != null && next.id == preloading?.id) return
+        dropPreload()
+        if (next == null) return
+        preloading = next
+        preload = scope.launch {
+            val s = try {
+                stream(next.id, prefs.streamingQuality)
+            } catch (e: CancellationException) {
+                throw e
+            } catch (_: Exception) {
+                return@launch
+            }
+            player.addMediaItem(mediaItem(next, s))
+            preloadedQuality = s.actualQuality
+        }
+    }
+
+    private fun dropPreload() {
+        preload?.cancel()
+        preload = null
+        preloading = null
+        preloadedQuality = null
+        if (player.mediaItemCount > 1) player.removeMediaItems(1, player.mediaItemCount)
+    }
+
+    private val endless get() = infinite != null || restoredEndless
+
+    private fun queueLists() = listOf(queue.tracks, queue.original, queue.userQueue, queue.source, endless)
+
+    /** iOS persist: the small state on every call, the queue only when it changed. */
+    private fun persist() {
+        if (restoring) return
+        lastSave = SystemClock.elapsedRealtime()
+        val current = queue.current
+        if (current == null) {
+            savedLists = null
+            scope.launch(io) { store.clear() }
+            return
+        }
+        val lists = queueLists()
+        if (savedLists?.zip(lists)?.all { (a, b) -> a === b } != true) {
+            savedLists = lists
+            val saved = queue.saved(++queueId, endless)
+            scope.launch(io) { store.saveQueue(saved) }
+        }
+        val state = SavedState(queueId, current, queue.index, position, queue.repeat, queue.shuffle)
+        scope.launch(io) { store.saveState(state) }
+    }
+
+    /** After a failure or a controller's stop there is nothing prepared, so this starts the track again where it was;
+     * a restored queue starts this way too. */
     fun toggle() {
         val t = track ?: return
         val unprepared = error != null || !fetching && player.playbackState == Player.STATE_IDLE
         when (tapAction(unprepared, player.playbackState == Player.STATE_ENDED, player.playWhenReady)) {
-            Tap.Retry -> start(t)
+            Tap.Retry -> start(t, resumeAt = position)
             Tap.Replay -> {
                 player.seekToDefaultPosition()
                 player.play()
@@ -348,8 +519,12 @@ class Playback(context: Context, private val quality: () -> Quality) : TrackPlay
         }
     }
 
+    /** Signing out: nothing is restored afterwards. */
     fun stop() {
+        restore.cancel()
+        restoring = false
         request?.cancel()
+        dropPreload()
         player.pause()
         player.stop()
         player.clearMediaItems()
@@ -359,6 +534,8 @@ class Playback(context: Context, private val quality: () -> Quality) : TrackPlay
         replaceInfinite(null)
         error = null
         fetching = false
+        listen = null
+        persist()
     }
 }
 
@@ -368,6 +545,10 @@ private val queueCommands = intArrayOf(
     Player.COMMAND_SEEK_TO_PREVIOUS,
     Player.COMMAND_SEEK_TO_PREVIOUS_MEDIA_ITEM,
 )
+
+// The core only hands out HLS manifests.
+private fun mediaItem(t: Track, s: Stream) =
+    MediaItem.Builder().setMediaId(t.id).setUri(s.url).setMimeType(MimeTypes.APPLICATION_M3U8).setMediaMetadata(metadata(t)).build()
 
 private fun metadata(t: Track) = MediaMetadata.Builder()
     .setTitle(t.displayTitle)

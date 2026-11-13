@@ -137,7 +137,7 @@ fun RootView(session: Session, playback: Playback, prefs: Preferences, secrets: 
                 TabStack(nav.tab, nav.stack) { route ->
                     when (route) {
                         null -> TabRoot(nav.tab, session, playback)
-                        Route.Settings -> SettingsView(session, prefs, secrets, onBack = Chrome::pop)
+                        Route.Settings -> SettingsView(session, prefs, secrets, playback::setStreamingQuality, onBack = Chrome::pop)
                         else -> PlaceholderPage(route.title)
                     }
                 }
@@ -181,7 +181,7 @@ private fun contentKey(key: Any): Any = if (key is Destination) key.id else key.
 
 @Composable
 private fun TabRoot(tab: AppTab, session: Session, playback: Playback) = when (tab) {
-    AppTab.Discover -> DiscoverView(session, onPlay = playback::playDiscover)
+    AppTab.Discover -> DiscoverView(session, onPlay = playback::playDiscover, onMixes = playback::resumeInfinite)
     AppTab.Search, AppTab.Collection -> SdatPage(tab.label, collapsesChrome = true) {}
 }
 

@@ -247,18 +247,21 @@ private fun TopRow(track: Track) {
     }
 }
 
-/** What the badge shows; iOS's quality menu waits for the quality reload. */
+/** The quality playing now; tapping it picks the streaming quality, which applies at once. */
 @Composable
 private fun QualityBadge(playback: Playback) {
     val q = playback.badgeQuality
-    GlassSurface(shape = capsule) {
-        Row(
-            Modifier.heightIn(min = 44.dp).padding(horizontal = 18.dp),
-            horizontalArrangement = Arrangement.spacedBy(10.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            QualityLogo(q, 22.dp)
-            Text(q.badgeText, style = IosTypography.subheadline, fontWeight = FontWeight.SemiBold, color = Color.White.copy(alpha = 0.9f), maxLines = 1)
+    QualityMenu(playback.streamingQuality, playback::setStreamingQuality) { toggle ->
+        GlassSurface(shape = capsule) {
+            Row(
+                Modifier.clickable(onClickLabel = "Maximum quality", role = Role.Button, onClick = toggle).heightIn(min = 44.dp).padding(horizontal = 18.dp),
+                horizontalArrangement = Arrangement.spacedBy(10.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                QualityLogo(q, 22.dp)
+                Text(q.badgeText, style = IosTypography.subheadline, fontWeight = FontWeight.SemiBold, color = Color.White.copy(alpha = 0.9f), maxLines = 1)
+                SdatIcon("chevron.up.chevron.down", null, size = 12.dp, tint = Color.White.copy(alpha = 0.6f))
+            }
         }
     }
 }

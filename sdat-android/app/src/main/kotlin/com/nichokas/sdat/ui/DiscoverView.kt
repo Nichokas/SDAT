@@ -40,7 +40,7 @@ private const val POOL_TARGET = 320
 
 /** The iOS Discover: the home mixes' covers on an endless plane, filled batch by batch. */
 @Composable
-fun DiscoverView(session: Session, onPlay: (Track, List<Track>, List<Mix>) -> Unit) {
+fun DiscoverView(session: Session, onPlay: (Track, List<Track>, List<Mix>) -> Unit, onMixes: (List<Mix>) -> Unit) {
     var tracks by remember { mutableStateOf(emptyList<Track>()) }
     var mixes by remember { mutableStateOf(emptyList<Mix>()) }
     var error by remember { mutableStateOf<String?>(null) }
@@ -50,6 +50,7 @@ fun DiscoverView(session: Session, onPlay: (Track, List<Track>, List<Mix>) -> Un
         val pool = CoverPool()
         try {
             mixes = homeMixes()
+            onMixes(mixes)
             Shuffle(mixes).use { source ->
                 repeat(10) {
                     pool.add(source.nextBatch(if (pool.tracks.isEmpty()) 30u else 80u))
