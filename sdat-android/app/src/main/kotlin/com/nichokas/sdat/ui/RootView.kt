@@ -189,7 +189,8 @@ private fun BottomChrome(playback: Playback, nav: NavState, modifier: Modifier) 
     val hasMini = playback.track != null
     val morphs = hasMini && !nav.inDetail
     val bar = Chrome.bar
-    val clock by animateFloatAsState(if (bar.collapsed) 1f else 0f, tween(Morph.DURATION_MS, easing = LinearEasing), label = "morph")
+    // Held at expanded while the morph is hidden, so a mini-player appearing or a return from a pushed page animates in.
+    val clock by animateFloatAsState(if (bar.collapsed && morphs) 1f else 0f, tween(Morph.DURATION_MS, easing = LinearEasing), label = "morph")
     BoxWithConstraints(modifier.fillMaxWidth().navigationBarsPadding().padding(start = 24.dp, end = 24.dp, bottom = 12.dp)) {
         val f = Morph.frame(maxWidth.value, if (morphs) clock else 0f, bar.collapsing)
         // Glasmio lerps the bar from its width constraint to compactSize, which at tabMax is exactly Morph's tab width.
@@ -329,7 +330,7 @@ private fun CapsuleContent(playback: Playback, track: Track, wide: Boolean, onOp
 }
 
 private fun playLabel(playback: Playback) = when {
-    playback.error != null -> "Playback failed, hold to retry"
+    playback.error != null -> "Retry playback"
     playback.playing -> "Pause"
     else -> "Play"
 }
