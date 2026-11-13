@@ -195,6 +195,25 @@ class PlayQueueTest {
         assertEquals(listOf("a", "c", "d") - gone, q.tracks)
     }
 
+    @Test fun shuffleOffReturnsToTheSameOccurrenceOfARepeatedTrack() {
+        val q = queue()
+        q.play(listOf("a", "b", "a", "c"), startAt = 2)
+        q.setShuffle(true, reorder = true)
+        q.setShuffle(false, reorder = true)
+        assertEquals(2, q.index)
+        assertEquals(listOf("c"), q.upNext)
+    }
+
+    @Test fun removingARepeatedTrackRemovesThatOccurrence() {
+        val q = queue()
+        q.setShuffle(true, reorder = true)
+        q.play(listOf("x", "a", "x", "b"))
+        q.removeUpNext(q.upNext.indexOf("x"))
+        q.setShuffle(false, reorder = true)
+        assertEquals(listOf("x", "a", "b"), q.tracks)
+        assertEquals(0, q.index)
+    }
+
     @Test fun clearKeepsShuffleAndRepeat() {
         val q = queue()
         q.playShuffled(abcd)
@@ -262,6 +281,20 @@ class PlayQueueTest {
         assertEquals("t2501", restored.upNext.first())
     }
 
+    @Test fun everySavedShuffledTrackCanBeUnshuffled() {
+        val q = queue()
+        q.play((0 until 5000).map { "t$it" })
+        q.setShuffle(true, reorder = true)
+        val saved = q.saved(id = 1, endless = false)
+        val restored = queue()
+        restored.restore(saved, SavedState(1, "t0", 0, 0.0, Repeat.Off, shuffle = true))
+        restored.jumpToUpNext(1500)
+        val now = restored.current
+        restored.setShuffle(false, reorder = true)
+        assertEquals(now, restored.tracks[restored.index!!])
+        assertEquals(restored.tracks.sortedBy { it.drop(1).toInt() }, restored.tracks)
+    }
+
     @Test fun restoreWithoutItsQueueKeepsJustTheTrack() {
         val q = queue()
         q.restore(null, SavedState(1, "c", 7, 0.0, Repeat.Off, shuffle = false))
@@ -277,8 +310,8 @@ class PlayQueueTest {
         q.select(120)
         val saved = q.saved(id = 1, endless = true)
         assertEquals(70, saved.offset)
-        assertEquals(listOf("t70", "t299"), listOf(saved.tracks.first(), saved.tracks.last()))
-        assertEquals(saved.tracks, saved.original)
+        assertEquals(listOf("t70", "t299"), listOf(saved.original.first(), saved.original.last()))
+        assertEquals(saved.original.indices.toList(), saved.order)
         val restored = queue()
         restored.restore(saved, SavedState(1, "t120", 120, 0.0, Repeat.Off, shuffle = false))
         assertEquals("t121", restored.upNext.first())

@@ -11,6 +11,7 @@ enum class Repeat { Off, All, One }
  * before the rest of it, shuffle and repeat, and the endless-queue dedupe (recentIDs/recentOrder).
  * Operations that change the playing track return it; the caller starts it. */
 class PlayQueue<T>(private val random: Random = Random.Default, private val id: (T) -> String) {
+    /** The base queue in playing order: [order] applied to [original]. */
     var tracks by mutableStateOf(emptyList<T>())
         private set
     var index by mutableStateOf<Int?>(null)
@@ -30,6 +31,8 @@ class PlayQueue<T>(private val random: Random = Random.Default, private val id: 
     /** The base queue in its unshuffled order, restored when shuffle is turned off. */
     var original = emptyList<T>()
         private set
+    /** Each playing position's place in [original], so a track queued twice maps back to its own occurrence. */
+    private var order = emptyList<Int>()
     private val recentIDs = HashSet<String>()
     private val recentOrder = ArrayDeque<String>()
 
@@ -49,8 +52,8 @@ class PlayQueue<T>(private val random: Random = Random.Default, private val id: 
     fun play(list: List<T>, startAt: Int = 0, from: String? = null): T? {
         if (startAt !in list.indices) return null
         clearRecent()
-        original = list
-        tracks = if (shuffle) listOf(list[startAt]) + (list.take(startAt) + list.drop(startAt + 1)).shuffled(random) else list
+        val rest = list.indices.filter { it != startAt }
+        setBase(list, if (shuffle) listOf(startAt) + rest.shuffled(random) else list.indices.toList())
         source = from
         return select(if (shuffle) 0 else startAt)
     }
@@ -80,8 +83,7 @@ class PlayQueue<T>(private val random: Random = Random.Default, private val id: 
     }
 
     private fun startEndless(list: List<T>) {
-        original = list
-        tracks = list
+        setBase(list, list.indices.toList())
         source = DISCOVER
         select(0)
     }
@@ -130,15 +132,7 @@ class PlayQueue<T>(private val random: Random = Random.Default, private val id: 
 
     fun removeUpNext(offset: Int) {
         val at = (index ?: return) + 1 + offset
-        val removed = tracks.getOrNull(at) ?: return
-        val mirrored = original == tracks
-        tracks = tracks.filterIndexed { j, _ -> j != at }
-        original = if (mirrored) {
-            tracks
-        } else {
-            val o = original.indexOfFirst { id(it) == id(removed) }
-            original.filterIndexed { j, _ -> j != o }
-        }
+        if (at in order.indices) removePlaying(setOf(at))
     }
 
     fun removeUser(offset: Int) {
@@ -152,12 +146,10 @@ class PlayQueue<T>(private val random: Random = Random.Default, private val id: 
         val i = index ?: return
         if (!reorder) return
         if (on) {
-            tracks = tracks.take(i + 1) + tracks.drop(i + 1).shuffled(random)
+            setBase(original, order.take(i + 1) + order.drop(i + 1).shuffled(random))
         } else {
-            val at = originalIndex(i)
-            if (at < 0) return
-            tracks = original
-            index = at
+            index = order[i]
+            setBase(original, original.indices.toList())
         }
     }
 
@@ -175,37 +167,29 @@ class PlayQueue<T>(private val random: Random = Random.Default, private val id: 
         val ids = HashSet(recentIDs)
         val fresh = batch.filter { ids.add(id(it)) }
         if (fresh.isEmpty()) return false
-        val mirrored = original == tracks
-        tracks = tracks + fresh
-        original = if (mirrored) tracks else original + fresh
+        setBase(original + fresh, order + (original.size until original.size + fresh.size))
         remember(fresh.map(id))
         trimPlayedHistory()
         return true
     }
 
-    /** The queues cut to a window around the playing track, as iOS saves them. */
+    /** The queues cut to a window around the playing track, as iOS saves them; the unshuffled order keeps just the
+     * window's tracks, so every saved track can be unshuffled. */
     fun saved(id: Int, endless: Boolean): SavedQueue<T> {
         val w = savedWindow(tracks.size, index, endless)
-        val unshuffled = if (original == tracks) {
-            original.slice(w)
-        } else {
-            original.slice(savedWindow(original.size, index?.let(::originalIndex), endless = false))
-        }
-        return SavedQueue(id, w.first, tracks.slice(w), unshuffled, userQueue.take(MAX_SAVED), endless, source)
+        val kept = order.slice(w).sorted()
+        val rank = kept.withIndex().associate { (r, p) -> p to r }
+        return SavedQueue(id, w.first, kept.map(original::get), order.slice(w).map(rank::getValue), userQueue.take(MAX_SAVED), endless, source)
     }
-
-    private fun originalIndex(i: Int) = original.indexOfFirst { id(it) == id(tracks[i]) }
 
     /** iOS restore: without its queue the saved track is the whole queue; an index outside the window is dropped. */
     fun restore(saved: SavedQueue<T>?, state: SavedState<T>) {
         clear()
         if (saved == null) {
-            tracks = listOf(state.current)
-            original = tracks
+            setBase(listOf(state.current), listOf(0))
             index = 0
         } else {
-            tracks = saved.tracks
-            original = saved.original
+            setBase(saved.original, saved.order)
             userQueue = saved.userQueue
             source = saved.source
             index = state.index?.minus(saved.offset)?.takeIf { it in tracks.indices }
@@ -219,8 +203,7 @@ class PlayQueue<T>(private val random: Random = Random.Default, private val id: 
     /** Forgets the queues; shuffle and repeat stay, like iOS. */
     fun clear() {
         clearRecent()
-        tracks = emptyList()
-        original = emptyList()
+        setBase(emptyList(), emptyList())
         userQueue = emptyList()
         index = null
         current = null
@@ -241,10 +224,23 @@ class PlayQueue<T>(private val random: Random = Random.Default, private val id: 
         val i = index ?: return
         if (i <= MAX_PLAYED_HISTORY) return
         val drop = i - MAX_PLAYED_HISTORY
-        val mirrored = original == tracks
-        tracks = tracks.drop(drop)
-        if (mirrored) original = tracks
+        removePlaying((0 until drop).toSet())
         index = i - drop
+    }
+
+    private fun setBase(list: List<T>, playing: List<Int>) {
+        original = list
+        order = playing
+        tracks = playing.map(list::get)
+    }
+
+    /** Drops these playing positions from both orders. */
+    private fun removePlaying(at: Set<Int>) {
+        val gone = at.map(order::get).toSet()
+        val moved = IntArray(original.size)
+        var kept = 0
+        for (p in original.indices) if (p !in gone) moved[p] = kept++
+        setBase(original.filterIndexed { p, _ -> p !in gone }, order.filterIndexed { j, _ -> j !in at }.map { moved[it] })
     }
 
     companion object {

@@ -8,13 +8,14 @@ import uniffi.tonearm_ffi.AlbumRef
 import uniffi.tonearm_ffi.ArtistRef
 import uniffi.tonearm_ffi.Track
 
-/** The queues as saved: a window of the base queue starting at [offset], its unshuffled order and the user queue.
- * [id] pairs it with a [SavedState], so a state never meets a stale queue. */
+/** The queues as saved: a window of the base queue starting at [offset], as its tracks in unshuffled order and the
+ * playing order of their indices, and the user queue. [id] pairs it with a [SavedState], so a state never meets a
+ * stale queue. */
 data class SavedQueue<T>(
     val id: Int,
     val offset: Int,
-    val tracks: List<T>,
     val original: List<T>,
+    val order: List<Int>,
     val userQueue: List<T>,
     val endless: Boolean,
     val source: String?,
@@ -36,11 +37,13 @@ class PlaybackStore(private val dir: File) {
     private val queueFile = File(dir, "playback-queue")
     private val stateFile = File(dir, "playback-state")
 
+    /** False when the file could not be replaced; the previous one stays. */
     fun saveQueue(q: SavedQueue<Track>) = write(queueFile) {
         writeInt(q.id)
         writeInt(q.offset)
-        writeTracks(q.tracks)
         writeTracks(q.original)
+        writeInt(q.order.size)
+        q.order.forEach(this::writeInt)
         writeTracks(q.userQueue)
         writeBoolean(q.endless)
         writeOptional(q.source, this::writeUTF)
@@ -67,22 +70,29 @@ class PlaybackStore(private val dir: File) {
             SavedState(readInt(), readTrack(), readOptional(this::readInt), readDouble(), Repeat.valueOf(readUTF()), readBoolean())
         } ?: return null.also { clear() }
         val queue = read(queueFile) {
-            SavedQueue(readInt(), readInt(), readTracks(), readTracks(), readTracks(), readBoolean(), readOptional(this::readUTF))
+            val id = readInt()
+            val offset = readInt()
+            val original = readTracks()
+            val order = buildList { repeat(readInt()) { add(readInt()) } }
+            require(order.all { it in original.indices })
+            SavedQueue(id, offset, original, order, readTracks(), readBoolean(), readOptional(this::readUTF))
         }
         return state to queue?.takeIf { it.id == state.queueId }
     }
 
-    private fun write(file: File, body: DataOutputStream.() -> Unit) {
+    private fun write(file: File, body: DataOutputStream.() -> Unit): Boolean {
         val tmp = File(dir, file.name + ".tmp")
-        try {
+        val ok = try {
             DataOutputStream(tmp.outputStream().buffered()).use {
                 it.writeInt(FORMAT)
                 it.body()
             }
             tmp.renameTo(file)
         } catch (_: IOException) {
-            tmp.delete()
+            false
         }
+        if (!ok) tmp.delete()
+        return ok
     }
 
     private fun <R> read(file: File, body: DataInputStream.() -> R): R? = try {
@@ -94,7 +104,7 @@ class PlaybackStore(private val dir: File) {
     }
 
     private companion object {
-        const val FORMAT = 1
+        const val FORMAT = 2
     }
 }
 

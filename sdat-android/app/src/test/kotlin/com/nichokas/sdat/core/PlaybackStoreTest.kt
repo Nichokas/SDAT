@@ -2,6 +2,7 @@ package com.nichokas.sdat.core
 
 import java.io.File
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
 import org.junit.Rule
 import org.junit.Test
@@ -19,7 +20,7 @@ class PlaybackStoreTest {
         album = AlbumRef("al", "Album", "https://c", null), bpm = 121.5,
     )
     private val bare = Track(id = "2", title = "", version = "", durationSecs = 0u, explicit = false, streamable = false, artists = emptyList(), album = null)
-    private val queue = SavedQueue(7, 40, listOf(full, bare), listOf(bare, full), listOf(bare), endless = true, source = "Discover")
+    private val queue = SavedQueue(7, 40, listOf(bare, full), listOf(1, 0), listOf(bare), endless = true, source = "Discover")
     private val state = SavedState(7, full, 41, 93.25, Repeat.One, shuffle = true)
 
     private fun store() = PlaybackStore(dir.root)
@@ -31,7 +32,7 @@ class PlaybackStoreTest {
     }
 
     @Test fun roundTripsEmptyOptionals() {
-        val q = queue.copy(tracks = emptyList(), endless = false, source = null)
+        val q = queue.copy(original = emptyList(), order = emptyList(), endless = false, source = null)
         store().saveQueue(q)
         store().saveState(state.copy(current = bare, index = null))
         assertEquals(state.copy(current = bare, index = null) to q, store().load())
@@ -41,6 +42,20 @@ class PlaybackStoreTest {
         store().saveQueue(queue)
         store().saveState(state.copy(queueId = 8))
         assertEquals(state.copy(queueId = 8) to null, store().load())
+    }
+
+    @Test fun aQueueThatCannotBeWrittenKeepsThePreviousOne() {
+        store().saveQueue(queue)
+        File(dir.root, "playback-queue.tmp").mkdir()
+        assertFalse(store().saveQueue(queue.copy(id = 8)))
+        store().saveState(state)
+        assertEquals(state to queue, store().load())
+    }
+
+    @Test fun anOrderOutsideItsTracksIsUnreadable() {
+        store().saveQueue(queue.copy(order = listOf(2)))
+        store().saveState(state)
+        assertEquals(state to null, store().load())
     }
 
     @Test fun anUnreadableStateDropsBothFiles() {

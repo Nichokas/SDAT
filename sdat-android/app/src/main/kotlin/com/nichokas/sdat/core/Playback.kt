@@ -64,6 +64,8 @@ class Playback(context: Context, private val prefs: Preferences, secrets: Secret
     private var preload: Job? = null
     private val store = PlaybackStore(context.filesDir)
     private val io = Executors.newSingleThreadExecutor().asCoroutineDispatcher()
+    /** The queue file on disk; a state is saved only against it. Only touched on [io]. */
+    private var diskQueueId: Int? = null
     private var restoring = true
     /** A restored Discover queue, until [resumeInfinite] gives it its endless source back. */
     private var restoredEndless = false
@@ -512,11 +514,18 @@ class Playback(context: Context, private val prefs: Preferences, secrets: Secret
         if (queueFileStale(savedLists, lists, savedRange, queue.index)) {
             savedLists = lists
             val saved = queue.saved(++queueId, endless)
-            savedRange = saved.offset until saved.offset + saved.tracks.size
-            scope.launch(io) { store.saveQueue(saved) }
+            savedRange = saved.offset until saved.offset + saved.order.size
+            scope.launch(io) {
+                if (store.saveQueue(saved)) {
+                    diskQueueId = saved.id
+                } else {
+                    // The next persist tries again; until then states stay with the queue file still on disk.
+                    scope.launch { if (savedLists === lists) savedLists = null }
+                }
+            }
         }
         val state = SavedState(queueId, current, queue.index, position, queue.repeat, queue.shuffle)
-        scope.launch(io) { store.saveState(state) }
+        scope.launch(io) { if (state.queueId == diskQueueId) store.saveState(state) }
     }
 
     /** After a failure or a controller's stop there is nothing prepared, so this starts the track again where it was;
