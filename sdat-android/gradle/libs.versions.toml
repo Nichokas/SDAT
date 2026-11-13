@@ -7,6 +7,7 @@ glasmio = "0.1.1"
 jna = "5.19.1"
 coroutines = "1.11.0"
 junit = "4.13.2"
+orgJson = "20250517"
 coil = "3.6.3"
 media3 = "1.11.1"
 
@@ -23,6 +24,7 @@ media3-exoplayer = { module = "androidx.media3:media3-exoplayer", version.ref = 
 media3-hls = { module = "androidx.media3:media3-exoplayer-hls", version.ref = "media3" }
 media3-session = { module = "androidx.media3:media3-session", version.ref = "media3" }
 junit = { module = "junit:junit", version.ref = "junit" }
+org-json = { module = "org.json:json", version.ref = "orgJson" }
 
 [plugins]
 android-application = { id = "com.android.application", version.ref = "agp" }
