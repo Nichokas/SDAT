@@ -1,7 +1,7 @@
 package com.nichokas.sdat.core
 
+import android.os.SystemClock
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import kotlinx.coroutines.Job
@@ -9,22 +9,55 @@ import kotlinx.coroutines.MainScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
-sealed interface Route {
-    data class Album(val id: String) : Route
-    data class Artist(val id: String) : Route
-}
-
-/** Navigation and transient feedback shared by every screen. */
+/** Navigation, bottom-chrome and transient feedback state shared by every screen. */
 object Chrome {
     private val scope = MainScope()
     private var toastJob: Job? = null
+    private var settleJob: Job? = null
 
-    val path = mutableStateListOf<Route>()
+    var nav by mutableStateOf(NavState())
+        private set
+    var bar by mutableStateOf(BarCollapse())
+        private set
     var showPlayer by mutableStateOf(false)
     var toast by mutableStateOf<String?>(null)
         private set
 
-    fun push(r: Route) = path.add(r)
+    fun push(route: Route) { nav = nav.push(route) }
+
+    fun pop() { nav = nav.pop() }
+
+    fun restore(saved: NavState) { nav = saved }
+
+    fun select(tab: AppTab) {
+        if (tab != nav.tab && bar.collapsed) setCollapsed(false)
+        nav = nav.select(tab)
+    }
+
+    fun setCollapsed(on: Boolean) = updateBar { bar.set(on, it) }
+
+    /** Called by a scrolling tab root with how far its content has moved up, in dp. */
+    fun rootScrolled(scrollDp: Float) = updateBar { bar.scrolled(scrollDp, it) }
+
+    private fun updateBar(next: (nowMs: Long) -> BarCollapse) {
+        val now = SystemClock.uptimeMillis()
+        val lock = bar.lockedUntilMs
+        bar = next(now)
+        val until = bar.lockedUntilMs
+        if (until == lock) return
+        settleJob?.cancel()
+        settleJob = scope.launch { delay(until - now); updateBar { bar.settle(it) } }
+    }
+
+    /** The object outlives sign-out, so the next account must not land on the last one's pages. */
+    fun reset() {
+        nav = NavState()
+        settleJob?.cancel()
+        bar = BarCollapse()
+        showPlayer = false
+        toastJob?.cancel()
+        toast = null
+    }
 
     fun flash(text: String) {
         toast = text
