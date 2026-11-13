@@ -184,6 +184,17 @@ class PlayQueueTest {
         assertEquals(2, q.index)
     }
 
+    @Test fun aRemovedTrackStaysRemovedWhenShuffleTurnsOff() {
+        val q = queue()
+        q.play(abcd)
+        q.removeUpNext(0)
+        q.setShuffle(true, reorder = true)
+        val gone = q.upNext.first()
+        q.removeUpNext(0)
+        q.setShuffle(false, reorder = true)
+        assertEquals(listOf("a", "c", "d") - gone, q.tracks)
+    }
+
     @Test fun clearKeepsShuffleAndRepeat() {
         val q = queue()
         q.playShuffled(abcd)
@@ -237,6 +248,18 @@ class PlayQueueTest {
         restored.setShuffle(false, reorder = true)
         assertEquals(abcd, restored.tracks)
         assertEquals(1, restored.index)
+    }
+
+    @Test fun aLongShuffledQueueSavesItsOrderAroundTheCurrentTrack() {
+        val q = queue()
+        val list = (0 until 3000).map { "t$it" }
+        q.play(list, startAt = 2500)
+        q.setShuffle(true, reorder = true)
+        val saved = q.saved(id = 1, endless = false)
+        val restored = queue()
+        restored.restore(saved, SavedState(1, "t2500", q.index, 0.0, Repeat.Off, shuffle = true))
+        restored.setShuffle(false, reorder = true)
+        assertEquals("t2501", restored.upNext.first())
     }
 
     @Test fun restoreWithoutItsQueueKeepsJustTheTrack() {

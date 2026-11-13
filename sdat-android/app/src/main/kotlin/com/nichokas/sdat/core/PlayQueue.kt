@@ -130,7 +130,15 @@ class PlayQueue<T>(private val random: Random = Random.Default, private val id: 
 
     fun removeUpNext(offset: Int) {
         val at = (index ?: return) + 1 + offset
+        val removed = tracks.getOrNull(at) ?: return
+        val mirrored = original == tracks
         tracks = tracks.filterIndexed { j, _ -> j != at }
+        original = if (mirrored) {
+            tracks
+        } else {
+            val o = original.indexOfFirst { id(it) == id(removed) }
+            original.filterIndexed { j, _ -> j != o }
+        }
     }
 
     fun removeUser(offset: Int) {
@@ -146,7 +154,7 @@ class PlayQueue<T>(private val random: Random = Random.Default, private val id: 
         if (on) {
             tracks = tracks.take(i + 1) + tracks.drop(i + 1).shuffled(random)
         } else {
-            val at = original.indexOfFirst { id(it) == id(tracks[i]) }
+            val at = originalIndex(i)
             if (at < 0) return
             tracks = original
             index = at
@@ -178,9 +186,15 @@ class PlayQueue<T>(private val random: Random = Random.Default, private val id: 
     /** The queues cut to a window around the playing track, as iOS saves them. */
     fun saved(id: Int, endless: Boolean): SavedQueue<T> {
         val w = savedWindow(tracks.size, index, endless)
-        val unshuffled = if (original == tracks) original.slice(w) else original.take(MAX_SAVED)
+        val unshuffled = if (original == tracks) {
+            original.slice(w)
+        } else {
+            original.slice(savedWindow(original.size, index?.let(::originalIndex), endless = false))
+        }
         return SavedQueue(id, w.first, tracks.slice(w), unshuffled, userQueue.take(MAX_SAVED), endless, source)
     }
+
+    private fun originalIndex(i: Int) = original.indexOfFirst { id(it) == id(tracks[i]) }
 
     /** iOS restore: without its queue the saved track is the whole queue; an index outside the window is dropped. */
     fun restore(saved: SavedQueue<T>?, state: SavedState<T>) {
