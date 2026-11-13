@@ -267,6 +267,12 @@ final class Player {
         return t.isFinite ? t : position
     }
 
+    /// Position a Listen Together host publishes. While a track loads the
+    /// engine still reports the previous item's time, which guests would
+    /// take as the place to start the new track.
+    var liveHostPosition: Double { loading ? loadResumeAt : livePosition }
+    @ObservationIgnored private var loadResumeAt = 0.0
+
     /// Following a Listen Together host: the host decides what plays next, so the
     /// personal queue, repeat and preloading are suspended (nothing is consumed).
     var liveFollowing = false
@@ -461,11 +467,13 @@ final class Player {
 
     /// The host resumed after a pause: resume in step with it (see
     /// `startInSync`). Too far from the host (more than the buffer kept while
-    /// paused can cover) it plays normally and drift correction takes over.
+    /// paused can cover) it first moves there, still paused, and the next
+    /// tick resumes in step: playing from the old spot would be the wrong
+    /// part of the song until drift correction caught it.
     func liveResume() {
         guard !isPlaying else { return }
-        guard !needsStart, avPlayer.currentItem != nil, let host = liveTarget?(), host.playing,
-              abs(livePosition - host.secs) <= Self.liveResumeWindow else { toggle(); return }
+        guard !needsStart, avPlayer.currentItem != nil, let host = liveTarget?(), host.playing else { toggle(); return }
+        guard abs(livePosition - host.secs) <= Self.liveResumeWindow else { liveSeek(to: host.secs); return }
         resumeAfterInterruption = false
         systemPaused = false
         try? AVAudioSession.sharedInstance().setActive(true)
@@ -594,6 +602,7 @@ final class Player {
         adopt(track, stream: nil)
         loading = true
         position = resumeAt
+        loadResumeAt = resumeAt
         invalidatePreload()
         loadTask?.cancel()
         loadTask = Task {
