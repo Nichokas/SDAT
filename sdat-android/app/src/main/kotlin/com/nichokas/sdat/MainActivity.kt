@@ -1,22 +1,30 @@
 package com.nichokas.sdat
 
+import android.Manifest
 import android.content.ComponentName
+import android.content.pm.PackageManager
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.snapshotFlow
+import androidx.lifecycle.lifecycleScope
 import androidx.media3.session.MediaController
 import androidx.media3.session.SessionToken
 import com.google.common.util.concurrent.ListenableFuture
 import com.nichokas.sdat.core.Chrome
 import com.nichokas.sdat.core.NavState
+import com.nichokas.sdat.core.Downloads
 import com.nichokas.sdat.ui.LocalTrackPlayer
 import com.nichokas.sdat.ui.RootView
 import com.nichokas.sdat.ui.inter
 import io.github.neoruaa.glasmio.core.GlasmioTheme
 import io.github.neoruaa.glasmio.core.glasmioTypography
 import io.github.neoruaa.glasmio.icons.GlasmioIconProvider
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.launch
 
 class MainActivity : ComponentActivity() {
     private var controller: ListenableFuture<MediaController>? = null
@@ -27,6 +35,14 @@ class MainActivity : ComponentActivity() {
         // Chrome outlives a recreated Activity but not process death; restoring before the first frame brings back pages
         // like Settings that finish work when the user returns from the browser.
         savedInstanceState?.getStringArrayList(NAV)?.let { Chrome.restore(NavState.restore(it)) }
+        // Asked when the first download starts, so its progress notification can show.
+        val notify = registerForActivityResult(ActivityResultContracts.RequestPermission()) {}
+        lifecycleScope.launch {
+            snapshotFlow { Downloads.queue.isActive }.first { it }
+            if (checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) {
+                notify.launch(Manifest.permission.POST_NOTIFICATIONS)
+            }
+        }
         controller = MediaController.Builder(this, SessionToken(this, ComponentName(this, PlaybackService::class.java))).buildAsync()
         setContent {
             GlasmioTheme(typography = glasmioTypography(inter)) {
@@ -41,6 +57,11 @@ class MainActivity : ComponentActivity() {
     override fun onSaveInstanceState(outState: Bundle) {
         super.onSaveInstanceState(outState)
         outState.putStringArrayList(NAV, ArrayList(Chrome.nav.saved()))
+    }
+
+    override fun onStart() {
+        super.onStart()
+        Downloads.resumePending()
     }
 
     // A connected controller is what creates PlaybackService, and the service goes foreground only once a stream
