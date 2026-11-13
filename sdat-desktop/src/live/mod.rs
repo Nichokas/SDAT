@@ -51,6 +51,8 @@ thread_local! {
     static LOADS: RefCell<LoadGate> = RefCell::new(LoadGate::default());
     /// Guest: aligned start of the host's track (see [`StartGate`]).
     static START: RefCell<StartGate> = RefCell::new(StartGate::default());
+    /// Guest: pending timer for the aligned start (see [`start_on_time`]).
+    static START_TIMER: RefCell<Option<glib::SourceId>> = const { RefCell::new(None) };
     /// Host: track of the last published anchor, to spot a track change.
     static LAST_TRACK: RefCell<Option<String>> = const { RefCell::new(None) };
     static HOOKED: Cell<bool> = const { Cell::new(false) };
@@ -273,6 +275,7 @@ fn teardown() {
     let loading = LOADS.with(RefCell::take).is_loading();
     LAST_STATUS.with(|l| l.set(None));
     START.with(RefCell::take);
+    cancel_start_timer();
     LAST_TRACK.with(RefCell::take);
     if was_guest {
         // A host track still loading would start after we left: the player
@@ -631,10 +634,16 @@ fn publish_queue() {
 }
 
 fn publish_playback() {
+    publish_playback_at(None);
+}
+
+/// `seek_target`: the position a seek was just asked for. The pipeline is
+/// still flushing then, so its own position can be the one before the seek.
+fn publish_playback_at(seek_target: Option<Duration>) {
     let Some(h) = host() else { return };
     let ps = player::playback_state_changed().get();
     LAST_STATUS.with(|l| l.set(Some((ps.status, ps.loading))));
-    let pos = player::position().unwrap_or(ps.position);
+    let pos = seek_target.or_else(player::position).unwrap_or(ps.position);
     let playing = ps.status == PlaybackStatus::Playing && !ps.loading;
     let item = CURRENT_ITEM.with(|c| c.borrow().clone());
     let track = if item.is_some() { player::current_track_id() } else { None };
@@ -693,8 +702,8 @@ fn install_hooks() {
         }
         CONTINUE
     });
-    player::seeked().on(|_| {
-        publish_playback();
+    player::seeked().on(|to| {
+        publish_playback_at(Some(*to));
         CONTINUE
     });
 }
@@ -847,6 +856,12 @@ impl StartGate {
     pub fn is_active(&self) -> bool {
         self.active.is_some()
     }
+    /// How long until the host reaches the aimed point (`None`: not aimed
+    /// yet, or already there).
+    pub fn due_in(&self, target_ms: i64) -> Option<Duration> {
+        let (_, aim, ..) = self.active.as_ref()?;
+        u64::try_from(aim.as_ref()?.saturating_sub(target_ms)).ok().filter(|ms| *ms > 0).map(Duration::from_millis)
+    }
     /// `target_ms`/`host_playing`: the host now; `ready`: loaded and not buffering.
     pub fn step(&mut self, track: &str, target_ms: i64, host_playing: bool, ready: bool, now: Instant) -> StartStep {
         let Some((t, aim, since, retries)) = self.active.as_mut() else { return StartStep::Follow };
@@ -923,6 +938,28 @@ fn load_host_track(track: String, attempt: u64) {
     });
 }
 
+/// Guest: ticks again when the host reaches the aimed point. The periodic
+/// tick alone starts up to `GUEST_TICK` late, and an error that small is
+/// never corrected, so the guest stayed behind for the whole track.
+fn start_on_time(wait: Duration) {
+    cancel_start_timer();
+    let generation = current_generation();
+    let id = glib::timeout_add_local_once(wait, move || {
+        // Taken first: removing the id of a fired one-shot source panics.
+        START_TIMER.with(RefCell::take);
+        if generation == current_generation() {
+            guest_tick();
+        }
+    });
+    START_TIMER.with(|t| *t.borrow_mut() = Some(id));
+}
+
+fn cancel_start_timer() {
+    if let Some(id) = START_TIMER.with(RefCell::take) {
+        id.remove();
+    }
+}
+
 /// Moves the local player towards the host's anchor.
 fn guest_tick() {
     let Some(g) = guest() else { return };
@@ -931,12 +968,14 @@ fn guest_tick() {
     let ps = player::playback_state_changed().get();
     let local_playing = ps.status == PlaybackStatus::Playing;
     let Some(track) = t.track_id else {
+        cancel_start_timer();
         if local_playing {
             player::pause();
         }
         return;
     };
     if player::current_track_id().as_deref() != Some(track.as_str()) {
+        cancel_start_timer();
         let started = LOADS.with(|l| {
             let mut l = l.borrow_mut();
             l.begin_while(&track, Instant::now(), ps.loading).then(|| l.attempt())
@@ -948,11 +987,17 @@ fn guest_tick() {
     }
     LOADS.with(|l| l.borrow_mut().loaded());
     let step = START.with(|s| s.borrow_mut().step(&track, t.position_ms, t.playing, !ps.loading, Instant::now()));
+    if step != StartStep::Wait {
+        cancel_start_timer();
+    }
     match step {
         StartStep::Follow => {}
         StartStep::Wait => {
             if local_playing {
                 player::pause();
+            }
+            if let Some(wait) = START.with(|s| s.borrow().due_in(t.position_ms)).filter(|w| *w < GUEST_TICK) {
+                start_on_time(wait);
             }
             return;
         }
@@ -971,11 +1016,21 @@ fn guest_tick() {
     if ps.loading {
         return;
     }
+    let actual = player::position().map(ms);
     if t.playing != local_playing {
-        if t.playing { player::play() } else { player::pause() }
+        if t.playing {
+            // Resuming away from the host (it seeked while paused): move
+            // first, so the old spot is never heard.
+            if actual.is_some_and(|a| paused_needs_seek(t.position_ms, a)) {
+                player::seek_to_position(Duration::from_millis(u64::try_from(t.position_ms.max(0)).unwrap_or(0)), true);
+            }
+            player::play();
+        } else {
+            player::pause();
+        }
         return;
     }
-    let Some(actual) = player::position().map(ms) else { return };
+    let Some(actual) = actual else { return };
     if !t.playing {
         if paused_needs_seek(t.position_ms, actual) {
             player::seek_to_position(Duration::from_millis(u64::try_from(t.position_ms.max(0)).unwrap_or(0)), true);
@@ -1016,6 +1071,9 @@ mod tests {
         assert_eq!(g.step("t", 42_000, true, false, t0), StartStep::Wait);
         assert_eq!(g.step("t", 42_500, true, true, at(1)), StartStep::Seek(45_500));
         assert_eq!(g.step("t", 43_500, true, true, at(2)), StartStep::Wait);
+        assert_eq!(g.due_in(43_500), Some(Duration::from_secs(2)));
+        assert_eq!(g.due_in(45_400), Some(Duration::from_millis(100)));
+        assert_eq!(g.due_in(45_500), None);
         assert_eq!(g.step("t", 45_500, true, true, at(3)), StartStep::Play);
         assert!(!g.is_active());
         assert_eq!(g.step("t", 46_000, true, true, at(4)), StartStep::Follow);

@@ -566,15 +566,16 @@ pub fn seek_to_percent(percent: f64) {
 }
 
 pub fn seek_to_position(position: Duration, precise: bool) {
-    if let Some(p) = playbin() {
-        let flags = if precise {
-            gst::SeekFlags::FLUSH | gst::SeekFlags::ACCURATE
-        } else {
-            gst::SeekFlags::FLUSH | gst::SeekFlags::KEY_UNIT
-        };
-        statemachine::Playbin::seek(&p, position, flags);
+    let flags = if precise {
+        gst::SeekFlags::FLUSH | gst::SeekFlags::ACCURATE
+    } else {
+        gst::SeekFlags::FLUSH | gst::SeekFlags::KEY_UNIT
+    };
+    // Subscribers (MPRIS `Seeked`, the Listen Together host anchor) take
+    // `position` as reached, so a seek the pipeline refused must not notify.
+    if playbin().is_some_and(|p| statemachine::Playbin::seek(&p, position, flags)) {
+        seeked().notify(&position);
     }
-    seeked().notify(&position);
 }
 
 pub fn set_volume(volume: f64) {

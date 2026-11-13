@@ -131,8 +131,7 @@ final class Live {
         outbox = []; outboxFailures = 0; outboxTask?.cancel(); outboxTask = nil
         dropGuestEnqueues()
         switching = nil
-        player.liveFollowing = false
-        player.liveTarget = nil
+        player.liveEnded()
         invite = nil; guests = []; upNext = []; reconnecting = false
         mode = m
     }
@@ -394,7 +393,7 @@ final class Live {
         }
         let item = player.current == nil ? nil : itemIds.first
         let playing = player.isPlaying && !player.loading
-        let pos = player.livePosition
+        let pos = player.liveHostPosition
         let now = Date()
         if !force, let s = sent, s.item == item, s.playing == playing {
             let expected = s.pos + (playing ? now.timeIntervalSince(s.at) : 0)
