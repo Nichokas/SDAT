@@ -10,6 +10,7 @@ import androidx.media3.session.CommandButton
 import androidx.media3.session.MediaSession
 import androidx.media3.session.MediaSessionService
 import androidx.media3.session.SessionCommand
+import androidx.media3.session.SessionError
 import androidx.media3.session.SessionResult
 import com.google.common.util.concurrent.Futures
 import com.google.common.util.concurrent.ListenableFuture
@@ -58,7 +59,7 @@ class PlaybackService : MediaSessionService() {
     private class Callback(private val playback: Playback) : MediaSession.Callback {
         override fun onConnect(session: MediaSession, controller: MediaSession.ControllerInfo): MediaSession.ConnectionResult {
             val result = super.onConnect(session, controller)
-            if (!result.isAccepted) return result
+            if (!result.isAccepted || !session.mayFavourite(controller)) return result
             return MediaSession.ConnectionResult.accept(result.availableSessionCommands.buildUpon().add(favourite).build(), result.availablePlayerCommands)
         }
 
@@ -69,12 +70,19 @@ class PlaybackService : MediaSessionService() {
             args: Bundle,
         ): ListenableFuture<SessionResult> {
             if (customCommand.customAction != favourite.customAction) return super.onCustomCommand(session, controller, customCommand, args)
+            if (!session.mayFavourite(controller)) return Futures.immediateFuture(SessionResult(SessionError.ERROR_PERMISSION_DENIED))
             // Sets what the button showed, like the player sheet's star.
             playback.track?.let { Favs.set(it.id, Favs.known(it.id) != true) }
             return Futures.immediateFuture(SessionResult(SessionResult.RESULT_SUCCESS))
         }
     }
 }
+
+// The service is exported and a favourite changes the user's account, so only the system's controllers (notification,
+// lock screen, System UI) get the button.
+@OptIn(UnstableApi::class)
+private fun MediaSession.mayFavourite(controller: MediaSession.ControllerInfo) =
+    controller.isTrusted || isMediaNotificationController(controller)
 
 private val favourite = SessionCommand("com.nichokas.sdat.FAVOURITE", Bundle.EMPTY)
 
