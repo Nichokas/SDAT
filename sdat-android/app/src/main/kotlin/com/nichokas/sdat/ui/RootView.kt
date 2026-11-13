@@ -26,6 +26,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.navigation3.runtime.NavEntry
 import com.nichokas.sdat.core.AppTab
+import com.nichokas.sdat.core.Boot
 import com.nichokas.sdat.core.Chrome
 import com.nichokas.sdat.core.Destination
 import com.nichokas.sdat.core.Playback
@@ -76,6 +77,8 @@ fun RootView(session: Session, playback: Playback, prefs: Preferences, secrets: 
             overlayContent = { LoginView(session) },
         )
     }
+    // A fresh sign-in warms the caches before the shell, and with it Discover's first load, starts.
+    if (Boot.active) return BootLoaderView(Boot.progress.value)
     val nav = Chrome.nav
     val stacks = rememberSaveableStateHolder()
     // The Discover header's shuffle sits in the overlay, where glass can sample the page, so the mixes live here.
@@ -105,6 +108,7 @@ fun RootView(session: Session, playback: Playback, prefs: Preferences, secrets: 
             }
             if (!nav.inSettings) BottomChrome(playback, nav, Modifier.align(Alignment.BottomCenter))
             Toast(Chrome.toast, Modifier.align(Alignment.TopCenter))
+            BootLoaderFadeOut()
         },
     )
 }
