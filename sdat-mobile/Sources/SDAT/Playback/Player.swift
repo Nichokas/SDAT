@@ -270,8 +270,10 @@ final class Player {
     /// Position a Listen Together host publishes. While a track loads the
     /// engine still reports the previous item's time, which guests would
     /// take as the place to start the new track.
-    var liveHostPosition: Double { loading ? loadResumeAt : livePosition }
-    @ObservationIgnored private var loadResumeAt = 0.0
+    var liveHostPosition: Double { loading ? loadResumeAt ?? livePosition : livePosition }
+    /// Set only while `start` loads a new item: `loading` also covers an
+    /// endless-queue refill, which keeps the current item playing.
+    @ObservationIgnored private var loadResumeAt: Double?
 
     /// Following a Listen Together host: the host decides what plays next, so the
     /// personal queue, repeat and preloading are suspended (nothing is consumed).
@@ -626,6 +628,7 @@ final class Player {
                     guard avPlayer.currentItem === item else { return }
                     isPlaying = playing
                     loading = false
+                    loadResumeAt = nil
                     liveSeekEndedAt = Date()
                     afterStart(track)
                     return
@@ -644,9 +647,10 @@ final class Player {
                     isPlaying = false
                 }
                 loading = false
+                if !Task.isCancelled { loadResumeAt = nil }
                 afterStart(track)
             } catch {
-                if !Task.isCancelled { loading = false }
+                if !Task.isCancelled { loading = false; loadResumeAt = nil }
                 if !Task.isCancelled { self.error = friendlyMessage(error) }
             }
         }
@@ -674,6 +678,7 @@ final class Player {
                 self.liveAligning = false
                 self.isPlaying = playing
                 self.loading = false
+                self.loadResumeAt = nil
                 self.liveSeekEndedAt = Date()
                 self.afterStart(track)
                 return
@@ -1104,7 +1109,7 @@ extension Player {
         savedQueueVersion = -1; savedQueueOffset = 0
         preloaded = nil; infinite = nil
         queue = []; original = []; userQueue = []; index = nil; current = nil
-        isPlaying = false; loading = false; position = 0; duration = 0; stream = nil; sourceTitle = nil
+        isPlaying = false; loading = false; loadResumeAt = nil; position = 0; duration = 0; stream = nil; sourceTitle = nil
         MPNowPlayingInfoCenter.default().nowPlayingInfo = nil
         needsStart = false; restoredInfinite = false
         // With `current` nil any later persist() (tick, scene change) only clears again;
