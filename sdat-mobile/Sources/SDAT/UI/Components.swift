@@ -29,13 +29,18 @@ enum CoverURL {
         }
     }
     static func sized(_ url: String, points: CGFloat, kind: Kind = .album) -> String {
+        // Parsed by hand: this runs for every cover in every row render, and a regex
+        // is compiled anew on each call.
         guard url.contains("resources.tidal.com/images/"), points > 0,
-              let r = url.range(of: #"/\d+x\d+\.(jpg|png)$"#, options: .regularExpression) else { return url }
+              let slash = url.lastIndex(of: "/"), let dot = url.lastIndex(of: "."), slash < dot else { return url }
+        let ext = url[url.index(after: dot)...]
+        let dims = url[url.index(after: slash)..<dot].split(separator: "x", omittingEmptySubsequences: false)
+        guard ext == "jpg" || ext == "png", dims.count == 2,
+              dims.allSatisfy({ !$0.isEmpty && $0.allSatisfy(\.isASCII) && $0.allSatisfy(\.isNumber) }) else { return url }
         let px = Int(points * 3)
-        let sizes = url.hasSuffix(".png") ? Kind.profile.sizes : kind.sizes
+        let sizes = ext == "png" ? Kind.profile.sizes : kind.sizes
         let size = sizes.first { $0 >= px } ?? sizes.last!
-        let ext = url.hasSuffix(".png") ? "png" : "jpg"
-        return url.replacingCharacters(in: r, with: "/\(size)x\(size).\(ext)")
+        return "\(url[...slash])\(size)x\(size).\(ext)"
     }
 }
 
@@ -65,20 +70,29 @@ struct CachedImage: View {
             }
             .task(id: target) {
                 guard let t = target, width > 0 else { if url == nil { image = nil }; return }
-                // Downloaded artwork first: instant and works offline.
+                // Downloaded artwork first: no network and works offline. Through the store, so
+                // the file is decoded off the main thread and only once, at the size shown.
+                let px = kind.sizes.first { $0 >= Int(width * 3) } ?? kind.sizes.last!
+                // A cancelled load keeps running past its awaits; it must not overwrite the
+                // artwork of the target that replaced it.
                 if let u = url, let f = Downloads.shared.coverFile(forRemote: u),
-                   let img = UIImage(contentsOfFile: f.path) {
-                    image = img
+                   let img = await ImageStore.shared.image(f.absoluteString, maxPixel: px) {
+                    if !Task.isCancelled { image = img }
                     return
                 }
+                if Task.isCancelled { return }
                 if let c = ImageStore.shared.cached(t) { image = c; return }
                 if image == nil, let u = url { image = ImageStore.shared.cached(u) }
-                if let img = await ImageStore.shared.image(t) { image = img }
+                var loaded = await ImageStore.shared.image(t)
+                if Task.isCancelled { return }
                 // Size missing on the server: fall back to the original URL.
-                else if image == nil, let u = url, u != t, let img = await ImageStore.shared.image(u) { image = img }
-                // Offline: artwork saved with a download.
-                if image == nil, let u = url, let f = Downloads.shared.coverFile(forRemote: u),
-                   let img = UIImage(contentsOfFile: f.path) { image = img }
+                if loaded == nil, let u = url, u != t { loaded = await ImageStore.shared.image(u) }
+                // Offline, and the download index was not loaded yet on the first check above.
+                if loaded == nil, !Task.isCancelled, let u = url,
+                   let f = Downloads.shared.coverFile(forRemote: u) {
+                    loaded = await ImageStore.shared.image(f.absoluteString, maxPixel: px)
+                }
+                if let loaded, !Task.isCancelled { image = loaded }
             }
     }
 }
@@ -87,7 +101,7 @@ struct CachedImage: View {
 struct Equalizer: View {
     let playing: Bool
     var body: some View {
-        TimelineView(.animation(minimumInterval: 1 / 30, paused: !playing)) { ctx in
+        TimelineView(.animation(paused: !playing)) { ctx in
             let t = ctx.date.timeIntervalSinceReferenceDate
             HStack(alignment: .bottom, spacing: 2) {
                 ForEach(0..<3) { i in
@@ -215,7 +229,10 @@ struct TrackList: View {
     @Environment(Player.self) private var player
 
     var body: some View {
-        ForEach(Array(tracks.enumerated()), id: \.offset) { i, t in
+        // A range, not an enumerated copy: a long playlist grows page by page, and each
+        // page would rebuild an array of every row.
+        ForEach(tracks.indices, id: \.self) { i in
+            let t = tracks[i]
             Button { player.play(tracks, startAt: i, from: source) } label: {
                 TrackRow(track: t, showCover: showCover, number: numbered ? i + 1 : nil)
             }

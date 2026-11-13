@@ -128,9 +128,14 @@ struct PlaylistView: View {
     }
 
     private var mosaicCovers: [String] {
-        var seen = Set<String>()
-        let c = tracks.compactMap { $0.album?.coverUrl }.filter { seen.insert($0).inserted }.prefix(4)
-        return c.count == 4 ? Array(c) : []
+        // Stops at the fourth cover: this runs on every page of a playlist still loading.
+        var c: [String] = []
+        for t in tracks {
+            guard let u = t.album?.coverUrl, !c.contains(u) else { continue }
+            c.append(u)
+            if c.count == 4 { return c }
+        }
+        return []
     }
 
     private func load() async {
@@ -269,8 +274,9 @@ struct CoverBackdrop: View {
                 GeometryReader { g in
                     // Well past the screen diagonal: only the cover's centre shows, never a corner.
                     let side = hypot(g.size.width, g.size.height) * 2.2
-                    // The full-screen blur is the per-frame cost; under 1° of turn per frame, 20 fps looks as smooth as 30.
-                    TimelineView(.animation(minimumInterval: 1 / 20, paused: !moving)) { ctx in
+                    // The art is blurred once in `BackdropArt`, so a frame is only transforms and
+                    // can run at the display's rate.
+                    TimelineView(.animation(paused: !moving)) { ctx in
                         let b = beats + (run.map { max(0, ctx.date.timeIntervalSince($0.start)) * $0.beatsPerSecond } ?? 0)
                         // One slow breath per 4-beat bar: TIDAL gives the tempo but not where the beats fall.
                         let breath = 0.5 - 0.5 * cos(b * .pi / 2)
@@ -285,7 +291,6 @@ struct CoverBackdrop: View {
                         .scaleEffect(1 + 0.06 * breath)
                         .frame(width: g.size.width, height: g.size.height)
                         .clipped()
-                        .blur(radius: 50, opaque: true)
                         .overlay(light ? Color.white.opacity(0.14 + 0.05 * breath) : Color.black.opacity(0.32 - 0.07 * breath))
                     }
                 }
@@ -321,16 +326,17 @@ struct CoverBackdrop: View {
 }
 
 enum BackdropArt {
-    /// A 32 px blurred copy: scaled up it reads as smooth colour and is cheap to redraw every frame.
+    /// A 64 px copy blurred until no detail is left: the screen stretches it into smooth colour
+    /// fields with plain linear filtering, with no blur left to run per frame.
     static func render(_ image: UIImage) -> UIImage? {
         guard let cg = image.cgImage else { return nil }
         let ci = CIImage(cgImage: cg)
         let small = ci.applyingFilter("CILanczosScaleTransform", parameters: [
-            kCIInputScaleKey: 32 / max(ci.extent.width, ci.extent.height),
+            kCIInputScaleKey: 64 / max(ci.extent.width, ci.extent.height),
             kCIInputAspectRatioKey: 1,
         ])
         let out = small.clampedToExtent()
-            .applyingGaussianBlur(sigma: 2)
+            .applyingGaussianBlur(sigma: 5)
             .applyingFilter("CIColorControls", parameters: [kCIInputSaturationKey: 1.8])
             .cropped(to: small.extent)
         guard let res = CIContext().createCGImage(out, from: out.extent) else { return nil }
@@ -378,8 +384,9 @@ struct ArtistView: View {
                             compact: true
                         )
                         .padding(.horizontal, 16).padding(.bottom, 8)
-                        VStack(spacing: 0) {
-                            ForEach(Array(o.topTracks.enumerated()), id: \.offset) { i, t in
+                        ForEach(o.topTracks.indices, id: \.self) { i in
+                            let t = o.topTracks[i]
+                            VStack(spacing: 0) {
                                 Button { player.play(o.topTracks, startAt: i, from: o.artist.name) } label: {
                                     TrackRow(track: t, coverSize: 56).frame(minHeight: 72)
                                 }
@@ -387,8 +394,8 @@ struct ArtistView: View {
                                 .trackMenu(t, ownPlaylistId: nil, onRemoved: {})
                                 if i < o.topTracks.count - 1 { Divider().padding(.leading, 68) }
                             }
+                            .padding(.horizontal, 16)
                         }
-                        .padding(.horizontal, 16)
                     }
                     if !o.albums.isEmpty {
                         header("Albums")
