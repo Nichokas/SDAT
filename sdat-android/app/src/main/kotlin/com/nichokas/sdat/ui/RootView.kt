@@ -34,8 +34,6 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -246,8 +244,7 @@ private fun BottomChrome(playback: Playback, nav: NavState, modifier: Modifier) 
 @Composable
 private fun MiniPlayer(playback: Playback, style: MiniStyle, fraction: Float, modifier: Modifier) {
     val track = playback.track
-    var showPlayer by remember { mutableStateOf(false) }
-    val openPlayer = { showPlayer = true }
+    val openPlayer = { Chrome.showPlayer = true }
     GlassSurface(modifier, shape = capsule) {
         if (track != null) {
             CapsuleContent(
@@ -271,7 +268,7 @@ private fun MiniPlayer(playback: Playback, style: MiniStyle, fraction: Float, mo
             enabled = style == MiniStyle.Circle,
         )
     }
-    if (showPlayer && track != null) PlayerSheet(track) { showPlayer = false }
+    if (Chrome.showPlayer && track != null) PlayerSheet(playback) { Chrome.showPlayer = false }
 }
 
 private fun Modifier.morphLayer(alpha: Float, scale: Float, pivotX: Float = 0.5f) = graphicsLayer {
@@ -384,18 +381,6 @@ private fun Toast(text: String?, modifier: Modifier) {
             GlassSurface(shape = capsule) {
                 Text(shown, style = IosTypography.subheadline, fontWeight = FontWeight.SemiBold, modifier = Modifier.padding(horizontal = 16.dp, vertical = 10.dp))
             }
-        }
-    }
-}
-
-/** Placeholder for the iOS player sheet until it is ported. */
-@OptIn(ExperimentalMaterial3Api::class)
-@Composable
-private fun PlayerSheet(track: Track, onDismiss: () -> Unit) {
-    ModalBottomSheet(onDismissRequest = onDismiss) {
-        Column(Modifier.fillMaxWidth().padding(24.dp)) {
-            Text(track.title, style = IosTypography.headline)
-            Text(track.artists.joinToString { it.name }, style = IosTypography.footnote)
         }
     }
 }
