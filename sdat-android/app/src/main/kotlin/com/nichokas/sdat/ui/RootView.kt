@@ -30,6 +30,7 @@ import com.nichokas.sdat.core.AppTab
 import com.nichokas.sdat.core.Boot
 import com.nichokas.sdat.core.Chrome
 import com.nichokas.sdat.core.Destination
+import com.nichokas.sdat.core.Downloads
 import com.nichokas.sdat.core.PageKey
 import com.nichokas.sdat.core.Playback
 import com.nichokas.sdat.core.Preferences
@@ -106,15 +107,19 @@ fun RootView(session: Session, playback: Playback, prefs: Preferences, secrets: 
                         Route.CollectionAlbums -> CollectionAlbumsView()
                         Route.CollectionArtists -> CollectionArtistsView()
                         Route.CollectionPlaylists -> CollectionPlaylistsView()
-                        Route.Downloads -> PlaceholderPage("Downloads")
+                        Route.Downloads -> DownloadsView()
                     }
                 }
             }
         },
         overlayContent = {
-            if (!nav.inDetail) ProfileButton(session, { Chrome.push(Route.Settings) }, Modifier.align(Alignment.TopEnd).statusBarsPadding().padding(end = 16.dp, top = 4.dp))
-            if (!nav.inDetail && nav.tab == AppTab.Discover) {
-                ShuffleButton(mixes.isNotEmpty(), { playback.playInfinite(mixes) }, Modifier.align(Alignment.TopEnd).statusBarsPadding().padding(end = 70.dp, top = 4.dp))
+            if (!nav.inDetail) {
+                // As on iOS, Discover's header has Shuffle where the other tabs show download progress.
+                Row(Modifier.align(Alignment.TopEnd).statusBarsPadding().padding(end = 16.dp, top = 4.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    if (nav.tab == AppTab.Discover) ShuffleButton(mixes.isNotEmpty(), { playback.playInfinite(mixes) })
+                    else if (Downloads.queue.isActive) DownloadStatusButton()
+                    ProfileButton(session, { Chrome.push(Route.Settings) })
+                }
             }
             if (!nav.inSettings) BottomChrome(playback, nav, Modifier.align(Alignment.BottomCenter))
             // After the bottom chrome, so the picker opens over the player sheet too.

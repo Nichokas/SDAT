@@ -32,7 +32,11 @@ import androidx.compose.ui.unit.dp
 import androidx.core.net.toUri
 import androidx.lifecycle.compose.LifecycleResumeEffect
 import com.nichokas.sdat.R
+import com.nichokas.sdat.core.Chrome
+import com.nichokas.sdat.core.Downloads
+import com.nichokas.sdat.core.Fmt
 import com.nichokas.sdat.core.Preferences
+import com.nichokas.sdat.core.Route
 import com.nichokas.sdat.core.Secrets
 import com.nichokas.sdat.core.Session
 import com.nichokas.sdat.core.detail
@@ -122,6 +126,7 @@ fun SettingsView(session: Session, prefs: Preferences, secrets: Secrets, setQual
             Section("Downloads") {
                 GlasmioListRow("Download quality", detail = "Highest available", showTopSeparator = false)
                 ToggleRow("Download over cellular", prefs.downloadOverCellular, { prefs.downloadOverCellular = it })
+                GlasmioListRow("Manage downloads", detail = Fmt.bytes(Downloads.totalSize), onClick = { Chrome.push(Route.Downloads) })
             }
         }
         item {

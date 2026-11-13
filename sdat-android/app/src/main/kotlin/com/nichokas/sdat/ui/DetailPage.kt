@@ -183,6 +183,7 @@ fun DetailPage(
                     add(GlasmioCascadingMenuItem("Add to Queue", "text.line.last.and.arrowtriangle.forward", onClick = {
                         player.addToQueue(tracks); Chrome.flash("Added to queue")
                     }))
+                    addAll(downloadMenuItems(tracks))
                 }
                 if (favourite != null) {
                     add(GlasmioCascadingMenuItem(if (isFav) "Remove from Collection" else "Add to Collection", if (isFav) "star.slash" else "star", separatorBefore = isNotEmpty(), onClick = toggleFav))
