@@ -896,6 +896,21 @@ impl GuestSession {
                         self.drift.host_jumped();
                     }
                 }
+                // Resumed away from where it paused (a seek and a play coalesced
+                // into one anchor, or a paused position published while the
+                // track was still loading): the guest's paused player sits at
+                // the old spot, so waiting out the settle window would play
+                // the wrong part of the song for seconds.
+                Some(cur)
+                    if a.playing
+                        && !cur.playing
+                        && cur.track_id.is_some()
+                        && cur.track_id == a.track_id
+                        && a.position_ms.abs_diff(cur.position_ms) > HOST_JUMP_MS.unsigned_abs() =>
+                {
+                    self.drift.reset();
+                    self.drift.host_jumped();
+                }
                 _ => self.drift.reset(),
             }
             self.anchor = Some(a);
@@ -1994,6 +2009,28 @@ mod tests {
         let o = w.host.set_playback(Some("i".into()), Some("t".into()), 13_000, true, 14 * S);
         w.deliver(o, 14 * S);
         assert_eq!(w.guest.correction(local(14 * S), 0, 11_000), Correction::Seek(13_000));
+    }
+
+    #[test]
+    fn resume_away_from_the_paused_position_is_followed_at_once() {
+        let (mut w, local) = following("i");
+        let o = w.host.set_playback(Some("i".into()), Some("t".into()), 200_000, false, 5 * S);
+        w.deliver(o, 5 * S);
+        // The guest parked at 200 s; the host starts playing from 0.
+        let o = w.host.set_playback(Some("i".into()), Some("t".into()), 0, true, 6 * S);
+        w.deliver(o, 6 * S);
+        assert_eq!(w.guest.correction(local(6 * S + 250 * MS), 0, 200_250), Correction::Seek(250));
+    }
+
+    #[test]
+    fn resume_at_the_paused_position_settles_as_usual() {
+        let (mut w, local) = following("i");
+        let o = w.host.set_playback(Some("i".into()), Some("t".into()), 20_000, false, 5 * S);
+        w.deliver(o, 5 * S);
+        let o = w.host.set_playback(Some("i".into()), Some("t".into()), 20_000, true, 9 * S);
+        w.deliver(o, 9 * S);
+        // A guest that is still buffering reports a fake error: no seek.
+        assert_eq!(w.guest.correction(local(10 * S), 0, 16_000), Correction::None);
     }
 
     #[test]

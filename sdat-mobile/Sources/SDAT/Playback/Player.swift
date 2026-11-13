@@ -267,6 +267,14 @@ final class Player {
         return t.isFinite ? t : position
     }
 
+    /// Position a Listen Together host publishes. While a track loads the
+    /// engine still reports the previous item's time, which guests would
+    /// take as the place to start the new track.
+    var liveHostPosition: Double { loading ? loadResumeAt ?? livePosition : livePosition }
+    /// Set only while `start` loads a new item: `loading` also covers an
+    /// endless-queue refill, which keeps the current item playing.
+    @ObservationIgnored private var loadResumeAt: Double?
+
     /// Following a Listen Together host: the host decides what plays next, so the
     /// personal queue, repeat and preloading are suspended (nothing is consumed).
     var liveFollowing = false
@@ -279,7 +287,7 @@ final class Player {
     /// loads it paused, so joining a paused session never blips audio.
     func livePlay(_ tracks: [Track], index i: Int, at secs: Double, playing: Bool) {
         guard tracks.indices.contains(i) else { return }
-        liveSeekTask?.cancel(); liveSeekTask = nil; liveSeeking = false
+        cancelLiveSeek()
         liveSeekEndedAt = nil
         liveAligning = false
         recentIDs = []; recentOrder = []
@@ -299,6 +307,27 @@ final class Player {
     /// the position is not trustworthy, so no new correction may start.
     @ObservationIgnored private(set) var liveSeeking = false
     @ObservationIgnored private var liveSeekTask: Task<Void, Never>?
+    /// `liveSeekTask` is a `liveResume` that has not started playing yet
+    /// (`isPlaying` is already true).
+    @ObservationIgnored private var liveResumePending = false
+
+    private func cancelLiveSeek() {
+        liveSeekTask?.cancel(); liveSeekTask = nil
+        liveSeeking = false; liveResumePending = false
+    }
+
+    /// The Listen Together session ended: a resume still waiting for the host
+    /// never happens, while a drift seek just lands and keeps playing.
+    func liveEnded() {
+        liveFollowing = false
+        liveTarget = nil
+        let resuming = liveResumePending
+        cancelLiveSeek()
+        guard resuming else { return }
+        avPlayer.pause()
+        isPlaying = false
+        updateNowPlaying()
+    }
 
     /// True while audio is actually advancing (not buffering after a seek).
     var liveAdvancing: Bool { avPlayer.timeControlStatus == .playing }
@@ -443,11 +472,13 @@ final class Player {
         avPlayer.setRate(1, time: .invalid, atHostTime: startAt)
         // Polled, not slept: callers block `Live.guestTick` meanwhile, so a
         // host or system pause, or a cancelled start, has to revoke the
-        // scheduled rate here.
+        // scheduled rate here, also one that arrived during the last sleep
+        // (`play()` below would undo it).
         var started = true
-        while (startAt - CMClockGetTime(clock)).seconds > 0 {
+        while true {
             guard !Task.isCancelled, avPlayer.currentItem === item, !systemPaused,
                   let now = liveTarget?(), now.playing else { started = false; break }
+            if (startAt - CMClockGetTime(clock)).seconds <= 0 { break }
             try? await Task.sleep(for: .milliseconds(50))
         }
         // Another item (e.g. local playback after leaving) is not ours to pause.
@@ -461,22 +492,26 @@ final class Player {
 
     /// The host resumed after a pause: resume in step with it (see
     /// `startInSync`). Too far from the host (more than the buffer kept while
-    /// paused can cover) it plays normally and drift correction takes over.
+    /// paused can cover) it joins like a fresh start (`liveAlign`) instead:
+    /// playing from the old spot would be the wrong part of the song until
+    /// drift correction caught it, and a plain seek before resuming could
+    /// land behind again after a slow seek, over and over.
     func liveResume() {
         guard !isPlaying else { return }
-        guard !needsStart, avPlayer.currentItem != nil, let host = liveTarget?(), host.playing,
-              abs(livePosition - host.secs) <= Self.liveResumeWindow else { toggle(); return }
+        guard !needsStart, let item = avPlayer.currentItem, let host = liveTarget?(), host.playing else { toggle(); return }
+        let far = abs(livePosition - host.secs) > Self.liveResumeWindow
         resumeAfterInterruption = false
         systemPaused = false
         try? AVAudioSession.sharedInstance().setActive(true)
         isPlaying = true
         updateNowPlaying()
         liveSeeking = true
-        let item = avPlayer.currentItem
+        liveResumePending = true
         liveSeekTask = Task {
-            let started = await startInSync()
+            let started = await far ? liveAlign(item) : startInSync()
             guard !Task.isCancelled else { return }
             liveSeeking = false
+            liveResumePending = false
             liveSeekEndedAt = Date()
             if !started, avPlayer.currentItem === item {
                 isPlaying = false
@@ -594,6 +629,7 @@ final class Player {
         adopt(track, stream: nil)
         loading = true
         position = resumeAt
+        loadResumeAt = resumeAt
         invalidatePreload()
         loadTask?.cancel()
         loadTask = Task {
@@ -617,6 +653,7 @@ final class Player {
                     guard avPlayer.currentItem === item else { return }
                     isPlaying = playing
                     loading = false
+                    loadResumeAt = nil
                     liveSeekEndedAt = Date()
                     afterStart(track)
                     return
@@ -635,9 +672,10 @@ final class Player {
                     isPlaying = false
                 }
                 loading = false
+                if !Task.isCancelled { loadResumeAt = nil }
                 afterStart(track)
             } catch {
-                if !Task.isCancelled { loading = false }
+                if !Task.isCancelled { loading = false; loadResumeAt = nil }
                 if !Task.isCancelled { self.error = friendlyMessage(error) }
             }
         }
@@ -665,6 +703,7 @@ final class Player {
                 self.liveAligning = false
                 self.isPlaying = playing
                 self.loading = false
+                self.loadResumeAt = nil
                 self.liveSeekEndedAt = Date()
                 self.afterStart(track)
                 return
@@ -1088,14 +1127,14 @@ extension Player {
     /// Stops playback and forgets the queue (used by "Erase all app data").
     func stopAndClear() {
         loadTask?.cancel(); preloadTask?.cancel(); refilling?.cancel(); refilling = nil
-        liveSeekTask?.cancel(); liveSeekTask = nil; liveSeeking = false
+        cancelLiveSeek()
         avPlayer.pause(); avPlayer.removeAllItems()
         resumeAfterInterruption = false
         recentIDs = []; recentOrder = []
         savedQueueVersion = -1; savedQueueOffset = 0
         preloaded = nil; infinite = nil
         queue = []; original = []; userQueue = []; index = nil; current = nil
-        isPlaying = false; loading = false; position = 0; duration = 0; stream = nil; sourceTitle = nil
+        isPlaying = false; loading = false; loadResumeAt = nil; position = 0; duration = 0; stream = nil; sourceTitle = nil
         MPNowPlayingInfoCenter.default().nowPlayingInfo = nil
         needsStart = false; restoredInfinite = false
         // With `current` nil any later persist() (tick, scene change) only clears again;
