@@ -24,14 +24,15 @@ object Favs {
 
     fun known(id: String): Boolean? = tracks[id]
 
-    /** State the server listed; a write still in flight wins. */
-    fun mark(ids: List<String>, value: Boolean = true) {
+    /** Tracks the server listed as favourites; a write still in flight wins. */
+    fun mark(ids: List<String>) {
         for (id in ids) {
             if (writes[id]?.isActive == true) continue
-            tracks[id] = value
-            confirmed[id] = value
+            tracks[id] = true
+            confirmed[id] = true
         }
     }
+
     fun clear() {
         generation++
         tracks.clear()
