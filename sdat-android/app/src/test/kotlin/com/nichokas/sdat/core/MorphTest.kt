@@ -3,6 +3,11 @@ package com.nichokas.sdat.core
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.flowOf
+import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.toList
+import kotlinx.coroutines.runBlocking
 import org.junit.Test
 
 class MorphTest {
@@ -88,5 +93,14 @@ class MorphTest {
         val expanded = BarCollapse().scrolled(80f, nowMs = 0).set(false, nowMs = 1000)
         assertFalse(expanded.scrolled(80f, nowMs = 1100).collapsed)
         assertTrue(expanded.scrolled(80f, nowMs = 1000 + Morph.DURATION_MS + 20L).collapsed)
+    }
+
+    @Test
+    fun scrollingFurtherPastTheFirstItemAfterAnExpandCollapsesAgain() = runBlocking {
+        // What the page's collector sees: snapshotFlow drops a value equal to the one before it.
+        val seen = flowOf(ListScroll(3, 10), ListScroll(5, 40)).distinctUntilChanged().map { it.dp(density = 2.75f) }.toList()
+        assertEquals(2, seen.size)
+        val expanded = BarCollapse().scrolled(seen[0], nowMs = 0).set(false, nowMs = 1000)
+        assertTrue(expanded.scrolled(seen[1], nowMs = 2000).collapsed)
     }
 }

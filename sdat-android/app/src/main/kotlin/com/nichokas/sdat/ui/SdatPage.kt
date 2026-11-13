@@ -12,6 +12,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.dp
 import com.nichokas.sdat.core.Chrome
+import com.nichokas.sdat.core.ListScroll
 import io.github.neoruaa.glasmio.scaffold.GlasmioPinnedListPage
 
 /** Room below a list for the floating bottom chrome, as on iOS. */
@@ -35,10 +36,8 @@ fun SdatPage(
     if (collapsesChrome) {
         val density = LocalDensity.current.density
         LaunchedEffect(listState, density) {
-            snapshotFlow {
-                // Past the first item the exact distance no longer matters: the chrome is collapsed either way.
-                if (listState.firstVisibleItemIndex > 0) Float.MAX_VALUE else listState.firstVisibleItemScrollOffset / density
-            }.collect(Chrome::rootScrolled)
+            snapshotFlow { ListScroll(listState.firstVisibleItemIndex, listState.firstVisibleItemScrollOffset) }
+                .collect { Chrome.rootScrolled(it.dp(density)) }
         }
     }
     GlasmioPinnedListPage(

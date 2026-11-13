@@ -89,3 +89,12 @@ data class BarCollapse(val collapsed: Boolean = false, val collapsing: Boolean =
         const val COLLAPSE_AT_DP = 50f
     }
 }
+
+/**
+ * A tab root's list position, observed instead of its scroll distance: the distance is the same everywhere past the
+ * first item, and a deduplicating flow of it would drop every later scroll there.
+ */
+data class ListScroll(val index: Int, val offsetPx: Int) {
+    // Past the first item the exact distance no longer matters: the chrome is collapsed either way.
+    fun dp(density: Float) = if (index > 0) Float.MAX_VALUE else offsetPx / density
+}
