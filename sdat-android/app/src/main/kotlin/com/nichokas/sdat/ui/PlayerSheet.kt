@@ -36,6 +36,7 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -123,7 +124,6 @@ private fun CoverBackdrop(url: String?) {
 
 @Composable
 private fun NowPlayingPage(playback: Playback, track: Track, showQueue: () -> Unit) {
-    var scrub by remember { mutableStateOf<Double?>(null) }
     var forward by remember { mutableStateOf(true) }
     LaunchedEffect(track.id) { Favs.check(track.id) }
     val slide: () -> ContentTransform = {
@@ -154,23 +154,27 @@ private fun NowPlayingPage(playback: Playback, track: Track, showQueue: () -> Un
                 Text(t.artistLine, style = IosTypography.body, color = dimmed, maxLines = 1, overflow = TextOverflow.Ellipsis)
             }
         }
-        Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-            val end = maxOf(playback.duration, 1.0)
-            val shown = scrub ?: playback.position
-            GlasmioSlider(
-                value = shown.coerceIn(0.0, end).toFloat(),
-                onValueChange = { scrub = it.toDouble() },
-                valueRange = 0f..end.toFloat(),
-                onValueChangeFinished = {
-                    scrub?.let(playback::seek)
-                    scrub = null
-                },
-            )
-            Row(Modifier.fillMaxWidth()) {
-                val digits = IosTypography.caption1.copy(fontFeatureSettings = "tnum")
-                Text(Fmt.time(shown), style = digits, color = Color.White.copy(alpha = 0.6f))
-                Spacer(Modifier.weight(1f))
-                Text("-" + Fmt.time(playback.duration - shown), style = digits, color = Color.White.copy(alpha = 0.6f))
+        // A new track drops the slider and any drag on it, so a release can't seek it to the old track's place.
+        key(track.id) {
+            Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                var scrub by remember { mutableStateOf<Double?>(null) }
+                val end = maxOf(playback.duration, 1.0)
+                val shown = scrub ?: playback.position
+                GlasmioSlider(
+                    value = shown.coerceIn(0.0, end).toFloat(),
+                    onValueChange = { scrub = it.toDouble() },
+                    valueRange = 0f..end.toFloat(),
+                    onValueChangeFinished = {
+                        scrub?.let(playback::seek)
+                        scrub = null
+                    },
+                )
+                Row(Modifier.fillMaxWidth()) {
+                    val digits = IosTypography.caption1.copy(fontFeatureSettings = "tnum")
+                    Text(Fmt.time(shown), style = digits, color = Color.White.copy(alpha = 0.6f))
+                    Spacer(Modifier.weight(1f))
+                    Text("-" + Fmt.time(playback.duration - shown), style = digits, color = Color.White.copy(alpha = 0.6f))
+                }
             }
         }
         QualityBadge(playback)
