@@ -57,10 +57,11 @@ class PlaybackService : MediaSessionService() {
     }
 
     private class Callback(private val playback: Playback) : MediaSession.Callback {
-        override fun onConnect(session: MediaSession, controller: MediaSession.ControllerInfo): MediaSession.ConnectionResult {
-            val result = super.onConnect(session, controller)
-            if (!result.isAccepted || !session.mayFavourite(controller)) return result
-            return MediaSession.ConnectionResult.accept(result.availableSessionCommands.buildUpon().add(favourite).build(), result.availablePlayerCommands)
+        override fun onConnectAsync(session: MediaSession, controller: MediaSession.ControllerInfo): ListenableFuture<MediaSession.ConnectionResult> {
+            val defaults = MediaSession.ConnectionResult.AcceptedResultBuilder(session, controller).build()
+            if (!session.mayFavourite(controller)) return Futures.immediateFuture(defaults)
+            val commands = defaults.availableSessionCommands.buildUpon().add(favourite).build()
+            return Futures.immediateFuture(MediaSession.ConnectionResult.AcceptedResultBuilder(session, controller).setAvailableSessionCommands(commands).build())
         }
 
         override fun onCustomCommand(
@@ -78,11 +79,10 @@ class PlaybackService : MediaSessionService() {
     }
 }
 
-// The service is exported and a favourite changes the user's account, so only the system's controllers (notification,
-// lock screen, System UI) get the button.
+// The service is exported and a favourite changes the user's account, so only our notification gets the button.
+// Media3 hands System UI's (notification, lock screen) commands to the callback as the notification controller.
 @OptIn(UnstableApi::class)
-private fun MediaSession.mayFavourite(controller: MediaSession.ControllerInfo) =
-    controller.isTrusted || isMediaNotificationController(controller)
+private fun MediaSession.mayFavourite(controller: MediaSession.ControllerInfo) = isMediaNotificationController(controller)
 
 private val favourite = SessionCommand("com.nichokas.sdat.FAVOURITE", Bundle.EMPTY)
 
