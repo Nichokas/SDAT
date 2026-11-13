@@ -89,6 +89,22 @@ class MorphTest {
     }
 
     @Test
+    fun aScrollBackThatStopsDuringTheLockExpandsWhenTheLockEnds() {
+        val back = BarCollapse().scrolled(80f, nowMs = 0).scrolled(0f, nowMs = 100)
+        assertTrue(back.collapsed)
+        assertTrue(back.settle(nowMs = Morph.DURATION_MS + 19L).collapsed)
+        val settled = back.settle(nowMs = Morph.DURATION_MS + 20L)
+        assertFalse(settled.collapsed)
+        assertFalse(settled.collapsing)
+    }
+
+    @Test
+    fun anExplicitExpandStaysWhenNothingScrollsDuringTheLock() {
+        val expanded = BarCollapse().scrolled(80f, nowMs = 0).set(false, nowMs = 1000)
+        assertFalse(expanded.settle(nowMs = 2000).collapsed)
+    }
+
+    @Test
     fun anExplicitExpandAlsoLocksOutScrolling() {
         val expanded = BarCollapse().scrolled(80f, nowMs = 0).set(false, nowMs = 1000)
         assertFalse(expanded.scrolled(80f, nowMs = 1100).collapsed)

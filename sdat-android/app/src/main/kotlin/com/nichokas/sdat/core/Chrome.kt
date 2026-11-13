@@ -13,6 +13,7 @@ import kotlinx.coroutines.launch
 object Chrome {
     private val scope = MainScope()
     private var toastJob: Job? = null
+    private var settleJob: Job? = null
 
     var nav by mutableStateOf(NavState())
         private set
@@ -33,14 +34,25 @@ object Chrome {
         nav = nav.select(tab)
     }
 
-    fun setCollapsed(on: Boolean) { bar = bar.set(on, SystemClock.uptimeMillis()) }
+    fun setCollapsed(on: Boolean) = updateBar { bar.set(on, it) }
 
     /** Called by a scrolling tab root with how far its content has moved up, in dp. */
-    fun rootScrolled(scrollDp: Float) { bar = bar.scrolled(scrollDp, SystemClock.uptimeMillis()) }
+    fun rootScrolled(scrollDp: Float) = updateBar { bar.scrolled(scrollDp, it) }
+
+    private fun updateBar(next: (nowMs: Long) -> BarCollapse) {
+        val now = SystemClock.uptimeMillis()
+        val lock = bar.lockedUntilMs
+        bar = next(now)
+        val until = bar.lockedUntilMs
+        if (until == lock) return
+        settleJob?.cancel()
+        settleJob = scope.launch { delay(until - now); updateBar { bar.settle(it) } }
+    }
 
     /** The object outlives sign-out, so the next account must not land on the last one's pages. */
     fun reset() {
         nav = NavState()
+        settleJob?.cancel()
         bar = BarCollapse()
         showPlayer = false
         toastJob?.cancel()

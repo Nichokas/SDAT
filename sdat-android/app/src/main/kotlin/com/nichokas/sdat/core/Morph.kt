@@ -72,17 +72,21 @@ object Morph {
 
 /**
  * Whether a scrolled tab root has collapsed the bottom chrome. A flip locks out scroll updates until its morph has run,
- * as on iOS, so a scroll back cannot cut it short.
+ * as on iOS, so a scroll back cannot cut it short. [target] is what the latest scroll asked for; [settle] applies it once
+ * the lock is over, because a list that stopped moving during the lock reports nothing more.
  */
-data class BarCollapse(val collapsed: Boolean = false, val collapsing: Boolean = true, val lockedUntilMs: Long = 0) {
-    fun set(on: Boolean, nowMs: Long) = BarCollapse(on, on, nowMs + Morph.DURATION_MS + 20)
+data class BarCollapse(
+    val collapsed: Boolean = false,
+    val collapsing: Boolean = true,
+    val lockedUntilMs: Long = 0,
+    val target: Boolean = false,
+) {
+    fun set(on: Boolean, nowMs: Long) = BarCollapse(on, on, nowMs + Morph.DURATION_MS + 20, on)
 
     /** [scrollDp] is how far the list's content has moved up. */
-    fun scrolled(scrollDp: Float, nowMs: Long): BarCollapse {
-        if (nowMs < lockedUntilMs) return this
-        val on = scrollDp >= COLLAPSE_AT_DP
-        return if (on == collapsed) this else set(on, nowMs)
-    }
+    fun scrolled(scrollDp: Float, nowMs: Long) = copy(target = scrollDp >= COLLAPSE_AT_DP).settle(nowMs)
+
+    fun settle(nowMs: Long) = if (nowMs < lockedUntilMs || target == collapsed) this else set(target, nowMs)
 
     companion object {
         // iOS maps 20...80 pt of scroll to progress 0...1 and flips at the midpoint.
