@@ -57,10 +57,9 @@ class Playback(context: Context, private val prefs: Preferences, secrets: Secret
     private var refilling: Deferred<Boolean>? = null
     private val scrobbler = Scrobbler(prefs, secrets)
     private var listen: Listen? = null
-    /** The track whose stream is being fetched or already sits behind the current item; [preloadedQuality] once it
-     * does. */
+    /** The track whose stream is being fetched or already sits behind the current item; [preloaded] once it does. */
     private var preloading: Track? = null
-    private var preloadedQuality: Quality? = null
+    private var preloaded: Preloaded? = null
     private var preload: Job? = null
     private val store = PlaybackStore(context.filesDir)
     private val io = Executors.newSingleThreadExecutor().asCoroutineDispatcher()
@@ -174,10 +173,8 @@ class Playback(context: Context, private val prefs: Preferences, secrets: Secret
 
             override fun onMediaItemTransition(item: MediaItem?, reason: Int) {
                 val next = preloading
-                val quality = preloadedQuality
-                if (reason == Player.MEDIA_ITEM_TRANSITION_REASON_AUTO && next != null && quality != null && item?.mediaId == next.id) {
-                    adopt(next, quality)
-                }
+                val p = preloaded
+                if (reason == Player.MEDIA_ITEM_TRANSITION_REASON_AUTO && next != null && p != null && item == p.item) adopt(next, p.quality)
             }
 
             override fun onPlaybackStateChanged(state: Int) {
@@ -286,6 +283,12 @@ class Playback(context: Context, private val prefs: Preferences, secrets: Secret
         heard?.let { listen = it }
     }
 
+    /** Settings: the preload follows the switch at once. */
+    fun setPreloadNext(on: Boolean) {
+        prefs.preloadNext = on
+        syncPreload()
+    }
+
     /** Gives a restored Discover queue its endless source back once the home mixes load. */
     fun resumeInfinite(mixes: List<Mix>) {
         if (restoring) {
@@ -317,6 +320,19 @@ class Playback(context: Context, private val prefs: Preferences, secrets: Secret
 
     private fun advance(auto: Boolean, play: Boolean = true) {
         val t = queue.advance(manual = !auto)
+        val p = preloaded
+        if (t != null && t === preloading && p != null) {
+            // A Next to the preloaded track plays the item already behind the current one.
+            preloading = null
+            preloaded = null
+            player.seekTo(1, 0)
+            player.removeMediaItem(0)
+            player.playWhenReady = play
+            if (player.playbackState == Player.STATE_IDLE) player.prepare()
+            error = null
+            began(t, p.quality)
+            return
+        }
         if (t != null) {
             start(t, play)
             return
@@ -348,10 +364,11 @@ class Playback(context: Context, private val prefs: Preferences, secrets: Secret
         }
     }
 
-    /** End of a finite queue: rewound and paused. */
+    /** End of a finite queue: rewound and paused. Playing it again counts as a new listen. */
     private fun stopAtEnd() {
         player.pause()
         player.seekToDefaultPosition()
+        listen = null
     }
 
     private fun refillIfNeeded() {
@@ -408,7 +425,7 @@ class Playback(context: Context, private val prefs: Preferences, secrets: Secret
         position = resumeAt
         duration = t.durationSecs.toDouble()
         fetching = true
-        listen = Listen(t, System.currentTimeMillis() / 1000)
+        listen = newListen(t)
         // Stopped, not cleared: an empty player drops the media notification and with it the foreground service,
         // which can't be started again while the app is in the background.
         player.stop()
@@ -437,18 +454,25 @@ class Playback(context: Context, private val prefs: Preferences, secrets: Secret
     /** A preloaded track the player moved on to by itself: it becomes the current one without a new fetch. */
     private fun adopt(t: Track, quality: Quality) {
         preloading = null
-        preloadedQuality = null
+        preloaded = null
         player.removeMediaItem(0)
         val next = queue.advance(manual = false)
         // Preloading follows every queue change, so this is the track it fetched.
         if (next?.id != t.id) return next?.let { start(it) } ?: stopAtEnd()
+        began(t, quality)
+    }
+
+    /** The preloaded item became the current one. */
+    private fun began(t: Track, quality: Quality) {
         position = 0.0
         duration = t.durationSecs.toDouble()
         shownQuality = quality
-        listen = Listen(t, System.currentTimeMillis() / 1000)
+        listen = newListen(t)
         persist()
         started(t)
     }
+
+    private fun newListen(t: Track) = Listen(t, System.currentTimeMillis() / 1000)
 
     /** iOS afterStart. */
     private fun started(t: Track) {
@@ -483,8 +507,9 @@ class Playback(context: Context, private val prefs: Preferences, secrets: Secret
             }
             // Dropped while the stream call returned: the player no longer expects this item.
             if (!isActive) return@launch
-            player.addMediaItem(mediaItem(next, s))
-            preloadedQuality = s.actualQuality
+            val item = mediaItem(next, s)
+            player.addMediaItem(item)
+            preloaded = Preloaded(item, s.actualQuality)
         }
     }
 
@@ -492,7 +517,7 @@ class Playback(context: Context, private val prefs: Preferences, secrets: Secret
         preload?.cancel()
         preload = null
         preloading = null
-        preloadedQuality = null
+        preloaded = null
         if (player.mediaItemCount > 1) player.removeMediaItems(1, player.mediaItemCount)
     }
 
@@ -536,11 +561,15 @@ class Playback(context: Context, private val prefs: Preferences, secrets: Secret
         when (tapAction(unprepared, player.playbackState == Player.STATE_ENDED, player.playWhenReady)) {
             Tap.Retry -> start(t, resumeAt = position)
             Tap.Replay -> {
+                listen = newListen(t)
                 player.seekToDefaultPosition()
                 player.play()
             }
             Tap.Pause -> player.pause()
-            Tap.Resume -> player.play()
+            Tap.Resume -> {
+                if (listen == null) listen = newListen(t)
+                player.play()
+            }
         }
     }
 
@@ -563,6 +592,8 @@ class Playback(context: Context, private val prefs: Preferences, secrets: Secret
         persist()
     }
 }
+
+private class Preloaded(val item: MediaItem, val quality: Quality)
 
 private val queueCommands = intArrayOf(
     Player.COMMAND_SEEK_TO_NEXT,

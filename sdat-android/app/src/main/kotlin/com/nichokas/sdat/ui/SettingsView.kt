@@ -62,7 +62,7 @@ import uniffi.tonearm_ffi.lastfmUsername
 
 /** iOS SettingsView: same sections, rows and confirmations. */
 @Composable
-fun SettingsView(session: Session, prefs: Preferences, secrets: Secrets, setQuality: (Quality) -> Unit, onBack: () -> Unit) {
+fun SettingsView(session: Session, prefs: Preferences, secrets: Secrets, setQuality: (Quality) -> Unit, setPreload: (Boolean) -> Unit, onBack: () -> Unit) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     var confirmLogout by remember { mutableStateOf(false) }
@@ -115,7 +115,7 @@ fun SettingsView(session: Session, prefs: Preferences, secrets: Secrets, setQual
         item {
             Section("Playback") {
                 QualityRow("Streaming quality", prefs.streamingQuality, setQuality)
-                ToggleRow("Preload next tracks", prefs.preloadNext, { prefs.preloadNext = it })
+                ToggleRow("Preload next tracks", prefs.preloadNext, setPreload)
             }
         }
         item {

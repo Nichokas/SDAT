@@ -82,7 +82,7 @@ fun RootView(session: Session, playback: Playback, prefs: Preferences, secrets: 
                 TabStack(nav.tab, nav.stack) { route ->
                     when (route) {
                         null -> TabRoot(nav.tab, session, playback)
-                        Route.Settings -> SettingsView(session, prefs, secrets, playback::setStreamingQuality, onBack = Chrome::pop)
+                        Route.Settings -> SettingsView(session, prefs, secrets, playback::setStreamingQuality, playback::setPreloadNext, onBack = Chrome::pop)
                         else -> PlaceholderPage(route.title)
                     }
                 }
