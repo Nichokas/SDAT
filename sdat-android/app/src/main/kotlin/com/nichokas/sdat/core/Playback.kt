@@ -190,8 +190,14 @@ class Playback(context: Context, private val prefs: Preferences, secrets: Secret
         start(t)
     }
 
-    /** Shuffle buttons; shuffle stays on for later lists, like iOS. */
-    fun playShuffled(tracks: List<Track>, from: String? = null) {
+    override fun playInOrder(tracks: List<Track>, from: String?) {
+        val t = queue.playInOrder(tracks, from) ?: return
+        replaceInfinite(null)
+        start(t)
+    }
+
+    /** Shuffle stays on for later lists, like iOS. */
+    override fun playShuffled(tracks: List<Track>, from: String?) {
         val t = queue.playShuffled(tracks, from) ?: return
         replaceInfinite(null)
         start(t)

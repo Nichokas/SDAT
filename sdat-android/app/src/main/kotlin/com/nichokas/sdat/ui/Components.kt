@@ -20,8 +20,6 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.lazy.LazyListScope
-import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Text
@@ -82,6 +80,13 @@ interface TrackPlayer {
     val current: Track?
     val isPlaying: Boolean
     fun play(tracks: List<Track>, startAt: Int = 0, from: String? = null)
+
+    /** Play buttons: the list from its first track, with shuffle off. */
+    fun playInOrder(tracks: List<Track>, from: String?)
+
+    /** Shuffle buttons: turns shuffle on and starts at a random track. */
+    fun playShuffled(tracks: List<Track>, from: String?)
+
     fun playNext(track: Track)
     fun addToQueue(track: Track)
 }
@@ -290,24 +295,6 @@ fun TrackMenuRow(
             collapsedDescription = "Collapsed",
             onDismiss = { open = false },
         )
-    }
-}
-
-/** Plays a track list and offers per-row actions, as lazy items so off-screen rows don't check favourites. */
-fun LazyListScope.trackList(
-    tracks: List<Track>,
-    source: String? = null,
-    showCover: Boolean = true,
-    numbered: Boolean = false,
-    ownPlaylistId: String? = null,
-    onRemoved: ((Track) -> Unit)? = null,
-) {
-    // The index keeps duplicate tracks apart; a shifted row gets fresh menu state instead of another track's.
-    itemsIndexed(tracks, key = { i, t -> "${t.id}#$i" }) { i, t ->
-        val player = LocalTrackPlayer.current
-        TrackMenuRow(t, onClick = { player.play(tracks, i, source) }, ownPlaylistId = ownPlaylistId, onRemoved = { onRemoved?.invoke(t) }) {
-            TrackRow(t, Modifier.padding(vertical = 6.dp), showCover = showCover, number = if (numbered) i + 1 else null)
-        }
     }
 }
 
