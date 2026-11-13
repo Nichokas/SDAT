@@ -26,6 +26,7 @@ import kotlinx.coroutines.Deferred
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.async
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.MainScope
 import kotlinx.coroutines.asCoroutineDispatcher
 import kotlinx.coroutines.launch
@@ -66,6 +67,8 @@ class Playback(context: Context, private val prefs: Preferences, secrets: Secret
     private var restoring = true
     /** A restored Discover queue, until [resumeInfinite] gives it its endless source back. */
     private var restoredEndless = false
+    /** Home mixes that arrived while the saved queue was still loading. */
+    private var pendingMixes: List<Mix>? = null
     private var queueId = 0
     /** The lists the queue file was cut from. */
     private var savedLists: List<Any?>? = null
@@ -148,6 +151,8 @@ class Playback(context: Context, private val prefs: Preferences, secrets: Secret
         queueId = state.queueId
         duration = state.current.durationSecs.toDouble()
         position = maxOf(0.0, minOf(state.position, if (duration > 0) duration - 1 else state.position))
+        pendingMixes?.let(::resumeInfinite)
+        pendingMixes = null
     }
 
     init {
@@ -258,7 +263,7 @@ class Playback(context: Context, private val prefs: Preferences, secrets: Secret
 
     /** An endless queue keeps the source's order. */
     fun setShuffle(on: Boolean) {
-        queue.setShuffle(on, reorder = infinite == null)
+        queue.setShuffle(on, reorder = !endless)
         changed()
     }
 
@@ -276,11 +281,15 @@ class Playback(context: Context, private val prefs: Preferences, secrets: Secret
         // The same play goes on, so it keeps what it counted towards its scrobble.
         val heard = listen
         start(t, play = player.playWhenReady, resumeAt = position)
-        listen = heard
+        heard?.let { listen = it }
     }
 
     /** Gives a restored Discover queue its endless source back once the home mixes load. */
     fun resumeInfinite(mixes: List<Mix>) {
+        if (restoring) {
+            pendingMixes = mixes
+            return
+        }
         if (!restoredEndless || infinite != null || mixes.isEmpty()) return
         replaceInfinite(Shuffle(mixes))
         refillIfNeeded()
@@ -466,8 +475,12 @@ class Playback(context: Context, private val prefs: Preferences, secrets: Secret
             } catch (e: CancellationException) {
                 throw e
             } catch (_: Exception) {
+                // The next sync tries this track again.
+                if (isActive) preloading = null
                 return@launch
             }
+            // Dropped while the stream call returned: the player no longer expects this item.
+            if (!isActive) return@launch
             player.addMediaItem(mediaItem(next, s))
             preloadedQuality = s.actualQuality
         }
