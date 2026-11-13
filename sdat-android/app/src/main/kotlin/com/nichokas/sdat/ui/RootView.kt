@@ -12,6 +12,7 @@ import androidx.compose.animation.slideOutVertically
 import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.focusable
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.gestures.waitForUpOrCancellation
@@ -48,6 +49,11 @@ import androidx.compose.ui.graphics.TransformOrigin
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.PointerInputChange
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.input.key.Key
+import androidx.compose.ui.input.key.KeyEventType
+import androidx.compose.ui.input.key.key
+import androidx.compose.ui.input.key.onKeyEvent
+import androidx.compose.ui.input.key.type
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.disabled
@@ -288,7 +294,11 @@ private fun CircleContent(playback: Playback, onOpen: () -> Unit, modifier: Modi
                 onLongClick(label) { playback.toggle(); true }
             }
             // Only while active: the faded circle sits over the capsule's ring and next, and would take their touches.
-            .then(if (!active) Modifier else Modifier.pointerInput(Unit) {
+            .then(if (!active) Modifier else Modifier.onKeyEvent { e ->
+                val activate = e.key == Key.Enter || e.key == Key.NumPadEnter || e.key == Key.Spacebar
+                if (activate && e.type == KeyEventType.KeyUp) onOpen()
+                activate
+            }.focusable().pointerInput(Unit) {
                 awaitEachGesture {
                     awaitFirstDown()
                     // iOS PressRecognizer.miniHold: released within 0.12 s is a tap, otherwise a hold.
