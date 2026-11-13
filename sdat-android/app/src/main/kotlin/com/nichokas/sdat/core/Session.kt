@@ -61,6 +61,7 @@ class Session(context: Context) : TokenStore {
         picture.value = null
         Favs.clear()
         OwnPlaylists.clear()
+        Recents.clear()
         sessionChanged()
         signedIn = false
     }

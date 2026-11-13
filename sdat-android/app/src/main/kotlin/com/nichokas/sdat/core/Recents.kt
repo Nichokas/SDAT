@@ -92,4 +92,9 @@ object Recents {
         items = next
         store?.let { s -> writer.execute { s.save(next) } }
     }
+
+    fun clear() {
+        items = emptyList()
+        store?.let { s -> writer.execute { s.save(emptyList()) } }
+    }
 }
