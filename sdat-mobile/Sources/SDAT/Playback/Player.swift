@@ -469,22 +469,22 @@ final class Player {
 
     /// The host resumed after a pause: resume in step with it (see
     /// `startInSync`). Too far from the host (more than the buffer kept while
-    /// paused can cover) it first moves there, still paused, and the next
-    /// tick resumes in step: playing from the old spot would be the wrong
-    /// part of the song until drift correction caught it.
+    /// paused can cover) it joins like a fresh start (`liveAlign`) instead:
+    /// playing from the old spot would be the wrong part of the song until
+    /// drift correction caught it, and a plain seek before resuming could
+    /// land behind again after a slow seek, over and over.
     func liveResume() {
         guard !isPlaying else { return }
-        guard !needsStart, avPlayer.currentItem != nil, let host = liveTarget?(), host.playing else { toggle(); return }
-        guard abs(livePosition - host.secs) <= Self.liveResumeWindow else { liveSeek(to: host.secs); return }
+        guard !needsStart, let item = avPlayer.currentItem, let host = liveTarget?(), host.playing else { toggle(); return }
+        let far = abs(livePosition - host.secs) > Self.liveResumeWindow
         resumeAfterInterruption = false
         systemPaused = false
         try? AVAudioSession.sharedInstance().setActive(true)
         isPlaying = true
         updateNowPlaying()
         liveSeeking = true
-        let item = avPlayer.currentItem
         liveSeekTask = Task {
-            let started = await startInSync()
+            let started = await far ? liveAlign(item) : startInSync()
             guard !Task.isCancelled else { return }
             liveSeeking = false
             liveSeekEndedAt = Date()
