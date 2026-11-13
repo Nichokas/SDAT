@@ -109,6 +109,22 @@ class PlayQueueTest {
         assertEquals(abcd.toSet(), q.tracks.toSet())
     }
 
+    @Test fun inOrderTurnsShuffleOffAndStartsAtTheTop() {
+        val q = queue()
+        q.playShuffled(abcd)
+        assertEquals("a", q.playInOrder(abcd, from = "Album"))
+        assertFalse(q.shuffle)
+        assertEquals(abcd, q.tracks)
+        assertEquals("Album", q.source)
+    }
+
+    @Test fun inOrderOnAnEmptyListLeavesShuffleOn() {
+        val q = queue()
+        q.playShuffled(abcd)
+        assertNull(q.playInOrder(emptyList()))
+        assertTrue(q.shuffle)
+    }
+
     @Test fun shuffleOffRestoresTheOrderAtTheCurrentTrack() {
         val q = queue()
         q.play(abcd, startAt = 1)

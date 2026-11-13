@@ -59,6 +59,13 @@ class PlayQueue<T>(private val random: Random = Random.Default, private val id: 
         return select(if (shuffle) 0 else startAt)
     }
 
+    /** Play buttons: turns shuffle off and starts at the first track. */
+    fun playInOrder(list: List<T>, from: String? = null): T? {
+        if (list.isEmpty()) return null
+        shuffle = false
+        return play(list, 0, from)
+    }
+
     /** Shuffle buttons: turns shuffle on and starts at a random track. */
     fun playShuffled(list: List<T>, from: String? = null): T? {
         if (list.isEmpty()) return null
