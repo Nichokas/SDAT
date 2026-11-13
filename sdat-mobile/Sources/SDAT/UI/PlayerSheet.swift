@@ -41,7 +41,6 @@ private struct NowPlayingPage: View {
     @Environment(Player.self) private var player
     @Environment(Preferences.self) private var prefs
     let showQueue: () -> Void
-    @State private var scrub: Double?
     @State private var forward = true
     @State private var nextTap = 0
     @State private var prevTap = 0
@@ -104,26 +103,7 @@ private struct NowPlayingPage: View {
             .transition(slide)
             .frame(maxWidth: .infinity, alignment: .leading)
 
-            VStack(spacing: 4) {
-                Slider(
-                    value: Binding(get: { scrub ?? player.position }, set: { scrub = $0 }),
-                    in: 0...max(player.duration, 1)
-                ) { editing in
-                    if !editing, let s = scrub {
-                        scrub = nil
-                        // Guests with control ask the host to seek everyone.
-                        if !Live.shared.userSeek(s) { player.seek(to: s) }
-                    }
-                }
-                .disabled(Live.shared.isGuest && !Live.shared.guestControl)
-                .tint(.white)
-                HStack {
-                    Text(Fmt.time(scrub ?? player.position))
-                    Spacer()
-                    Text("-" + Fmt.time(player.duration - (scrub ?? player.position)))
-                }
-                .font(.caption.monospacedDigit()).foregroundStyle(.white.opacity(0.6))
-            }
+            Scrubber()
 
             QualityMenu(selection: Binding(
                 get: { prefs.streamingQuality },
@@ -199,6 +179,36 @@ private struct NowPlayingPage: View {
         .padding(.bottom, 12)
         .task(id: player.current?.id) {
             if let id = player.current?.id { await Favs.shared.check(id) }
+        }
+    }
+}
+
+/// Seek slider and times. Its own view so the 4 Hz position ticks re-render only this,
+/// not the whole page with its glass controls.
+private struct Scrubber: View {
+    @Environment(Player.self) private var player
+    @State private var scrub: Double?
+
+    var body: some View {
+        VStack(spacing: 4) {
+            Slider(
+                value: Binding(get: { scrub ?? player.position }, set: { scrub = $0 }),
+                in: 0...max(player.duration, 1)
+            ) { editing in
+                if !editing, let s = scrub {
+                    scrub = nil
+                    // Guests with control ask the host to seek everyone.
+                    if !Live.shared.userSeek(s) { player.seek(to: s) }
+                }
+            }
+            .disabled(Live.shared.isGuest && !Live.shared.guestControl)
+            .tint(.white)
+            HStack {
+                Text(Fmt.time(scrub ?? player.position))
+                Spacer()
+                Text("-" + Fmt.time(player.duration - (scrub ?? player.position)))
+            }
+            .font(.caption.monospacedDigit()).foregroundStyle(.white.opacity(0.6))
         }
     }
 }

@@ -19,8 +19,8 @@ struct MiniPlayer: View {
         // ONE hierarchy; the parent sizes it from the shared progress, content opacities
         // are computed from that same value (capsule in late, circle out early).
         // Trailing-anchored: the circle's ring sits where the capsule's own ring ends up,
-        // never centred in the growing capsule. Circle content is gone within the first 6%
-        // of the morph (6%); capsule content only appears once the shape is 60% grown.
+        // never centred in the growing capsule. The two contents crossfade on the schedule
+        // in `Morph.outAlpha` / `Morph.inAlpha`.
         // Fixed-size base + overlays: contents can never resize the shape. Before, the
         // ~130 pt capsule content made the flexible frame report 130 pt for a 62 pt circle,
         // pushing it off the right edge with the ring off-centre. The circle content is
@@ -43,7 +43,7 @@ struct MiniPlayer: View {
 
     private var circleContent: some View {
                 // Tap: open the full player. Long-press (PressRecognizer.miniHold): play/pause.
-                ringIcon(size: 62)
+                PlayRing(size: 62)
                     .frame(width: 62)
                     .frame(maxHeight: .infinity)
                     // Generous hit area: 12 pt beyond the visible circle.
@@ -90,23 +90,28 @@ struct MiniPlayer: View {
     }
 
     private func playButton(size: CGFloat) -> some View {
-        Button { Live.shared.userToggle() } label: { ringIcon(size: size) }
+        Button { Live.shared.userToggle() } label: { PlayRing(size: size) }
             .buttonStyle(.plain)
             .opacity(Live.shared.playbackLocked ? 0.4 : 1)
     }
+}
 
-    private func ringIcon(size: CGFloat) -> some View {
-            Group {
-                // Loading: no spinner; the dashed ring itself spins instead.
-                // Always mounted; hidden (not removed) while loading so nothing is re-inserted.
-                Image(systemName: player.isPlaying ? "pause.fill" : "play.fill")
-                    .font(.system(size: size * 0.32))
-                    .contentTransition(.symbolEffect(.replace))
-                    .opacity(player.loading ? 0 : 1)
-            }
-                .frame(width: size, height: size)
-                .overlay { ProgressRing(progress: player.progress, spinning: player.loading).padding(size * 0.14) }
-                .contentShape(.circle)
+/// Play/pause glyph inside the progress ring. Its own view so the 4 Hz position ticks
+/// re-render only the ring, not the whole miniplayer.
+private struct PlayRing: View {
+    let size: CGFloat
+    @Environment(Player.self) private var player
+
+    var body: some View {
+        // Loading: no spinner; the dashed ring itself spins instead.
+        // Always mounted; hidden (not removed) while loading so nothing is re-inserted.
+        Image(systemName: player.isPlaying ? "pause.fill" : "play.fill")
+            .font(.system(size: size * 0.32))
+            .contentTransition(.symbolEffect(.replace))
+            .opacity(player.loading ? 0 : 1)
+            .frame(width: size, height: size)
+            .overlay { ProgressRing(progress: player.progress, spinning: player.loading).padding(size * 0.14) }
+            .contentShape(.circle)
     }
 }
 

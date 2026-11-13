@@ -38,7 +38,7 @@ struct RootView: View {
             }
         }
         .animation(.spring(duration: 0.35), value: chrome.toast)
-        .onChange(of: chrome.tab) { if chrome.progress > 0 { chrome.setCollapsed(false) } }
+        .onChange(of: chrome.tab) { chrome.setCollapsed(false) }
         .sheet(isPresented: $chrome.showPlayer) { PlayerSheet() }
         .sheet(item: $chrome.playlistPickerTrack) { t in PlaylistPicker(track: t) }
         .alert("Playback error", isPresented: Binding(
@@ -66,10 +66,8 @@ private struct BottomChrome: View {
         let hasMini = player.current != nil && !chrome.inSettings
         // Spacing 0: bar and miniplayer stay separate shapes (no pinched neck);
         // glassEffectID still morphs each between its states.
-        // Both widths come from ONE budget and ONE clock (Morph.frame): no overlap, no overflow.
-        // Snappy-shrink / soft-grow roles are easing curves inside Morph, not separate animations.
         let on = hasMini && !chrome.inDetail
-        let m = MorphProbe(t: on ? chrome.morphT : 0, collapsing: chrome.morphCollapsing, W: W)
+        let m = MorphProbe(t: on ? chrome.morphT : 0, W: W)
         GlassEffectContainer(spacing: 0) {
             m.content(hasMini: hasMini, inDetail: chrome.inDetail, ns: ns, pressed: chrome.miniPressed)
         }
@@ -90,25 +88,22 @@ private struct BottomChrome: View {
 /// layout from `Morph.frame`, so both widths always come from one budget.
 private struct MorphProbe: View, Animatable {
     var t: CGFloat
-    let collapsing: Bool
     let W: CGFloat
     var animatableData: CGFloat { get { t } set { t = newValue } }
     private var hasMini = false, inDetail = false, pressed = false
     private var ns: Namespace.ID?
 
-    init(t: CGFloat, collapsing: Bool, W: CGFloat) { self.t = t; self.collapsing = collapsing; self.W = W }
+    init(t: CGFloat, W: CGFloat) { self.t = t; self.W = W }
 
     func content(hasMini: Bool, inDetail: Bool, ns: Namespace.ID, pressed: Bool) -> MorphProbe {
         var c = self; c.hasMini = hasMini; c.inDetail = inDetail; c.ns = ns; c.pressed = pressed; return c
     }
 
     var body: some View {
-        let f = Morph.frame(width: Double(W), t: Double(t), collapsing: collapsing)
+        let f = Morph.frame(width: Double(W), t: Double(t))
         let sized = hasMini && !inDetail && W > 0
-        let tabF = CGFloat(hasMini && !inDetail ? f.tabF : 0)
-        let miniF = CGFloat(f.miniF)
-        // Tab bar pinned leading, miniplayer trailing: while the growing shape lags the
-        // shrinking one, the extra room is a transparent gap (never drift / overlap).
+        let tabF = CGFloat(hasMini && !inDetail ? f.f : 0)
+        let miniF = CGFloat(f.f)
         HStack(spacing: 0) {
             if !inDetail {
                 TabBar(p: tabF)
@@ -201,7 +196,7 @@ private struct TabBar: View {
 
     @ViewBuilder private var circle: some View {
             let cur = items.first { $0.0 == chrome.tab } ?? items[0]
-            Button { chrome.setCollapsed(false) } label: {
+            Button { chrome.holdsOpen = true; chrome.setCollapsed(false) } label: {
                 Image(systemName: cur.2).font(.system(size: 21, weight: .medium)).foregroundStyle(.blue)
                     .frame(width: 54)
                     .frame(maxHeight: .infinity)
@@ -324,26 +319,17 @@ extension View {
 
     /// Collapses the bottom chrome when a root list scrolls down.
     func collapsesChrome() -> some View {
-        // Continuous: 20...80 pt of scroll maps to progress 0...1, applied without
-        // animation while scrolling; when the scroll goes idle it settles to 0 or 1.
+        // Keyed on the offset, not on "past the threshold": after a tab switch expands the
+        // bar over a list that is already scrolled, the next scroll must collapse it again.
         onScrollGeometryChange(for: CGFloat.self) { g in
             g.contentOffset.y + g.contentInsets.top
         } action: { _, y in
+            // Two thresholds, so a finger resting around one does not reverse the morph.
             let c = Chrome.shared
-            let p = min(max((y - 20) / 60, 0), 1)
-            guard !c.expanding else { return }
-            // Both directions use the SAME triggered, per-role animation (no finger
-            // tracking): past the midpoint we flip once and let shrink/grow curves play.
-            if !c.collapsed && p >= 0.5 { c.setCollapsed(true) }
-            else if c.collapsed && p < 0.5 { c.setCollapsed(false) }
+            if y >= 50 { if !c.holdsOpen { c.setCollapsed(true) } } else if y < 20 { c.setCollapsed(false) }
         }
         .onScrollPhaseChange { _, phase in
-            guard phase == .idle else { return }
-            let c = Chrome.shared
-            if c.progress > 0, c.progress < 1 {
-                chromeLog.debug("settle from \(Double(c.progress), format: .fixed(precision: 2))")
-                c.setCollapsed(c.progress >= 0.5)
-            }
+            if phase != .decelerating { Chrome.shared.holdsOpen = false }
         }
     }
 
@@ -407,13 +393,6 @@ private struct ChromeState: Equatable { var detail, mini: Bool }
 enum Motion {
     static let pill = Animation.spring(response: 0.4, dampingFraction: 0.86)
     static let bar = Animation.smooth(duration: 0.4)
-    /// Shrinking component: quick, slight spring, like a released rubber band.
-    static let shrink = Animation.snappy(duration: 0.3, extraBounce: 0.05)
-    /// Growing component: slower and soft, like water spreading.
-    static let grow = Animation.smooth(duration: 0.6)
-    /// Shared content fades for BOTH tab bar and miniplayer: out early, in late, inside the 0.4 s morph.
-    static let fadeOut = Animation.easeOut(duration: 0.15)
-    static let fadeIn = Animation.easeIn(duration: 0.2).delay(0.2)
 }
 
 /// Profile button, preceded by a download-status button only while downloads are queued

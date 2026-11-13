@@ -350,7 +350,7 @@ private fun RingIcon(playback: Playback, size: Dp) {
     Box(Modifier.size(size), contentAlignment = Alignment.Center) {
         // Hidden, not removed, while loading: the ring spins instead of a spinner.
         SdatIcon(symbol, contentDescription = null, size = size * 0.32f, tint = tint, modifier = Modifier.alpha(if (playback.loading) 0f else 1f))
-        ProgressRing(playback.progress, playback.loading, Modifier.fillMaxSize().padding(size * 0.14f))
+        ProgressRing({ playback.progress }, playback.loading, Modifier.fillMaxSize().padding(size * 0.14f))
     }
 }
 
