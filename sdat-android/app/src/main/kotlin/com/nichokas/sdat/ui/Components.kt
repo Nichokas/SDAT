@@ -5,6 +5,7 @@ import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.infiniteRepeatable
 import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -38,6 +39,10 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.geometry.CornerRadius
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
@@ -133,10 +138,14 @@ fun Equalizer(playing: Boolean, modifier: Modifier = Modifier) {
     LaunchedEffect(playing) {
         while (playing) withFrameMillis { t = it / 1000.0 }
     }
-    Row(modifier.size(15.dp, 14.dp), horizontalArrangement = Arrangement.spacedBy(2.dp), verticalAlignment = Alignment.Bottom) {
+    val color = GlasmioTheme.colors.accent
+    // Drawn, not laid out: the bars change every frame, and reading the clock in the draw
+    // phase skips recomposition and layout.
+    Canvas(modifier.size(15.dp, 14.dp)) {
+        val bar = 3.dp.toPx()
         repeat(3) { i ->
-            val h = if (playing) 0.35 + 0.65 * abs(sin(t * (5 + i * 1.7) + i)) else 0.35
-            Box(Modifier.width(3.dp).height(14.dp * h.toFloat()).background(GlasmioTheme.colors.accent, CircleShape))
+            val h = size.height * (if (playing) 0.35 + 0.65 * abs(sin(t * (5 + i * 1.7) + i)) else 0.35).toFloat()
+            drawRoundRect(color, Offset(i * (bar + 2.dp.toPx()), size.height - h), Size(bar, h), CornerRadius(bar / 2))
         }
     }
 }
@@ -305,12 +314,15 @@ fun LazyListScope.trackList(
 /** Shimmering placeholder block. */
 @Composable
 fun Skeleton(modifier: Modifier = Modifier, width: Dp? = null, height: Dp = 14.dp, radius: Dp = 6.dp) {
-    val alpha by rememberInfiniteTransition(label = "skeleton").animateFloat(
+    val alpha = rememberInfiniteTransition(label = "skeleton").animateFloat(
         0.06f, 0.14f, infiniteRepeatable(tween(900), RepeatMode.Reverse), label = "skeleton",
     )
+    // The shimmer is read in the draw phase: a loading page holds dozens of these, and
+    // recomposing each one every frame is what a skeleton is there to avoid.
     Box(
         modifier.then(if (width != null) Modifier.width(width) else Modifier.fillMaxWidth())
-            .height(height).background(Color.White.copy(alpha = alpha), RoundedCornerShape(radius)),
+            .height(height)
+            .drawBehind { drawRoundRect(Color.White.copy(alpha = alpha.value), cornerRadius = CornerRadius(radius.toPx())) },
     )
 }
 

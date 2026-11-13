@@ -166,7 +166,7 @@ private fun MiniPlayer(playback: Playback) {
             val tint = if (track == null) GlasmioTheme.colors.tertiaryContent else GlasmioTheme.colors.content
             // Hidden, not removed, while loading: the ring spins instead of a spinner.
             SdatIcon(symbol, contentDescription = null, size = 20.dp, tint = tint, modifier = Modifier.alpha(if (playback.loading) 0f else 1f))
-            ProgressRing(playback.progress, playback.loading, Modifier.fillMaxSize().padding(62.dp * 0.14f))
+            ProgressRing({ playback.progress }, playback.loading, Modifier.fillMaxSize().padding(62.dp * 0.14f))
         }
     }
     if (showPlayer && track != null) PlayerSheet(track) { showPlayer = false }

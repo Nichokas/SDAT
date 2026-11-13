@@ -12,6 +12,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.size
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateOf
@@ -64,9 +65,18 @@ fun CoverPlane(tracks: List<Track>, onTap: (Track) -> Unit, modifier: Modifier =
         if (tracks.isEmpty()) return@BoxWithConstraints
         val plane = remember(tracks.size) { PlaneGeometry(tracks.size) }
         val px = density.density
-        val view = pan / px
         val margin = 75f
-        for (cell in plane.cells(view.x - margin, view.y - margin, view.x + maxWidth.value + margin, view.y + maxHeight.value + margin)) {
+        val (w, h) = maxWidth.value to maxHeight.value
+        // The pan changes every frame of a drag or fling. Composition sees only the set of
+        // visible cells, which changes when a tile enters or leaves; the tiles follow the pan
+        // in the layout phase.
+        val cells by remember(plane, px, w, h) {
+            derivedStateOf {
+                val view = pan / px
+                plane.cells(view.x - margin, view.y - margin, view.x + w + margin, view.y + h + margin)
+            }
+        }
+        for (cell in cells) {
             val frame = plane.frame(cell)
             val track = tracks[plane.index(cell)]
             key(cell) {
@@ -75,7 +85,7 @@ fun CoverPlane(tracks: List<Track>, onTap: (Track) -> Unit, modifier: Modifier =
                     contentDescription = track.title,
                     contentScale = ContentScale.Crop,
                     modifier = Modifier
-                        .offset { IntOffset(((frame.x - view.x) * px).roundToInt(), ((frame.y - view.y) * px).roundToInt()) }
+                        .offset { IntOffset((frame.x * px - pan.x).roundToInt(), (frame.y * px - pan.y).roundToInt()) }
                         .size(frame.size.dp)
                         .background(Color.White.copy(alpha = 0.07f))
                         .clickable(enabled = track.streamable) { onTap(track) },
