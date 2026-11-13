@@ -106,7 +106,7 @@ private fun LazyListScope.sections(o: ArtistOverview) {
         item(key = "top-buttons") {
             val player = LocalTrackPlayer.current
             PlayShuffleButtons(
-                play = { player.play(o.topTracks, from = o.artist.name) },
+                play = { player.playInOrder(o.topTracks, o.artist.name) },
                 shuffle = { player.playShuffled(o.topTracks, o.artist.name) },
                 compact = true,
                 modifier = Modifier.padding(start = ListGutter, end = ListGutter, bottom = 8.dp),
