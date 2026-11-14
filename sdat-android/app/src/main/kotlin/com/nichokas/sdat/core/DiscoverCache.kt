@@ -16,9 +16,15 @@ class DiscoverCache(private val file: File) {
     fun save(tracks: List<Track>) {
         runCatching {
             // Written aside and renamed, so a crash mid-write never leaves half a file.
+            val text = encode(tracks)
             val tmp = File.createTempFile("discover", ".tmp", file.parentFile)
-            tmp.writeText(encode(tracks))
-            if (!tmp.renameTo(file)) tmp.delete()
+            var moved = false
+            try {
+                tmp.writeText(text)
+                moved = tmp.renameTo(file)
+            } finally {
+                if (!moved) tmp.delete()
+            }
         }
     }
 
