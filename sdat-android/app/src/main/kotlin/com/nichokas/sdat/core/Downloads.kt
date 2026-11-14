@@ -80,7 +80,7 @@ object Downloads {
         this.onActive = onActive
         connectivity = context.getSystemService(ConnectivityManager::class.java)
         val saved = runCatching { DownloadIndex.decode(File(dir, INDEX).readText()) }.getOrDefault(emptyMap())
-        entries = saved.filterValues { File(dir, it.file).isFile }
+        entries = saved.filterValues { File(dir, it.file).isFile && File(dir, playlistName(it.track.id)).isFile }
     }
 
     val totalSize: Long get() = entries.values.sumOf { it.size }

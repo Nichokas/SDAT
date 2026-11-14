@@ -59,7 +59,7 @@ object Hls {
                 l.startsWith("#EXT-X-KEY") || l.startsWith("#EXT-X-SESSION-KEY") -> if (attr(l, "METHOD") != "NONE") throw DownloadFailure.encrypted
                 l.startsWith("#EXT-X-BYTERANGE") || l.startsWith("#EXT-X-MAP") && "BYTERANGE" in l -> throw DownloadFailure.unsupported("byte ranges")
                 l.startsWith("#EXT-X-MAP") -> {
-                    val next = attr(l, "URI")?.let { resolve(base, it) }
+                    val next = attr(l, "URI")?.let { resolve(base, it) } ?: throw DownloadFailure.unsupported("init segment URL")
                     // The saved file holds one init segment, so every fragment must follow the same one.
                     if (map != null && next != map) throw DownloadFailure.unsupported("several init segments")
                     map = next
