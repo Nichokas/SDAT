@@ -186,7 +186,7 @@ private fun NowPlayingPage(playback: Playback, track: Track, showQueue: () -> Un
         }
         QualityBadge(playback)
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
-            IconTap("shuffle", "Shuffle", 22.dp, tint = if (playback.shuffle) GlasmioTheme.colors.accent else Color.White.copy(alpha = 0.8f)) {
+            IconTap("shuffle", if (playback.shuffle) "Shuffle: On" else "Shuffle: Off", 22.dp, tint = if (playback.shuffle) GlasmioTheme.colors.accent else Color.White.copy(alpha = 0.8f)) {
                 playback.setShuffle(!playback.shuffle)
             }
             IconTap("backward.fill", "Previous", 30.dp) { forward = false; playback.previous() }
@@ -202,7 +202,7 @@ private fun NowPlayingPage(playback: Playback, track: Track, showQueue: () -> Un
             }
             IconTap("forward.fill", "Next", 30.dp) { forward = true; playback.next() }
             val repeat = playback.repeat
-            IconTap(if (repeat == Repeat.One) "repeat.1" else "repeat", "Repeat", 22.dp, tint = if (repeat == Repeat.Off) Color.White.copy(alpha = 0.8f) else GlasmioTheme.colors.accent) {
+            IconTap(if (repeat == Repeat.One) "repeat.1" else "repeat", "Repeat: " + when (repeat) { Repeat.Off -> "Off"; Repeat.All -> "All"; Repeat.One -> "One" }, 22.dp, tint = if (repeat == Repeat.Off) Color.White.copy(alpha = 0.8f) else GlasmioTheme.colors.accent) {
                 playback.cycleRepeat()
             }
         }
@@ -284,7 +284,7 @@ private fun QueuePage(playback: Playback) {
         item(key = "title") {
             Box(Modifier.fillMaxWidth().heightIn(min = 44.dp), contentAlignment = Alignment.Center) {
                 Text("Queue", style = IosTypography.headline, color = colors.content)
-                IconTap("shuffle", "Shuffle", 20.dp, Modifier.align(Alignment.CenterEnd), tint = if (playback.shuffle) colors.accent else colors.content) {
+                IconTap("shuffle", if (playback.shuffle) "Shuffle: On" else "Shuffle: Off", 20.dp, Modifier.align(Alignment.CenterEnd), tint = if (playback.shuffle) colors.accent else colors.content) {
                     playback.setShuffle(!playback.shuffle)
                 }
             }
