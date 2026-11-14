@@ -6,6 +6,7 @@ import android.content.Context
 import android.content.pm.PackageManager
 import android.graphics.Color
 import android.graphics.ImageFormat
+import android.hardware.camera2.CameraAccessException
 import android.hardware.camera2.CameraCaptureSession
 import android.hardware.camera2.CameraCharacteristics
 import android.hardware.camera2.CameraDevice
@@ -44,7 +45,8 @@ class QrScannerView(context: Context, private val onCode: (String) -> Unit) : Fr
     private val preview = SurfaceView(context)
     private val thread = HandlerThread("qr-scanner").apply { start() }
     private val handler = Handler(thread.looper)
-    private val executor = Executor { handler.post(it) }
+    // After release the thread is gone; a late camera callback still runs, so an opened device gets closed.
+    private val executor = Executor { if (!handler.post(it)) it.run() }
     private val qr = QRCodeReader()
     private val cameraId = manager.cameraIdList.firstOrNull {
         manager.getCameraCharacteristics(it).get(CameraCharacteristics.LENS_FACING) == CameraMetadata.LENS_FACING_BACK
@@ -64,6 +66,7 @@ class QrScannerView(context: Context, private val onCode: (String) -> Unit) : Fr
     private var camera: CameraDevice? = null
     private var reader: ImageReader? = null
     @Volatile private var done = false
+    @Volatile private var released = false
 
     init {
         setBackgroundColor(Color.BLACK)
@@ -93,6 +96,7 @@ class QrScannerView(context: Context, private val onCode: (String) -> Unit) : Fr
 
     /** Stops the camera and its thread; the view is gone. */
     fun release() {
+        released = true
         handler.post(::close)
         thread.quitSafely()
     }
@@ -108,27 +112,30 @@ class QrScannerView(context: Context, private val onCode: (String) -> Unit) : Fr
 
     private fun open(surface: Surface, s: Size) {
         val id = cameraId ?: return
-        if (camera != null || context.checkSelfPermission(Manifest.permission.CAMERA) != PackageManager.PERMISSION_GRANTED) return
+        if (camera != null) return
+        guarded { openCamera(id, surface, s) }
+    }
+
+    /** Camera2 throws when the camera is disabled, gone or taken; uncaught on this thread it would end the process. */
+    private inline fun guarded(block: () -> Unit) {
+        try {
+            block()
+        } catch (_: CameraAccessException) {
+            close()
+        } catch (_: IllegalStateException) {
+            close()
+        } catch (_: SecurityException) {
+            close()
+        }
+    }
+
+    private fun openCamera(id: String, surface: Surface, s: Size) {
+        if (context.checkSelfPermission(Manifest.permission.CAMERA) != PackageManager.PERMISSION_GRANTED) return
         manager.openCamera(id, executor, object : CameraDevice.StateCallback() {
             override fun onOpened(device: CameraDevice) {
+                if (released) return device.close()
                 camera = device
-                val r = ImageReader.newInstance(s.width, s.height, ImageFormat.YUV_420_888, 2)
-                r.setOnImageAvailableListener(::decode, handler)
-                reader = r
-                val outputs = listOf(OutputConfiguration(surface), OutputConfiguration(r.surface))
-                device.createCaptureSession(SessionConfiguration(SessionConfiguration.SESSION_REGULAR, outputs, executor, object : CameraCaptureSession.StateCallback() {
-                    override fun onConfigured(session: CameraCaptureSession) {
-                        if (camera !== device) return
-                        val request = device.createCaptureRequest(CameraDevice.TEMPLATE_PREVIEW).apply {
-                            addTarget(surface)
-                            addTarget(r.surface)
-                            set(CaptureRequest.CONTROL_AF_MODE, CaptureRequest.CONTROL_AF_MODE_CONTINUOUS_PICTURE)
-                        }
-                        session.setRepeatingRequest(request.build(), null, handler)
-                    }
-
-                    override fun onConfigureFailed(session: CameraCaptureSession) = close()
-                }))
+                guarded { configure(device, surface, s) }
             }
 
             override fun onDisconnected(device: CameraDevice) {
@@ -138,6 +145,28 @@ class QrScannerView(context: Context, private val onCode: (String) -> Unit) : Fr
 
             override fun onError(device: CameraDevice, error: Int) = onDisconnected(device)
         })
+    }
+
+    private fun configure(device: CameraDevice, surface: Surface, s: Size) {
+        val r = ImageReader.newInstance(s.width, s.height, ImageFormat.YUV_420_888, 2)
+        r.setOnImageAvailableListener(::decode, handler)
+        reader = r
+        val outputs = listOf(OutputConfiguration(surface), OutputConfiguration(r.surface))
+        device.createCaptureSession(SessionConfiguration(SessionConfiguration.SESSION_REGULAR, outputs, executor, object : CameraCaptureSession.StateCallback() {
+            override fun onConfigured(session: CameraCaptureSession) {
+                if (camera !== device) return
+                guarded {
+                    val request = device.createCaptureRequest(CameraDevice.TEMPLATE_PREVIEW).apply {
+                        addTarget(surface)
+                        addTarget(r.surface)
+                        set(CaptureRequest.CONTROL_AF_MODE, CaptureRequest.CONTROL_AF_MODE_CONTINUOUS_PICTURE)
+                    }
+                    session.setRepeatingRequest(request.build(), null, handler)
+                }
+            }
+
+            override fun onConfigureFailed(session: CameraCaptureSession) = close()
+        }))
     }
 
     private fun close() {

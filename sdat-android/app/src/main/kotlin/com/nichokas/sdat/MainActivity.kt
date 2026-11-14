@@ -73,6 +73,8 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun openLink(intent: Intent) {
+        // Reopened from Recents, the task replays the link that started it, which would leave the current session.
+        if (intent.flags and Intent.FLAG_ACTIVITY_LAUNCHED_FROM_HISTORY != 0) return
         val link = intent.dataString ?: return
         if ((application as SdatApp).session.signedIn) Live.open(link)
     }

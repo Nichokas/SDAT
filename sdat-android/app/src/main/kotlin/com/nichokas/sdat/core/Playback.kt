@@ -149,6 +149,8 @@ class Playback(context: Context, private val prefs: Preferences, secrets: Secret
         override fun handleStop(): ListenableFuture<*> {
             request?.cancel()
             fetching = false
+            // A guest's start may still be aligning; left set, it reads as loading and the follower never reloads.
+            cancelLive()
             player.playWhenReady = false
             return super.handleStop()
         }
