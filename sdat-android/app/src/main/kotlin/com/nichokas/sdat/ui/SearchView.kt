@@ -78,6 +78,8 @@ fun SearchView() {
     var filter by rememberSaveable { mutableStateOf(SearchFilter.Top) }
     val keyboard = LocalSoftwareKeyboardController.current
     val state = model.state
+    // After process death the field comes back from saved state but the retained model starts empty.
+    LaunchedEffect(Unit) { if (field.text != state.query) model.edit(field.text) }
     LaunchedEffect(state.query) { model.settle() }
     val explore = rememberExplore("explore")
     val shown = state.shown
