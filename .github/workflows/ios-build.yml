@@ -65,8 +65,7 @@ jobs:
       # exact-hit cache whose artifacts are all stale and never get saved again.
       - uses: Swatinem/rust-cache@v2
         with:
-          shared-key: ios
-          key: ${{ hashFiles('.github/workflows/ios-build.yml') }}
+          shared-key: ios-${{ hashFiles('.github/workflows/ios-build.yml') }}
           save-if: ${{ github.ref == 'refs/heads/main' }}
 
       - name: Build Rust core and Swift bindings

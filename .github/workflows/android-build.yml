@@ -52,8 +52,7 @@ jobs:
       # change leaves an exact-hit cache whose artifacts are all stale and never get saved again.
       - uses: Swatinem/rust-cache@v2
         with:
-          shared-key: android
-          key: ${{ hashFiles('scripts/build-rust-android.sh') }}
+          shared-key: android-${{ hashFiles('scripts/build-rust-android.sh') }}
           save-if: ${{ github.ref == 'refs/heads/main' }}
       - name: Install cargo-ndk
         uses: taiki-e/install-action@v2
