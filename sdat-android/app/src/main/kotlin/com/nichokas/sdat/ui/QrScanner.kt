@@ -79,8 +79,19 @@ class QrScannerView(context: Context, private val onCode: (String) -> Unit) : Fr
         (sensor - display + 360) % 180 != 0
     } ?: false
     private var camera: CameraDevice? = null
-    /** The surface an open is for; cleared by [close], so an open that completes after it is dropped. */
-    private var target: Surface? = null
+    /** The open attempt in progress or done; cleared by [close], so callbacks of an older attempt are dropped. */
+    private var target: Int? = null
+    private var attempts = 0
+    /** The preview surface while it exists at the camera's size. */
+    private var shown: Surface? = null
+    // Another app holding the camera fails the open; it is retried once the camera is free again.
+    private val availability = object : CameraManager.AvailabilityCallback() {
+        override fun onCameraAvailable(id: String) {
+            val s = size
+            val surface = shown
+            if (id == cameraId && !released && target == null && s != null && surface != null) open(surface, s)
+        }
+    }
     private var reader: ImageReader? = null
     @Volatile private var done = false
     @Volatile private var released = false
@@ -90,6 +101,7 @@ class QrScannerView(context: Context, private val onCode: (String) -> Unit) : Fr
         addView(preview, LayoutParams(0, 0, Gravity.CENTER))
         size?.let { preview.holder.setFixedSize(it.width, it.height) }
         preview.holder.addCallback(this)
+        manager.registerAvailabilityCallback(availability, handler)
     }
 
     override fun onMeasure(widthMeasureSpec: Int, heightMeasureSpec: Int) {
@@ -104,16 +116,23 @@ class QrScannerView(context: Context, private val onCode: (String) -> Unit) : Fr
 
     override fun surfaceChanged(holder: SurfaceHolder, format: Int, width: Int, height: Int) {
         val s = size ?: return
-        if (width == s.width && height == s.height) handler.post { open(holder.surface, s) }
+        if (width == s.width && height == s.height) handler.post {
+            shown = holder.surface
+            open(holder.surface, s)
+        }
     }
 
     override fun surfaceDestroyed(holder: SurfaceHolder) {
-        handler.post(::close)
+        handler.post {
+            shown = null
+            close()
+        }
     }
 
     /** Stops the camera and its thread; the view is gone. */
     fun release() {
         released = true
+        manager.unregisterAvailabilityCallback(availability)
         handler.post(::close)
         thread.quitSafely()
     }
@@ -130,8 +149,9 @@ class QrScannerView(context: Context, private val onCode: (String) -> Unit) : Fr
     private fun open(surface: Surface, s: Size) {
         val id = cameraId ?: return
         if (target != null) return
-        target = surface
-        guarded { openCamera(id, surface, s) }
+        val attempt = ++attempts
+        target = attempt
+        guarded { openCamera(id, surface, s, attempt) }
     }
 
     /** Camera2 throws when the camera is disabled, gone or taken; uncaught on this thread it would end the process. */
@@ -150,20 +170,21 @@ class QrScannerView(context: Context, private val onCode: (String) -> Unit) : Fr
         }
     }
 
-    private fun openCamera(id: String, surface: Surface, s: Size) {
+    private fun openCamera(id: String, surface: Surface, s: Size, attempt: Int) {
         if (context.checkSelfPermission(Manifest.permission.CAMERA) != PackageManager.PERMISSION_GRANTED) return
         manager.openCamera(id, executor, object : CameraDevice.StateCallback() {
             override fun onOpened(device: CameraDevice) {
-                if (released || target !== surface) return device.close()
+                if (released || target != attempt) return device.close()
                 camera = device
                 guarded { configure(device, surface, s) }
             }
 
             override fun onDisconnected(device: CameraDevice) {
                 device.close()
-                // camera is still null when the open itself failed: its pending target is cleared, unless a newer open
-                // owns it.
-                if (camera === device || camera == null && target === surface) close()
+                // After release this may run off the camera thread (it has quit): the scanner state is left alone.
+                if (released) return
+                // camera is still null when the open itself failed: its attempt is cleared, unless a newer one owns it.
+                if (camera === device || camera == null && target == attempt) close()
             }
 
             override fun onError(device: CameraDevice, error: Int) = onDisconnected(device)

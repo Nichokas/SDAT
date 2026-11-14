@@ -168,7 +168,8 @@ internal class GuestFollower(
                         player.livePlay(track, at.positionMs, at.playing && !player.systemPaused)
                     }
                 } finally {
-                    if (switching == trackId) switching = null
+                    // A stale lookup must not clear the marker of the newer one for the same track.
+                    if (op == lookup) switching = null
                 }
             }
             return
