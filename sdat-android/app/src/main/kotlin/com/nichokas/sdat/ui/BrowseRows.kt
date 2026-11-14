@@ -202,7 +202,8 @@ fun <T> LazyListScope.paged(loader: PagedLoader<T>, key: (T) -> Any, row: @Compo
             }
         }
         !list.done -> item(key = "paged-more") {
-            LaunchedEffect(Unit) { loader.more() }
+            // A new search replaces the loader while this row stays composed.
+            LaunchedEffect(loader) { loader.more() }
             Box(Modifier.fillMaxWidth().padding(16.dp), contentAlignment = Alignment.Center) {
                 CircularProgressIndicator(Modifier.width(24.dp), color = GlasmioTheme.colors.secondaryContent, strokeWidth = 2.dp)
             }

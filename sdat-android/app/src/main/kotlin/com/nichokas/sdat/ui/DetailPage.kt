@@ -203,7 +203,9 @@ fun DetailPage(
             }
             DetailMenu(title, buildList {
                 add(GlasmioCascadingMenuItem("Play Next", "text.line.first.and.arrowtriangle.forward", onClick = {
-                    tracks.asReversed().forEach(player::playNext); Chrome.flash("Playing next")
+                    // With nothing playing, the first Play Next starts its track, so the list would start from its end.
+                    if (player.current == null) player.play(tracks) else tracks.asReversed().forEach(player::playNext)
+                    Chrome.flash("Playing next")
                 }))
                 add(GlasmioCascadingMenuItem("Add to Queue", "text.line.last.and.arrowtriangle.forward", onClick = {
                     tracks.forEach(player::addToQueue); Chrome.flash("Added to queue")
