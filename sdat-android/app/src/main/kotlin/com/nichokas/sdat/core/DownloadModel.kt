@@ -185,6 +185,8 @@ data class DownloadQueue(
 
     fun forget(id: String) = copy(failures = failures - id)
 
+    fun fail(id: String, error: String) = copy(failures = failures + (id to error))
+
     private fun settled() = if (isActive) this else copy(batchTotal = 0)
 }
 

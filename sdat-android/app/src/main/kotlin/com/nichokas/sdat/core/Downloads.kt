@@ -17,10 +17,8 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.MainScope
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.cancelChildren
-import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.ensureActive
-import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import org.json.JSONArray
@@ -216,20 +214,25 @@ object Downloads {
         }
     }
 
-    /** Counts the download as done only once the index that lists it is on disk; otherwise leaves no file of it. */
-    private suspend fun commit(t: Track, e: DownloadEntry) {
-        val next = entries + (t.id to e)
-        val saved = queue.current?.id == t.id &&
-            withContext(NonCancellable + writes) { atomicWrite(File(dir, INDEX), DownloadIndex.encode(next)) }
-        if (saved && currentCoroutineContext().isActive) {
-            entries = next
+    /** Runs in the fetch's own job right after it returns, with no suspension a cancellation could slip into. */
+    private fun commit(t: Track, e: DownloadEntry) {
+        if (queue.current?.id != t.id) {
+            scope.launch(writes) { discard(t.id) }
             return
         }
-        withContext(NonCancellable + writes) { discard(t.id) }
-        // The index on disk may list the cancelled track; put back the one in memory.
-        if (saved) saveIndex()
-        currentCoroutineContext().ensureActive()
-        if (!saved && queue.current?.id == t.id) throw DownloadFailure.storage
+        entries = entries + (t.id to e)
+        val snapshot = entries
+        scope.launch(writes) {
+            if (atomicWrite(File(dir, INDEX), DownloadIndex.encode(snapshot))) return@launch
+            // Without the index the copy is gone after a restart, so it is not counted as saved now either.
+            withContext(Dispatchers.Main) {
+                if (entries[t.id] !== e) return@withContext
+                entries = entries - t.id
+                queue = queue.fail(t.id, DownloadFailure.storage.message.orEmpty())
+                saveIndex()
+                launch(writes) { discard(t.id) }
+            }
+        }
     }
 
     /** Leaves no file of [t] behind unless it returns. */
