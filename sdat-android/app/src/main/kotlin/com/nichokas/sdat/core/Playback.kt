@@ -357,7 +357,8 @@ class Playback(context: Context, private val prefs: Preferences, secrets: Secret
             // A Replay tapped during the fetch wins; that track's next end advances again.
             if (auto && player.playbackState != Player.STATE_ENDED) return@launch
             when {
-                more -> advance(auto, play = player.playWhenReady)
+                // A Play Next added during the fetch plays even when the source had nothing more.
+                more || queue.userQueue.isNotEmpty() -> advance(auto, play = player.playWhenReady)
                 auto -> stopAtEnd()
                 // The skip found nothing; the player may hold a stale item, so the track is loaded again, paused.
                 else -> from?.let { start(it, play = false) }
