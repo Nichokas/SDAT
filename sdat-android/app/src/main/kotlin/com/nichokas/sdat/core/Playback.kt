@@ -711,7 +711,10 @@ class Playback(context: Context, private val prefs: Preferences, secrets: Secret
     /** The position a host publishes: a track still loading is published at its start, not at the old item's time. */
     val livePublishedPositionMs get() = loadResumeAtMs ?: player.currentPosition
     // A failed load leaves the previous item in the engine: its position must not go out as the new track playing.
-    val livePublishedPlaying get() = playing && loadResumeAtMs == null && error == null
+    // While buffering or ducked out by a short focus loss, play stays requested but the position stops (iOS: isPlaying
+    // && !loading): published as playing, guests would run ahead and seek back.
+    val livePublishedPlaying get() = playing && !loading && player.playbackSuppressionReason == Player.PLAYBACK_SUPPRESSION_REASON_NONE &&
+        loadResumeAtMs == null && error == null
 
     override val livePositionMs get() = player.currentPosition
     override val liveHasItem get() = player.playbackState != Player.STATE_ENDED && (fetching || player.playbackState != Player.STATE_IDLE)
