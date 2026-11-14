@@ -147,6 +147,9 @@ class Playback(context: Context, private val prefs: Preferences, secrets: Secret
         restoredEndless = queued?.endless == true
         duration = state.current.durationSecs.toDouble()
         position = maxOf(0.0, minOf(state.position, if (duration > 0) duration - 1 else state.position))
+        // As iOS fills Now Playing on restore: controllers see the track, and their play prepares it, which fetches
+        // the stream (handlePrepare) since this item has none.
+        player.setMediaItem(MediaItem.Builder().setMediaId(state.current.id).setMediaMetadata(metadata(state.current)).build(), (position * 1000).toLong())
         pendingMixes?.let(::resumeInfinite)
         pendingMixes = null
     }
