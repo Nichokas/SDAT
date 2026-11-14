@@ -37,7 +37,7 @@ class RecentsStore(private val file: File) {
                     it.coverUrl?.let(out::writeUTF)
                 }
             }
-            tmp.renameTo(file)
+            if (!tmp.renameTo(file)) tmp.delete()
         } catch (_: IOException) {
             tmp.delete()
         }
