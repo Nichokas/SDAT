@@ -33,7 +33,7 @@ Notes for coding agents working on SDAT, a TIDAL player for Fedora (GTK), iPhone
 ## Releases
 
 - Tags and releases only with the owner's explicit OK.
-- Release by running the `Release` workflow on main; it bumps the versions itself. Desktop and iOS versions are independent.
+- Release by running the `Release` workflow on main; it bumps the versions itself. Desktop and iOS versions are independent. After a failure use "Re-run failed jobs", never "Re-run all jobs", which would bump again.
 - Desktop: tag `desktop-vX.Y.Z`. iOS: tag `vX.Y.Z` with the unsigned `.ipa`.
 - Version lives in `sdat-desktop/Cargo.toml`, `sdat-desktop/packaging/fedora/sdat-desktop.spec`, `sdat-desktop/build/com.nichokas.SDAT.Desktop.metainfo.xml`, `sdat-desktop/flake.nix` and `sdat-mobile/Info.plist`.
 - Android: signed releases only; the signing key lives only in GitHub Actions secrets.
