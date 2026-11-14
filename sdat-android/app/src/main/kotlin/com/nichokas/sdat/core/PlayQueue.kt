@@ -264,7 +264,7 @@ private const val ENDLESS_AHEAD = 200
 internal fun savedWindow(count: Int, index: Int?, endless: Boolean): IntRange {
     val i = (index ?: 0).coerceIn(0, maxOf(count - 1, 0))
     val behind = if (endless) ENDLESS_BEHIND else PlayQueue.MAX_SAVED / 4
-    val ahead = if (endless) ENDLESS_AHEAD else PlayQueue.MAX_SAVED - behind
+    val ahead = if (endless) ENDLESS_AHEAD else PlayQueue.MAX_SAVED - behind - 1
     var lo = maxOf(0, i - behind)
     var hi = minOf(count, i + ahead + 1)
     if (!endless && hi - lo < PlayQueue.MAX_SAVED) {

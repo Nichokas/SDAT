@@ -1,8 +1,10 @@
 package com.nichokas.sdat.core
 
 import kotlin.coroutines.cancellation.CancellationException
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.MainScope
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import uniffi.tonearm_ffi.ScrobbleTrack
 import uniffi.tonearm_ffi.Track
 import uniffi.tonearm_ffi.lastfmNowPlaying
@@ -45,24 +47,22 @@ internal class Scrobbler(private val prefs: Preferences, private val secrets: Se
 
     fun nowPlaying(t: Track) {
         val st = scrobbleTrack(t)
-        lastFm()?.let { send { lastfmNowPlaying(it, st) } }
-        listenBrainz()?.let { send { listenbrainzNowPlaying(it, st) } }
+        send(prefs.scrobbleLastFm, Secrets.LASTFM_SESSION) { lastfmNowPlaying(it, st) }
+        send(prefs.scrobbleListenBrainz, Secrets.LISTENBRAINZ_TOKEN) { listenbrainzNowPlaying(it, st) }
     }
 
     fun scrobble(l: Listen) {
         val st = scrobbleTrack(l.track)
-        lastFm()?.let { send { lastfmScrobble(it, st, l.startedAt) } }
-        listenBrainz()?.let { send { listenbrainzScrobble(it, st, l.startedAt) } }
+        send(prefs.scrobbleLastFm, Secrets.LASTFM_SESSION) { lastfmScrobble(it, st, l.startedAt) }
+        send(prefs.scrobbleListenBrainz, Secrets.LISTENBRAINZ_TOKEN) { listenbrainzScrobble(it, st, l.startedAt) }
     }
 
-    private fun lastFm() = if (prefs.scrobbleLastFm) secrets.get(Secrets.LASTFM_SESSION) else null
-
-    private fun listenBrainz() = if (prefs.scrobbleListenBrainz) secrets.get(Secrets.LISTENBRAINZ_TOKEN) else null
-
-    private fun send(call: suspend () -> Unit) {
+    // The key is read off the main thread: each read is a Keystore decrypt.
+    private fun send(on: Boolean, key: String, call: suspend (String) -> Unit) {
+        if (!on) return
         scope.launch {
             try {
-                call()
+                withContext(Dispatchers.IO) { secrets.get(key) }?.let { call(it) }
             } catch (e: CancellationException) {
                 throw e
             } catch (_: Exception) {

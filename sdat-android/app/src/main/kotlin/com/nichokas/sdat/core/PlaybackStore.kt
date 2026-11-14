@@ -121,7 +121,6 @@ private fun DataOutputStream.writeTracks(list: List<Track>) {
     list.forEach { writeTrack(it) }
 }
 
-// Grown as read, so a corrupt count runs out of input instead of allocating it.
 /** A list length, rejected when it can't be one, so a corrupt file fails fast instead of looping on a huge count. */
 private fun DataInputStream.readCount() = readInt().also { require(it in 0..MAX_COUNT) }
 

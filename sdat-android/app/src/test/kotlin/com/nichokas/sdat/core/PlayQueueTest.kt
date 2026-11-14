@@ -354,7 +354,7 @@ class PlayQueueTest {
     @Test fun windowMatchesIos() {
         assertEquals(0 until 10, savedWindow(10, 5, endless = false))
         assertEquals(0 until 2000, savedWindow(5000, 100, endless = false))
-        assertEquals(500 until 2501, savedWindow(5000, 1000, endless = false))
+        assertEquals(500 until 2500, savedWindow(5000, 1000, endless = false))
         assertEquals(3000 until 5000, savedWindow(5000, 4900, endless = false))
         assertEquals(950 until 1201, savedWindow(5000, 1000, endless = true))
         assertEquals(0 until 0, savedWindow(0, null, endless = false))
