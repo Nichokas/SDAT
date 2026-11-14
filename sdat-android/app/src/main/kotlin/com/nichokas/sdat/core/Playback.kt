@@ -225,7 +225,8 @@ class Playback(context: Context, private val prefs: Preferences, secrets: Secret
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
-                if (infinite === source) error = friendlyMessage(e)
+                // A track still playing is left alone: an error would make the next tap a retry.
+                if (infinite === source) friendlyMessage(e).let { if (track == null) error = it else Chrome.flash(it) }
                 emptyList()
             }
             if (infinite !== source) return@async false
