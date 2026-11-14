@@ -48,13 +48,28 @@ class QrScannerView(context: Context, private val onCode: (String) -> Unit) : Fr
     // After release the thread is gone; a late camera callback still runs, so an opened device gets closed.
     private val executor = Executor { if (!handler.post(it)) it.run() }
     private val qr = QRCodeReader()
-    private val cameraId = manager.cameraIdList.firstOrNull {
-        manager.getCameraCharacteristics(it).get(CameraCharacteristics.LENS_FACING) == CameraMetadata.LENS_FACING_BACK
-    } ?: manager.cameraIdList.firstOrNull()
-    private val size: Size? = cameraId?.let(::pickSize)
+    // A camera that disconnects while it is queried throws; the scanner then shows no preview instead of crashing.
+    private val cameraId = try {
+        manager.cameraIdList.firstOrNull {
+            manager.getCameraCharacteristics(it).get(CameraCharacteristics.LENS_FACING) == CameraMetadata.LENS_FACING_BACK
+        } ?: manager.cameraIdList.firstOrNull()
+    } catch (_: CameraAccessException) {
+        null
+    }
+    private val size: Size? = cameraId?.let { id ->
+        try {
+            pickSize(id)
+        } catch (_: CameraAccessException) {
+            null
+        }
+    }
     /** The sensor is mounted sideways relative to the display: the preview's width and height swap on screen. */
     private val sideways = cameraId?.let {
-        val sensor = manager.getCameraCharacteristics(it).get(CameraCharacteristics.SENSOR_ORIENTATION) ?: 0
+        val sensor = try {
+            manager.getCameraCharacteristics(it).get(CameraCharacteristics.SENSOR_ORIENTATION) ?: 0
+        } catch (_: CameraAccessException) {
+            0
+        }
         val display = when (context.display.rotation) {
             Surface.ROTATION_90 -> 90
             Surface.ROTATION_180 -> 180

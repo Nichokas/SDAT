@@ -127,9 +127,12 @@ internal class GuestFollower(
     private val log: (String) -> Unit,
 ) {
     private var switching: String? = null
+    /** Bumped per lookup: the host may go A, B, A while the first lookup of A is still running. */
+    private var lookup = 0
     /** Latency the playing position was last aligned with. */
     private var alignedLatencyMs: Long? = null
-    private var lastDriftLogAt = Long.MIN_VALUE
+    // Uptime is never negative, so the first drift log is due at once; MIN_VALUE would overflow the subtraction.
+    private var lastDriftLogAt = -10_000L
     private var lastDiagAt = Long.MIN_VALUE
     private var lastPath: LivePath? = null
 
@@ -145,10 +148,12 @@ internal class GuestFollower(
         if (player.currentId != trackId || !player.liveHasItem && !player.loading) {
             if (switching == trackId) return
             switching = trackId
+            val op = ++lookup
             scope.launch {
                 try {
                     val track = resolve(trackId)
                     ensureActive()
+                    if (op != lookup) return@launch
                     // Re-read: the host may have moved on while resolving.
                     val at = guest.target(latencyMs())?.takeIf { it.trackId == trackId } ?: return@launch
                     // A system pause also holds a new host track: it loads paused until the user or system resumes.
