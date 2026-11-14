@@ -4,6 +4,7 @@ import android.content.Context
 import android.net.Uri
 import androidx.annotation.OptIn
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.media3.common.AudioAttributes
@@ -66,8 +67,10 @@ class Playback(context: Context, private val prefs: Preferences, secrets: Secret
     private var restoredEndless = false
     /** Home mixes that arrived while the saved queue was still loading. */
     private var pendingMixes: List<Mix>? = null
-    /** Bumped by every [start], so a refill that waited can tell a newer play took over the same track. */
-    private var starts = 0
+    /** Bumped whenever a queue entry starts, even the same track again: a refill that waited can tell a newer play
+     * took over, and the player sheet drops a drag meant for the previous entry. */
+    var entry by mutableIntStateOf(0)
+        private set
 
     val track get() = queue.current
     override val current get() = track
@@ -352,7 +355,7 @@ class Playback(context: Context, private val prefs: Preferences, secrets: Secret
         // Endless queue ran dry before the refill landed: fetch, then go on.
         val source = infinite ?: return stopAtEnd()
         val from = track
-        val startsBefore = starts
+        val entryBefore = entry
         fetching = true
         // Like a skip to a queued track: the old one goes quiet, and a play or pause tapped while the refill loads
         // decides how the next one starts.
@@ -364,7 +367,7 @@ class Playback(context: Context, private val prefs: Preferences, secrets: Secret
         scope.launch {
             val more = fetchMore(source)
             // A track picked during the fetch owns playback now; a source replaced meanwhile had nothing more.
-            if (track !== from || starts != startsBefore) return@launch
+            if (track !== from || entry != entryBefore) return@launch
             fetching = false
             // A Replay tapped during the fetch wins; that track's next end advances again.
             if (auto && player.playbackState != Player.STATE_ENDED) return@launch
@@ -444,7 +447,7 @@ class Playback(context: Context, private val prefs: Preferences, secrets: Secret
     }
 
     private fun start(t: Track, play: Boolean = true, resumeAt: Double = 0.0) {
-        starts++
+        entry++
         request?.cancel()
         dropPreload()
         position = resumeAt
@@ -489,6 +492,7 @@ class Playback(context: Context, private val prefs: Preferences, secrets: Secret
 
     /** The preloaded item became the current one. */
     private fun began(t: Track, quality: Quality) {
+        entry++
         position = 0.0
         duration = t.durationSecs.toDouble()
         shownQuality = quality

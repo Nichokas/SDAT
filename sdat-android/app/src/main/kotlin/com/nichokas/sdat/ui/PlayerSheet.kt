@@ -161,8 +161,8 @@ private fun NowPlayingPage(playback: Playback, track: Track, showQueue: () -> Un
                 Text(t.artistLine, style = IosTypography.body, color = dimmed, maxLines = 1, overflow = TextOverflow.Ellipsis)
             }
         }
-        // A new track drops the slider and any drag on it, so a release can't seek it to the old track's place.
-        key(track.id) {
+        // A new queue entry, even of the same track, drops the slider and any drag on it, so a release can't seek it to the old one's place.
+        key(playback.entry) {
             Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
                 var scrub by remember { mutableStateOf<Double?>(null) }
                 val end = maxOf(playback.duration, 1.0)
