@@ -51,6 +51,8 @@ class HlsTest {
         assertEquals("Unsupported stream format (MPEG-TS).", assertThrows(DownloadFailure::class.java) { Hls.media(ts, base) }.message)
         val ranges = "#EXT-X-MAP:URI=\"i.mp4\",BYTERANGE=\"800@0\"\n#EXTINF:4,\ns.mp4"
         assertThrows(DownloadFailure::class.java) { Hls.media(ranges, base) }
+        val twoMaps = "#EXT-X-MAP:URI=\"a.mp4\"\n#EXTINF:4,\ns1.mp4\n#EXT-X-MAP:URI=\"b.mp4\"\n#EXTINF:4,\ns2.mp4"
+        assertThrows(DownloadFailure::class.java) { Hls.media(twoMaps, base) }
         // METHOD=NONE is no encryption at all.
         Hls.media("#EXT-X-KEY:METHOD=NONE\n#EXT-X-MAP:URI=\"i.mp4\"\n#EXTINF:4,\ns.mp4", base)
     }
@@ -59,11 +61,13 @@ class HlsTest {
         val text = "#EXTM3U\n#EXT-X-MAP:URI=\"https://a/i.mp4\"\n"
         assertEquals(text, Hls.inline("data:application/vnd.apple.mpegurl;base64," + Base64.getEncoder().encodeToString(text.toByteArray())))
         assertEquals("#EXTM3U\n", Hls.inline("data:application/vnd.apple.mpegurl,%23EXTM3U%0A"))
+        assertEquals("https://a/b+c d.mp4", Hls.inline("data:application/vnd.apple.mpegurl,https://a/b+c%20d.mp4"))
         assertNull(Hls.inline("https://cdn.example/master.m3u8"))
     }
 
     @Test fun localPlaylistIndexesTheConcatenatedFile() {
-        val text = Hls.localPlaylist("1.mp4", 700, listOf("3.996" to 1000L, "2.5" to 400L))
+        val media = Hls.media("#EXT-X-MAP:URI=\"i.mp4\"\n#EXTINF:3.996,\ns1.mp4\n#EXT-X-MAP:URI=\"i.mp4\"\n#EXT-X-DISCONTINUITY\n#EXTINF:2.5,\ns2.mp4", base)
+        val text = Hls.localPlaylist("1.mp4", 700, media.segments.zip(listOf(1000L, 400L)))
         assertEquals(
             """
             #EXTM3U
@@ -74,6 +78,7 @@ class HlsTest {
             #EXTINF:3.996,
             #EXT-X-BYTERANGE:1000@700
             1.mp4
+            #EXT-X-DISCONTINUITY
             #EXTINF:2.5,
             #EXT-X-BYTERANGE:400@1700
             1.mp4

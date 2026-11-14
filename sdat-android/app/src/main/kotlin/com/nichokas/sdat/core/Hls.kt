@@ -18,7 +18,7 @@ object Hls {
     data class Variant(val uri: URI, val bandwidth: Int?, val codecs: String?)
 
     /** [duration] is the EXTINF value as written, so the local playlist repeats it exactly. */
-    data class Segment(val uri: URI, val duration: String)
+    data class Segment(val uri: URI, val duration: String, val discontinuity: Boolean = false)
 
     data class Media(val map: URI, val segments: List<Segment>)
 
@@ -30,7 +30,8 @@ object Hls {
         return if (url.substring(0, comma).endsWith(";base64")) {
             runCatching { String(Base64.getDecoder().decode(body)) }.getOrElse { throw DownloadFailure.unsupported("manifest") }
         } else {
-            URLDecoder.decode(body, Charsets.UTF_8)
+            // Percent-encoding only: a '+' is itself, not a form-encoded space.
+            URLDecoder.decode(body.replace("+", "%2B"), Charsets.UTF_8)
         }
     }
 
@@ -46,21 +47,29 @@ object Hls {
 
     fun isMaster(text: String) = "#EXT-X-STREAM-INF" in text
 
-    /** An fMP4 media playlist; encrypted, byte-range and MPEG-TS playlists are refused. */
+    /** An fMP4 media playlist; encrypted, byte-range, MPEG-TS and multi-init playlists are refused. */
     fun media(text: String, base: URI?): Media {
         var map: URI? = null
         val segments = mutableListOf<Segment>()
         var duration: String? = null
+        var discontinuity = false
         for (l in lines(text)) {
             when {
                 l.startsWith("#EXT-X-KEY") || l.startsWith("#EXT-X-SESSION-KEY") -> if ("METHOD=NONE" !in l) throw DownloadFailure.encrypted
                 l.startsWith("#EXT-X-BYTERANGE") || l.startsWith("#EXT-X-MAP") && "BYTERANGE" in l -> throw DownloadFailure.unsupported("byte ranges")
-                l.startsWith("#EXT-X-MAP") -> map = attr(l, "URI")?.let { resolve(base, it) }
+                l.startsWith("#EXT-X-MAP") -> {
+                    val next = attr(l, "URI")?.let { resolve(base, it) }
+                    // The saved file holds one init segment, so every fragment must follow the same one.
+                    if (map != null && next != map) throw DownloadFailure.unsupported("several init segments")
+                    map = next
+                }
+                l.startsWith("#EXT-X-DISCONTINUITY") && !l.startsWith("#EXT-X-DISCONTINUITY-SEQUENCE") -> discontinuity = true
                 l.startsWith("#EXTINF:") -> duration = l.removePrefix("#EXTINF:").substringBefore(',').trim()
                 l.isNotEmpty() && !l.startsWith("#") -> {
                     val uri = resolve(base, l) ?: throw DownloadFailure.unsupported("segment URL")
-                    segments += Segment(uri, duration ?: throw DownloadFailure.unsupported("segment without duration"))
+                    segments += Segment(uri, duration ?: throw DownloadFailure.unsupported("segment without duration"), discontinuity)
                     duration = null
+                    discontinuity = false
                 }
             }
         }
@@ -73,13 +82,14 @@ object Hls {
      * A VOD playlist over one file holding the init segment and then every segment, back to back: ExoPlayer seeks a
      * concatenated fragmented MP4 only through such an index.
      */
-    fun localPlaylist(file: String, initSize: Long, segments: List<Pair<String, Long>>): String = buildString {
-        val target = segments.maxOf { it.first.toDouble() }.let { kotlin.math.ceil(it).toLong() }
+    fun localPlaylist(file: String, initSize: Long, segments: List<Pair<Segment, Long>>): String = buildString {
+        val target = segments.maxOf { it.first.duration.toDouble() }.let { kotlin.math.ceil(it).toLong() }
         append("#EXTM3U\n#EXT-X-VERSION:7\n#EXT-X-TARGETDURATION:$target\n#EXT-X-PLAYLIST-TYPE:VOD\n")
         append("#EXT-X-MAP:URI=\"$file\",BYTERANGE=\"$initSize@0\"\n")
         var offset = initSize
-        for ((duration, size) in segments) {
-            append("#EXTINF:$duration,\n#EXT-X-BYTERANGE:$size@$offset\n$file\n")
+        for ((segment, size) in segments) {
+            if (segment.discontinuity) append("#EXT-X-DISCONTINUITY\n")
+            append("#EXTINF:${segment.duration},\n#EXT-X-BYTERANGE:$size@$offset\n$file\n")
             offset += size
         }
         append("#EXT-X-ENDLIST\n")

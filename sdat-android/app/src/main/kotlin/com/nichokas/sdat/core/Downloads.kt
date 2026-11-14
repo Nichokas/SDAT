@@ -242,7 +242,7 @@ object Downloads {
                 queue = queue.progress(t.id, (i + 1.0) / parts.size)
             }
             withContext(Dispatchers.IO) {
-                val playlist = Hls.localPlaylist(name, sizes[0], media.segments.mapIndexed { i, seg -> seg.duration to sizes[i + 1] })
+                val playlist = Hls.localPlaylist(name, sizes[0], media.segments.mapIndexed { i, seg -> seg to sizes[i + 1] })
                 File(dir, playlistName(t.id)).writeText(playlist)
                 val dst = File(dir, name)
                 dst.delete()
