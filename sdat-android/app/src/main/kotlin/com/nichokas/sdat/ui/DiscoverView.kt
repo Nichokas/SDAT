@@ -52,6 +52,8 @@ fun DiscoverView(session: Session, onPlay: (Track, List<Track>, List<Mix>) -> Un
     var attempt by remember { mutableIntStateOf(0) }
     LaunchedEffect(attempt) {
         error = null
+        mixes = emptyList()
+        onMixes(mixes)
         val pool = CoverPool()
         try {
             mixes = homeMixes()
