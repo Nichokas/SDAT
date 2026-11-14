@@ -85,10 +85,10 @@ fun SearchView() {
     val shown = state.shown
     // Only the selected filter gets a pager, made again for each query.
     val paging = if (shown.isEmpty()) null else filter
-    val tracks = if (paging == SearchFilter.Tracks) rememberRetained(shown, paging) { PagedLoader(next = searchTracks(shown)::nextPage) } else null
-    val artists = if (paging == SearchFilter.Artists) rememberRetained(shown, paging) { PagedLoader(next = searchArtists(shown)::nextPage) } else null
-    val albums = if (paging == SearchFilter.Albums) rememberRetained(shown, paging) { PagedLoader(next = searchAlbums(shown)::nextPage) } else null
-    val playlists = if (paging == SearchFilter.Playlists) rememberRetained(shown, paging) { PagedLoader(next = searchPlaylists(shown)::nextPage) } else null
+    val tracks = if (paging == SearchFilter.Tracks) rememberRetained(shown, paging) { searchTracks(shown).let { p -> PagedLoader(pager = p, next = p::nextPage) } } else null
+    val artists = if (paging == SearchFilter.Artists) rememberRetained(shown, paging) { searchArtists(shown).let { p -> PagedLoader(pager = p, next = p::nextPage) } } else null
+    val albums = if (paging == SearchFilter.Albums) rememberRetained(shown, paging) { searchAlbums(shown).let { p -> PagedLoader(pager = p, next = p::nextPage) } } else null
+    val playlists = if (paging == SearchFilter.Playlists) rememberRetained(shown, paging) { searchPlaylists(shown).let { p -> PagedLoader(pager = p, next = p::nextPage) } } else null
 
     SdatPage("Search", collapsesChrome = true) {
         item(key = "search-field") {

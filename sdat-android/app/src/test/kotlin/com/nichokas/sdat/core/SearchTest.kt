@@ -127,6 +127,24 @@ class SearchTest {
         assertFalse(model.state.searching)
     }
 
+    @Test fun aFirstSearchInterruptedAfterAFailureRunsAgain() = runBlocking {
+        val fake = FakeSearch()
+        fake.gates["bad"] = CompletableDeferred<String>().apply { completeExceptionally(IllegalStateException()) }
+        fake.gates["justice"] = CompletableDeferred()
+        val model = SearchModel(debounceMs = 0, search = fake::run)
+        model.edit("bad")
+        model.settle()
+        model.edit("justice")
+        val first = launch { model.settle() }
+        yield()
+        first.cancel()
+        model.edit("justice ")
+        fake.gates["justice"] = CompletableDeferred("result:justice")
+        model.settle()
+        assertEquals(listOf("bad", "justice", "justice"), fake.calls)
+        assertEquals("result:justice", model.state.result)
+    }
+
     @Test fun theTopArtistNeedsANameMatch() {
         assertTrue(isTopArtist("Daft Punk", "daft"))
         assertTrue(isTopArtist("Daft Punk", "daft punk discovery"))

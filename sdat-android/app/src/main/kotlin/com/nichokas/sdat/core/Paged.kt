@@ -36,8 +36,12 @@ data class PagedList<T>(
 // Loads outlive the row that asked: cancelling a pager's call midway could lose the page it already advanced past.
 private val loadScope = MainScope()
 
-/** Drives a [PagedList] from a pager's `nextPage`. */
-class PagedLoader<T>(private val scope: CoroutineScope = loadScope, private val next: suspend () -> List<T>?) {
+/** Drives a [PagedList] from a pager's `nextPage`, and closes [pager] once its page store drops the loader. */
+class PagedLoader<T>(
+    private val scope: CoroutineScope = loadScope,
+    private val pager: AutoCloseable? = null,
+    private val next: suspend () -> List<T>?,
+) : AutoCloseable {
     var list by mutableStateOf(PagedList<T>())
         private set
 
@@ -61,5 +65,10 @@ class PagedLoader<T>(private val scope: CoroutineScope = loadScope, private val 
     fun retry(): Job? {
         list = list.retried()
         return more()
+    }
+
+    // The FFI keeps its own reference for a call in flight, so closing here is safe mid-page.
+    override fun close() {
+        pager?.close()
     }
 }

@@ -47,11 +47,12 @@ data class SearchState<R>(
     fun cleared() = SearchState<R>(query = query, generation = generation)
 
     /** The first search shows its query at once, over skeletons; later ones keep the old results until theirs arrive. */
-    fun started(q: String) = copy(
-        generation = generation + 1,
-        searching = true,
-        shown = if (result == null) q else shown,
-    )
+    fun started(q: String) = if (result == null) {
+        // A stale error would make an interrupted first search look settled, so it never runs again.
+        copy(generation = generation + 1, searching = true, shown = q, error = null)
+    } else {
+        copy(generation = generation + 1, searching = true)
+    }
 
     fun finished(q: String, generation: Int, result: R) =
         if (current(q, generation)) copy(shown = q, result = result, error = null, searching = false) else this
