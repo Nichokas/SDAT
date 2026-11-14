@@ -534,7 +534,8 @@ class Playback(context: Context, private val prefs: Preferences, secrets: Secret
                 player.prepare()
                 fetching = false
                 started(t)
-                if (align) {
+                // Cleared by a pause tapped while the stream loaded.
+                if (aligning) {
                     liveJob = scope.launch {
                         liveAlign()
                         aligning = false
@@ -642,6 +643,7 @@ class Playback(context: Context, private val prefs: Preferences, secrets: Secret
      * a restored queue starts this way too. */
     fun toggle() {
         val t = track ?: return
+        if (dropLiveStart()) return
         systemPaused = false
         val unprepared = error != null || !fetching && player.playbackState == Player.STATE_IDLE
         when (tapAction(unprepared, player.playbackState == Player.STATE_ENDED, player.playWhenReady)) {
@@ -728,7 +730,18 @@ class Playback(context: Context, private val prefs: Preferences, secrets: Secret
         start(track, playing, resumeAt = maxOf(atMs, 0) / 1000.0)
     }
 
-    override fun pause() = player.pause()
+    override fun pause() {
+        if (!dropLiveStart()) player.pause()
+    }
+
+    /** A pause during a live start that is still waiting for the host: it would otherwise call play() later. */
+    private fun dropLiveStart(): Boolean {
+        if (!liveResumePending && !aligning) return false
+        cancelLive()
+        player.pause()
+        syncPlaying()
+        return true
+    }
 
     override fun seekTo(ms: Long) = seek(ms / 1000.0)
 

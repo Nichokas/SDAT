@@ -186,7 +186,9 @@ class QrScannerView(context: Context, private val onCode: (String) -> Unit) : Fr
                 }
             }
 
-            override fun onConfigureFailed(session: CameraCaptureSession) = close()
+            override fun onConfigureFailed(session: CameraCaptureSession) {
+                if (camera === device) close()
+            }
         }))
     }
 
@@ -223,6 +225,7 @@ class QrScannerView(context: Context, private val onCode: (String) -> Unit) : Fr
             if (text != null && liveIsInvite(text)) {
                 done = true
                 post {
+                    if (released) return@post
                     performHapticFeedback(HapticFeedbackConstants.CONFIRM)
                     onCode(text)
                 }
