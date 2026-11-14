@@ -1,0 +1,105 @@
+name: Release
+
+# Tags main with the versions already committed in the app files, creates the GitHub releases
+# with generated notes, then runs the platform builds. Releases made with GITHUB_TOKEN do not
+# fire `release` or tag `push` events, so the builds are called here directly.
+on:
+  workflow_dispatch:
+    inputs:
+      platforms:
+        description: "What to release"
+        type: choice
+        options: [all, desktop, ios]
+        default: all
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+jobs:
+  tag:
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    outputs:
+      desktop: ${{ steps.release.outputs.desktop }}
+      ios: ${{ steps.release.outputs.ios }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Create releases
+        id: release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PLATFORMS: ${{ inputs.platforms }}
+        run: |
+          set -euo pipefail
+          tags=()
+          if [[ "$PLATFORMS" == all || "$PLATFORMS" == desktop ]]; then
+            v="$(awk -F'"' '/^version *=/{print $2; exit}' sdat-desktop/Cargo.toml)"
+            flake="$(awk -F'"' '/version = /{print $2; exit}' sdat-desktop/flake.nix)"
+            meta="$(grep -oP '<release version="\K[^"]+' sdat-desktop/build/com.nichokas.SDAT.Desktop.metainfo.xml | head -1)"
+            if [[ "$flake" != "$v" || "$meta" != "$v" ]]; then
+              echo "::error::Desktop versions differ: Cargo.toml $v, flake.nix $flake, metainfo $meta"; exit 1
+            fi
+            tags+=("desktop-v$v")
+            echo "desktop=desktop-v$v" >> "$GITHUB_OUTPUT"
+          fi
+          if [[ "$PLATFORMS" == all || "$PLATFORMS" == ios ]]; then
+            v="$(grep -A1 CFBundleShortVersionString sdat-mobile/Info.plist | grep -oP '<string>\K[^<]+')"
+            tags+=("v$v")
+            echo "ios=v$v" >> "$GITHUB_OUTPUT"
+          fi
+          # Check every tag before creating any, so a stale version leaves no half release.
+          for tag in "${tags[@]}"; do
+            if git rev-parse -q --verify "refs/tags/$tag" >/dev/null; then
+              echo "::error::$tag already exists; bump the version first"; exit 1
+            fi
+          done
+          for tag in "${tags[@]}"; do
+            series="${tag%%[0-9]*}"
+            prev="$(git tag -l "${series}*" | grep -E "^${series}[0-9]+\.[0-9]+\.[0-9]+$" | sort -V | tail -1)"
+            args=(--target "$GITHUB_SHA" --generate-notes)
+            [[ -n "$prev" ]] && args+=(--notes-start-tag "$prev")
+            if [[ "$series" == desktop-v ]]; then
+              args+=(--title "SDAT desktop ${tag#desktop-v}" --latest=false)
+            else
+              args+=(--title "$tag")
+            fi
+            gh release create "$tag" "${args[@]}"
+            echo "Released $tag (notes since ${prev:-the beginning})" >> "$GITHUB_STEP_SUMMARY"
+          done
+
+  desktop:
+    needs: tag
+    if: needs.tag.outputs.desktop != ''
+    permissions:
+      contents: write
+    uses: ./.github/workflows/desktop-fedora.yml
+    with:
+      force: true
+
+  ios:
+    needs: tag
+    if: needs.tag.outputs.ios != ''
+    permissions:
+      contents: write
+    uses: ./.github/workflows/ios-build.yml
+    with:
+      tag: ${{ needs.tag.outputs.ios }}
+
+  feather:
+    needs: [tag, ios]
+    permissions:
+      contents: write
+      pull-requests: write
+    uses: ./.github/workflows/feather-source.yml
+    with:
+      tag: ${{ needs.tag.outputs.ios }}

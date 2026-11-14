@@ -11,6 +11,11 @@ name: Desktop Fedora auto-update
         description: "Re-upload the vendor archive for the current version and poke COPR"
         type: boolean
         default: false
+  workflow_call:
+    inputs:
+      force:
+        type: boolean
+        required: true
   pull_request:
     paths:
       - "sdat-desktop/packaging/fedora/**"
