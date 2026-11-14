@@ -22,7 +22,6 @@ import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
@@ -171,12 +170,11 @@ object Downloads {
         queue = DownloadQueue()
         entries = emptyMap()
         albumMeta.clear()
-        // The index and the saved queue go before this returns, behind the writes already queued, so a process killed
-        // right after sign-out cannot reload the old account's downloads; the media files can follow in the background.
-        runBlocking(writes) {
-            File(dir, INDEX).delete()
-            File(dir, PENDING).delete()
-        }
+        // The index and the saved queue go before this returns, so a process killed right after sign-out cannot reload
+        // the old account's downloads; waiting behind the write queue could block the main thread on a large delete.
+        // The queued delete removes them again in case a write queued earlier brings them back.
+        File(dir, INDEX).delete()
+        File(dir, PENDING).delete()
         scope.launch(writes) { dir.deleteRecursively() }
     }
 
