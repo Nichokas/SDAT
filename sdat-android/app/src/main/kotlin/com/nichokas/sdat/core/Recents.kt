@@ -82,6 +82,11 @@ object Recents {
     // One thread keeps the writes in order.
     private val writer = Executors.newSingleThreadExecutor()
 
+    // Held while a save checks it is still current and writes, so a clear can't land in between.
+    private val lock = Any()
+
+    @Volatile private var generation = 0
+
     var items by mutableStateOf(emptyList<LocalRecent>())
         private set
 
@@ -92,15 +97,20 @@ object Recents {
     fun add(item: LocalRecent) {
         val next = items.opened(item)
         items = next
-        store?.let { s -> writer.execute { s.save(next) } }
+        val s = store ?: return
+        val gen = generation
+        writer.execute { synchronized(lock) { if (gen == generation) s.save(next) } }
     }
 
     /**
-     * Deletes rather than writes an empty list, which a full disk could refuse, and waits for it: a process killed
-     * right after sign-out must not reload the old account's history.
+     * Deletes rather than writes an empty list, which a full disk could refuse, before returning: a process killed
+     * right after sign-out must not reload the old account's history. Queued saves are dropped rather than waited for.
      */
     fun clear() {
         items = emptyList()
-        store?.let { s -> writer.submit { s.delete() }.get() }
+        synchronized(lock) {
+            generation++
+            store?.delete()
+        }
     }
 }
