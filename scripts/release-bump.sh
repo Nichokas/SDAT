@@ -1,8 +1,9 @@
 #!/usr/bin/env bash
 # release-bump.sh <desktop|ios> <patch|minor|major>
 # Bumps the platform's newest release tag and writes the new version into its files.
-# A version already in the files but not yet tagged is reused instead, so a failed release
-# can be rerun. Prints the new tag. Desktop and iOS versions are independent.
+# A rerun of a failed release reuses what the first run did: a tag of this platform already on
+# HEAD, or a version already in the files but not yet tagged. Prints the tag. Desktop and iOS
+# versions are independent.
 set -euo pipefail
 platform="${1:?usage: release-bump.sh <desktop|ios> <patch|minor|major>}"
 level="${2:?usage: release-bump.sh <desktop|ios> <patch|minor|major>}"
@@ -14,7 +15,10 @@ case "$platform" in
   ios) series=v; current="$(grep -A1 '<key>CFBundleShortVersionString</key>' "$plist" | grep -oP '<string>\K[^<]+')" ;;
   *) echo "unknown platform: $platform" >&2; exit 1 ;;
 esac
-latest="$(git tag -l "${series}*" | grep -E "^${series}[0-9]+\.[0-9]+\.[0-9]+$" | sort -V | tail -1 || true)"
+pattern="^${series}[0-9]+\.[0-9]+\.[0-9]+$"
+on_head="$(git tag --points-at HEAD | grep -E "$pattern" | sort -V | tail -1 || true)"
+if [[ -n "$on_head" ]]; then echo "reusing $on_head, already on HEAD" >&2; echo "$on_head"; exit 0; fi
+latest="$(git tag -l "${series}*" | grep -E "$pattern" | sort -V | tail -1 || true)"
 IFS=. read -r major minor patch <<<"${latest#"$series"}"
 major="${major:-0}" minor="${minor:-0}" patch="${patch:-0}"
 case "$level" in

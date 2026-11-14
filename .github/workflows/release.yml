@@ -82,8 +82,11 @@ jobs:
         run: |
           set -euo pipefail
           for tag in $TAGS; do
+            if gh release view "$tag" >/dev/null 2>&1; then
+              echo "$tag already released" >> "$GITHUB_STEP_SUMMARY"; continue
+            fi
             series="${tag%%[0-9]*}"
-            prev="$(git tag -l "${series}*" | grep -E "^${series}[0-9]+\.[0-9]+\.[0-9]+$" | sort -V | tail -1 || true)"
+            prev="$(git tag -l "${series}*" | grep -vxF "$tag" | grep -E "^${series}[0-9]+\.[0-9]+\.[0-9]+$" | sort -V | tail -1 || true)"
             args=(--target "$SHA" --generate-notes)
             [[ -n "$prev" ]] && args+=(--notes-start-tag "$prev")
             if [[ "$series" == desktop-v ]]; then
