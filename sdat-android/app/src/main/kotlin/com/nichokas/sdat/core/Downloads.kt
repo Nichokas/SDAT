@@ -190,6 +190,8 @@ object Downloads {
     fun resumePending() {
         frozen = false
         if (restoring?.isActive == true) return
+        // A restore cancelled by sign-out or a timeout may have left its tombstones behind.
+        dropped.clear()
         restoring = work.launch {
             val saved = withContext(writes) {
                 runCatching {
