@@ -22,6 +22,9 @@ object Favs {
     // Last value the server reported or accepted; a failed write falls back to it.
     private val confirmed = mutableMapOf<Fav, Boolean>()
 
+    // Toggled this session; a favourites list fetched earlier must not undo them.
+    private val toggled = mutableSetOf<Fav>()
+
     // Bumped on sign-out so requests from the previous session never write into the cache.
     private var generation = 0
 
@@ -29,11 +32,11 @@ object Favs {
 
     fun known(trackId: String): Boolean? = known(Fav(FavouriteKind.TRACK, trackId))
 
-    /** Tracks the server listed as favourites; a write still in flight wins. */
+    /** Tracks the server listed as favourites; a write in flight or one that went through this session wins. */
     fun mark(ids: List<String>) {
         for (id in ids) {
             val fav = Fav(FavouriteKind.TRACK, id)
-            if (writes[fav]?.isActive == true) continue
+            if (fav in toggled || writes[fav]?.isActive == true) continue
             known[fav] = true
             confirmed[fav] = true
         }
@@ -43,6 +46,7 @@ object Favs {
         generation++
         known.clear()
         confirmed.clear()
+        toggled.clear()
         writes.values.forEach { it.cancel() }
         writes.clear()
     }
@@ -79,6 +83,7 @@ object Favs {
                 setFavourite(fav.kind, fav.id, target)
                 if (gen != generation) return@launch
                 confirmed[fav] = target
+                toggled += fav
                 done(fav.kind, target)?.let(Chrome::flash)
             } catch (e: CancellationException) {
                 throw e

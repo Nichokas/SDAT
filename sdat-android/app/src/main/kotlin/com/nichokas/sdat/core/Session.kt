@@ -40,6 +40,8 @@ class Session(context: Context) : TokenStore {
 
     fun signIn(tokens: LoginTokens) {
         picture.value = null
+        // Before the new session is saved, so a process killed in between can't pair it with the old history.
+        Recents.clear()
         // A session that failed to restore leaves the previous account's entries behind.
         prefs.edit {
             clear()
@@ -61,6 +63,7 @@ class Session(context: Context) : TokenStore {
         picture.value = null
         Favs.clear()
         OwnPlaylists.clear()
+        Recents.clear()
         sessionChanged()
         signedIn = false
     }
