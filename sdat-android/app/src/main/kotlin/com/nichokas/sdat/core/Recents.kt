@@ -49,9 +49,10 @@ class RecentsStore(private val file: File) {
     fun load(): List<LocalRecent> = try {
         DataInputStream(file.inputStream().buffered()).use { input ->
             if (input.readInt() != FORMAT) return emptyList()
-            // Grown as read, so a corrupt count runs out of input instead of allocating it.
+            val count = input.readInt()
+            if (count !in 0..RECENTS_CAP) return emptyList()
             buildList {
-                repeat(input.readInt()) {
+                repeat(count) {
                     add(
                         LocalRecent(
                             LocalRecent.Kind.valueOf(input.readUTF()),
