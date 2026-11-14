@@ -251,14 +251,14 @@ class GuestFollowerTest {
     @Test fun aNewHostTrackStartsAtTheHostPosition() {
         host(trackId = "b", positionMs = 4_000)
         follower.tick()
-        assertEquals(listOf("play b 4000 true"), player.calls)
+        assertEquals(listOf("pause", "play b 4000 true"), player.calls)
     }
 
     @Test fun aNewHostTrackLoadsPausedWhileSystemPaused() {
         player.systemPaused = true
         host(trackId = "b", positionMs = 4_000)
         follower.tick()
-        assertEquals(listOf("play b 4000 false"), player.calls)
+        assertEquals(listOf("pause", "play b 4000 false"), player.calls)
     }
 
     @Test fun theSameTrackReloadsOnceOurCopyEnded() {
@@ -266,6 +266,18 @@ class GuestFollowerTest {
         host(positionMs = 0)
         follower.tick()
         assertEquals(listOf("play a 0 true"), player.calls)
+    }
+
+    @Test fun aLoadThatKeepsFailingIsRetriedOnlyEveryFewSeconds() {
+        player.liveHasItem = false
+        host(positionMs = 0)
+        follower.tick()
+        clock += 1_000
+        follower.tick()
+        assertEquals(1, player.calls.size)
+        clock += GuestFollower.RELOAD_MS
+        follower.tick()
+        assertEquals(2, player.calls.size)
     }
 
     @Test fun nothingPlayingAtTheHostPausesHere() {

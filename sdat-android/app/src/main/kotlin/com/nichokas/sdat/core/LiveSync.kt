@@ -129,6 +129,8 @@ internal class GuestFollower(
     private var switching: String? = null
     /** Bumped per lookup: the host may go A, B, A while the first lookup of A is still running. */
     private var lookup = 0
+    /** The last track handed to the player, and when: a load that keeps failing is retried only every [RELOAD_MS]. */
+    private var loaded: Pair<String, Long>? = null
     /** Latency the playing position was last aligned with. */
     private var alignedLatencyMs: Long? = null
     // Uptime is never negative, so the first drift log is due at once; MIN_VALUE would overflow the subtraction.
@@ -147,6 +149,10 @@ internal class GuestFollower(
         // Reload also when our copy ended (host repeating the same song).
         if (player.currentId != trackId || !player.liveHasItem && !player.loading) {
             if (switching == trackId) return
+            val at = now()
+            loaded?.let { (id, time) -> if (id == trackId && at - time < RELOAD_MS) return }
+            // The guest must not keep playing a song the host left, also while (or if) the lookup fails.
+            if (player.currentId != trackId && player.isPlaying) player.pause()
             switching = trackId
             val op = ++lookup
             scope.launch {
@@ -157,7 +163,10 @@ internal class GuestFollower(
                     // Re-read: the host may have moved on while resolving.
                     val at = guest.target(latencyMs())?.takeIf { it.trackId == trackId } ?: return@launch
                     // A system pause also holds a new host track: it loads paused until the user or system resumes.
-                    if (track != null) player.livePlay(track, at.positionMs, at.playing && !player.systemPaused)
+                    if (track != null) {
+                        loaded = trackId to now()
+                        player.livePlay(track, at.positionMs, at.playing && !player.systemPaused)
+                    }
                 } finally {
                     if (switching == trackId) switching = null
                 }
@@ -238,5 +247,7 @@ internal class GuestFollower(
         const val SEEK_SETTLE_MS = 3_000L
         /** Manual delay change that triggers one realigning seek; smaller ones are jitter. */
         const val LATENCY_REALIGN_MS = 300L
+        /** Shorter than any song, so a host repeating one still reloads it as soon as our copy ends. */
+        const val RELOAD_MS = 5_000L
     }
 }
