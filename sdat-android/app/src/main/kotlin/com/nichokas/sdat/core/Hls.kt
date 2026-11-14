@@ -125,8 +125,10 @@ object Hls {
 
     private fun lines(text: String) = text.lines().map(String::trim)
 
+    // Scanned left to right, so a quoted value is consumed whole and a comma or KEY= inside it is never a boundary.
     private fun attr(line: String, key: String): String? =
-        Regex("""[:,]$key=("[^"]*"|[^,]*)""").find(line)?.groupValues?.get(1)?.trim('"')
+        Regex("""([A-Z0-9-]+)=("[^"]*"|[^,]*)""").findAll(line.substringAfter(':'))
+            .firstOrNull { it.groupValues[1] == key }?.groupValues?.get(2)?.trim('"')
 
     private fun resolve(base: URI?, ref: String): URI? = runCatching {
         if (base == null) URI(ref).takeIf { it.isAbsolute } else base.resolve(ref)

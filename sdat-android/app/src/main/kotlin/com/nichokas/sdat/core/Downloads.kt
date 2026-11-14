@@ -17,10 +17,14 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.MainScope
 import kotlinx.coroutines.NonCancellable
+import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.cancelChildren
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import org.json.JSONArray
 import uniffi.tonearm_ffi.AlbumDetail
@@ -62,6 +66,7 @@ object Downloads {
     private var worker: Job? = null
     private var fetching: Job? = null
     private var restoring: Job? = null
+    private val gate = Mutex()
     private val albumMeta = mutableMapOf<String, AlbumDetail>()
 
     /** Set once the foreground service ran out of time: the queue on disk must outlive the teardown. */
@@ -120,7 +125,11 @@ object Downloads {
     fun download(list: List<Track>) {
         val next = queue.enqueue(list, ::isDownloaded)
         if (next === queue) return
-        frozen = false
+        if (frozen) {
+            frozen = false
+            // The paused queue is on disk only; read it before the new snapshot replaces it.
+            resumePending()
+        }
         queue = next
         savePending()
         pump()
@@ -178,7 +187,8 @@ object Downloads {
 
     /** Requeues downloads that a timeout, a kill or a crash interrupted. Call from the foreground. */
     fun resumePending() {
-        restoring = work.launch {
+        // Undispatched, so the read is queued on [writes] before any snapshot written after this call.
+        restoring = work.launch(start = CoroutineStart.UNDISPATCHED) {
             val saved = withContext(writes) {
                 runCatching {
                     val list = JSONArray(File(dir, PENDING).readText())
@@ -191,29 +201,32 @@ object Downloads {
 
     private fun pump() {
         if (worker?.isActive == true) return
-        val previous = worker
         worker = work.launch {
-            // A cancelled worker may still be in a blocking read, and then cleans up after itself.
-            previous?.join()
-            while (true) {
-                queue = queue.startNext()
-                val t = queue.current ?: break
-                var error: String? = null
-                // A child, so cancelling the worker cancels it; cancelling it alone (cancel(id)) moves on to the next.
-                val job = launch {
-                    try {
-                        commit(t, fetch(t))
-                    } catch (e: CancellationException) {
-                        throw e
-                    } catch (e: Exception) {
-                        error = friendlyMessage(e)
-                    }
+            // A cancelled worker may still be in a read, and cleans up before its scope returns and frees the lock; the
+            // lock keeps the next worker waiting even when the one queued in between is cancelled too.
+            gate.withLock { drain() }
+        }
+    }
+
+    private suspend fun drain() = coroutineScope {
+        while (true) {
+            queue = queue.startNext()
+            val t = queue.current ?: break
+            var error: String? = null
+            // A child, so cancelling the worker cancels it; cancelling it alone (cancel(id)) moves on to the next.
+            val job = launch {
+                try {
+                    commit(t, fetch(t))
+                } catch (e: CancellationException) {
+                    throw e
+                } catch (e: Exception) {
+                    error = friendlyMessage(e)
                 }
-                fetching = job
-                job.join()
-                queue = queue.finish(t.id, error)
-                savePending()
             }
+            fetching = job
+            job.join()
+            queue = queue.finish(t.id, error)
+            savePending()
         }
     }
 
