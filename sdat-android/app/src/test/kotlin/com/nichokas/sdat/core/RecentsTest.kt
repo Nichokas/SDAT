@@ -48,4 +48,13 @@ class RecentsTest {
         file.writeBytes(byteArrayOf(0, 0, 0, 1, 0, 0, 0, 5, 0, 3) + "Bad".toByteArray())
         assertEquals(emptyList<LocalRecent>(), RecentsStore(file).load())
     }
+
+    @Test fun signOutLeavesNothingForTheNextLaunch() {
+        val file = File(dir.root, "recents")
+        Recents.open(file)
+        Recents.add(item("1"))
+        Recents.clear()
+        assertEquals(emptyList<LocalRecent>(), Recents.items)
+        assertEquals(emptyList<LocalRecent>(), RecentsStore(file).load())
+    }
 }

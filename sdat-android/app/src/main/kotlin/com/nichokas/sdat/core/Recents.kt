@@ -43,6 +43,8 @@ class RecentsStore(private val file: File) {
         }
     }
 
+    fun delete() = file.delete()
+
     /** Empty when the file is missing or unreadable. */
     fun load(): List<LocalRecent> = try {
         DataInputStream(file.inputStream().buffered()).use { input ->
@@ -93,9 +95,12 @@ object Recents {
         store?.let { s -> writer.execute { s.save(next) } }
     }
 
-    /** Waits for the write: a process killed right after sign-out must not reload the old account's history. */
+    /**
+     * Deletes rather than writes an empty list, which a full disk could refuse, and waits for it: a process killed
+     * right after sign-out must not reload the old account's history.
+     */
     fun clear() {
         items = emptyList()
-        store?.let { s -> writer.submit { s.save(emptyList()) }.get() }
+        store?.let { s -> writer.submit { s.delete() }.get() }
     }
 }
