@@ -113,10 +113,11 @@ class Playback(context: Context, private val prefs: Preferences, secrets: Secret
         }
 
         override fun handleSeek(mediaItemIndex: Int, positionMs: Long, seekCommand: Int): ListenableFuture<*> {
-            when (seekCommand) {
-                Player.COMMAND_SEEK_TO_NEXT, Player.COMMAND_SEEK_TO_NEXT_MEDIA_ITEM -> next()
-                Player.COMMAND_SEEK_TO_PREVIOUS, Player.COMMAND_SEEK_TO_PREVIOUS_MEDIA_ITEM -> previous()
-                else -> return super.handleSeek(mediaItemIndex, positionMs, seekCommand)
+            when (seekAction(seekCommand, mediaItemIndex, player.currentMediaItemIndex)) {
+                Seek.Next -> next()
+                Seek.Previous -> previous()
+                Seek.InCurrent -> return super.handleSeek(mediaItemIndex, positionMs, seekCommand)
+                Seek.Ignore -> {}
             }
             return Futures.immediateVoidFuture()
         }
@@ -638,6 +639,20 @@ internal fun progress(position: Double, duration: Double) = if (duration > 0) mi
 
 /** Like iOS: past 3 s, or on the first track, previous goes back to its start; otherwise to the track before. */
 internal fun restartsOnPrevious(position: Double, index: Int) = position > 3 || index == 0
+
+internal enum class Seek { Next, Previous, InCurrent, Ignore }
+
+/** A controller's seek: the player holds only the current item and the preloaded one behind it, so moving to another
+ * item goes through the queue. */
+internal fun seekAction(command: Int, index: Int, current: Int) = when (command) {
+    Player.COMMAND_SEEK_TO_NEXT, Player.COMMAND_SEEK_TO_NEXT_MEDIA_ITEM -> Seek.Next
+    Player.COMMAND_SEEK_TO_PREVIOUS, Player.COMMAND_SEEK_TO_PREVIOUS_MEDIA_ITEM -> Seek.Previous
+    else -> when (index) {
+        current -> Seek.InCurrent
+        current + 1 -> Seek.Next
+        else -> Seek.Ignore
+    }
+}
 
 internal enum class Tap { Retry, Replay, Pause, Resume }
 

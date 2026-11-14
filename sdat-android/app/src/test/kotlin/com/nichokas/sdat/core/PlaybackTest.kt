@@ -1,5 +1,6 @@
 package com.nichokas.sdat.core
 
+import androidx.media3.common.Player
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
@@ -48,6 +49,15 @@ class PlaybackTest {
         assertTrue(queueFileStale(lists, listOf(listOf("a", "b"), null), 0 until 2, 1))
         assertTrue(queueFileStale(lists, lists, 0 until 2, 2))
         assertFalse(queueFileStale(lists, lists, 0 until 2, null))
+    }
+
+    @Test fun controllerSeeksToAnotherItemGoThroughTheQueue() {
+        assertEquals(Seek.Next, seekAction(Player.COMMAND_SEEK_TO_NEXT, 0, 0))
+        assertEquals(Seek.Previous, seekAction(Player.COMMAND_SEEK_TO_PREVIOUS_MEDIA_ITEM, 0, 0))
+        assertEquals(Seek.InCurrent, seekAction(Player.COMMAND_SEEK_IN_CURRENT_MEDIA_ITEM, 0, 0))
+        assertEquals(Seek.InCurrent, seekAction(Player.COMMAND_SEEK_TO_DEFAULT_POSITION, 0, 0))
+        assertEquals(Seek.Next, seekAction(Player.COMMAND_SEEK_TO_MEDIA_ITEM, 1, 0))
+        assertEquals(Seek.Ignore, seekAction(Player.COMMAND_SEEK_TO_MEDIA_ITEM, 3, 0))
     }
 
     @Test fun badgeShowsTheDeliveredQuality() {
