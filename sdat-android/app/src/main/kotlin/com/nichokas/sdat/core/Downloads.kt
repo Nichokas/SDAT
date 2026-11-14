@@ -17,7 +17,6 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.MainScope
 import kotlinx.coroutines.NonCancellable
-import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.cancelChildren
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
@@ -66,6 +65,7 @@ object Downloads {
     private var worker: Job? = null
     private var fetching: Job? = null
     private var restoring: Job? = null
+    private val dropped = mutableSetOf<String>()
     private val gate = Mutex()
     private val albumMeta = mutableMapOf<String, AlbumDetail>()
 
@@ -123,13 +123,12 @@ object Downloads {
 
     /** Queues [list]; downloaded, queued and unstreamable tracks are skipped. */
     fun download(list: List<Track>) {
-        val next = queue.enqueue(list, ::isDownloaded)
-        if (next === queue) return
         if (frozen) {
             frozen = false
-            // The paused queue is on disk only; read it before the new snapshot replaces it.
             resumePending()
         }
+        val next = queue.enqueue(list, ::isDownloaded)
+        if (next === queue) return
         queue = next
         savePending()
         pump()
@@ -142,8 +141,8 @@ object Downloads {
         val wasCurrent = queue.current?.id == id
         queue = queue.cancel(id)
         if (wasCurrent) fetching?.cancel()
-        // A restore still reading the saved queue would bring the track back.
-        restoring?.cancel()
+        // Otherwise a restore still reading the saved queue would bring the track back.
+        if (restoring?.isActive == true) dropped += id
         savePending()
     }
 
@@ -187,15 +186,21 @@ object Downloads {
 
     /** Requeues downloads that a timeout, a kill or a crash interrupted. Call from the foreground. */
     fun resumePending() {
-        // Undispatched, so the read is queued on [writes] before any snapshot written after this call.
-        restoring = work.launch(start = CoroutineStart.UNDISPATCHED) {
+        restoring = work.launch {
             val saved = withContext(writes) {
                 runCatching {
                     val list = JSONArray(File(dir, PENDING).readText())
                     List(list.length()) { TrackJson.decode(list.getJSONObject(it)) }
                 }.getOrDefault(emptyList())
             }
-            if (saved.isNotEmpty()) download(saved)
+            val keep = saved.filterNot { it.id in dropped }
+            dropped.clear()
+            restoring = null
+            queue = queue.enqueue(keep, ::isDownloaded)
+            // Also rewrites a saved queue whose tracks were all skipped as downloaded.
+            savePending()
+            pump()
+            if (queue.isActive) onActive()
         }
     }
 
@@ -420,8 +425,9 @@ object Downloads {
         scope.launch(writes) { atomicWrite(File(dir, INDEX), DownloadIndex.encode(snapshot)) }
     }
 
+    /** Skipped while a restore runs: the file still holds the saved queue, and the restore writes the merged one. */
     private fun savePending() {
-        if (frozen) return
+        if (frozen || restoring?.isActive == true) return
         val list = queue.active
         scope.launch(writes) {
             val file = File(dir, PENDING)
