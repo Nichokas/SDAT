@@ -44,8 +44,8 @@ class PlayQueueTest {
     @Test fun appendSkipsPlayNextTracksWaitingOrPlaying() {
         val q = queue()
         q.discover("a", listOf("a", "b"))
-        q.addToQueue("x")
-        q.playNext("y")
+        q.addToQueue(listOf("x"))
+        q.playNext(listOf("y"))
         assertFalse(q.append(listOf("x", "y")))
         assertEquals("y", q.advance(manual = true))
         assertTrue(q.append(listOf("y", "z")))
@@ -55,7 +55,7 @@ class PlayQueueTest {
     @Test fun appendSkipsPlayNextTracksAlreadyPlayed() {
         val q = queue()
         q.discover("a", listOf("a", "b"))
-        q.addToQueue("x")
+        q.addToQueue(listOf("x"))
         assertEquals("x", q.advance(manual = true))
         assertEquals("b", q.advance(manual = true))
         assertFalse(q.append(listOf("x")))
@@ -109,6 +109,22 @@ class PlayQueueTest {
         assertEquals(abcd.toSet(), q.tracks.toSet())
     }
 
+    @Test fun inOrderTurnsShuffleOffAndStartsAtTheTop() {
+        val q = queue()
+        q.playShuffled(abcd)
+        assertEquals("a", q.playInOrder(abcd, from = "Album"))
+        assertFalse(q.shuffle)
+        assertEquals(abcd, q.tracks)
+        assertEquals("Album", q.source)
+    }
+
+    @Test fun inOrderOnAnEmptyListLeavesShuffleOn() {
+        val q = queue()
+        q.playShuffled(abcd)
+        assertNull(q.playInOrder(emptyList()))
+        assertTrue(q.shuffle)
+    }
+
     @Test fun shuffleOffRestoresTheOrderAtTheCurrentTrack() {
         val q = queue()
         q.play(abcd, startAt = 1)
@@ -144,7 +160,7 @@ class PlayQueueTest {
     @Test fun previousFromAPlayNextTrackReturnsToTheBaseTrackItFollowed() {
         val q = queue()
         q.play(listOf("a", "b", "c"), startAt = 1)
-        q.playNext("x")
+        q.playNext(listOf("x"))
         assertEquals("x", q.advance(manual = true))
         assertEquals("b", q.previous())
         assertEquals("a", q.previous())
@@ -165,7 +181,7 @@ class PlayQueueTest {
     @Test fun appendSkipsAPlayNextTrackPlayingAtRestore() {
         val q = queue()
         q.play(listOf("a", "b"))
-        q.playNext("x")
+        q.playNext(listOf("x"))
         q.advance(manual = true)
         val restored = queue()
         restored.restore(q.saved(id = 1, endless = true), SavedState(1, "x", q.index, 0.0, q.repeat, q.shuffle))
@@ -175,9 +191,9 @@ class PlayQueueTest {
     @Test fun playNextGoesBeforeQueuedTracksAndTheBaseQueue() {
         val q = queue()
         q.play(abcd)
-        q.addToQueue("x")
-        q.addToQueue("y")
-        q.playNext("z")
+        q.addToQueue(listOf("x"))
+        q.addToQueue(listOf("y"))
+        q.playNext(listOf("z"))
         assertEquals(listOf("z", "x", "y"), q.userQueue)
         assertEquals("z", q.advance(manual = true))
         assertEquals(0, q.index)
@@ -221,9 +237,9 @@ class PlayQueueTest {
     @Test fun jumpsAndRemovals() {
         val q = queue()
         q.play(abcd)
-        q.addToQueue("x")
-        q.addToQueue("y")
-        q.addToQueue("z")
+        q.addToQueue(listOf("x"))
+        q.addToQueue(listOf("y"))
+        q.addToQueue(listOf("z"))
         assertEquals("y", q.jumpToUser(1))
         assertEquals(listOf("z"), q.userQueue)
         assertEquals(0, q.index)
@@ -269,7 +285,7 @@ class PlayQueueTest {
         val q = queue()
         q.playShuffled(abcd)
         q.cycleRepeat()
-        q.addToQueue("x")
+        q.addToQueue(listOf("x"))
         q.clear()
         assertNull(q.current)
         assertEquals(emptyList<String>(), q.tracks + q.userQueue)
@@ -281,7 +297,7 @@ class PlayQueueTest {
         val q = queue()
         q.play(abcd, startAt = 2)
         assertEquals("d", q.preloadable)
-        q.addToQueue("x")
+        q.addToQueue(listOf("x"))
         assertEquals("x", q.preloadable)
         assertEquals(listOf("x"), q.userQueue)
         assertEquals(q.preloadable, q.advance(manual = false))
@@ -306,7 +322,7 @@ class PlayQueueTest {
         q.play(abcd, startAt = 1, from = "Album")
         q.setShuffle(true, reorder = true)
         q.cycleRepeat()
-        q.addToQueue("x")
+        q.addToQueue(listOf("x"))
         val saved = q.saved(id = 3, endless = false)
         val restored = queue()
         restored.restore(saved, SavedState(3, q.current!!, q.index, 42.0, q.repeat, q.shuffle))
@@ -349,7 +365,7 @@ class PlayQueueTest {
     @Test fun restoreWithAnIndexOutsideItsWindowKeepsJustTheTrack() {
         val q = queue()
         q.play(abcd)
-        q.addToQueue("x")
+        q.addToQueue(listOf("x"))
         val saved = q.saved(id = 1, endless = false)
         val restored = queue()
         restored.restore(saved, SavedState(1, "c", 9, 0.0, Repeat.Off, shuffle = false))

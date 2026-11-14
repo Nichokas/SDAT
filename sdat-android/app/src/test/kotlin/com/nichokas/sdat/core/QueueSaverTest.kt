@@ -37,7 +37,7 @@ class QueueSaverTest {
     @Test fun theNextStartGetsTheQueueAndTheStateBack() {
         val list = tracks(3)
         queue.play(list, startAt = 1, from = "Album")
-        queue.addToQueue(track("u"))
+        queue.addToQueue(listOf(track("u")))
         saver.save(queue, endless = false, position = 12.5)
         val (state, saved) = restart()!!
         assertEquals(SavedState(state.queueId, list[1], 1, 12.5, Repeat.Off, false), state)
@@ -54,7 +54,7 @@ class QueueSaverTest {
         assertEquals(first, savedQueueId())
         assertEquals(4.0, restart()!!.first.position, 1e-9)
 
-        queue.addToQueue(track("u"))
+        queue.addToQueue(listOf(track("u")))
         saver.save(queue, endless = false, position = 0.0)
         val queued = savedQueueId()
         assertNotEquals(first, queued)
@@ -93,7 +93,7 @@ class QueueSaverTest {
 
         // Not empty, so the store's cleanup of a failed write cannot remove it.
         val blocker = File(dir.root, "playback-queue.tmp").apply { mkdir(); resolve("x").createNewFile() }
-        queue.addToQueue(track("u"))
+        queue.addToQueue(listOf(track("u")))
         saver.save(queue, endless = false, position = 2.0)
         saver.save(queue, endless = false, position = 3.0)
         assertEquals(before, restart())

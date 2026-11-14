@@ -190,8 +190,14 @@ class Playback(context: Context, private val prefs: Preferences, secrets: Secret
         start(t)
     }
 
-    /** Shuffle buttons; shuffle stays on for later lists, like iOS. */
-    fun playShuffled(tracks: List<Track>, from: String? = null) {
+    override fun playInOrder(tracks: List<Track>, from: String?) {
+        val t = queue.playInOrder(tracks, from) ?: return
+        replaceInfinite(null)
+        start(t)
+    }
+
+    /** Shuffle stays on for later lists, like iOS. */
+    override fun playShuffled(tracks: List<Track>, from: String?) {
         val t = queue.playShuffled(tracks, from) ?: return
         replaceInfinite(null)
         start(t)
@@ -237,15 +243,18 @@ class Playback(context: Context, private val prefs: Preferences, secrets: Secret
         job.invokeOnCompletion { if (refilling === job) refilling = null }
     }
 
-    override fun playNext(track: Track) {
-        if (this.track == null) return play(listOf(track))
-        queue.playNext(track)
+    override fun playNext(tracks: List<Track>) {
+        if (tracks.isEmpty()) return
+        // With nothing playing the list starts from its first track, not from its end.
+        if (track == null) return play(tracks)
+        queue.playNext(tracks)
         changed()
     }
 
-    override fun addToQueue(track: Track) {
-        if (this.track == null) return play(listOf(track))
-        queue.addToQueue(track)
+    override fun addToQueue(tracks: List<Track>) {
+        if (tracks.isEmpty()) return
+        if (track == null) return play(tracks)
+        queue.addToQueue(tracks)
         changed()
     }
 

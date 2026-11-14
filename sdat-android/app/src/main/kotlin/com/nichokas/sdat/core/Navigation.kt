@@ -29,6 +29,10 @@ data class NavState(
     val inDetail: Boolean get() = stack.isNotEmpty()
     val inSettings: Boolean get() = top == Route.Settings
 
+    /** Every tab's root and every page pushed on any tab. */
+    val pages: Set<PageKey>
+        get() = AppTab.entries.map(PageKey::Root).toSet() + stacks.values.flatten().map { PageKey.Pushed(it.id) }
+
     fun push(route: Route) = copy(stacks = stacks + (tab to stack + Destination(nextId, route)), nextId = nextId + 1)
 
     fun pop() = if (inDetail) copy(stacks = stacks + (tab to stack.dropLast(1))) else this

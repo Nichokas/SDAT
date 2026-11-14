@@ -59,6 +59,13 @@ class PlayQueue<T>(private val random: Random = Random.Default, private val id: 
         return select(if (shuffle) 0 else startAt)
     }
 
+    /** Play buttons: turns shuffle off and starts at the first track. */
+    fun playInOrder(list: List<T>, from: String? = null): T? {
+        if (list.isEmpty()) return null
+        shuffle = false
+        return play(list, 0, from)
+    }
+
     /** Shuffle buttons: turns shuffle on and starts at a random track. */
     fun playShuffled(list: List<T>, from: String? = null): T? {
         if (list.isEmpty()) return null
@@ -89,12 +96,12 @@ class PlayQueue<T>(private val random: Random = Random.Default, private val id: 
         select(0)
     }
 
-    fun playNext(t: T) {
-        userQueue = listOf(t) + userQueue
+    fun playNext(list: List<T>) {
+        userQueue = list + userQueue
     }
 
-    fun addToQueue(t: T) {
-        userQueue = userQueue + t
+    fun addToQueue(list: List<T>) {
+        userQueue = userQueue + list
     }
 
     /** What plays after the current track. [manual] (Next) skips past a repeat-one track, which only loops on its

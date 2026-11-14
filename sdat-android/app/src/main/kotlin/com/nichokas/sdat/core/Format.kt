@@ -5,9 +5,11 @@ import java.time.LocalDate
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
 import java.time.format.FormatStyle
+import uniffi.tonearm_ffi.Album
 import uniffi.tonearm_ffi.Track
 
 val Track.artistLine: String get() = artists.joinToString(", ") { it.name }
+val Album.artistLine: String get() = artists.joinToString(", ") { it.name }
 val Track.coverUrl: String? get() = album?.coverUrl
 val Track.coverUrlLarge: String? get() = album?.coverUrlLarge ?: album?.coverUrl
 val Track.displayTitle: String get() = if (version.isEmpty()) title else "$title ($version)"
