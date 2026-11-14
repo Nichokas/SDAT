@@ -49,6 +49,8 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.min
 import coil3.compose.AsyncImage
+import com.nichokas.sdat.core.Fav
+import com.nichokas.sdat.core.Favs
 import com.nichokas.sdat.core.Chrome
 import com.nichokas.sdat.core.Route
 import com.nichokas.sdat.core.friendlyMessage
@@ -65,21 +67,8 @@ import io.github.neoruaa.glasmio.ui.GlasmioButtonSize
 import io.github.neoruaa.glasmio.ui.GlasmioCascadingMenu
 import io.github.neoruaa.glasmio.ui.GlasmioCascadingMenuItem
 import io.github.neoruaa.glasmio.ui.GlasmioIconButton
-import kotlin.coroutines.cancellation.CancellationException
-import kotlinx.coroutines.MainScope
-import kotlinx.coroutines.launch
-import kotlinx.coroutines.sync.Mutex
-import kotlinx.coroutines.sync.withLock
 import uniffi.tonearm_ffi.FavouriteKind
 import uniffi.tonearm_ffi.Track
-import uniffi.tonearm_ffi.isFavourite
-import uniffi.tonearm_ffi.setFavourite
-
-// Favourite writes outlive the page: going back right after a tap must not cancel the request.
-private val writeScope = MainScope()
-
-// The core doesn't order concurrent writes, so a fast second toggle waits for the first, as in Favs.
-private val favouriteWrites = Mutex()
 
 /**
  * A pushed page over the blurred [backdropUrl], whose title shows in the top bar once the first item scrolls away.
@@ -171,36 +160,10 @@ fun DetailPage(
     onRemoved: (Track) -> Unit,
 ) {
     val player = LocalTrackPlayer.current
-    var isFav by remember { mutableStateOf(false) }
-    // A tap made before the first check returns wins over that check.
-    var tapped by remember { mutableStateOf(false) }
-    LaunchedEffect(favourite) {
-        val (kind, id) = favourite ?: return@LaunchedEffect
-        try {
-            val saved = isFavourite(kind, id)
-            if (!tapped) isFav = saved
-        } catch (e: CancellationException) {
-            throw e
-        } catch (_: Exception) {
-        }
-    }
-    val toggleFav = {
-        if (favourite != null) {
-            val target = !isFav
-            tapped = true
-            isFav = target
-            writeScope.launch {
-                try {
-                    favouriteWrites.withLock { setFavourite(favourite.first, favourite.second, target) }
-                } catch (e: CancellationException) {
-                    throw e
-                } catch (e: Exception) {
-                    isFav = !target
-                    Chrome.flash(friendlyMessage(e))
-                }
-            }
-        }
-    }
+    val fav = favourite?.let { (kind, id) -> Fav(kind, id) }
+    LaunchedEffect(fav) { fav?.let { Favs.check(it) } }
+    val isFav = fav?.let(Favs::known) ?: false
+    val toggleFav: () -> Unit = { fav?.let { Favs.set(it, !isFav) } }
     DetailScaffold(
         title = title,
         backdropUrl = cover,

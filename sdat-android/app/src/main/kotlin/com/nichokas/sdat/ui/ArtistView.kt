@@ -29,6 +29,8 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import com.nichokas.sdat.core.Fav
+import com.nichokas.sdat.core.Favs
 import com.nichokas.sdat.core.ArtistCache
 import com.nichokas.sdat.core.Chrome
 import com.nichokas.sdat.core.PageLoad
@@ -39,16 +41,11 @@ import io.github.neoruaa.glasmio.glass.GlassEmphasis
 import io.github.neoruaa.glasmio.ui.GlasmioButton
 import io.github.neoruaa.glasmio.ui.GlasmioButtonSize
 import kotlin.coroutines.cancellation.CancellationException
-import kotlinx.coroutines.MainScope
-import kotlinx.coroutines.launch
 import uniffi.tonearm_ffi.ArtistOverview
 import uniffi.tonearm_ffi.FavouriteKind
 import uniffi.tonearm_ffi.artistOverview
-import uniffi.tonearm_ffi.isFavourite
-import uniffi.tonearm_ffi.setFavourite
 
 // A follow tapped just before going back still goes through.
-private val followScope = MainScope()
 
 /** Opens at once with the header from the cached overview or the tapped row, then loads the rest. */
 @Composable
@@ -140,37 +137,13 @@ private fun SectionTitle(text: String) = SectionHeader(text, Modifier.padding(to
 /** Follow / Following: optimistic, saved as an artist favourite, reverted on error. */
 @Composable
 fun FollowButton(artistId: String) {
-    var following by remember(artistId) { mutableStateOf<Boolean?>(null) }
-    var busy by remember { mutableStateOf(false) }
-    LaunchedEffect(artistId) {
-        following = try {
-            isFavourite(FavouriteKind.ARTIST, artistId)
-        } catch (e: CancellationException) {
-            throw e
-        } catch (_: Exception) {
-            false
-        }
-    }
+    val fav = Fav(FavouriteKind.ARTIST, artistId)
+    LaunchedEffect(fav) { Favs.check(fav) }
+    val following = Favs.known(fav)
     val on = following == true
     GlasmioButton(
-        onClick = {
-            val target = !on
-            following = target
-            busy = true
-            followScope.launch {
-                try {
-                    setFavourite(FavouriteKind.ARTIST, artistId, target)
-                    Chrome.flash(if (target) "Following" else "Unfollowed")
-                } catch (e: CancellationException) {
-                    throw e
-                } catch (e: Exception) {
-                    following = !target
-                    Chrome.flash("Couldn't update: ${friendlyMessage(e)}")
-                }
-                busy = false
-            }
-        },
-        enabled = following != null && !busy,
+        onClick = { Favs.set(fav, !on) },
+        enabled = following != null,
         emphasis = if (on) GlassEmphasis.Prominent else GlassEmphasis.Regular,
         size = GlasmioButtonSize.Medium,
     ) {
