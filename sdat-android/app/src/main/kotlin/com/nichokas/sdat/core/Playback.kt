@@ -243,15 +243,18 @@ class Playback(context: Context, private val prefs: Preferences, secrets: Secret
         job.invokeOnCompletion { if (refilling === job) refilling = null }
     }
 
-    override fun playNext(track: Track) {
-        if (this.track == null) return play(listOf(track))
-        queue.playNext(track)
+    override fun playNext(tracks: List<Track>) {
+        if (tracks.isEmpty()) return
+        // With nothing playing the list starts from its first track, not from its end.
+        if (track == null) return play(tracks)
+        tracks.asReversed().forEach(queue::playNext)
         changed()
     }
 
-    override fun addToQueue(track: Track) {
-        if (this.track == null) return play(listOf(track))
-        queue.addToQueue(track)
+    override fun addToQueue(tracks: List<Track>) {
+        if (tracks.isEmpty()) return
+        if (track == null) return play(tracks)
+        tracks.forEach(queue::addToQueue)
         changed()
     }
 

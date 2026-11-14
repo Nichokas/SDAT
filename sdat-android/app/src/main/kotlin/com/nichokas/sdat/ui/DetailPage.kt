@@ -175,12 +175,11 @@ fun DetailPage(
             }
             DetailMenu(title, buildList {
                 add(GlasmioCascadingMenuItem("Play Next", "text.line.first.and.arrowtriangle.forward", onClick = {
-                    // With nothing playing, the first Play Next starts its track, so the list would start from its end.
-                    if (player.current == null) player.play(tracks) else tracks.asReversed().forEach(player::playNext)
+                    player.playNext(tracks)
                     Chrome.flash("Playing next")
                 }))
                 add(GlasmioCascadingMenuItem("Add to Queue", "text.line.last.and.arrowtriangle.forward", onClick = {
-                    tracks.forEach(player::addToQueue); Chrome.flash("Added to queue")
+                    player.addToQueue(tracks); Chrome.flash("Added to queue")
                 }))
                 if (favourite != null) {
                     add(GlasmioCascadingMenuItem(if (isFav) "Remove from Collection" else "Add to Collection", if (isFav) "star.slash" else "star", separatorBefore = true, onClick = toggleFav))

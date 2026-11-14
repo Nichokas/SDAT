@@ -87,8 +87,9 @@ interface TrackPlayer {
     /** Shuffle buttons: turns shuffle on and starts at a random track. */
     fun playShuffled(tracks: List<Track>, from: String?)
 
-    fun playNext(track: Track)
-    fun addToQueue(track: Track)
+    /** Bulk actions take the whole list, so the queue is saved once, not once per track. */
+    fun playNext(tracks: List<Track>)
+    fun addToQueue(tracks: List<Track>)
 }
 
 val LocalTrackPlayer = staticCompositionLocalOf<TrackPlayer> { error("No TrackPlayer provided") }
@@ -222,10 +223,10 @@ fun trackMenuItems(
     return buildList {
         add(GlasmioCascadingMenuItem(if (fav) "Remove from Favourites" else "Add to Favourites", if (fav) "star.slash" else "star", onClick = { Favs.set(track.id, !fav) }))
         add(GlasmioCascadingMenuItem("Play Next", "text.line.first.and.arrowtriangle.forward", separatorBefore = true, onClick = {
-            player.playNext(track); Chrome.flash("Playing next")
+            player.playNext(listOf(track)); Chrome.flash("Playing next")
         }))
         add(GlasmioCascadingMenuItem("Add to Queue", "text.line.last.and.arrowtriangle.forward", onClick = {
-            player.addToQueue(track); Chrome.flash("Added to queue")
+            player.addToQueue(listOf(track)); Chrome.flash("Added to queue")
         }))
         if (ownPlaylistId != null) {
             add(GlasmioCascadingMenuItem("Remove from Playlist", "minus.circle", destructive = true, onClick = {
