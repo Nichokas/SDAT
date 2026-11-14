@@ -104,6 +104,7 @@ class PlayQueue<T>(private val random: Random = Random.Default, private val id: 
         userQueue.firstOrNull()?.let {
             userQueue = userQueue.drop(1)
             current = it
+            remember(listOf(id(it)))
             return it
         }
         val i = index ?: return null
@@ -127,6 +128,7 @@ class PlayQueue<T>(private val random: Random = Random.Default, private val id: 
         val t = userQueue.getOrNull(offset) ?: return null
         userQueue = userQueue.drop(offset + 1)
         current = t
+        remember(listOf(id(t)))
         return t
     }
 
@@ -163,8 +165,8 @@ class PlayQueue<T>(private val random: Random = Random.Default, private val id: 
 
     /** Appends the batch's tracks not queued (Play Next included) or recently played; returns whether any were new. */
     fun append(batch: List<T>): Boolean {
-        // A Play Next track may be playing or waiting outside the base queue; Discover must not bring it back.
-        remember(tracks.map(id) + listOfNotNull(current).map(id))
+        remember(tracks.map(id))
+        // Play Next tracks still waiting sit outside the base queue; played ones are remembered when they start.
         val ids = HashSet(recentIDs).apply { userQueue.forEach { add(id(it)) } }
         val fresh = batch.filter { ids.add(id(it)) }
         if (fresh.isEmpty()) return false
