@@ -1,6 +1,6 @@
 name: Release
 
-# Bumps each chosen platform from its newest tag (desktop and iOS versions are independent),
+# Bumps each chosen platform from its newest tag (each platform's version is independent),
 # commits the bump to main, creates the GitHub releases with generated notes, then runs the
 # platform builds. Releases made with GITHUB_TOKEN do not fire `release` or tag `push` events,
 # so the builds are called here directly. After a failure use "Re-run failed jobs": it keeps the
@@ -15,6 +15,11 @@ on:
         default: none
       ios:
         description: "iOS bump"
+        type: choice
+        options: [none, patch, minor, major]
+        default: none
+      android:
+        description: "Android bump"
         type: choice
         options: [none, patch, minor, major]
         default: none
@@ -35,6 +40,7 @@ jobs:
     outputs:
       desktop: ${{ steps.bump.outputs.desktop }}
       ios: ${{ steps.bump.outputs.ios }}
+      android: ${{ steps.bump.outputs.android }}
       tags: ${{ steps.bump.outputs.tags }}
       sha: ${{ steps.push.outputs.sha }}
     steps:
@@ -50,6 +56,7 @@ jobs:
         env:
           DESKTOP: ${{ inputs.desktop }}
           IOS: ${{ inputs.ios }}
+          ANDROID: ${{ inputs.android }}
         run: |
           set -euo pipefail
           tags=()
@@ -61,7 +68,11 @@ jobs:
             tag="$(scripts/release-bump.sh ios "$IOS")"
             tags+=("$tag"); echo "ios=$tag" >> "$GITHUB_OUTPUT"
           fi
-          if [[ ${#tags[@]} -eq 0 ]]; then echo "::error::Pick a bump for desktop, iOS or both"; exit 1; fi
+          if [[ "$ANDROID" != none ]]; then
+            tag="$(scripts/release-bump.sh android "$ANDROID")"
+            tags+=("$tag"); echo "android=$tag" >> "$GITHUB_OUTPUT"
+          fi
+          if [[ ${#tags[@]} -eq 0 ]]; then echo "::error::Pick a bump for at least one platform"; exit 1; fi
           echo "tags=${tags[*]}" >> "$GITHUB_OUTPUT"
 
       - name: Commit the bump to main
@@ -109,6 +120,8 @@ jobs:
             [[ -n "$prev" ]] && args+=(--notes-start-tag "$prev")
             if [[ "$series" == desktop-v ]]; then
               args+=(--title "SDAT desktop ${tag#desktop-v}" --latest=false)
+            elif [[ "$series" == android-v ]]; then
+              args+=(--title "SDAT Android ${tag#android-v}" --latest=false)
             else
               args+=(--title "$tag")
             fi
@@ -143,3 +156,17 @@ jobs:
     uses: ./.github/workflows/feather-source.yml
     with:
       tag: ${{ needs.bump.outputs.ios }}
+
+  android:
+    needs: [bump, release]
+    if: needs.bump.outputs.android != ''
+    permissions:
+      contents: write
+    uses: ./.github/workflows/android-release.yml
+    with:
+      tag: ${{ needs.bump.outputs.android }}
+    secrets:
+      ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+      ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+      ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+      ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}

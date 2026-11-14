@@ -1,15 +1,16 @@
 #!/usr/bin/env bash
-# release-bump.sh <desktop|ios> <patch|minor|major>
+# release-bump.sh <desktop|ios|android> <patch|minor|major>
 # Bumps the platform's newest release tag and writes the new version into its files.
-# Prints the new tag. Desktop and iOS versions are independent.
+# Prints the new tag. Each platform's version is independent.
 set -euo pipefail
-platform="${1:?usage: release-bump.sh <desktop|ios> <patch|minor|major>}"
-level="${2:?usage: release-bump.sh <desktop|ios> <patch|minor|major>}"
+platform="${1:?usage: release-bump.sh <desktop|ios|android> <patch|minor|major>}"
+level="${2:?usage: release-bump.sh <desktop|ios|android> <patch|minor|major>}"
 cd "$(dirname "$0")/.."
 
 case "$platform" in
   desktop) series=desktop-v ;;
   ios) series=v ;;
+  android) series=android-v ;;
   *) echo "unknown platform: $platform" >&2; exit 1 ;;
 esac
 pattern="^${series}[0-9]+\.[0-9]+\.[0-9]+$"
@@ -35,6 +36,14 @@ if [[ "$platform" == desktop ]]; then
     sed -i "0,/<releases>/s||<releases>\n$entry|" "$meta"
   fi
   bash sdat-desktop/packaging/fedora/update-spec.sh "$version" --no-vendor >&2
+elif [[ "$platform" == android ]]; then
+  gradle=sdat-android/app/build.gradle.kts
+  name="$(grep -oP '^\s*versionName = "\K[^"]+' "$gradle")"
+  # A retried bump finds the version already set and must not raise the version code again.
+  if [[ "$name" != "$version" ]]; then
+    code="$(grep -oP '^\s*versionCode = \K[0-9]+' "$gradle")"
+    sed -i -E "s/^(\s*versionName = )\"[^\"]+\"/\1\"$version\"/; s/^(\s*versionCode = )[0-9]+/\1$((code + 1))/" "$gradle"
+  fi
 else
   plist=sdat-mobile/Info.plist
   short="$(grep -A1 '<key>CFBundleShortVersionString</key>' "$plist" | grep -oP '<string>\K[^<]+')"
