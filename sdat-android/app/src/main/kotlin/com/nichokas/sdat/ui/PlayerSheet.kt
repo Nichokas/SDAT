@@ -15,7 +15,10 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -130,13 +133,17 @@ private fun NowPlayingPage(playback: Playback, track: Track, showQueue: () -> Un
         val sign = if (forward) 1 else -1
         (slideInHorizontally { sign * it } + fadeIn()) togetherWith (slideOutHorizontally { -sign * it } + fadeOut())
     }
+    // A short window (landscape, split screen) can't fit the controls below a weighted cover, so it scrolls instead.
+    BoxWithConstraints(Modifier.fillMaxSize()) {
+    val compact = maxHeight < 560.dp
     Column(
-        Modifier.fillMaxSize().padding(horizontal = 24.dp).padding(bottom = 12.dp),
+        Modifier.fillMaxSize().then(if (compact) Modifier.verticalScroll(rememberScrollState()) else Modifier)
+            .padding(horizontal = 24.dp).padding(bottom = 12.dp),
         verticalArrangement = Arrangement.spacedBy(18.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {
         TopRow(track)
-        BoxWithConstraints(Modifier.weight(1f).fillMaxWidth(), contentAlignment = Alignment.Center) {
+        BoxWithConstraints(if (compact) Modifier.fillMaxWidth().height(200.dp) else Modifier.weight(1f).fillMaxWidth(), contentAlignment = Alignment.Center) {
             val side = minOf(maxWidth, maxHeight)
             AnimatedContent(track, transitionSpec = { slide() }, contentKey = { it.id }, label = "cover") { t ->
                 val scale by animateFloatAsState(if (playback.playing) 1f else 0.88f, spring(dampingRatio = 0.6f, stiffness = 300f), label = "cover scale")
@@ -212,6 +219,7 @@ private fun NowPlayingPage(playback: Playback, track: Track, showQueue: () -> Un
                 }
             }
         }
+    }
     }
 }
 
