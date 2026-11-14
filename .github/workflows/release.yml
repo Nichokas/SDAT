@@ -38,8 +38,10 @@ jobs:
       tags: ${{ steps.bump.outputs.tags }}
       sha: ${{ steps.push.outputs.sha }}
     steps:
+      # main, not the dispatch SHA, so a retried bump starts from what is there now.
       - uses: actions/checkout@v4
         with:
+          ref: main
           fetch-depth: 0
           persist-credentials: false
 

@@ -37,8 +37,12 @@ if [[ "$platform" == desktop ]]; then
   bash sdat-desktop/packaging/fedora/update-spec.sh "$version" --no-vendor >&2
 else
   plist=sdat-mobile/Info.plist
-  build="$(grep -A1 '<key>CFBundleVersion</key>' "$plist" | grep -oP '<string>\K[0-9]+')"
-  sed -i -E "/<key>CFBundleShortVersionString<\/key>/{n;s|<string>[^<]*</string>|<string>$version</string>|}" "$plist"
-  sed -i -E "/<key>CFBundleVersion<\/key>/{n;s|<string>[^<]*</string>|<string>$((build + 1))</string>|}" "$plist"
+  short="$(grep -A1 '<key>CFBundleShortVersionString</key>' "$plist" | grep -oP '<string>\K[^<]+')"
+  # A retried bump finds the version already set and must not raise the build number again.
+  if [[ "$short" != "$version" ]]; then
+    build="$(grep -A1 '<key>CFBundleVersion</key>' "$plist" | grep -oP '<string>\K[0-9]+')"
+    sed -i -E "/<key>CFBundleShortVersionString<\/key>/{n;s|<string>[^<]*</string>|<string>$version</string>|}" "$plist"
+    sed -i -E "/<key>CFBundleVersion<\/key>/{n;s|<string>[^<]*</string>|<string>$((build + 1))</string>|}" "$plist"
+  fi
 fi
 echo "$tag"
