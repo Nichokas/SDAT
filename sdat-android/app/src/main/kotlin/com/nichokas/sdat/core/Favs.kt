@@ -86,6 +86,8 @@ object Favs {
                 if (gen != generation) return@launch
                 // Only the newest write of this session decides what the cache shows.
                 if (writes[fav] == coroutineContext.job) {
+                    // A failed write is no toggle, so the server's favourites list may fill the state again.
+                    writes.remove(fav)
                     val last = confirmed[fav]
                     if (last == null) {
                         known.remove(fav)
