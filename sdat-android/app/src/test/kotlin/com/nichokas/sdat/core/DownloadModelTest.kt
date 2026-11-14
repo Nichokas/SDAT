@@ -113,6 +113,7 @@ class DownloadModelTest {
         assertEquals("HI-RES FLAC 24-bit/96 kHz", e.copy(codec = "flac", bitDepth = 24, sampleRate = 96_000).qualityText)
         assertEquals("FLAC 16-bit/44.1 kHz", e.copy(formats = listOf("FLAC"), bitDepth = 16, sampleRate = 44_100).qualityText)
         assertEquals("AAC 320 kbps · 44.1 kHz", e.copy(codec = "mp4a.40.2", bandwidth = 320_000, sampleRate = 44_100).qualityText)
+        assertEquals("ALAC 16-bit/44.1 kHz", e.copy(codec = "alac", bandwidth = 900_000, bitDepth = 16, sampleRate = 44_100).qualityText)
         assertNull(e.qualityText)
     }
 }

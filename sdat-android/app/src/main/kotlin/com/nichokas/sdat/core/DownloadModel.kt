@@ -36,11 +36,16 @@ data class DownloadEntry(
                 val k = r / 1000.0
                 if (k == Math.rint(k)) "${k.toInt()} kHz" else "%.1f kHz".format(java.util.Locale.ROOT, k)
             }
-            val flac = codec?.lowercase()?.contains("flac") == true || formats.any { it.startsWith("FLAC") }
-            if (flac) {
+            val lower = codec?.lowercase().orEmpty()
+            val lossless = when {
+                "flac" in lower || formats.any { it.startsWith("FLAC") } -> "FLAC"
+                "alac" in lower -> "ALAC"
+                else -> null
+            }
+            if (lossless != null) {
                 val hires = (bitDepth ?: 16) > 16 || (sampleRate ?: 44100) > 48000
                 val spec = listOfNotNull(bitDepth?.let { "$it-bit" }, khz).joinToString("/")
-                val head = if (hires) "HI-RES FLAC" else "FLAC"
+                val head = if (hires) "HI-RES $lossless" else lossless
                 return if (spec.isEmpty()) head else "$head $spec"
             }
             if (codec != null || formats.isNotEmpty()) {

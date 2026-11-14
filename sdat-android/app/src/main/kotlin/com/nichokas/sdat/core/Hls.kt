@@ -96,7 +96,7 @@ object Hls {
         append("#EXT-X-ENDLIST\n")
     }
 
-    /** Sample rate and FLAC bit depth from an fMP4 init segment: the `dfLa` STREAMINFO, else the `mp4a` entry. */
+    /** Sample rate and FLAC bit depth from an fMP4 init segment: the `dfLa` STREAMINFO, else the `mp4a` or `alac` entry. */
     fun audioSpec(init: ByteArray): Pair<Int?, Int?> {
         fun u(i: Int) = init[i].toInt() and 0xFF
         fun find(tag: String): Int? {
@@ -113,7 +113,7 @@ object Hls {
             return rate.takeIf { it > 0 } to bits
         }
         // AudioSampleEntry: tag, 6 reserved, data reference, 8 reserved, channels, sample size, 4 more, rate 16.16.
-        find("mp4a")?.let { i ->
+        (find("mp4a") ?: find("alac"))?.let { i ->
             val p = i + 4 + 24
             if (p + 2 > init.size) return null to null
             return (u(p) shl 8 or u(p + 1)).takeIf { it > 0 } to null
