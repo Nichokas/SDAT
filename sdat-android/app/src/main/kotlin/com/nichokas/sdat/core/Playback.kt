@@ -366,11 +366,13 @@ class Playback(context: Context, private val prefs: Preferences, secrets: Secret
         }
     }
 
-    /** End of a finite queue: rewound and paused. Playing it again counts as a new listen. */
+    /** End of a finite queue: rewound and paused, and saved that way. Playing it again counts as a new listen. */
     private fun stopAtEnd() {
         player.pause()
         player.seekToDefaultPosition()
+        position = 0.0
         listen = null
+        persist()
     }
 
     private fun refillIfNeeded() {
