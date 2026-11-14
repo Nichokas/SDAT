@@ -24,19 +24,20 @@ Notes for coding agents working on SDAT, a TIDAL player for Fedora (GTK), iPhone
 - `rust.yml` – core and desktop tests (desktop in a Fedora container).
 - `ios-build.yml` – builds the unsigned `.ipa` on macOS; on `v*` tags attaches it to the release.
 - `android-build.yml` – Gradle build, lint and unit tests.
+- `android-release.yml` – signed per-ABI release APKs for an `android-v*` release, called by `release.yml`.
 - `feather-source.yml` – after an iOS release, opens a PR updating `feather/source.json`.
 - `desktop-fedora.yml` / `desktop-copr.yml` – vendor archive for `desktop-v*` releases and the COPR rebuild.
-- `release.yml` – manual release: pick a bump (`patch`, `minor`, `major` or `none`) per platform; it bumps from that platform's newest tag via `scripts/release-bump.sh`, commits to main, creates the releases with GitHub-generated notes, then calls the desktop (vendor archive, COPR), iOS build and Feather workflows.
+- `release.yml` – manual release: pick a bump (`patch`, `minor`, `major` or `none`) per platform; it bumps from that platform's newest tag via `scripts/release-bump.sh`, commits to main, creates the releases with GitHub-generated notes, then calls the desktop (vendor archive, COPR), iOS build, Feather and Android release workflows.
 - `review-bot.yml` – runs the three reviewers on a PR and keeps one comment with the findings, and approves the PR when they are clean; `review-bot-test.yml` tests its script.
 - CI must use caches (`Swatinem/rust-cache`, `actions/cache`); PRs restore main's cache without saving their own.
 
 ## Releases
 
 - Tags and releases only with the owner's explicit OK.
-- Release by running the `Release` workflow on main; it bumps the versions itself. Desktop and iOS versions are independent. After a failure use "Re-run failed jobs", never "Re-run all jobs", which would bump again.
-- Desktop: tag `desktop-vX.Y.Z`. iOS: tag `vX.Y.Z` with the unsigned `.ipa`.
-- Version lives in `sdat-desktop/Cargo.toml`, `sdat-desktop/packaging/fedora/sdat-desktop.spec`, `sdat-desktop/build/com.nichokas.SDAT.Desktop.metainfo.xml`, `sdat-desktop/flake.nix` and `sdat-mobile/Info.plist`.
-- Android: signed releases only; the signing key lives only in GitHub Actions secrets.
+- Release by running the `Release` workflow on main; it bumps the versions itself. Desktop, iOS and Android versions are independent. After a failure use "Re-run failed jobs", never "Re-run all jobs", which would bump again.
+- Desktop: tag `desktop-vX.Y.Z`. iOS: tag `vX.Y.Z` with the unsigned `.ipa`. Android: tag `android-vX.Y.Z` with signed APKs for `arm64-v8a` and `x86_64`.
+- Version lives in `sdat-desktop/Cargo.toml`, `sdat-desktop/packaging/fedora/sdat-desktop.spec`, `sdat-desktop/build/com.nichokas.SDAT.Desktop.metainfo.xml`, `sdat-desktop/flake.nix`, `sdat-mobile/Info.plist` and `sdat-android/app/build.gradle.kts` (`versionName`, `versionCode`).
+- Android: signed releases only; the signing key lives only in GitHub Actions secrets (`ANDROID_KEYSTORE_BASE64`, `ANDROID_KEYSTORE_PASSWORD`, `ANDROID_KEY_ALIAS`, `ANDROID_KEY_PASSWORD`). Gradle signs a release build only when `SDAT_KEYSTORE` and its passwords are set in the environment.
 
 ## Listen Together
 

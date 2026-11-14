@@ -15,7 +15,7 @@ android {
         minSdk = 33
         targetSdk = 37
         versionCode = 1
-        versionName = "0.1.0"
+        versionName = "0.0.0"
     }
     // One APK per ABI (the only two the Rust core is built for): a phone installs just its own copy of the core.
     splits {
@@ -26,8 +26,19 @@ android {
             isUniversalApk = false
         }
     }
+    // Release signing comes only from the environment (GitHub Actions secrets); without it the release APK is unsigned.
+    val keystore = providers.environmentVariable("SDAT_KEYSTORE").orNull
+    val release = keystore?.let {
+        signingConfigs.create("release") {
+            storeFile = file(it)
+            storePassword = providers.environmentVariable("SDAT_KEYSTORE_PASSWORD").get()
+            keyAlias = providers.environmentVariable("SDAT_KEY_ALIAS").get()
+            keyPassword = providers.environmentVariable("SDAT_KEY_PASSWORD").get()
+        }
+    }
     buildTypes {
         release {
+            signingConfig = release
             isMinifyEnabled = true
             isShrinkResources = true
             proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
