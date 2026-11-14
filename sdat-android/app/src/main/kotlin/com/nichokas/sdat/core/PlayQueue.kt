@@ -96,12 +96,12 @@ class PlayQueue<T>(private val random: Random = Random.Default, private val id: 
         select(0)
     }
 
-    fun playNext(t: T) {
-        userQueue = listOf(t) + userQueue
+    fun playNext(list: List<T>) {
+        userQueue = list + userQueue
     }
 
-    fun addToQueue(t: T) {
-        userQueue = userQueue + t
+    fun addToQueue(list: List<T>) {
+        userQueue = userQueue + list
     }
 
     /** What plays after the current track. [manual] (Next) skips past a repeat-one track, which only loops on its

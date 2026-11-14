@@ -247,14 +247,14 @@ class Playback(context: Context, private val prefs: Preferences, secrets: Secret
         if (tracks.isEmpty()) return
         // With nothing playing the list starts from its first track, not from its end.
         if (track == null) return play(tracks)
-        tracks.asReversed().forEach(queue::playNext)
+        queue.playNext(tracks)
         changed()
     }
 
     override fun addToQueue(tracks: List<Track>) {
         if (tracks.isEmpty()) return
         if (track == null) return play(tracks)
-        tracks.forEach(queue::addToQueue)
+        queue.addToQueue(tracks)
         changed()
     }
 
