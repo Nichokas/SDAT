@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
 # release-bump.sh <desktop|ios> <patch|minor|major>
 # Bumps the platform's newest release tag and writes the new version into its files.
-# A rerun of a failed release reuses what the first run did: a tag of this platform already on
-# HEAD, or a version already in the files but not yet tagged. Prints the tag. Desktop and iOS
-# versions are independent.
+# With RESUME=1 (a rerun of a failed Release) it reuses what the first attempt did: a tag of this
+# platform already on HEAD, or a version already in the files but not yet tagged. Prints the tag.
+# Desktop and iOS versions are independent.
 set -euo pipefail
 platform="${1:?usage: release-bump.sh <desktop|ios> <patch|minor|major>}"
 level="${2:?usage: release-bump.sh <desktop|ios> <patch|minor|major>}"
@@ -17,7 +17,7 @@ case "$platform" in
 esac
 pattern="^${series}[0-9]+\.[0-9]+\.[0-9]+$"
 on_head="$(git tag --points-at HEAD | grep -E "$pattern" | sort -V | tail -1 || true)"
-if [[ -n "$on_head" ]]; then echo "reusing $on_head, already on HEAD" >&2; echo "$on_head"; exit 0; fi
+if [[ -n "${RESUME:-}" && -n "$on_head" ]]; then echo "reusing $on_head, already on HEAD" >&2; echo "$on_head"; exit 0; fi
 latest="$(git tag -l "${series}*" | grep -E "$pattern" | sort -V | tail -1 || true)"
 IFS=. read -r major minor patch <<<"${latest#"$series"}"
 major="${major:-0}" minor="${minor:-0}" patch="${patch:-0}"
@@ -27,7 +27,7 @@ case "$level" in
   patch) version="$major.$minor.$((patch + 1))" ;;
   *) echo "unknown level: $level" >&2; exit 1 ;;
 esac
-if [[ -n "$current" && "$current" != "${latest#"$series"}" && "$(printf '%s\n%s\n' "$current" "${latest#"$series"}" | sort -V | tail -1)" == "$current" ]]; then
+if [[ -n "${RESUME:-}" && "$current" != "${latest#"$series"}" && "$(printf '%s\n%s\n' "$current" "${latest#"$series"}" | sort -V | tail -1)" == "$current" ]]; then
   echo "reusing untagged $current instead of a $level bump" >&2
   version="$current"
 fi

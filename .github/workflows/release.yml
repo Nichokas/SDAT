@@ -47,6 +47,7 @@ jobs:
         env:
           DESKTOP: ${{ inputs.desktop }}
           IOS: ${{ inputs.ios }}
+          RESUME: ${{ github.run_attempt > 1 && '1' || '' }}
         run: |
           set -euo pipefail
           tags=()
