@@ -11,6 +11,11 @@ name: Desktop Fedora auto-update
         description: "Re-upload the vendor archive for the current version and poke COPR"
         type: boolean
         default: false
+  workflow_call:
+    inputs:
+      tag:
+        type: string
+        required: true
   pull_request:
     paths:
       - "sdat-desktop/packaging/fedora/**"
@@ -44,7 +49,7 @@ jobs:
     needs: detect-version
     # A published desktop release must always upload its vendor archive and poke COPR,
     # even when the spec was already bumped to that version in the release commit.
-    if: needs.detect-version.outputs.is_new == 'true' || inputs.force || github.event_name == 'release'
+    if: needs.detect-version.outputs.is_new == 'true' || inputs.force || inputs.tag != '' || github.event_name == 'release'
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -58,8 +63,8 @@ jobs:
           toolchain: stable
       - name: Bump spec and build vendor archive
         env:
-          # A published release builds exactly its own tag, not the newest one.
-          RELEASE_TAG: ${{ github.event_name == 'release' && github.event.release.tag_name || '' }}
+          # A release builds exactly its own tag, not the newest one.
+          RELEASE_TAG: ${{ github.event_name == 'release' && github.event.release.tag_name || inputs.tag || '' }}
           VERSION: ${{ needs.detect-version.outputs.is_new == 'true' && needs.detect-version.outputs.version || needs.detect-version.outputs.current }}
         run: |
           set -euo pipefail
