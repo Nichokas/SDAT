@@ -10,6 +10,7 @@ class DownloadFailure(message: String) : Exception(message) {
         val encrypted = DownloadFailure("This track's stream is encrypted (DRM) and can't be saved.")
         fun unsupported(what: String) = DownloadFailure("Unsupported stream format ($what).")
         val cellular = DownloadFailure("Downloading over cellular is off in Settings.")
+        val storage = DownloadFailure("Couldn't save the download. Check the free storage.")
     }
 }
 

@@ -12,12 +12,11 @@ import java.io.IOException
 import java.net.HttpURLConnection
 import java.net.URI
 import kotlin.coroutines.cancellation.CancellationException
-import kotlinx.coroutines.Deferred
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.MainScope
-import kotlinx.coroutines.async
-import kotlinx.coroutines.cancelAndJoin
+import kotlinx.coroutines.NonCancellable
+import kotlinx.coroutines.cancelChildren
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.launch
@@ -44,6 +43,8 @@ object Downloads {
     private lateinit var connectivity: ConnectivityManager
     private lateinit var onActive: () -> Unit
     private val scope = MainScope()
+    /** The worker and the restore of the saved queue, which [removeAll] and [pause] cancel together. */
+    private val work = MainScope()
     // One file write at a time, in call order, so the last snapshot always lands last.
     private val writes = Dispatchers.IO.limitedParallelism(1)
 
@@ -58,7 +59,7 @@ object Downloads {
         }.toMap()
     }
     private var worker: Job? = null
-    private var fetching: Deferred<DownloadEntry>? = null
+    private var fetching: Job? = null
     private val albumMeta = mutableMapOf<String, AlbumDetail>()
 
     /** Set once the foreground service ran out of time: the queue on disk must outlive the teardown. */
@@ -138,10 +139,10 @@ object Downloads {
         queue = queue.forget(id)
         val e = entries[id] ?: return
         entries = entries - id
-        val coverUnused = e.cover != null && entries.values.none { it.cover == e.cover }
+        // The track being fetched may already have taken this album's cover.
+        val coverUnused = e.cover != null && entries.values.none { it.cover == e.cover } && queue.current?.album?.id != e.track.album?.id
         scope.launch(writes) {
-            File(dir, e.file).delete()
-            File(dir, playlistName(id)).delete()
+            discard(id)
             if (coverUnused) File(dir, e.cover).delete()
         }
         saveIndex()
@@ -149,16 +150,16 @@ object Downloads {
 
     fun remove(list: List<Track>) = list.forEach { remove(it.id) }
 
-    /** Cancels the queue, waits for the worker to stop, then deletes every file: sign-out and erase. */
+    /**
+     * Cancels the queue and deletes every file: sign-out and erase. The deletion is queued behind the writes already
+     * made, and the cancelled worker writes nothing more (see [save]), so no file of the old queue can come back.
+     */
     fun removeAll() {
+        work.coroutineContext.cancelChildren()
         queue = DownloadQueue()
         entries = emptyMap()
         albumMeta.clear()
-        scope.launch {
-            worker?.cancelAndJoin()
-            fetching?.cancelAndJoin()
-            withContext(writes) { dir.deleteRecursively() }
-        }
+        scope.launch(writes) { dir.deleteRecursively() }
     }
 
     /** The foreground service ran out of time: stop, keeping the queue on disk for the next launch. */
@@ -166,13 +167,12 @@ object Downloads {
         savePending()
         frozen = true
         queue = queue.cancelAll()
-        worker?.cancel()
-        fetching?.cancel()
+        work.coroutineContext.cancelChildren()
     }
 
     /** Requeues downloads that a timeout, a kill or a crash interrupted. Call from the foreground. */
     fun resumePending() {
-        scope.launch {
+        work.launch {
             val saved = withContext(writes) {
                 runCatching {
                     val list = JSONArray(File(dir, PENDING).readText())
@@ -185,38 +185,44 @@ object Downloads {
 
     private fun pump() {
         if (worker?.isActive == true) return
-        worker = scope.launch {
+        val previous = worker
+        worker = work.launch {
+            // A cancelled worker may still be in a blocking read, and then cleans up after itself.
+            previous?.join()
             while (true) {
                 queue = queue.startNext()
                 val t = queue.current ?: break
-                val job = scope.async { fetch(t) }
-                fetching = job
-                val error = try {
-                    val e = job.await()
-                    if (queue.current?.id == t.id) {
-                        entries = entries + (t.id to e)
-                        saveIndex()
-                    } else {
-                        withContext(writes) { File(dir, e.file).delete(); File(dir, playlistName(t.id)).delete() }
+                var error: String? = null
+                // A child, so cancelling the worker cancels it; cancelling it alone (cancel(id)) moves on to the next.
+                val job = launch {
+                    try {
+                        commit(t, fetch(t))
+                    } catch (e: CancellationException) {
+                        throw e
+                    } catch (e: Exception) {
+                        error = friendlyMessage(e)
                     }
-                    null
-                } catch (e: CancellationException) {
-                    // The track was cancelled: carry on, unless the worker itself was.
-                    ensureActive()
-                    null
-                } catch (e: Exception) {
-                    friendlyMessage(e)
-                } finally {
-                    job.cancel()
                 }
+                fetching = job
+                job.join()
                 queue = queue.finish(t.id, error)
                 savePending()
             }
         }
     }
 
+    /** Runs in the fetch's own job right after it returns, with no suspension a cancellation could slip into. */
+    private fun commit(t: Track, e: DownloadEntry) {
+        if (queue.current?.id == t.id) {
+            entries = entries + (t.id to e)
+            saveIndex()
+        } else {
+            scope.launch(writes) { discard(t.id) }
+        }
+    }
+
+    /** Leaves no file of [t] behind unless it returns. */
     private suspend fun fetch(t: Track): DownloadEntry {
-        if (!prefs.downloadOverCellular && onCellular()) throw DownloadFailure.cellular
         // Always the top tier the account and track allow, whatever the streaming setting.
         val s = stream(t.id, Quality.HI_FI)
         var (text, base) = manifest(s.url)
@@ -231,50 +237,78 @@ object Downloads {
         val sizes = LongArray(parts.size)
         var spec: Pair<Int?, Int?> = null to null
         val name = "${t.id}.mp4"
-        val tmp = File(dir, "${t.id}.part")
+        val tmp = File(dir, partName(t.id))
         try {
-            withContext(Dispatchers.IO) { dir.mkdirs(); tmp.delete() }
+            save { dir.mkdirs(); tmp.delete() }
             for ((i, uri) in parts.withIndex()) {
                 val data = get(uri)
                 if (i == 0) spec = Hls.audioSpec(data)
-                withContext(Dispatchers.IO) { tmp.appendBytes(data) }
+                save { tmp.appendBytes(data) }
                 sizes[i] = data.size.toLong()
                 queue = queue.progress(t.id, (i + 1.0) / parts.size)
             }
-            withContext(Dispatchers.IO) {
+            save {
                 val playlist = Hls.localPlaylist(name, sizes[0], media.segments.mapIndexed { i, seg -> seg to sizes[i + 1] })
                 File(dir, playlistName(t.id)).writeText(playlist)
                 val dst = File(dir, name)
                 dst.delete()
-                if (!tmp.renameTo(dst)) throw IOException("Couldn't save the download.")
+                if (!tmp.renameTo(dst)) throw IOException("rename failed")
             }
+            val a = t.album
+            val cover = a?.let { saveCover(it.id, it.coverUrlLarge ?: it.coverUrl) }
+            val detail = a?.let { albumMeta[it.id] ?: orNull { album(it.id) }?.also { d -> albumMeta[it.id] = d } }
+            return DownloadEntry(
+                track = t,
+                file = name,
+                cover = cover,
+                quality = s.actualQuality.key,
+                size = sizes.sum(),
+                date = System.currentTimeMillis(),
+                gainDb = s.trackGain?.gainDb,
+                peak = s.trackGain?.peak,
+                albumGainDb = s.albumGain?.gainDb,
+                albumPeak = s.albumGain?.peak,
+                formats = s.formats,
+                codec = variant?.codecs,
+                bandwidth = variant?.bandwidth,
+                sampleRate = spec.first,
+                bitDepth = spec.second,
+                albumArtist = detail?.album?.artistLine,
+                albumYear = detail?.album?.releaseDate?.let(::year),
+                trackNumber = detail?.tracks?.indexOfFirst { it.id == t.id }?.takeIf { it >= 0 }?.plus(1),
+            )
         } catch (e: Throwable) {
-            withContext(Dispatchers.IO) { tmp.delete() }
+            withContext(NonCancellable + writes) { discard(t.id) }
             throw e
         }
-        val a = t.album
-        val cover = a?.let { saveCover(it.id, it.coverUrlLarge ?: it.coverUrl) }
-        val detail = a?.let { albumMeta[it.id] ?: runCatching { album(it.id) }.getOrNull()?.also { d -> albumMeta[it.id] = d } }
-        return DownloadEntry(
-            track = t,
-            file = name,
-            cover = cover,
-            quality = s.actualQuality.key,
-            size = sizes.sum(),
-            date = System.currentTimeMillis(),
-            gainDb = s.trackGain?.gainDb,
-            peak = s.trackGain?.peak,
-            albumGainDb = s.albumGain?.gainDb,
-            albumPeak = s.albumGain?.peak,
-            formats = s.formats,
-            codec = variant?.codecs,
-            bandwidth = variant?.bandwidth,
-            sampleRate = spec.first,
-            bitDepth = spec.second,
-            albumArtist = detail?.album?.artistLine,
-            albumYear = detail?.album?.releaseDate?.let(::year),
-            trackNumber = detail?.tracks?.indexOfFirst { it.id == t.id }?.takeIf { it >= 0 }?.plus(1),
-        )
+    }
+
+    /**
+     * A file write of the running download, in order with every other write. Once its download is cancelled it does
+     * not run, which is what lets [removeAll] delete the folder without waiting for the worker.
+     */
+    private suspend fun <T> save(block: () -> T): T = withContext(writes) {
+        ensureActive()
+        try {
+            block()
+        } catch (e: IOException) {
+            throw DownloadFailure.storage
+        }
+    }
+
+    private fun discard(id: String) {
+        File(dir, partName(id)).delete()
+        File(dir, "$id.mp4").delete()
+        File(dir, playlistName(id)).delete()
+    }
+
+    /** [block]'s value, or null when it fails; a cancellation still cancels. */
+    private inline fun <T> orNull(block: () -> T): T? = try {
+        block()
+    } catch (e: CancellationException) {
+        throw e
+    } catch (e: Exception) {
+        null
     }
 
     /** The album's cover file name, fetching it once per album; null when it can't be had. */
@@ -282,14 +316,17 @@ object Downloads {
         val name = "cover-$albumId.jpg"
         val file = File(dir, name)
         if (withContext(Dispatchers.IO) { file.isFile }) return name
-        val data = runCatching { get(URI(url ?: return null)) }.getOrNull() ?: return null
-        return withContext(Dispatchers.IO) {
-            val tmp = File(dir, "$name.part")
-            if (runCatching { tmp.writeBytes(data); tmp.renameTo(file) }.getOrDefault(false)) {
+        val data = orNull { get(URI(url ?: return null)) } ?: return null
+        return orNull {
+            save {
+                val tmp = File(dir, "$name.part")
+                try {
+                    tmp.writeBytes(data)
+                    if (!tmp.renameTo(file)) throw IOException("rename failed")
+                } finally {
+                    tmp.delete()
+                }
                 name
-            } else {
-                tmp.delete()
-                null
             }
         }
     }
@@ -300,10 +337,11 @@ object Downloads {
         return get(uri).decodeToString() to uri
     }
 
-    /** Three attempts, 1 s then 2 s apart. */
+    /** Three attempts, 1 s then 2 s apart; each one first checks the cellular setting. */
     private suspend fun get(uri: URI): ByteArray {
         var last: Exception = IOException("No attempt made")
         repeat(3) { attempt ->
+            if (!prefs.downloadOverCellular && onCellular()) throw DownloadFailure.cellular
             try {
                 return withContext(Dispatchers.IO) {
                     val c = uri.toURL().openConnection() as HttpURLConnection
@@ -353,6 +391,8 @@ object Downloads {
     }
 
     private fun playlistName(id: String) = "$id.m3u8"
+
+    private fun partName(id: String) = "$id.part"
 
     private const val INDEX = "index.json"
     private const val PENDING = "pending.json"
