@@ -25,6 +25,9 @@ import kotlin.coroutines.cancellation.CancellationException
 import kotlinx.coroutines.Deferred
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.async
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.ensureActive
+import kotlinx.coroutines.job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.MainScope
@@ -222,10 +225,19 @@ class Playback(context: Context, private val prefs: Preferences, secrets: Secret
                 throw e
             } catch (e: Exception) {
                 if (infinite === source) error = friendlyMessage(e)
-                return@async false
+                emptyList()
             }
             if (infinite !== source) return@async false
-            queue.startInfinite(batch)?.let { start(it) } != null
+            val first = queue.startInfinite(batch)
+            if (first == null) {
+                // Nothing to play: the current queue goes on, and ends, without Discover's source. This job is
+                // finishing, so the replace must not cancel it under whoever awaits it.
+                if (refilling === coroutineContext.job) refilling = null
+                replaceInfinite(null)
+                return@async false
+            }
+            start(first)
+            true
         }
         refilling = job
         job.invokeOnCompletion { if (refilling === job) refilling = null }
@@ -361,8 +373,8 @@ class Playback(context: Context, private val prefs: Preferences, secrets: Secret
         }
         scope.launch {
             val more = fetchMore(source)
-            // A track picked during the fetch owns playback now.
-            if (infinite !== source || track !== from) return@launch
+            // A track picked during the fetch owns playback now; a source replaced meanwhile had nothing more.
+            if (track !== from) return@launch
             fetching = false
             // A Replay tapped during the fetch wins; that track's next end advances again.
             if (auto && player.playbackState != Player.STATE_ENDED) return@launch
@@ -393,7 +405,7 @@ class Playback(context: Context, private val prefs: Preferences, secrets: Secret
     /** Appends a new endless batch, skipping tracks already queued; one fetch at a time. */
     private suspend fun fetchMore(source: Shuffle): Boolean {
         if (infinite !== source) return false
-        refilling?.let { return it.await() }
+        refilling?.let { return awaitRefill(it) }
         val job = scope.async {
             // The fresh Shuffle starts on the pages the Discover pool came from, so batches can be all
             // already-queued tracks for a while; only an empty batch means the source is exhausted.
@@ -406,10 +418,18 @@ class Playback(context: Context, private val prefs: Preferences, secrets: Secret
         }
         refilling = job
         try {
-            return job.await()
+            return awaitRefill(job)
         } finally {
             if (refilling === job) refilling = null
         }
+    }
+
+    /** A refill cancelled by a new source found nothing more for this caller. */
+    private suspend fun awaitRefill(refill: Deferred<Boolean>) = try {
+        refill.await()
+    } catch (e: CancellationException) {
+        currentCoroutineContext().ensureActive()
+        false
     }
 
     private fun replaceInfinite(source: Shuffle?) {
