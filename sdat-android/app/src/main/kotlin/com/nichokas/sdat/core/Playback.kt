@@ -353,7 +353,7 @@ class Playback(context: Context, private val prefs: Preferences, secrets: Secret
             player.playWhenReady = play
             if (player.playbackState == Player.STATE_IDLE) player.prepare()
             error = null
-            began(t, p.quality)
+            began(t, p.source)
             return
         }
         if (auto && t != null && t === track && player.currentMediaItem?.mediaId == t.id) {
