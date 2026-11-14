@@ -79,6 +79,8 @@ class QrScannerView(context: Context, private val onCode: (String) -> Unit) : Fr
         (sensor - display + 360) % 180 != 0
     } ?: false
     private var camera: CameraDevice? = null
+    /** The surface an open is for; cleared by [close], so an open that completes after it is dropped. */
+    private var target: Surface? = null
     private var reader: ImageReader? = null
     @Volatile private var done = false
     @Volatile private var released = false
@@ -127,7 +129,8 @@ class QrScannerView(context: Context, private val onCode: (String) -> Unit) : Fr
 
     private fun open(surface: Surface, s: Size) {
         val id = cameraId ?: return
-        if (camera != null) return
+        if (target != null) return
+        target = surface
         guarded { openCamera(id, surface, s) }
     }
 
@@ -141,6 +144,9 @@ class QrScannerView(context: Context, private val onCode: (String) -> Unit) : Fr
             close()
         } catch (_: SecurityException) {
             close()
+        } catch (_: IllegalArgumentException) {
+            // A surface destroyed under the camera.
+            close()
         }
     }
 
@@ -148,7 +154,7 @@ class QrScannerView(context: Context, private val onCode: (String) -> Unit) : Fr
         if (context.checkSelfPermission(Manifest.permission.CAMERA) != PackageManager.PERMISSION_GRANTED) return
         manager.openCamera(id, executor, object : CameraDevice.StateCallback() {
             override fun onOpened(device: CameraDevice) {
-                if (released) return device.close()
+                if (released || target !== surface) return device.close()
                 camera = device
                 guarded { configure(device, surface, s) }
             }
@@ -185,6 +191,7 @@ class QrScannerView(context: Context, private val onCode: (String) -> Unit) : Fr
     }
 
     private fun close() {
+        target = null
         camera?.close()
         camera = null
         reader?.close()

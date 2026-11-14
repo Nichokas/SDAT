@@ -709,7 +709,9 @@ class Playback(context: Context, private val prefs: Preferences, secrets: Secret
     fun clearSystemPause() { systemPaused = false }
 
     /** The position a host publishes: a track still loading is published at its start, not at the old item's time. */
-    val livePublishedPositionMs get() = loadResumeAtMs ?: player.currentPosition
+    // A restored queue or a failed fetch leaves no engine item for the track (see tick): its logical position stands.
+    val livePublishedPositionMs get() =
+        loadResumeAtMs ?: if (player.currentMediaItem?.mediaId == track?.id) player.currentPosition else (position * 1000).toLong()
     // A failed load leaves the previous item in the engine: its position must not go out as the new track playing.
     // While buffering or ducked out by a short focus loss, play stays requested but the position stops (iOS: isPlaying
     // && !loading): published as playing, guests would run ahead and seek back.

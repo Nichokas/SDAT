@@ -39,6 +39,7 @@ import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
+import androidx.lifecycle.compose.LifecycleResumeEffect
 import com.google.zxing.BarcodeFormat
 import com.google.zxing.EncodeHintType
 import com.google.zxing.qrcode.QRCodeWriter
@@ -194,6 +195,14 @@ fun ScannerSheet(onDismiss: () -> Unit) {
     var denied by remember { mutableStateOf(false) }
     val request = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted = it; denied = !it }
     LaunchedEffect(Unit) { if (!granted) request.launch(Manifest.permission.CAMERA) }
+    // Access granted in Settings while the sheet stays open.
+    LifecycleResumeEffect(Unit) {
+        if (context.checkSelfPermission(Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED) {
+            granted = true
+            denied = false
+        }
+        onPauseOrDispose {}
+    }
     GlasmioBottomSheet(onDismissRequest = onDismiss, title = "Scan invitation") {
         when {
             granted -> AndroidView(
