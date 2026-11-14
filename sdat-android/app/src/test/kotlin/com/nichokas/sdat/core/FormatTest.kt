@@ -38,6 +38,7 @@ class FormatTest {
         assertEquals("1 MB", Fmt.bytes(999_600))
         assertEquals("2 MB", Fmt.bytes(2_000_000))
         assertEquals("12.3 MB", Fmt.bytes(12_345_678))
+        assertEquals("1.2 MB", Fmt.bytes(1_150_000))
         assertEquals("1.25 GB", Fmt.bytes(1_254_000_000))
         assertEquals("3 GB", Fmt.bytes(3_000_000_000))
     }

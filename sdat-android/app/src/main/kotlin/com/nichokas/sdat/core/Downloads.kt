@@ -7,6 +7,7 @@ import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
+import java.io.ByteArrayOutputStream
 import java.io.File
 import java.io.IOException
 import java.net.HttpURLConnection
@@ -245,8 +246,9 @@ object Downloads {
         var variant: Hls.Variant? = null
         if (Hls.isMaster(text)) {
             variant = Hls.bestVariant(text, base) ?: throw DownloadFailure.unsupported("master playlist")
-            text = get(variant.uri).decodeToString()
-            base = variant.uri
+            val (data, url) = request(variant.uri)
+            text = data.decodeToString()
+            base = url
         }
         val media = Hls.media(text, base)
         val parts = listOf(media.map) + media.segments.map { it.uri }
@@ -350,11 +352,17 @@ object Downloads {
     private suspend fun manifest(url: String): Pair<String, URI?> {
         Hls.inline(url)?.let { return it to null }
         val uri = runCatching { URI(url) }.getOrElse { throw DownloadFailure.unsupported("manifest URL") }
-        return get(uri).decodeToString() to uri
+        val (data, final) = request(uri)
+        return data.decodeToString() to final
     }
 
-    /** Three attempts, 1 s then 2 s apart; each one first checks the cellular setting. */
-    private suspend fun get(uri: URI): ByteArray {
+    private suspend fun get(uri: URI): ByteArray = request(uri).first
+
+    /**
+     * The body and the URL it came from after redirects, which relative playlist entries resolve against. Three
+     * attempts, 1 s then 2 s apart; each one first checks the cellular setting.
+     */
+    private suspend fun request(uri: URI): Pair<ByteArray, URI> {
         var last: Exception = IOException("No attempt made")
         repeat(3) { attempt ->
             if (!prefs.downloadOverCellular && onCellular()) throw DownloadFailure.cellular
@@ -365,7 +373,18 @@ object Downloads {
                     c.readTimeout = TIMEOUT_MS
                     try {
                         if (c.responseCode !in 200..299) throw IOException("HTTP ${c.responseCode}")
-                        c.inputStream.use { it.readBytes() }
+                        // A blocking read ignores cancellation, so it is checked between chunks.
+                        val body = ByteArrayOutputStream()
+                        c.inputStream.use { input ->
+                            val buf = ByteArray(64 * 1024)
+                            while (true) {
+                                ensureActive()
+                                val n = input.read(buf)
+                                if (n < 0) break
+                                body.write(buf, 0, n)
+                            }
+                        }
+                        body.toByteArray() to c.url.toURI()
                     } finally {
                         c.disconnect()
                     }

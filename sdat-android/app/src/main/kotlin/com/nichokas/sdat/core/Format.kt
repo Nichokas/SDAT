@@ -32,15 +32,15 @@ object Fmt {
 
     /** Decimal units like iOS ByteCountFormatter's file style: "Zero KB", "640 KB", "12.3 MB", "1.25 GB". */
     fun bytes(n: Long): String {
-        fun scaled(unit: Double, decimals: Int) =
-            BigDecimal(n / unit).setScale(decimals, RoundingMode.HALF_EVEN).stripTrailingZeros().toPlainString()
+        fun scaled(unit: Long, decimals: Int) =
+            BigDecimal(n).divide(BigDecimal(unit), decimals, RoundingMode.HALF_EVEN).stripTrailingZeros().toPlainString()
         return when {
             n == 0L -> "Zero KB"
             n == 1L -> "1 byte"
             n < 1_000 -> "$n bytes"
-            n < 999_500 -> "${scaled(1e3, 0)} KB"
-            n < 999_950_000 -> "${scaled(1e6, 1)} MB"
-            else -> "${scaled(1e9, 2)} GB"
+            n < 999_500 -> "${scaled(1_000, 0)} KB"
+            n < 999_950_000 -> "${scaled(1_000_000, 1)} MB"
+            else -> "${scaled(1_000_000_000, 2)} GB"
         }
     }
 
