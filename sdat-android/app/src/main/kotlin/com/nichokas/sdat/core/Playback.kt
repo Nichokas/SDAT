@@ -63,8 +63,9 @@ class Playback(context: Context, private val prefs: Preferences, secrets: Secret
     private var preload: Job? = null
     private val saver = QueueSaver(context.filesDir, scope)
     private var restoring = true
-    /** A restored Discover queue, until [resumeInfinite] gives it its endless source back. */
-    private var restoredEndless = false
+    /** A Discover queue without its endless source, restored or played before the home mixes loaded, until
+     * [resumeInfinite] gives it one. */
+    private var awaitingMixes = false
     /** Home mixes that arrived while the saved queue was still loading. */
     private var pendingMixes: List<Mix>? = null
     /** Bumped whenever a queue entry starts, even the same track again: a refill that waited can tell a newer play
@@ -144,7 +145,7 @@ class Playback(context: Context, private val prefs: Preferences, secrets: Secret
         if (saved == null) return@launch
         val (state, queued) = saved
         queue.restore(queued, state)
-        restoredEndless = queued?.endless == true
+        awaitingMixes = queued?.endless == true
         duration = state.current.durationSecs.toDouble()
         position = maxOf(0.0, minOf(state.position, if (duration > 0) duration - 1 else state.position))
         pendingMixes?.let(::resumeInfinite)
@@ -199,7 +200,8 @@ class Playback(context: Context, private val prefs: Preferences, secrets: Secret
     /** Tapping a Discover cover: that song, the rest of the visible pool, then the endless Discover shuffle. */
     fun playDiscover(t: Track, pool: List<Track>, mixes: List<Mix>) {
         queue.discover(t, pool.filter { it.streamable })
-        replaceInfinite(Shuffle(mixes))
+        replaceInfinite(mixes.takeIf { it.isNotEmpty() }?.let(::Shuffle))
+        awaitingMixes = mixes.isEmpty()
         start(t)
     }
 
@@ -294,13 +296,13 @@ class Playback(context: Context, private val prefs: Preferences, secrets: Secret
         syncPreload()
     }
 
-    /** Gives a restored Discover queue its endless source back once the home mixes load. */
+    /** Gives a Discover queue its endless source once the home mixes load. */
     fun resumeInfinite(mixes: List<Mix>) {
         if (restoring) {
             pendingMixes = mixes
             return
         }
-        if (!restoredEndless || infinite != null || mixes.isEmpty()) return
+        if (!awaitingMixes || infinite != null || mixes.isEmpty()) return
         replaceInfinite(Shuffle(mixes))
         refillIfNeeded()
     }
@@ -430,7 +432,7 @@ class Playback(context: Context, private val prefs: Preferences, secrets: Secret
     private fun replaceInfinite(source: Shuffle?) {
         val old = infinite
         infinite = source
-        restoredEndless = false
+        awaitingMixes = false
         val pending = refilling
         pending?.cancel()
         refilling = null
@@ -552,7 +554,7 @@ class Playback(context: Context, private val prefs: Preferences, secrets: Secret
         if (player.mediaItemCount > 1) player.removeMediaItems(1, player.mediaItemCount)
     }
 
-    private val endless get() = infinite != null || restoredEndless
+    private val endless get() = infinite != null || awaitingMixes
 
     private fun persist() {
         if (!restoring) saver.save(queue, endless, position)

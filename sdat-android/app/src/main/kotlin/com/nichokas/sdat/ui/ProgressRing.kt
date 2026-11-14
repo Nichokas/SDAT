@@ -26,11 +26,11 @@ import kotlin.math.roundToInt
 private val iosBlue = Color(0xFF0A84FF)
 
 /**
- * iOS ProgressRing: blue arc from 12 o'clock clockwise over a static dashed white ring; spins once a second while loading.
- * [progress] is a lambda so the player's position ticks recompose the ring, not its caller.
+ * iOS ProgressRing: [color] (blue) arc from 12 o'clock clockwise over a static dashed white ring; spins once a second
+ * while loading. [progress] is a lambda so the player's position ticks recompose the ring, not its caller.
  */
 @Composable
-fun ProgressRing(progress: () -> Double, spinning: Boolean, modifier: Modifier = Modifier, lineWidth: Dp = 2.5.dp) {
+fun ProgressRing(progress: () -> Double, spinning: Boolean, modifier: Modifier = Modifier, lineWidth: Dp = 2.5.dp, color: Color = iosBlue) {
     val q by animateFloatAsState(
         if (spinning) 0f else progress().coerceIn(0.0, 1.0).toFloat(),
         tween(250, easing = LinearEasing),
@@ -55,6 +55,6 @@ fun ProgressRing(progress: () -> Double, spinning: Boolean, modifier: Modifier =
             Color.White.copy(alpha = 0.4f), -90f + 360f * q, 360f * (1 - q), false, topLeft, box,
             style = Stroke(w * 0.8f, cap = StrokeCap.Butt, pathEffect = PathEffect.dashPathEffect(floatArrayOf(period * 2.5f / 5.5f, period * 3f / 5.5f), q * circ)),
         )
-        if (q > 0) drawArc(iosBlue, -90f, 360f * q, false, topLeft, box, style = Stroke(w, cap = StrokeCap.Butt))
+        if (q > 0) drawArc(color, -90f, 360f * q, false, topLeft, box, style = Stroke(w, cap = StrokeCap.Butt))
     }
 }

@@ -21,6 +21,7 @@ import uniffi.tonearm_ffi.sessionChanged
 
 /** TIDAL credentials for the core; the refresh token is encrypted with an Android Keystore key. */
 class Session(context: Context) : TokenStore {
+    private val app = context.applicationContext
     private val prefs = context.getSharedPreferences("session", Context.MODE_PRIVATE)
 
     var signedIn by mutableStateOf(refreshToken() != null)
@@ -47,11 +48,14 @@ class Session(context: Context) : TokenStore {
         }
         Favs.clear()
         sessionChanged()
+        Boot.start(app)
         signedIn = true
     }
 
     /** Also the way out of a session TIDAL no longer accepts. */
     fun signOut() {
+        Boot.cancel()
+        DiscoverCache.of(app).clear()
         prefs.edit { clear() }
         picture.value = null
         Favs.clear()

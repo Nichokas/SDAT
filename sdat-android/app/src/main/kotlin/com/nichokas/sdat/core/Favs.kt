@@ -23,6 +23,16 @@ object Favs {
     private var generation = 0
 
     fun known(id: String): Boolean? = tracks[id]
+
+    /** Tracks the server listed as favourites; a write still in flight wins. */
+    fun mark(ids: List<String>) {
+        for (id in ids) {
+            if (writes[id]?.isActive == true) continue
+            tracks[id] = true
+            confirmed[id] = true
+        }
+    }
+
     fun clear() {
         generation++
         tracks.clear()

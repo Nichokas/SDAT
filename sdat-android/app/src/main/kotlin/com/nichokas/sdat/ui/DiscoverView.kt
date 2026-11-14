@@ -28,14 +28,18 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.nichokas.sdat.core.DiscoverCache
 import com.nichokas.sdat.core.Session
 import io.github.neoruaa.glasmio.core.IosTypography
 import io.github.neoruaa.glasmio.glass.GlassSurface
 import kotlin.coroutines.cancellation.CancellationException
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import uniffi.tonearm_ffi.Mix
 import uniffi.tonearm_ffi.Shuffle
 import uniffi.tonearm_ffi.Track
@@ -43,37 +47,43 @@ import uniffi.tonearm_ffi.homeMixes
 
 private const val POOL_TARGET = 320
 
-/** The iOS Discover: the home mixes' covers on an endless plane, filled batch by batch. */
+/** The iOS Discover: the home mixes' covers on an endless plane, shown from the last pool and refreshed for the next launch. */
 @Composable
 fun DiscoverView(session: Session, onPlay: (Track, List<Track>, List<Mix>) -> Unit, onMixes: (List<Mix>) -> Unit) {
     var tracks by remember { mutableStateOf(emptyList<Track>()) }
     var mixes by remember { mutableStateOf(emptyList<Mix>()) }
     var error by remember { mutableStateOf<String?>(null) }
     var attempt by remember { mutableIntStateOf(0) }
+    val context = LocalContext.current
+    val cache = remember { DiscoverCache.of(context) }
     LaunchedEffect(attempt) {
         error = null
         mixes = emptyList()
         onMixes(mixes)
+        if (tracks.isEmpty()) tracks = withContext(Dispatchers.IO) { cache.load() }
+        val hadCache = tracks.isNotEmpty()
         val pool = CoverPool()
         try {
             mixes = homeMixes()
             onMixes(mixes)
             Shuffle(mixes).use { source ->
                 repeat(10) {
-                    pool.add(source.nextBatch(if (pool.tracks.isEmpty()) 30u else 80u))
+                    pool.add(source.nextBatch(if (hadCache || pool.tracks.isNotEmpty()) 80u else 30u))
                     // The plane's layout depends on the pool size, so only the first covers and the
                     // final pool are published: tiles on screen change at most once, as on iOS.
                     if (tracks.isEmpty()) tracks = pool.tracks.toList()
                     if (pool.tracks.size >= POOL_TARGET) return@use
                 }
             }
-            if (pool.tracks.isEmpty()) error = "Your home mixes have no covers yet."
+            if (pool.tracks.isNotEmpty()) pool.tracks.toList().let { withContext(Dispatchers.IO) { cache.save(it) } }
+            if (pool.tracks.isEmpty() && !hadCache) error = "Your home mixes have no covers yet."
         } catch (e: CancellationException) {
             throw e
         } catch (e: Exception) {
-            if (pool.tracks.isEmpty()) error = e.message ?: e.javaClass.simpleName
+            if (pool.tracks.isEmpty() && !hadCache) error = e.message ?: e.javaClass.simpleName
         }
-        tracks = pool.tracks.toList()
+        // The cached plane stays on screen this session; the fresh pool shows on the next launch.
+        if (!hadCache) tracks = pool.tracks.toList()
     }
     Box(Modifier.fillMaxSize().background(Color.Black)) {
         CoverPlane(tracks, onTap = { onPlay(it, tracks, mixes) })
