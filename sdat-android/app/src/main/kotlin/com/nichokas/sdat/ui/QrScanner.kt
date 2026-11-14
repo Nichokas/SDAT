@@ -192,6 +192,8 @@ class QrScannerView(context: Context, private val onCode: (String) -> Unit) : Fr
     }
 
     private fun decode(r: ImageReader) {
+        // A frame callback queued before close() runs after it; the reader is closed by then.
+        if (r !== reader) return
         val image = r.acquireLatestImage() ?: return
         try {
             if (done) return
