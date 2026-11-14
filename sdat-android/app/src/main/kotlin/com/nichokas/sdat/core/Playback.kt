@@ -334,6 +334,16 @@ class Playback(context: Context, private val prefs: Preferences, secrets: Secret
             began(t, p.quality)
             return
         }
+        if (auto && t != null && t === track && player.currentMediaItem?.mediaId == t.id) {
+            // Repeat-one, or a one-track queue on repeat-all: the ended item plays again without a new fetch.
+            player.seekToDefaultPosition()
+            player.playWhenReady = play
+            position = 0.0
+            listen = newListen(t)
+            persist()
+            started(t)
+            return
+        }
         if (t != null) {
             start(t, play)
             return
