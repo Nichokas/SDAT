@@ -41,6 +41,17 @@ class PlayQueueTest {
         assertFalse(q.append(listOf("a", "d")))
     }
 
+    @Test fun appendSkipsPlayNextTracksWaitingOrPlaying() {
+        val q = queue()
+        q.discover("a", listOf("a", "b"))
+        q.addToQueue("x")
+        q.playNext("y")
+        assertFalse(q.append(listOf("x", "y")))
+        assertEquals("y", q.advance(manual = true))
+        assertTrue(q.append(listOf("y", "z")))
+        assertEquals(listOf("a", "b", "z"), q.tracks)
+    }
+
     @Test fun appendRemembersTracksTrimmedFromHistory() {
         val q = queue()
         q.discover("t0", emptyList())
