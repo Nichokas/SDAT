@@ -203,6 +203,18 @@ class PlayQueueTest {
         assertEquals(1, q.index)
     }
 
+    @Test fun insertUserPlacesTheTrackAtTheOffsetAndClampsOutOfRange() {
+        val q = queue()
+        q.play(abcd)
+        q.addToQueue("x")
+        q.addToQueue("y")
+        q.insertUser("z", 1)
+        q.insertUser("w", 9)
+        q.insertUser("v", -1)
+        assertEquals(listOf("v", "x", "z", "y", "w"), q.userQueue)
+        assertEquals("v", q.advance(manual = true))
+    }
+
     @Test fun nextStopsAtTheEndAndWrapsOnRepeatAll() {
         val q = queue()
         q.play(abcd, startAt = 3)
