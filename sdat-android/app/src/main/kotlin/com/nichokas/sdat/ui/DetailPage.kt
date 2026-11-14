@@ -68,6 +68,8 @@ import io.github.neoruaa.glasmio.ui.GlasmioIconButton
 import kotlin.coroutines.cancellation.CancellationException
 import kotlinx.coroutines.MainScope
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import uniffi.tonearm_ffi.FavouriteKind
 import uniffi.tonearm_ffi.Track
 import uniffi.tonearm_ffi.isFavourite
@@ -75,6 +77,9 @@ import uniffi.tonearm_ffi.setFavourite
 
 // Favourite writes outlive the page: going back right after a tap must not cancel the request.
 private val writeScope = MainScope()
+
+// The core doesn't order concurrent writes, so a fast second toggle waits for the first, as in Favs.
+private val favouriteWrites = Mutex()
 
 /**
  * A pushed page over the blurred [backdropUrl], whose title shows in the top bar once the first item scrolls away.
@@ -182,7 +187,7 @@ fun DetailPage(
             isFav = target
             writeScope.launch {
                 try {
-                    setFavourite(favourite.first, favourite.second, target)
+                    favouriteWrites.withLock { setFavourite(favourite.first, favourite.second, target) }
                 } catch (e: CancellationException) {
                     throw e
                 } catch (e: Exception) {

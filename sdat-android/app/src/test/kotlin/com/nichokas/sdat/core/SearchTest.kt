@@ -91,6 +91,20 @@ class SearchTest {
         assertEquals("daft", model.state.shown)
     }
 
+    @Test fun anEditToAQueryThatDoesNotSearchEndsTheCancelledSearch() = runBlocking {
+        val fake = FakeSearch()
+        fake.gates["daft"] = CompletableDeferred()
+        val model = SearchModel(debounceMs = 0, search = fake::run)
+        model.edit("daft")
+        val first = launch { model.settle() }
+        yield()
+        assertTrue(model.state.searching)
+        first.cancel()
+        model.edit("d")
+        model.settle()
+        assertFalse(model.state.searching)
+    }
+
     @Test fun theFirstSearchShowsItsQueryAtOnceAndLaterOnesKeepTheOldResults() {
         val first = SearchState<String>(query = "daft").started("daft")
         assertEquals("daft", first.shown)

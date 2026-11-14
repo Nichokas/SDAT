@@ -72,7 +72,8 @@ class SearchModel<R>(private val debounceMs: Long = 300, private val search: sus
     suspend fun settle() {
         when (val plan = state.plan()) {
             QueryPlan.Clear -> state = state.cleared()
-            QueryPlan.Keep -> Unit
+            // A search this edit cancelled will never finish, so nothing is searching any more.
+            QueryPlan.Keep -> state = state.copy(searching = false)
             is QueryPlan.Run -> {
                 delay(debounceMs)
                 state = state.started(plan.query)
