@@ -48,6 +48,7 @@ class Session(context: Context) : TokenStore {
         }
         Favs.clear()
         OwnPlaylists.clear()
+        Recents.clear()
         sessionChanged()
         Boot.start(app)
         signedIn = true

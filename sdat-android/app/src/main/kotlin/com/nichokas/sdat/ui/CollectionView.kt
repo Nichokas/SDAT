@@ -151,7 +151,7 @@ private fun RecentTile(item: ShelfItem, modifier: Modifier) {
 /** iOS PagedTracks with favourites: every listed track is a favourite, so their menus say so without asking. */
 @Composable
 fun CollectionTracksView() {
-    val loader = rememberRetained { PagedLoader(next = collectionTracks()::nextPage) }
+    val loader = rememberRetained { collectionTracks().let { p -> PagedLoader(pager = p, next = p::nextPage) } }
     val items = loader.list.items
     LaunchedEffect(items.size) { Favs.mark(items.map { it.id }) }
     SdatPage("Tracks", onBack = Chrome::pop) { pagedTracks(loader, "Tracks") }
@@ -159,18 +159,18 @@ fun CollectionTracksView() {
 
 @Composable
 fun CollectionAlbumsView() {
-    val loader = rememberRetained { PagedLoader(next = collectionAlbums()::nextPage) }
+    val loader = rememberRetained { collectionAlbums().let { p -> PagedLoader(pager = p, next = p::nextPage) } }
     SdatPage("Albums", onBack = Chrome::pop) { paged(loader, { it.id }) { items, i -> AlbumRow(items[i]) } }
 }
 
 @Composable
 fun CollectionArtistsView() {
-    val loader = rememberRetained { PagedLoader(next = collectionArtists()::nextPage) }
+    val loader = rememberRetained { collectionArtists().let { p -> PagedLoader(pager = p, next = p::nextPage) } }
     SdatPage("Artists", onBack = Chrome::pop) { paged(loader, { it.id }) { items, i -> ArtistRow(items[i]) } }
 }
 
 @Composable
 fun CollectionPlaylistsView() {
-    val loader = rememberRetained { PagedLoader(next = collectionPlaylists()::nextPage) }
+    val loader = rememberRetained { collectionPlaylists().let { p -> PagedLoader(pager = p, next = p::nextPage) } }
     SdatPage("Playlists", onBack = Chrome::pop) { paged(loader, { it.id }) { items, i -> PlaylistRow(items[i]) } }
 }

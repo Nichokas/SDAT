@@ -29,11 +29,11 @@ object Favs {
 
     fun known(trackId: String): Boolean? = known(Fav(FavouriteKind.TRACK, trackId))
 
-    /** Tracks the server listed as favourites; a write still in flight wins. */
+    /** Tracks the server listed as favourites; a toggle made this session wins, even once it has finished. */
     fun mark(ids: List<String>) {
         for (id in ids) {
             val fav = Fav(FavouriteKind.TRACK, id)
-            if (writes[fav]?.isActive == true) continue
+            if (fav in writes) continue
             known[fav] = true
             confirmed[fav] = true
         }
