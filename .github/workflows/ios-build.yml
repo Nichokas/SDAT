@@ -61,10 +61,12 @@ jobs:
           rustup toolchain install stable --profile minimal
           rustup target add aarch64-apple-ios
 
-      # Keyed on the rustc version too: a new stable otherwise hits a stale cache and rebuilds every crate.
+      # Keyed on rustc and on this file, which holds the build flags: either changing otherwise leaves an
+      # exact-hit cache whose artifacts are all stale and never get saved again.
       - uses: Swatinem/rust-cache@v2
         with:
           shared-key: ios
+          key: ${{ hashFiles('.github/workflows/ios-build.yml') }}
           save-if: ${{ github.ref == 'refs/heads/main' }}
 
       - name: Build Rust core and Swift bindings
