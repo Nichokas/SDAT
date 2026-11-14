@@ -191,6 +191,7 @@ object Downloads {
     /** Requeues downloads that a timeout, a kill or a crash interrupted. Call from the foreground. */
     fun resumePending() {
         frozen = false
+        if (restoring?.isActive == true) return
         restoring = work.launch {
             val saved = withContext(writes) {
                 runCatching {
