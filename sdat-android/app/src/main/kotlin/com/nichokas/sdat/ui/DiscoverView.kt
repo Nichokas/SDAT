@@ -1,6 +1,7 @@
 package com.nichokas.sdat.ui
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -9,8 +10,10 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.wrapContentHeight
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -25,11 +28,13 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.nichokas.sdat.core.Session
 import io.github.neoruaa.glasmio.core.IosTypography
+import io.github.neoruaa.glasmio.glass.GlassSurface
 import kotlin.coroutines.cancellation.CancellationException
 import uniffi.tonearm_ffi.Mix
 import uniffi.tonearm_ffi.Shuffle
@@ -40,16 +45,19 @@ private const val POOL_TARGET = 320
 
 /** The iOS Discover: the home mixes' covers on an endless plane, filled batch by batch. */
 @Composable
-fun DiscoverView(session: Session, onPlay: (Track, List<Track>, List<Mix>) -> Unit) {
+fun DiscoverView(session: Session, onPlay: (Track, List<Track>, List<Mix>) -> Unit, onMixes: (List<Mix>) -> Unit) {
     var tracks by remember { mutableStateOf(emptyList<Track>()) }
     var mixes by remember { mutableStateOf(emptyList<Mix>()) }
     var error by remember { mutableStateOf<String?>(null) }
     var attempt by remember { mutableIntStateOf(0) }
     LaunchedEffect(attempt) {
         error = null
+        mixes = emptyList()
+        onMixes(mixes)
         val pool = CoverPool()
         try {
             mixes = homeMixes()
+            onMixes(mixes)
             Shuffle(mixes).use { source ->
                 repeat(10) {
                     pool.add(source.nextBatch(if (pool.tracks.isEmpty()) 30u else 80u))
@@ -102,6 +110,19 @@ fun DiscoverView(session: Session, onPlay: (Track, List<Track>, List<Mix>) -> Un
                     }
                 }
             }
+        }
+    }
+}
+
+/** iOS Discover header's shuffle: the endless Discover queue, once the home mixes are in. */
+@Composable
+fun ShuffleButton(enabled: Boolean, onClick: () -> Unit, modifier: Modifier = Modifier) {
+    GlassSurface(modifier.size(44.dp), shape = CircleShape) {
+        Box(
+            Modifier.fillMaxSize().clickable(enabled = enabled, role = Role.Button, onClickLabel = "Shuffle Discover", onClick = onClick),
+            contentAlignment = Alignment.Center,
+        ) {
+            SdatIcon("shuffle", "Shuffle", size = 20.dp, tint = Color.White.copy(alpha = if (enabled) 1f else 0.4f))
         }
     }
 }

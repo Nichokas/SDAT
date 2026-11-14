@@ -41,7 +41,8 @@ impl TrackMeta {
     pub fn from_track(t: &Track) -> Self {
         TrackMeta {
             title: t.title().to_string(),
-            artist: t.artist_names().join(", "),
+            // Only the main artist, as on iOS and Android: a joined credit counts as its own artist on Last.fm.
+            artist: t.artists.first().map(|a| a.name.clone()).unwrap_or_default(),
             album: t.album.as_ref().map(|a| a.title.clone()).unwrap_or_default(),
             url: t.url(),
             duration: t.duration(),
@@ -288,6 +289,13 @@ pub fn lastfm_configured(enabled: bool, sk: &str) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn scrobbles_the_first_artist_only() {
+        let artist = |name: &str| crate::model::ArtistInfo { name: name.into(), ..Default::default() };
+        let t = Track { artists: vec![artist("A"), artist("B")], ..Default::default() };
+        assert_eq!(TrackMeta::from_track(&t).artist, "A");
+    }
 
     fn meta() -> TrackMeta {
         TrackMeta { title: "T".into(), artist: "A, B".into(), album: "Al".into(), url: "https://tidal.com/track/1".into(), duration: Duration::from_secs(200) }

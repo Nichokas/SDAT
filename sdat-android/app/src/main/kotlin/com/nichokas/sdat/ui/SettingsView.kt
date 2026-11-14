@@ -62,7 +62,7 @@ import uniffi.tonearm_ffi.lastfmUsername
 
 /** iOS SettingsView: same sections, rows and confirmations. */
 @Composable
-fun SettingsView(session: Session, prefs: Preferences, secrets: Secrets, onBack: () -> Unit) {
+fun SettingsView(session: Session, prefs: Preferences, secrets: Secrets, setQuality: (Quality) -> Unit, setPreload: (Boolean) -> Unit, onBack: () -> Unit) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     var confirmLogout by remember { mutableStateOf(false) }
@@ -114,8 +114,8 @@ fun SettingsView(session: Session, prefs: Preferences, secrets: Secrets, onBack:
         }
         item {
             Section("Playback") {
-                QualityRow("Streaming quality", prefs.streamingQuality, { prefs.streamingQuality = it })
-                ToggleRow("Preload next tracks", prefs.preloadNext, { prefs.preloadNext = it })
+                QualityRow("Streaming quality", prefs.streamingQuality, setQuality)
+                ToggleRow("Preload next tracks", prefs.preloadNext, setPreload)
             }
         }
         item {
@@ -231,9 +231,8 @@ private fun ToggleRow(title: String, checked: Boolean, onChange: (Boolean) -> Un
 
 @Composable
 private fun QualityRow(title: String, selection: Quality, onSelect: (Quality) -> Unit) {
-    var open by remember { mutableStateOf(false) }
     GlasmioListRow(title, showTopSeparator = false, trailing = {
-        GlasmioMenu(expanded = open, onExpandedChange = { open = it }, itemCount = qualities.size, anchor = { toggle ->
+        QualityMenu(selection, onSelect) { toggle ->
             Row(
                 Modifier.clickable(role = Role.Button, onClickLabel = "Maximum quality", onClick = toggle),
                 horizontalArrangement = Arrangement.spacedBy(4.dp),
@@ -242,18 +241,25 @@ private fun QualityRow(title: String, selection: Quality, onSelect: (Quality) ->
                 QualityLogo(selection, 15.dp)
                 SdatIcon("chevron.up.chevron.down", contentDescription = null, size = 12.dp, tint = GlasmioTheme.colors.secondaryContent)
             }
-        }) { backdrop, close ->
-            qualities.forEach { q ->
-                GlasmioMenuItem(
-                    title = q.label,
-                    subtitle = q.detail,
-                    onClick = { onSelect(q); close() },
-                    systemName = if (q == selection) "checkmark" else null,
-                    backdrop = backdrop,
-                )
-            }
         }
     })
+}
+
+/** iOS QualityMenu: the streaming-quality picker behind [label], which opens it with the toggle it is given. */
+@Composable
+fun QualityMenu(selection: Quality, onSelect: (Quality) -> Unit, label: @Composable (toggle: () -> Unit) -> Unit) {
+    var open by remember { mutableStateOf(false) }
+    GlasmioMenu(expanded = open, onExpandedChange = { open = it }, itemCount = qualities.size, anchor = label) { backdrop, close ->
+        qualities.forEach { q ->
+            GlasmioMenuItem(
+                title = q.label,
+                subtitle = q.detail,
+                onClick = { onSelect(q); close() },
+                systemName = if (q == selection) "checkmark" else null,
+                backdrop = backdrop,
+            )
+        }
+    }
 }
 
 /** The iOS quality badge images; scale matches iOS QualityLogo. */
