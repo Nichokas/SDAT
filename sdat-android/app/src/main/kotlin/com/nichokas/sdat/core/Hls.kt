@@ -56,7 +56,7 @@ object Hls {
         var discontinuity = false
         for (l in lines(text)) {
             when {
-                l.startsWith("#EXT-X-KEY") || l.startsWith("#EXT-X-SESSION-KEY") -> if ("METHOD=NONE" !in l) throw DownloadFailure.encrypted
+                l.startsWith("#EXT-X-KEY") || l.startsWith("#EXT-X-SESSION-KEY") -> if (attr(l, "METHOD") != "NONE") throw DownloadFailure.encrypted
                 l.startsWith("#EXT-X-BYTERANGE") || l.startsWith("#EXT-X-MAP") && "BYTERANGE" in l -> throw DownloadFailure.unsupported("byte ranges")
                 l.startsWith("#EXT-X-MAP") -> {
                     val next = attr(l, "URI")?.let { resolve(base, it) }

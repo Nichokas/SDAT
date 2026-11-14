@@ -127,6 +127,8 @@ object Downloads {
     }
 
     fun cancel(id: String) {
+        // Otherwise a restore still reading the saved queue would be cancelled and the saved queue overwritten.
+        if (!queue.isQueued(id)) return
         val wasCurrent = queue.current?.id == id
         queue = queue.cancel(id)
         if (wasCurrent) fetching?.cancel()

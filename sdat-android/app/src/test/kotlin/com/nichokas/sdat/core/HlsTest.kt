@@ -53,6 +53,8 @@ class HlsTest {
         assertThrows(DownloadFailure::class.java) { Hls.media(ranges, base) }
         val twoMaps = "#EXT-X-MAP:URI=\"a.mp4\"\n#EXTINF:4,\ns1.mp4\n#EXT-X-MAP:URI=\"b.mp4\"\n#EXTINF:4,\ns2.mp4"
         assertThrows(DownloadFailure::class.java) { Hls.media(twoMaps, base) }
+        val disguised = "#EXT-X-KEY:METHOD=AES-128,URI=\"https://cdn/key?METHOD=NONE\"\n#EXT-X-MAP:URI=\"i.mp4\"\n#EXTINF:4,\ns.mp4"
+        assertThrows(DownloadFailure::class.java) { Hls.media(disguised, base) }
         // METHOD=NONE is no encryption at all.
         Hls.media("#EXT-X-KEY:METHOD=NONE\n#EXT-X-MAP:URI=\"i.mp4\"\n#EXTINF:4,\ns.mp4", base)
     }
