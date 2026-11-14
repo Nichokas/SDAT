@@ -566,6 +566,8 @@ class Playback(context: Context, private val prefs: Preferences, secrets: Secret
         when (tapAction(unprepared, player.playbackState == Player.STATE_ENDED, player.playWhenReady)) {
             Tap.Retry -> start(t, resumeAt = position)
             Tap.Replay -> {
+                // The ended item plays again with no fetch; a refill still loading gives way to it.
+                fetching = false
                 entry++
                 listen = newListen(t)
                 player.seekToDefaultPosition()
