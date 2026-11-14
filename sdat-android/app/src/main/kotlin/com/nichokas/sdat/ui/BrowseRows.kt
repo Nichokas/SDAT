@@ -95,7 +95,8 @@ fun MediaShelf(items: List<ShelfItem>, modifier: Modifier = Modifier) {
         contentPadding = PaddingValues(horizontal = ListGutter),
         horizontalArrangement = Arrangement.spacedBy(12.dp),
     ) {
-        items(items, key = { it.key }) { item ->
+        // Explore sections can repeat an item, and a repeated key crashes the row.
+        itemsIndexed(items, key = { i, it -> "${it.key}#$i" }) { _, item ->
             Column(
                 Modifier.width(140.dp).clickable(role = Role.Button) { Chrome.push(item.route) },
                 verticalArrangement = Arrangement.spacedBy(4.dp),

@@ -138,12 +138,14 @@ private fun SectionTitle(text: String) = SectionHeader(text, Modifier.padding(to
 @Composable
 fun FollowButton(artistId: String) {
     val fav = Fav(FavouriteKind.ARTIST, artistId)
-    LaunchedEffect(fav) { Favs.check(fav) }
+    // As on iOS, a failed check leaves the button usable as "Follow".
+    var checked by remember(fav) { mutableStateOf(false) }
+    LaunchedEffect(fav) { Favs.check(fav); checked = true }
     val following = Favs.known(fav)
     val on = following == true
     GlasmioButton(
         onClick = { Favs.set(fav, !on) },
-        enabled = following != null,
+        enabled = following != null || checked,
         emphasis = if (on) GlassEmphasis.Prominent else GlassEmphasis.Regular,
         size = GlasmioButtonSize.Medium,
     ) {
