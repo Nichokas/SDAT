@@ -152,6 +152,16 @@ class PlayQueueTest {
         assertEquals("a", q.current)
     }
 
+    @Test fun previousAfterARestoreGoesToTheTrackBefore() {
+        val q = queue()
+        q.play(listOf("a", "b", "c"), startAt = 1)
+        val restored = queue()
+        // A separate instance, as a track read back from disk is.
+        val b = String("b".toCharArray())
+        restored.restore(q.saved(id = 1, endless = false), SavedState(1, b, q.index, 0.0, q.repeat, q.shuffle))
+        assertEquals("a", restored.previous())
+    }
+
     @Test fun playNextGoesBeforeQueuedTracksAndTheBaseQueue() {
         val q = queue()
         q.play(abcd)

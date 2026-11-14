@@ -21,6 +21,7 @@ class PlayQueue<T>(private val random: Random = Random.Default, private val id: 
         private set
     var userQueue by mutableStateOf(emptyList<T>())
         private set
+    private var playingUser = false
     var shuffle by mutableStateOf(false)
         private set
     var repeat by mutableStateOf(Repeat.Off)
@@ -104,6 +105,7 @@ class PlayQueue<T>(private val random: Random = Random.Default, private val id: 
         userQueue.firstOrNull()?.let {
             userQueue = userQueue.drop(1)
             current = it
+            playingUser = true
             remember(listOf(id(it)))
             return it
         }
@@ -118,13 +120,14 @@ class PlayQueue<T>(private val random: Random = Random.Default, private val id: 
     fun select(i: Int): T? {
         if (i !in tracks.indices) return null
         index = i
+        playingUser = false
         return tracks[i].also { current = it }
     }
 
     /** The track before the current one: the base track a Play Next track followed, else the one before it. */
     fun previous(): T? {
         val i = index ?: return null
-        return if (current !== tracks.getOrNull(i)) select(i) else select(i - 1)
+        return if (playingUser) select(i) else select(i - 1)
     }
 
     fun jumpToUpNext(offset: Int): T? = index?.let { select(it + 1 + offset) }
@@ -134,6 +137,7 @@ class PlayQueue<T>(private val random: Random = Random.Default, private val id: 
         val t = userQueue.getOrNull(offset) ?: return null
         userQueue = userQueue.drop(offset + 1)
         current = t
+        playingUser = true
         remember(listOf(id(t)))
         return t
     }
@@ -206,6 +210,8 @@ class PlayQueue<T>(private val random: Random = Random.Default, private val id: 
             index = at
         }
         current = state.current
+        // The saved state doesn't say which queue the track came from; a base track of the same id is the likely one.
+        playingUser = tracks.getOrNull(index ?: -1)?.let(id) != id(state.current)
         remember(tracks.map(id))
         repeat = state.repeat
         shuffle = state.shuffle
@@ -218,6 +224,7 @@ class PlayQueue<T>(private val random: Random = Random.Default, private val id: 
         userQueue = emptyList()
         index = null
         current = null
+        playingUser = false
         source = null
     }
 
