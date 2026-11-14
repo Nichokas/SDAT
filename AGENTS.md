@@ -26,14 +26,14 @@ Notes for coding agents working on SDAT, a TIDAL player for Fedora (GTK), iPhone
 - `android-build.yml` – Gradle build, lint and unit tests.
 - `feather-source.yml` – after an iOS release, opens a PR updating `feather/source.json`.
 - `desktop-fedora.yml` / `desktop-copr.yml` – vendor archive for `desktop-v*` releases and the COPR rebuild.
-- `release.yml` – manual release (all, desktop or iOS): tags main with the committed versions, creates the releases with GitHub-generated notes, then calls the desktop (vendor archive, COPR), iOS build and Feather workflows.
+- `release.yml` – manual release: pick a bump (`patch`, `minor`, `major` or `none`) per platform; it bumps from that platform's newest tag via `scripts/release-bump.sh`, commits to main, creates the releases with GitHub-generated notes, then calls the desktop (vendor archive, COPR), iOS build and Feather workflows.
 - `review-bot.yml` – runs the three reviewers on a PR and keeps one comment with the findings, and approves the PR when they are clean; `review-bot-test.yml` tests its script.
 - CI must use caches (`Swatinem/rust-cache`, `actions/cache`); PRs restore main's cache without saving their own.
 
 ## Releases
 
 - Tags and releases only with the owner's explicit OK.
-- Release by running the `Release` workflow on main after the version bump has merged.
+- Release by running the `Release` workflow on main; it bumps the versions itself. Desktop and iOS versions are independent.
 - Desktop: tag `desktop-vX.Y.Z`. iOS: tag `vX.Y.Z` with the unsigned `.ipa`.
 - Version lives in `sdat-desktop/Cargo.toml`, `sdat-desktop/packaging/fedora/sdat-desktop.spec`, `sdat-desktop/build/com.nichokas.SDAT.Desktop.metainfo.xml`, `sdat-desktop/flake.nix` and `sdat-mobile/Info.plist`.
 - Android: signed releases only; the signing key lives only in GitHub Actions secrets.
