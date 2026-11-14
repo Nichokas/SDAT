@@ -73,7 +73,7 @@ class PlaybackStore(private val dir: File) {
             val id = readInt()
             val offset = readInt()
             val original = readTracks()
-            val order = buildList { repeat(readInt()) { add(readInt()) } }
+            val order = buildList { repeat(readCount()) { add(readInt()) } }
             // The window's tracks, each played once.
             require(order.sorted() == original.indices.toList())
             SavedQueue(id, offset, original, order, readTracks(), readBoolean(), readOptional(this::readUTF))
@@ -122,7 +122,12 @@ private fun DataOutputStream.writeTracks(list: List<Track>) {
 }
 
 // Grown as read, so a corrupt count runs out of input instead of allocating it.
-private fun DataInputStream.readTracks(): List<Track> = buildList { repeat(readInt()) { add(readTrack()) } }
+/** A list length, rejected when it can't be one, so a corrupt file fails fast instead of looping on a huge count. */
+private fun DataInputStream.readCount() = readInt().also { require(it in 0..MAX_COUNT) }
+
+private const val MAX_COUNT = 100_000
+
+private fun DataInputStream.readTracks(): List<Track> = buildList { repeat(readCount()) { add(readTrack()) } }
 
 private fun DataOutputStream.writeTrack(t: Track) {
     writeUTF(t.id)
@@ -153,7 +158,7 @@ private fun DataInputStream.readTrack() = Track(
     durationSecs = readInt().toUInt(),
     explicit = readBoolean(),
     streamable = readBoolean(),
-    artists = buildList { repeat(readInt()) { add(ArtistRef(readUTF(), readUTF(), readOptional(this@readTrack::readUTF))) } },
+    artists = buildList { repeat(readCount()) { add(ArtistRef(readUTF(), readUTF(), readOptional(this@readTrack::readUTF))) } },
     album = readOptional { AlbumRef(readUTF(), readUTF(), readOptional(this::readUTF), readOptional(this::readUTF)) },
     bpm = readOptional(this::readDouble),
 )
