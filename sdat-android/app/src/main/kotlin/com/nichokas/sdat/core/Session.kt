@@ -47,6 +47,7 @@ class Session(context: Context) : TokenStore {
             putString(USER, tokens.userId)
         }
         Favs.clear()
+        OwnPlaylists.clear()
         sessionChanged()
         Boot.start(app)
         signedIn = true
@@ -59,6 +60,7 @@ class Session(context: Context) : TokenStore {
         prefs.edit { clear() }
         picture.value = null
         Favs.clear()
+        OwnPlaylists.clear()
         sessionChanged()
         signedIn = false
     }

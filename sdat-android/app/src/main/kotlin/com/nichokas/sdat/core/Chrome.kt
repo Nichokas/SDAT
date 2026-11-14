@@ -17,21 +17,27 @@ object Chrome {
 
     var nav by mutableStateOf(NavState())
         private set
+    val pages = PageStore()
     var bar by mutableStateOf(BarCollapse())
         private set
     var showPlayer by mutableStateOf(false)
     var toast by mutableStateOf<String?>(null)
         private set
 
-    fun push(route: Route) { nav = nav.push(route) }
+    fun push(route: Route) = navigate(nav.push(route))
 
-    fun pop() { nav = nav.pop() }
+    fun pop() = navigate(nav.pop())
 
-    fun restore(saved: NavState) { nav = saved }
+    fun restore(saved: NavState) = navigate(saved)
 
     fun select(tab: AppTab) {
         if (tab != nav.tab && bar.collapsed) setCollapsed(false)
-        nav = nav.select(tab)
+        navigate(nav.select(tab))
+    }
+
+    private fun navigate(next: NavState) {
+        nav = next
+        pages.keep(next)
     }
 
     fun setCollapsed(on: Boolean) = updateBar { bar.set(on, it) }
@@ -53,6 +59,7 @@ object Chrome {
     fun reset() {
         nav = NavState()
         settleJob?.cancel()
+        pages.clear()
         bar = BarCollapse()
         showPlayer = false
         toastJob?.cancel()

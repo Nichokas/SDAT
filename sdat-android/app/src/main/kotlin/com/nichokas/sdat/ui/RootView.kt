@@ -14,6 +14,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -29,6 +30,7 @@ import com.nichokas.sdat.core.AppTab
 import com.nichokas.sdat.core.Boot
 import com.nichokas.sdat.core.Chrome
 import com.nichokas.sdat.core.Destination
+import com.nichokas.sdat.core.PageKey
 import com.nichokas.sdat.core.Playback
 import com.nichokas.sdat.core.Preferences
 import com.nichokas.sdat.core.Route
@@ -96,6 +98,10 @@ fun RootView(session: Session, playback: Playback, prefs: Preferences, secrets: 
                     when (route) {
                         null -> TabRoot(nav.tab, session, playback, discoverMixes)
                         Route.Settings -> SettingsView(session, prefs, secrets, playback::setStreamingQuality, playback::setPreloadNext, onBack = Chrome::pop)
+                        is Route.Explore -> ExploreView(route.path, route.title)
+                        is Route.Album -> AlbumView(route.id)
+                        is Route.Playlist -> PlaylistView(route.id)
+                        is Route.Artist -> ArtistView(route.id)
                         else -> PlaceholderPage(route.title)
                     }
                 }
@@ -135,7 +141,13 @@ private fun TabStack(tab: AppTab, stack: List<Destination>, page: @Composable (R
         backStack = backStack,
         motion = motion,
         onBack = Chrome::pop,
-        entryProvider = { key -> NavEntry(key, contentKey(key)) { page((key as? Destination)?.route) } },
+        entryProvider = { key ->
+            NavEntry(key, contentKey(key)) {
+                val dest = key as? Destination
+                val pageKey = if (dest != null) PageKey.Pushed(dest.id) else PageKey.Root(key as AppTab)
+                CompositionLocalProvider(LocalPage provides pageKey) { page(dest?.route) }
+            }
+        },
     )
 }
 
@@ -144,7 +156,8 @@ private fun contentKey(key: Any): Any = if (key is Destination) key.id else key.
 @Composable
 private fun TabRoot(tab: AppTab, session: Session, playback: Playback, onMixes: (List<Mix>) -> Unit) = when (tab) {
     AppTab.Discover -> DiscoverView(session, onPlay = playback::playDiscover, onMixes = onMixes)
-    AppTab.Search, AppTab.Collection -> SdatPage(tab.label, collapsesChrome = true) {}
+    AppTab.Search -> SearchView()
+    AppTab.Collection -> SdatPage(tab.label, collapsesChrome = true) {}
 }
 
 @Composable
