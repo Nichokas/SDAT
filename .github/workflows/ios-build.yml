@@ -61,15 +61,12 @@ jobs:
           rustup toolchain install stable --profile minimal
           rustup target add aarch64-apple-ios
 
-      - name: Cache cargo
-        uses: actions/cache@v4
+      # Keyed on rustc and on this file, which holds the build flags: either changing otherwise leaves an
+      # exact-hit cache whose artifacts are all stale and never get saved again.
+      - uses: Swatinem/rust-cache@v2
         with:
-          path: |
-            ~/.cargo/registry
-            ~/.cargo/git
-            target
-          key: cargo-ios-${{ runner.os }}-${{ hashFiles('Cargo.lock') }}
-          restore-keys: cargo-ios-${{ runner.os }}-
+          shared-key: ios-${{ hashFiles('.github/workflows/ios-build.yml') }}
+          save-if: ${{ github.ref == 'refs/heads/main' }}
 
       - name: Build Rust core and Swift bindings
         run: |

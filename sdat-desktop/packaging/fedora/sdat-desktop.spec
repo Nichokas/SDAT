@@ -14,7 +14,7 @@
 %global legacy_appid dev.dergs.Tonearm
 
 Name:           sdat-desktop
-Version:        1.2.3
+Version:        1.3.0
 Release:        1%{?dist}
 Summary:        Native GTK4/libadwaita TIDAL client (Rust port)
 
@@ -111,6 +111,9 @@ glib-compile-schemas --strict --dry-run %{buildroot}%{_datadir}/glib-2.0/schemas
 %{_datadir}/icons/hicolor/128x128/apps/%{appid}.png
 
 %changelog
+* Sat Nov 14 2026 sdat-desktop CI <noreply@github.com> - 1.3.0-1
+- Update to 1.3.0
+
 * Mon Nov 02 2026 Nicolas Rodriguez-Alvarez <me@nichokas.eu> - 1.2.3-1
 - Listen Together: guests start new tracks at the right position
 - Listen Together: guests start aligned with the host position
