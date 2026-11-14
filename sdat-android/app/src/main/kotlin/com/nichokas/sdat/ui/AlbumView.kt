@@ -101,10 +101,9 @@ private class PlaylistModel(private val id: String) : AutoCloseable {
     fun load() {
         if (job?.isActive == true || state is PageLoad.Ready) return
         state = PageLoad.Loading
-        job = scope.launch {
-            launch { OwnPlaylists.load() }
-            loadPlaylist(id) { update -> state = update(state) }
-        }
+        // Kept out of the job: the ownership lookup has no deadline and must not hold off a Retry.
+        scope.launch { OwnPlaylists.load() }
+        job = scope.launch { loadPlaylist(id) { update -> state = update(state) } }
     }
 
     fun removed(t: Track) {

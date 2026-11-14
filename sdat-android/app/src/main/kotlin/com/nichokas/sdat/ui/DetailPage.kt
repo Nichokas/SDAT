@@ -173,18 +173,22 @@ fun DetailPage(
                     SdatIcon(if (isFav) "checkmark" else "plus", if (isFav) "Remove from Collection" else "Add to Collection", size = 20.dp)
                 }
             }
-            DetailMenu(title, buildList {
-                add(GlasmioCascadingMenuItem("Play Next", "text.line.first.and.arrowtriangle.forward", onClick = {
-                    player.playNext(tracks)
-                    Chrome.flash("Playing next")
-                }))
-                add(GlasmioCascadingMenuItem("Add to Queue", "text.line.last.and.arrowtriangle.forward", onClick = {
-                    player.addToQueue(tracks); Chrome.flash("Added to queue")
-                }))
-                if (favourite != null) {
-                    add(GlasmioCascadingMenuItem(if (isFav) "Remove from Collection" else "Add to Collection", if (isFav) "star.slash" else "star", separatorBefore = true, onClick = toggleFav))
+            val menu = buildList {
+                // An empty list queues nothing, so it offers nothing to confirm.
+                if (tracks.isNotEmpty()) {
+                    add(GlasmioCascadingMenuItem("Play Next", "text.line.first.and.arrowtriangle.forward", onClick = {
+                        player.playNext(tracks)
+                        Chrome.flash("Playing next")
+                    }))
+                    add(GlasmioCascadingMenuItem("Add to Queue", "text.line.last.and.arrowtriangle.forward", onClick = {
+                        player.addToQueue(tracks); Chrome.flash("Added to queue")
+                    }))
                 }
-            })
+                if (favourite != null) {
+                    add(GlasmioCascadingMenuItem(if (isFav) "Remove from Collection" else "Add to Collection", if (isFav) "star.slash" else "star", separatorBefore = isNotEmpty(), onClick = toggleFav))
+                }
+            }
+            if (menu.isNotEmpty()) DetailMenu(title, menu)
         },
     ) {
         item(key = "header") {
