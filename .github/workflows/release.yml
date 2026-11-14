@@ -37,6 +37,8 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
+          # A rerun must see a bump it already pushed, not the commit it was dispatched on.
+          ref: main
           fetch-depth: 0
           persist-credentials: false
 
@@ -67,8 +69,10 @@ jobs:
           set -euo pipefail
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git commit -qam "Release ${TAGS// /, }"
-          git push "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" HEAD:main
+          if ! git diff --quiet; then
+            git commit -qam "Release ${TAGS// /, }"
+            git push "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" HEAD:main
+          fi
           echo "SHA=$(git rev-parse HEAD)" >> "$GITHUB_ENV"
 
       - name: Create releases

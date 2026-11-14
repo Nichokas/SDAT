@@ -1,15 +1,17 @@
 #!/usr/bin/env bash
 # release-bump.sh <desktop|ios> <patch|minor|major>
 # Bumps the platform's newest release tag and writes the new version into its files.
-# Prints the new tag. Desktop and iOS versions are independent.
+# A version already in the files but not yet tagged is reused instead, so a failed release
+# can be rerun. Prints the new tag. Desktop and iOS versions are independent.
 set -euo pipefail
 platform="${1:?usage: release-bump.sh <desktop|ios> <patch|minor|major>}"
 level="${2:?usage: release-bump.sh <desktop|ios> <patch|minor|major>}"
 cd "$(dirname "$0")/.."
 
+plist=sdat-mobile/Info.plist
 case "$platform" in
-  desktop) series=desktop-v ;;
-  ios) series=v ;;
+  desktop) series=desktop-v; current="$(awk -F'"' '/^version = /{print $2; exit}' sdat-desktop/Cargo.toml)" ;;
+  ios) series=v; current="$(grep -A1 '<key>CFBundleShortVersionString</key>' "$plist" | grep -oP '<string>\K[^<]+')" ;;
   *) echo "unknown platform: $platform" >&2; exit 1 ;;
 esac
 latest="$(git tag -l "${series}*" | grep -E "^${series}[0-9]+\.[0-9]+\.[0-9]+$" | sort -V | tail -1 || true)"
@@ -21,6 +23,10 @@ case "$level" in
   patch) version="$major.$minor.$((patch + 1))" ;;
   *) echo "unknown level: $level" >&2; exit 1 ;;
 esac
+if [[ -n "$current" && "$current" != "${latest#"$series"}" && "$(printf '%s\n%s\n' "$current" "${latest#"$series"}" | sort -V | tail -1)" == "$current" ]]; then
+  echo "reusing untagged $current instead of a $level bump" >&2
+  version="$current"
+fi
 tag="$series$version"
 
 if [[ "$platform" == desktop ]]; then
@@ -33,8 +39,8 @@ if [[ "$platform" == desktop ]]; then
     entry="    <release version=\"$version\" date=\"$(date -u +%F)\">\n        <url type=\"details\">https://github.com/Nichokas/SDAT/releases/tag/$tag</url>\n    </release>"
     sed -i "0,/<releases>/s||<releases>\n$entry|" "$meta"
   fi
-else
-  plist=sdat-mobile/Info.plist
+  bash sdat-desktop/packaging/fedora/update-spec.sh "$version" --no-vendor >&2
+elif [[ "$current" != "$version" ]]; then
   build="$(grep -A1 '<key>CFBundleVersion</key>' "$plist" | grep -oP '<string>\K[0-9]+')"
   sed -i -E "/<key>CFBundleShortVersionString<\/key>/{n;s|<string>[^<]*</string>|<string>$version</string>|}" "$plist"
   sed -i -E "/<key>CFBundleVersion<\/key>/{n;s|<string>[^<]*</string>|<string>$((build + 1))</string>|}" "$plist"
