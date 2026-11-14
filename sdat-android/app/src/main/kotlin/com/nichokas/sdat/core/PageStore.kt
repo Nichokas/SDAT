@@ -25,6 +25,8 @@ class PageStore {
         slots[slot]?.let { kept ->
             @Suppress("UNCHECKED_CAST")
             if (kept.inputs == inputs) return kept.value as T
+            // Removed before closing, so an init() that throws can't leave the closed value behind.
+            slots.remove(slot)
             close(kept)
         }
         return init().also { slots[slot] = Slot(inputs, it) }

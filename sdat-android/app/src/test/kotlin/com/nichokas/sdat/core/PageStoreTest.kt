@@ -41,6 +41,15 @@ class PageStoreTest {
         assertSame(punk, store.model(search, inputs = listOf("punk")))
     }
 
+    @Test fun aFailedInitDoesNotLeaveTheClosedValueBehind() {
+        val store = PageStore()
+        val daft = store.model(search, inputs = listOf("daft"))
+        runCatching { store.get(search, 1, listOf("punk")) { error("init failed") } }
+        val again = store.model(search, inputs = listOf("daft"))
+        assertNotSame(daft, again)
+        assertFalse(again.closed)
+    }
+
     @Test fun poppingAPageDropsAndClosesItsValues() {
         val store = PageStore()
         val nav = NavState().push(Route.Playlist("1"))

@@ -84,6 +84,8 @@ class SearchModel<R>(private val debounceMs: Long = 300, private val search: sus
                     val result = search(plan.query)
                     state = state.finished(plan.query, generation, result)
                 } catch (e: CancellationException) {
+                    // Leaving the screen cancels too; a newer search has its own generation and keeps its flag.
+                    if (state.generation == generation) state = state.copy(searching = false)
                     throw e
                 } catch (e: Exception) {
                     state = state.failed(plan.query, generation, friendlyMessage(e))

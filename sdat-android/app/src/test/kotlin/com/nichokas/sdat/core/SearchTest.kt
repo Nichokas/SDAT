@@ -145,6 +145,18 @@ class SearchTest {
         assertEquals("result:justice", model.state.result)
     }
 
+    @Test fun leavingTheScreenMidSearchEndsTheSearchingFlag() = runBlocking {
+        val fake = FakeSearch()
+        fake.gates["daft"] = CompletableDeferred()
+        val model = SearchModel(debounceMs = 0, search = fake::run)
+        model.edit("daft")
+        val running = launch { model.settle() }
+        yield()
+        running.cancel()
+        running.join()
+        assertFalse(model.state.searching)
+    }
+
     @Test fun theTopArtistNeedsANameMatch() {
         assertTrue(isTopArtist("Daft Punk", "daft"))
         assertTrue(isTopArtist("Daft Punk", "daft punk discovery"))
