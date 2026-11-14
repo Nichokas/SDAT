@@ -92,6 +92,9 @@ class Playback(context: Context, private val prefs: Preferences, secrets: Secret
     val loading get() = fetching || buffering
     var error by mutableStateOf<String?>(null)
         private set
+    /** The current track plays its downloaded copy. */
+    var offline by mutableStateOf(false)
+        private set
     var position by mutableStateOf(0.0)
         private set
     var duration by mutableStateOf(0.0)
@@ -170,7 +173,7 @@ class Playback(context: Context, private val prefs: Preferences, secrets: Secret
             override fun onMediaItemTransition(item: MediaItem?, reason: Int) {
                 val next = preloading
                 val p = preloaded
-                if (reason == Player.MEDIA_ITEM_TRANSITION_REASON_AUTO && next != null && p != null && item == p.item) adopt(next, p.quality)
+                if (reason == Player.MEDIA_ITEM_TRANSITION_REASON_AUTO && next != null && p != null && item == p.item) adopt(next, p.source)
             }
 
             override fun onPlaybackStateChanged(state: Int) {
@@ -179,7 +182,10 @@ class Playback(context: Context, private val prefs: Preferences, secrets: Secret
             }
 
             override fun onPlayerError(e: PlaybackException) {
-                error = e.errorCodeName
+                val t = track
+                // A downloaded copy that won't play falls back to the online stream, from where it stopped.
+                if (offline && t != null) restart(t, player.currentPosition / 1000.0, online = true)
+                else error = e.errorCodeName
             }
         })
     }
@@ -293,9 +299,13 @@ class Playback(context: Context, private val prefs: Preferences, secrets: Secret
         if (q == prefs.streamingQuality) return
         prefs.streamingQuality = q
         val t = track ?: return
-        // The same play goes on, so it keeps what it counted towards its scrobble.
+        restart(t, position)
+    }
+
+    /** The same play goes on from [at] with another stream, so it keeps what it counted towards its scrobble. */
+    private fun restart(t: Track, at: Double, online: Boolean = false) {
         val heard = listen
-        start(t, play = player.playWhenReady, resumeAt = position)
+        start(t, play = player.playWhenReady, resumeAt = at, online = online)
         heard?.let { listen = it }
     }
 
@@ -347,7 +357,7 @@ class Playback(context: Context, private val prefs: Preferences, secrets: Secret
             player.playWhenReady = play
             if (player.playbackState == Player.STATE_IDLE) player.prepare()
             error = null
-            began(t, p.quality)
+            began(t, p.source)
             return
         }
         if (auto && t != null && t === track && player.currentMediaItem?.mediaId == t.id) {
@@ -459,7 +469,8 @@ class Playback(context: Context, private val prefs: Preferences, secrets: Secret
         if (player.isPlaying && saver.due) persist()
     }
 
-    private fun start(t: Track, play: Boolean = true, resumeAt: Double = 0.0) {
+    /** Plays the downloaded copy when there is one, unless [online]. */
+    private fun start(t: Track, play: Boolean = true, resumeAt: Double = 0.0, online: Boolean = false) {
         entry++
         request?.cancel()
         dropPreload()
@@ -472,14 +483,16 @@ class Playback(context: Context, private val prefs: Preferences, secrets: Secret
         player.stop()
         player.currentMediaItem?.let { player.replaceMediaItem(player.currentMediaItemIndex, it.buildUpon().setMediaMetadata(metadata(t)).build()) }
         error = null
+        offline = false
         // Requested before the fetch so a pause tapped while the URL loads still holds after prepare().
         player.playWhenReady = play
         persist()
         request = scope.launch {
             try {
-                val s = stream(t.id, prefs.streamingQuality)
-                shownQuality = s.actualQuality
-                player.setMediaItem(mediaItem(t, s), (resumeAt * 1000).toLong())
+                val src = source(t, online)
+                shownQuality = src.quality
+                offline = src.offline
+                player.setMediaItem(mediaItem(t, src), (resumeAt * 1000).toLong())
                 player.prepare()
                 fetching = false
                 started(t)
@@ -493,22 +506,23 @@ class Playback(context: Context, private val prefs: Preferences, secrets: Secret
     }
 
     /** A preloaded track the player moved on to by itself: it becomes the current one without a new fetch. */
-    private fun adopt(t: Track, quality: Quality) {
+    private fun adopt(t: Track, src: Source) {
         preloading = null
         preloaded = null
         player.removeMediaItem(0)
         val next = queue.advance(manual = false)
         // Preloading follows every queue change, so this is the track it fetched.
         if (next?.id != t.id) return next?.let { start(it) } ?: stopAtEnd()
-        began(t, quality)
+        began(t, src)
     }
 
     /** The preloaded item became the current one. */
-    private fun began(t: Track, quality: Quality) {
+    private fun began(t: Track, src: Source) {
         entry++
         position = 0.0
         duration = t.durationSecs.toDouble()
-        shownQuality = quality
+        shownQuality = src.quality
+        offline = src.offline
         listen = newListen(t)
         persist()
         started(t)
@@ -538,8 +552,8 @@ class Playback(context: Context, private val prefs: Preferences, secrets: Secret
         if (next == null) return
         preloading = next
         preload = scope.launch {
-            val s = try {
-                stream(next.id, prefs.streamingQuality)
+            val src = try {
+                source(next)
             } catch (e: CancellationException) {
                 throw e
             } catch (_: Exception) {
@@ -549,10 +563,17 @@ class Playback(context: Context, private val prefs: Preferences, secrets: Secret
             }
             // Dropped while the stream call returned: the player no longer expects this item.
             if (!isActive) return@launch
-            val item = mediaItem(next, s)
+            val item = mediaItem(next, src)
             player.addMediaItem(item)
-            preloaded = Preloaded(item, s.actualQuality)
+            preloaded = Preloaded(item, src)
         }
+    }
+
+    private suspend fun source(t: Track, online: Boolean = false): Source {
+        val local = if (online) null else Downloads.localStream(t.id)
+        if (local != null) return Source(Uri.fromFile(local.playlist).toString(), local.quality, offline = true)
+        val s = stream(t.id, prefs.streamingQuality)
+        return Source(s.url, s.actualQuality, offline = false)
     }
 
     private fun dropPreload() {
@@ -606,13 +627,17 @@ class Playback(context: Context, private val prefs: Preferences, secrets: Secret
         queue.clear()
         replaceInfinite(null)
         error = null
+        offline = false
         fetching = false
         listen = null
         persist()
     }
 }
 
-private class Preloaded(val item: MediaItem, val quality: Quality)
+/** Where a track plays from; [offline] for its downloaded copy. */
+private class Source(val uri: String, val quality: Quality, val offline: Boolean)
+
+private class Preloaded(val item: MediaItem, val source: Source)
 
 private val queueCommands = intArrayOf(
     Player.COMMAND_SEEK_TO_NEXT,
@@ -621,15 +646,15 @@ private val queueCommands = intArrayOf(
     Player.COMMAND_SEEK_TO_PREVIOUS_MEDIA_ITEM,
 )
 
-// The core only hands out HLS manifests.
-private fun mediaItem(t: Track, s: Stream) =
-    MediaItem.Builder().setMediaId(t.id).setUri(s.url).setMimeType(MimeTypes.APPLICATION_M3U8).setMediaMetadata(metadata(t)).build()
+// The core only hands out HLS manifests, and a download is indexed by a local one.
+private fun mediaItem(t: Track, src: Source) =
+    MediaItem.Builder().setMediaId(t.id).setUri(src.uri).setMimeType(MimeTypes.APPLICATION_M3U8).setMediaMetadata(metadata(t)).build()
 
 private fun metadata(t: Track) = MediaMetadata.Builder()
     .setTitle(t.displayTitle)
     .setArtist(t.artistLine)
     .setAlbumTitle(t.album?.title)
-    .setArtworkUri(t.album?.coverUrlLarge?.let(Uri::parse))
+    .setArtworkUri(Downloads.coverFile(t.album?.coverUrlLarge)?.let(Uri::fromFile) ?: t.album?.coverUrlLarge?.let(Uri::parse))
     .build()
 
 internal fun clampSeek(secs: Double, duration: Double) = if (duration > 0) secs.coerceIn(0.0, duration) else maxOf(secs, 0.0)

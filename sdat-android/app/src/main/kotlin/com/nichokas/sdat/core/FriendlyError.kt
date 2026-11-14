@@ -17,6 +17,7 @@ fun friendlyMessage(error: Throwable): String = when (error) {
     is FfiException.Decode -> "TIDAL sent something unexpected. Try again."
     is FfiException.LastFm -> "Last.fm: ${error.detail}"
     is FfiException.Cancelled -> "Cancelled."
+    is DownloadFailure -> error.message.orEmpty()
     is IOException -> "Can't reach TIDAL. Check your connection."
     else -> "Something went wrong. Please try again."
 }

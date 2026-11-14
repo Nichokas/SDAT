@@ -158,6 +158,7 @@ fun DetailPage(
     numbered: Boolean,
     ownPlaylistId: String?,
     onRemoved: (Track) -> Unit,
+    onRetry: (() -> Unit)? = null,
 ) {
     val player = LocalTrackPlayer.current
     val fav = favourite?.let { (kind, id) -> Fav(kind, id) }
@@ -183,6 +184,7 @@ fun DetailPage(
                     add(GlasmioCascadingMenuItem("Add to Queue", "text.line.last.and.arrowtriangle.forward", onClick = {
                         player.addToQueue(tracks); Chrome.flash("Added to queue")
                     }))
+                    addAll(downloadMenuItems(tracks))
                 }
                 if (favourite != null) {
                     add(GlasmioCascadingMenuItem(if (isFav) "Remove from Collection" else "Add to Collection", if (isFav) "star.slash" else "star", separatorBefore = isNotEmpty(), onClick = toggleFav))
@@ -224,6 +226,11 @@ fun DetailPage(
         }
         item(key = "footer") {
             Text(footer, style = IosTypography.footnote, color = GlasmioTheme.colors.secondaryContent, modifier = Modifier.padding(start = ListGutter, top = 8.dp, end = ListGutter))
+        }
+        if (onRetry != null) {
+            item(key = "retry") {
+                GlasmioButton(onRetry, Modifier.padding(start = ListGutter, top = 12.dp), size = GlasmioButtonSize.Medium) { Text("Retry") }
+            }
         }
     }
 }

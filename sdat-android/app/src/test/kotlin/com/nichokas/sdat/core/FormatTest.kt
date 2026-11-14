@@ -30,6 +30,19 @@ class FormatTest {
         assertEquals("0:00", Fmt.time(Double.NaN))
     }
 
+    @Test fun bytes() {
+        assertEquals("Zero KB", Fmt.bytes(0))
+        assertEquals("1 byte", Fmt.bytes(1))
+        assertEquals("999 bytes", Fmt.bytes(999))
+        assertEquals("640 KB", Fmt.bytes(640_123))
+        assertEquals("1 MB", Fmt.bytes(999_600))
+        assertEquals("2 MB", Fmt.bytes(2_000_000))
+        assertEquals("12.3 MB", Fmt.bytes(12_345_678))
+        assertEquals("1.2 MB", Fmt.bytes(1_150_000))
+        assertEquals("1.25 GB", Fmt.bytes(1_254_000_000))
+        assertEquals("3 GB", Fmt.bytes(3_000_000_000))
+    }
+
     @Test fun summary() {
         assertEquals("1 song · 3 min", Fmt.summary(1u, 200u))
         assertEquals("12 songs · 1 h 5 min", Fmt.summary(12u, 3900u))

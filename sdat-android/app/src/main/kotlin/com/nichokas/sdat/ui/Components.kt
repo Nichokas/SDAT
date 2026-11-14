@@ -54,6 +54,7 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import coil3.compose.AsyncImage
 import com.nichokas.sdat.core.Chrome
+import com.nichokas.sdat.core.Downloads
 import com.nichokas.sdat.core.Favs
 import com.nichokas.sdat.core.Fmt
 import com.nichokas.sdat.core.Route
@@ -128,7 +129,7 @@ fun Cover(url: String?, size: Dp, modifier: Modifier = Modifier, radius: Dp = 8.
             SdatIcon("music.note", null, size = size / 3, tint = GlasmioTheme.colors.secondaryContent)
         } else {
             AsyncImage(
-                model = CoverUrl.sized(url, px, kind),
+                model = Downloads.coverFile(url) ?: CoverUrl.sized(url, px, kind),
                 contentDescription = null,
                 contentScale = ContentScale.Crop,
                 modifier = Modifier.fillMaxSize(),
@@ -200,6 +201,7 @@ fun TrackRow(track: Track, modifier: Modifier = Modifier, showCover: Boolean = t
                 Text(track.artistLine, style = IosTypography.subheadline, color = secondary, maxLines = 1, overflow = TextOverflow.Ellipsis)
             }
         }
+        DownloadBadge(track.id)
         Text(
             Fmt.time(track.durationSecs.toDouble()),
             style = IosTypography.subheadline.copy(fontFeatureSettings = "tnum"),
@@ -229,6 +231,7 @@ fun trackMenuItems(
             player.addToQueue(listOf(track)); Chrome.flash("Added to queue")
         }))
         add(GlasmioCascadingMenuItem("Add to Playlist…", "text.badge.plus", onClick = { Chrome.playlistPickerTrack = track }))
+        addAll(downloadMenuItems(listOf(track)))
         if (ownPlaylistId != null) {
             add(GlasmioCascadingMenuItem("Remove from Playlist", "minus.circle", destructive = true, onClick = {
                 menuScope.launch {

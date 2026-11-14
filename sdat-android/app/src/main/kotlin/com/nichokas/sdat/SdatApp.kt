@@ -1,6 +1,7 @@
 package com.nichokas.sdat
 
 import android.app.Application
+import com.nichokas.sdat.core.Downloads
 import com.nichokas.sdat.core.Playback
 import com.nichokas.sdat.core.Preferences
 import com.nichokas.sdat.core.Recents
@@ -24,6 +25,7 @@ class SdatApp : Application() {
         super.onCreate()
         session = Session(this)
         prefs = Preferences(this)
+        Downloads.init(this, prefs) { DownloadService.start(this) }
         secrets = Secrets(this)
         Recents.open(File(filesDir, "recents"))
         val settings = Settings(filesDir.path, prefs)

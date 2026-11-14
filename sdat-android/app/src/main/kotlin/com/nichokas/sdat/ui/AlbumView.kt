@@ -7,6 +7,7 @@ import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import com.nichokas.sdat.core.Downloads
 import com.nichokas.sdat.core.Fmt
 import com.nichokas.sdat.core.LocalRecent
 import com.nichokas.sdat.core.OwnPlaylists
@@ -66,6 +67,28 @@ fun AlbumView(id: String) {
         if (state is PageLoad.Ready) return@LaunchedEffect
         state = PageLoad.Loading
         state = loadWithin(ALBUM_DEADLINE_MS) { album(id) }
+        (state as? PageLoad.Ready)?.let { Downloads.note(it.value) }
+    }
+    // Offline, the album's downloaded tracks stand in for the page, as on iOS.
+    val offline = if (state is PageLoad.Failed) Downloads.tracksInAlbum(id) else emptyList()
+    val album = offline.firstOrNull()?.album
+    if (album != null) {
+        val (artist, year) = Downloads.albumInfo(id)
+        return DetailPage(
+            title = album.title,
+            subtitle = joinDot(artist ?: offline.first().artistLine, year),
+            subtitleRoute = null,
+            cover = album.coverUrlLarge ?: album.coverUrl,
+            mosaic = emptyList(),
+            tracks = offline,
+            loadingMore = false,
+            footer = "Offline – showing downloaded songs only\n" + Fmt.summary(offline.size.toUInt(), offline.sumOf { it.durationSecs }),
+            favourite = null,
+            numbered = false,
+            ownPlaylistId = null,
+            onRemoved = {},
+            onRetry = { attempt++ },
+        )
     }
     LoadedPage(state, onRetry = { attempt++ }) { d ->
         val a = d.album

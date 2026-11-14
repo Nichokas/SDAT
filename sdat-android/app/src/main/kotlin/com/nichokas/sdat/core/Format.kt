@@ -1,5 +1,7 @@
 package com.nichokas.sdat.core
 
+import java.math.BigDecimal
+import java.math.RoundingMode
 import java.time.Instant
 import java.time.LocalDate
 import java.time.ZoneId
@@ -26,6 +28,20 @@ object Fmt {
         val mins = (secs / 60u).toInt()
         val dur = if (mins >= 60) "${mins / 60} h ${mins % 60} min" else "$mins min"
         return "$count ${if (count == 1u) "song" else "songs"} · $dur"
+    }
+
+    /** Decimal units like iOS ByteCountFormatter's file style: "Zero KB", "640 KB", "12.3 MB", "1.25 GB". */
+    fun bytes(n: Long): String {
+        fun scaled(unit: Long, decimals: Int) =
+            BigDecimal(n).divide(BigDecimal(unit), decimals, RoundingMode.HALF_EVEN).stripTrailingZeros().toPlainString()
+        return when {
+            n == 0L -> "Zero KB"
+            n == 1L -> "1 byte"
+            n < 1_000 -> "$n bytes"
+            n < 999_500 -> "${scaled(1_000, 0)} KB"
+            n < 999_950_000 -> "${scaled(1_000_000, 1)} MB"
+            else -> "${scaled(1_000_000_000, 2)} GB"
+        }
     }
 
     fun updated(ts: Long?, zone: ZoneId = ZoneId.systemDefault(), today: LocalDate = LocalDate.now(zone)): String? {

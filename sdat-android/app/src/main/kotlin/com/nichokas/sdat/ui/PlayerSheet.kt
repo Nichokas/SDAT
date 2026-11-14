@@ -158,7 +158,10 @@ private fun NowPlayingPage(playback: Playback, track: Track, showQueue: () -> Un
         AnimatedContent(track, Modifier.fillMaxWidth(), transitionSpec = { slide() }, contentKey = { it.id }, label = "title") { t ->
             Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                 Text(t.displayTitle, style = IosTypography.title3, fontWeight = FontWeight.Bold, color = Color.White, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                Text(t.artistLine, style = IosTypography.body, color = dimmed, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                Row(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically) {
+                    if (playback.offline && playback.track?.id == t.id) SdatIcon("arrow.down.circle.fill", "Playing downloaded copy", size = 15.dp, tint = dimmed)
+                    Text(t.artistLine, style = IosTypography.body, color = dimmed, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                }
             }
         }
         // A new queue entry, even of the same track, drops the slider and any drag on it, so a release can't seek it to the old one's place.
