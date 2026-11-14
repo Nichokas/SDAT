@@ -184,7 +184,7 @@ class Playback(context: Context, private val prefs: Preferences, secrets: Secret
             override fun onPlayerError(e: PlaybackException) {
                 val t = track
                 // A downloaded copy that won't play falls back to the online stream, from where it stopped.
-                if (offline && t != null) start(t, play = player.playWhenReady, resumeAt = player.currentPosition / 1000.0, online = true)
+                if (offline && t != null) restart(t, player.currentPosition / 1000.0, online = true)
                 else error = e.errorCodeName
             }
         })
@@ -299,9 +299,13 @@ class Playback(context: Context, private val prefs: Preferences, secrets: Secret
         if (q == prefs.streamingQuality) return
         prefs.streamingQuality = q
         val t = track ?: return
-        // The same play goes on, so it keeps what it counted towards its scrobble.
+        restart(t, position)
+    }
+
+    /** The same play goes on from [at] with another stream, so it keeps what it counted towards its scrobble. */
+    private fun restart(t: Track, at: Double, online: Boolean = false) {
         val heard = listen
-        start(t, play = player.playWhenReady, resumeAt = position)
+        start(t, play = player.playWhenReady, resumeAt = at, online = online)
         heard?.let { listen = it }
     }
 
