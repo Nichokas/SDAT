@@ -65,7 +65,7 @@ jobs:
           done
           for tag in "${tags[@]}"; do
             series="${tag%%[0-9]*}"
-            prev="$(git tag -l "${series}*" | grep -E "^${series}[0-9]+\.[0-9]+\.[0-9]+$" | sort -V | tail -1)"
+            prev="$(git tag -l "${series}*" | grep -E "^${series}[0-9]+\.[0-9]+\.[0-9]+$" | sort -V | tail -1 || true)"
             args=(--target "$GITHUB_SHA" --generate-notes)
             [[ -n "$prev" ]] && args+=(--notes-start-tag "$prev")
             if [[ "$series" == desktop-v ]]; then
@@ -97,6 +97,7 @@ jobs:
 
   feather:
     needs: [tag, ios]
+    if: needs.tag.outputs.ios != ''
     permissions:
       contents: write
       pull-requests: write
