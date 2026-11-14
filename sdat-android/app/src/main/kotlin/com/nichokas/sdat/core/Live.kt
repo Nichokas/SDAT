@@ -160,6 +160,14 @@ object Live {
         finish(LiveMode.Idle)
     }
 
+    /** Sign-out: guests must not stay connected to, or keep following, a signed-out account. */
+    fun signOut() {
+        leave()
+        showSheet = false
+        showScanner = false
+        cache.clear()
+    }
+
     fun dismissEnded() {
         if (mode is LiveMode.Ended) mode = LiveMode.Idle
     }
