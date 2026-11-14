@@ -119,7 +119,8 @@ class Playback(context: Context, private val prefs: Preferences, secrets: Secret
             when (seekAction(seekCommand, mediaItemIndex, player.currentMediaItemIndex)) {
                 Seek.Next -> next()
                 Seek.Previous -> previous()
-                Seek.InCurrent -> return super.handleSeek(mediaItemIndex, positionMs, seekCommand)
+                // Through [seek], so a seek while paused is kept and saved.
+                Seek.InCurrent -> seek(if (positionMs == C.TIME_UNSET) 0.0 else positionMs / 1000.0)
                 Seek.Ignore -> {}
             }
             return Futures.immediateVoidFuture()
