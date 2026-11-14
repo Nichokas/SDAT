@@ -295,6 +295,18 @@ class PlayQueueTest {
         assertEquals(restored.tracks.sortedBy { it.drop(1).toInt() }, restored.tracks)
     }
 
+    @Test fun restoreWithAnIndexOutsideItsWindowKeepsJustTheTrack() {
+        val q = queue()
+        q.play(abcd)
+        q.addToQueue("x")
+        val saved = q.saved(id = 1, endless = false)
+        val restored = queue()
+        restored.restore(saved, SavedState(1, "c", 9, 0.0, Repeat.Off, shuffle = false))
+        assertEquals(listOf("c"), restored.tracks)
+        assertEquals(0, restored.index)
+        assertEquals(emptyList<String>(), restored.userQueue)
+    }
+
     @Test fun restoreWithoutItsQueueKeepsJustTheTrack() {
         val q = queue()
         q.restore(null, SavedState(1, "c", 7, 0.0, Repeat.Off, shuffle = false))

@@ -52,10 +52,12 @@ class PlaybackStoreTest {
         assertEquals(state to queue, store().load())
     }
 
-    @Test fun anOrderOutsideItsTracksIsUnreadable() {
-        store().saveQueue(queue.copy(order = listOf(2)))
-        store().saveState(state)
-        assertEquals(state to null, store().load())
+    @Test fun anOrderThatIsNotItsTracksOnceEachIsUnreadable() {
+        for (order in listOf(listOf(2, 0), emptyList(), listOf(0, 0), listOf(1, 0, 1))) {
+            store().saveQueue(queue.copy(order = order))
+            store().saveState(state)
+            assertEquals(state to null, store().load())
+        }
     }
 
     @Test fun anUnreadableStateDropsBothFiles() {

@@ -74,7 +74,8 @@ class PlaybackStore(private val dir: File) {
             val offset = readInt()
             val original = readTracks()
             val order = buildList { repeat(readInt()) { add(readInt()) } }
-            require(order.all { it in original.indices })
+            // The window's tracks, each played once.
+            require(order.sorted() == original.indices.toList())
             SavedQueue(id, offset, original, order, readTracks(), readBoolean(), readOptional(this::readUTF))
         }
         return state to queue?.takeIf { it.id == state.queueId }

@@ -182,17 +182,19 @@ class PlayQueue<T>(private val random: Random = Random.Default, private val id: 
         return SavedQueue(id, w.first, kept.map(original::get), order.slice(w).map(rank::getValue), userQueue.take(MAX_SAVED), endless, source)
     }
 
-    /** iOS restore: without its queue the saved track is the whole queue; an index outside the window is dropped. */
+    /** iOS restore: without its queue, or with one whose window lacks the saved index, the saved track is the whole
+     * queue. */
     fun restore(saved: SavedQueue<T>?, state: SavedState<T>) {
         clear()
-        if (saved == null) {
+        val at = saved?.let { q -> state.index?.minus(q.offset)?.takeIf { it in q.order.indices } }
+        if (saved == null || at == null) {
             setBase(listOf(state.current), listOf(0))
             index = 0
         } else {
             setBase(saved.original, saved.order)
             userQueue = saved.userQueue
             source = saved.source
-            index = state.index?.minus(saved.offset)?.takeIf { it in tracks.indices }
+            index = at
         }
         current = state.current
         remember(tracks.map(id))
