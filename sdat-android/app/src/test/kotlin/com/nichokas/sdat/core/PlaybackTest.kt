@@ -22,12 +22,6 @@ class PlaybackTest {
         assertEquals(Tap.Resume, tapAction(unprepared = false, ended = false, playWhenReady = false))
     }
 
-    @Test fun previousRestartsPastThreeSecondsOrOnTheFirstTrack() {
-        assertTrue(restartsOnPrevious(position = 3.5, index = 2))
-        assertTrue(restartsOnPrevious(position = 0.0, index = 0))
-        assertFalse(restartsOnPrevious(position = 3.0, index = 2))
-    }
-
     @Test fun progressIsPositionOverDurationCappedAtOne() {
         assertEquals(0.25, progress(30.0, 120.0), 1e-9)
         assertEquals(1.0, progress(130.0, 120.0), 1e-9)

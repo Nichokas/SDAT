@@ -141,6 +141,17 @@ class PlayQueueTest {
         assertNull(q.startInfinite(emptyList()))
     }
 
+    @Test fun previousFromAPlayNextTrackReturnsToTheBaseTrackItFollowed() {
+        val q = queue()
+        q.play(listOf("a", "b", "c"), startAt = 1)
+        q.playNext("x")
+        assertEquals("x", q.advance(manual = true))
+        assertEquals("b", q.previous())
+        assertEquals("a", q.previous())
+        assertNull(q.previous())
+        assertEquals("a", q.current)
+    }
+
     @Test fun playNextGoesBeforeQueuedTracksAndTheBaseQueue() {
         val q = queue()
         q.play(abcd)

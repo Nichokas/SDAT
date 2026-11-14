@@ -121,6 +121,12 @@ class PlayQueue<T>(private val random: Random = Random.Default, private val id: 
         return tracks[i].also { current = it }
     }
 
+    /** The track before the current one: the base track a Play Next track followed, else the one before it. */
+    fun previous(): T? {
+        val i = index ?: return null
+        return if (current !== tracks.getOrNull(i)) select(i) else select(i - 1)
+    }
+
     fun jumpToUpNext(offset: Int): T? = index?.let { select(it + 1 + offset) }
 
     /** Plays that user-queue track, dropping the ones before it. */

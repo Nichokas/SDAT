@@ -310,8 +310,9 @@ class Playback(context: Context, private val prefs: Preferences, secrets: Secret
     }
 
     fun previous() {
-        val i = queue.index ?: return
-        if (restartsOnPrevious(position, i)) seek(0.0) else queue.select(i - 1)?.let { start(it) }
+        if (track == null) return
+        val prev = if (position > 3) null else queue.previous()
+        if (prev == null) seek(0.0) else start(prev)
     }
 
     /** Ignored while the stream URL loads: the new item starts from its beginning. */
@@ -635,8 +636,6 @@ val Quality.badgeText get() = when (this) {
 internal fun progress(position: Double, duration: Double) = if (duration > 0) minOf(position / duration, 1.0) else 0.0
 
 /** Like iOS: past 3 s, or on the first track, previous goes back to its start; otherwise to the track before. */
-internal fun restartsOnPrevious(position: Double, index: Int) = position > 3 || index == 0
-
 internal enum class Seek { Next, Previous, InCurrent, Ignore }
 
 /** A controller's seek: the player holds only the current item and the preloaded one behind it, so moving to another
