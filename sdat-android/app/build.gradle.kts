@@ -15,7 +15,7 @@ android {
         minSdk = 33
         targetSdk = 37
         versionCode = 1
-        versionName = "0.1.0"
+        versionName = "0.0.0"
     }
     // One APK per ABI (the only two the Rust core is built for): a phone installs just its own copy of the core.
     splits {
