@@ -164,8 +164,13 @@ internal class GuestFollower(
             }
             return
         }
+        // The host came back to the loaded track: a lookup still running for another one is stale.
+        if (switching != null) {
+            switching = null
+            lookup++
+        }
         // Mid-seek or rebuffering the position is frozen: the error would look huge and cause seek after seek.
-        if (player.loading || switching != null || player.liveSeeking) return
+        if (player.loading || player.liveSeeking) return
         // Paused by the system: wait for the user or the system to resume instead of restarting on the speaker.
         if (t.playing && !player.isPlaying && player.systemPaused) return
         if (t.playing != player.isPlaying) {

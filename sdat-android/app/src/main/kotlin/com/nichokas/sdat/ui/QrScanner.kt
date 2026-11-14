@@ -161,7 +161,8 @@ class QrScannerView(context: Context, private val onCode: (String) -> Unit) : Fr
 
             override fun onDisconnected(device: CameraDevice) {
                 device.close()
-                if (camera === device) close()
+                // camera is still null when the open itself failed: its pending target is cleared too.
+                if (camera === device || camera == null) close()
             }
 
             override fun onError(device: CameraDevice, error: Int) = onDisconnected(device)
