@@ -52,6 +52,12 @@ object Downloads {
     // One file write at a time, in call order, so the last snapshot always lands last.
     private val writes = Dispatchers.IO.limitedParallelism(1)
 
+    // Held while a write checks it is still current and lands, so a sign-out can't fall in between.
+    private val lock = Any()
+
+    /** Bumped by [removeAll], so the index and queue snapshots taken before it are never written. */
+    @Volatile private var generation = 0
+
     var entries by mutableStateOf<Map<String, DownloadEntry>>(emptyMap())
         private set
     var queue by mutableStateOf(DownloadQueue())
@@ -172,9 +178,11 @@ object Downloads {
         albumMeta.clear()
         // The index and the saved queue go before this returns, so a process killed right after sign-out cannot reload
         // the old account's downloads; waiting behind the write queue could block the main thread on a large delete.
-        // The queued delete removes them again in case a write queued earlier brings them back.
-        File(dir, INDEX).delete()
-        File(dir, PENDING).delete()
+        synchronized(lock) {
+            generation++
+            File(dir, INDEX).delete()
+            File(dir, PENDING).delete()
+        }
         scope.launch(writes) { dir.deleteRecursively() }
     }
 
@@ -249,8 +257,9 @@ object Downloads {
         }
         entries = entries + (t.id to e)
         val snapshot = entries
+        val gen = generation
         scope.launch(writes) {
-            if (atomicWrite(File(dir, INDEX), DownloadIndex.encode(snapshot))) return@launch
+            if (atomicWrite(File(dir, INDEX), DownloadIndex.encode(snapshot), gen)) return@launch
             // Without the index the copy is gone after a restart, so it is not counted as saved now either.
             withContext(Dispatchers.Main) {
                 if (entries[t.id] !== e) return@withContext
@@ -428,22 +437,26 @@ object Downloads {
 
     private fun saveIndex() {
         val snapshot = entries
-        scope.launch(writes) { atomicWrite(File(dir, INDEX), DownloadIndex.encode(snapshot)) }
+        val gen = generation
+        scope.launch(writes) { atomicWrite(File(dir, INDEX), DownloadIndex.encode(snapshot), gen) }
     }
 
     /** Skipped while a restore runs: the file still holds the saved queue, and the restore writes the merged one. */
     private fun savePending() {
         if (frozen || restoring?.isActive == true) return
         val list = queue.active
+        val gen = generation
         scope.launch(writes) {
             val file = File(dir, PENDING)
-            if (list.isEmpty()) file.delete() else atomicWrite(file, JSONArray(list.map(TrackJson::encode)).toString())
+            if (list.isEmpty()) file.delete() else atomicWrite(file, JSONArray(list.map(TrackJson::encode)).toString(), gen)
         }
     }
 
-    private fun atomicWrite(file: File, text: String): Boolean {
+    /** False, writing nothing, when [removeAll] ran after [gen] was read. */
+    private fun atomicWrite(file: File, text: String, gen: Int): Boolean = synchronized(lock) {
+        if (gen != generation) return false
         val tmp = File(dir, file.name + ".tmp")
-        return try {
+        try {
             dir.mkdirs()
             tmp.writeText(text)
             tmp.renameTo(file).also { if (!it) tmp.delete() }
