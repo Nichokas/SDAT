@@ -344,6 +344,7 @@ class Playback(context: Context, private val prefs: Preferences, secrets: Secret
             player.seekToDefaultPosition()
             player.playWhenReady = play
             position = 0.0
+            entry++
             listen = newListen(t)
             persist()
             started(t)
@@ -565,6 +566,7 @@ class Playback(context: Context, private val prefs: Preferences, secrets: Secret
         when (tapAction(unprepared, player.playbackState == Player.STATE_ENDED, player.playWhenReady)) {
             Tap.Retry -> start(t, resumeAt = position)
             Tap.Replay -> {
+                entry++
                 listen = newListen(t)
                 player.seekToDefaultPosition()
                 player.play()

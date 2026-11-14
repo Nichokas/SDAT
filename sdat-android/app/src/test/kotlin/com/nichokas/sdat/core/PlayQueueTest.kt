@@ -162,6 +162,16 @@ class PlayQueueTest {
         assertEquals("a", restored.previous())
     }
 
+    @Test fun appendSkipsAPlayNextTrackPlayingAtRestore() {
+        val q = queue()
+        q.play(listOf("a", "b"))
+        q.playNext("x")
+        q.advance(manual = true)
+        val restored = queue()
+        restored.restore(q.saved(id = 1, endless = true), SavedState(1, "x", q.index, 0.0, q.repeat, q.shuffle))
+        assertFalse(restored.append(listOf("x")))
+    }
+
     @Test fun playNextGoesBeforeQueuedTracksAndTheBaseQueue() {
         val q = queue()
         q.play(abcd)

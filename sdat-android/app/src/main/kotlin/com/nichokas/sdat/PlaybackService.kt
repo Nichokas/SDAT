@@ -60,7 +60,7 @@ class PlaybackService : MediaSessionService() {
         override fun onConnectAsync(session: MediaSession, controller: MediaSession.ControllerInfo): ListenableFuture<MediaSession.ConnectionResult> {
             val defaults = MediaSession.ConnectionResult.AcceptedResultBuilder(session, controller).build()
             if (!session.mayFavourite(controller)) return Futures.immediateFuture(defaults)
-            val commands = defaults.availableSessionCommands.buildUpon().add(favourite).build()
+            val commands = defaults.availableSessionCommands.buildUpon().add(addFavourite).add(removeFavourite).build()
             return Futures.immediateFuture(MediaSession.ConnectionResult.AcceptedResultBuilder(session, controller).setAvailableSessionCommands(commands).build())
         }
 
@@ -70,10 +70,14 @@ class PlaybackService : MediaSessionService() {
             customCommand: SessionCommand,
             args: Bundle,
         ): ListenableFuture<SessionResult> {
-            if (customCommand.customAction != favourite.customAction) return super.onCustomCommand(session, controller, customCommand, args)
+            val on = when (customCommand.customAction) {
+                addFavourite.customAction -> true
+                removeFavourite.customAction -> false
+                else -> return super.onCustomCommand(session, controller, customCommand, args)
+            }
             if (!session.mayFavourite(controller)) return Futures.immediateFuture(SessionResult(SessionError.ERROR_PERMISSION_DENIED))
-            // Sets what the button showed, like the player sheet's star.
-            playback.track?.let { Favs.set(it.id, Favs.known(it.id) != true) }
+            // Each button sends its own command, so a tap does what the button showed even if the state changed since.
+            playback.track?.let { Favs.set(it.id, on) }
             return Futures.immediateFuture(SessionResult(SessionResult.RESULT_SUCCESS))
         }
     }
@@ -84,9 +88,10 @@ class PlaybackService : MediaSessionService() {
 @OptIn(UnstableApi::class)
 private fun MediaSession.mayFavourite(controller: MediaSession.ControllerInfo) = isMediaNotificationController(controller)
 
-private val favourite = SessionCommand("com.nichokas.sdat.FAVOURITE", Bundle.EMPTY)
+private val addFavourite = SessionCommand("com.nichokas.sdat.FAVOURITE_ADD", Bundle.EMPTY)
+private val removeFavourite = SessionCommand("com.nichokas.sdat.FAVOURITE_REMOVE", Bundle.EMPTY)
 
 private fun favouriteButton(fav: Boolean) = CommandButton.Builder(if (fav) CommandButton.ICON_STAR_FILLED else CommandButton.ICON_STAR_UNFILLED)
     .setDisplayName(if (fav) "Remove from Favourites" else "Add to Favourites")
-    .setSessionCommand(favourite)
+    .setSessionCommand(if (fav) removeFavourite else addFavourite)
     .build()

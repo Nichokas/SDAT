@@ -212,7 +212,7 @@ class PlayQueue<T>(private val random: Random = Random.Default, private val id: 
         current = state.current
         // The saved state doesn't say which queue the track came from; a base track of the same id is the likely one.
         playingUser = tracks.getOrNull(index ?: -1)?.let(id) != id(state.current)
-        remember(tracks.map(id))
+        remember(tracks.map(id) + id(state.current))
         repeat = state.repeat
         shuffle = state.shuffle
     }
