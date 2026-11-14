@@ -148,15 +148,7 @@ private fun <T> PageLoad<T>.mapReady(f: (T) -> T): PageLoad<T> = if (this is Pag
 private suspend fun loadPlaylist(id: String, update: ((PageLoad<PlaylistPage>) -> PageLoad<PlaylistPage>) -> Unit) {
     playlistTracks(id).use { pager ->
         coroutineScope {
-            val first = async {
-                try {
-                    pager.nextPage().orEmpty()
-                } catch (e: CancellationException) {
-                    throw e
-                } catch (_: Exception) {
-                    emptyList()
-                }
-            }
+            val first = async { loadWithin(PLAYLIST_DEADLINE_MS) { pager.nextPage().orEmpty() } }
             val header = when (val h = loadWithin(PLAYLIST_DEADLINE_MS) { playlist(id) }) {
                 is PageLoad.Ready -> h.value
                 is PageLoad.Failed -> {
@@ -166,7 +158,15 @@ private suspend fun loadPlaylist(id: String, update: ((PageLoad<PlaylistPage>) -
                 }
                 PageLoad.Loading -> return@coroutineScope
             }
-            val tracks = first.await()
+            // Unlike iOS, which shows an empty playlist, a failed first page gets the retry the header has.
+            val tracks = when (val f = first.await()) {
+                is PageLoad.Ready -> f.value
+                is PageLoad.Failed -> {
+                    update { f }
+                    return@coroutineScope
+                }
+                PageLoad.Loading -> return@coroutineScope
+            }
             update { PageLoad.Ready(PlaylistPage(header, tracks, loadingMore = true)) }
             pageThrough(tracks.size, PLAYLIST_CAP, pager::nextPage) { page ->
                 update { s -> s.mapReady { it.copy(tracks = it.tracks + page) } }
