@@ -17,6 +17,7 @@ import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -89,7 +90,9 @@ fun downloadMenuItems(tracks: List<Track>): List<GlasmioCascadingMenuItem> {
 /** Small mark on track rows: a ring while queued or downloading, a filled arrow once saved. */
 @Composable
 fun DownloadBadge(id: String) {
-    when (val s = Downloads.state(id)) {
+    // Every fragment updates the queue; only the row whose state changed redraws.
+    val state by remember(id) { derivedStateOf { Downloads.state(id) } }
+    when (val s = state) {
         DownloadState.Done -> SdatIcon("arrow.down.circle.fill", "Downloaded", size = 14.dp, tint = GlasmioTheme.colors.secondaryContent)
         is DownloadState.Downloading -> DownloadRing(s.fraction)
         DownloadState.Queued -> DownloadRing(0.0)

@@ -158,6 +158,7 @@ fun DetailPage(
     numbered: Boolean,
     ownPlaylistId: String?,
     onRemoved: (Track) -> Unit,
+    onRetry: (() -> Unit)? = null,
 ) {
     val player = LocalTrackPlayer.current
     val fav = favourite?.let { (kind, id) -> Fav(kind, id) }
@@ -225,6 +226,11 @@ fun DetailPage(
         }
         item(key = "footer") {
             Text(footer, style = IosTypography.footnote, color = GlasmioTheme.colors.secondaryContent, modifier = Modifier.padding(start = ListGutter, top = 8.dp, end = ListGutter))
+        }
+        if (onRetry != null) {
+            item(key = "retry") {
+                GlasmioButton(onRetry, Modifier.padding(start = ListGutter, top = 12.dp), size = GlasmioButtonSize.Medium) { Text("Retry") }
+            }
         }
     }
 }

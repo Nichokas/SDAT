@@ -87,6 +87,7 @@ fun AlbumView(id: String) {
             numbered = false,
             ownPlaylistId = null,
             onRemoved = {},
+            onRetry = { attempt++ },
         )
     }
     LoadedPage(state, onRetry = { attempt++ }) { d ->
