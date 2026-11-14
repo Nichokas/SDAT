@@ -277,7 +277,7 @@ object Live {
                     player.insertUpNext(track, h.playNextOffset(listOf(id)).toInt())
                     hostTick()
                 } else {
-                    player.addToQueue(track)
+                    player.addToQueue(listOf(track))
                 }
             }
             hostEnqueueJob = null

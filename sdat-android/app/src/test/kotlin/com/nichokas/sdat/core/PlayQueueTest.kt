@@ -206,8 +206,7 @@ class PlayQueueTest {
     @Test fun insertUserPlacesTheTrackAtTheOffsetAndClampsOutOfRange() {
         val q = queue()
         q.play(abcd)
-        q.addToQueue("x")
-        q.addToQueue("y")
+        q.addToQueue(listOf("x", "y"))
         q.insertUser("z", 1)
         q.insertUser("w", 9)
         q.insertUser("v", -1)
