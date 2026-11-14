@@ -32,7 +32,7 @@ data class SavedState<T>(
 )
 
 /** iOS PlaybackStore: what survives a restart, as two files in [dir] so the frequent position writes stay small.
- * Blocking; Playback calls it on one background thread, which keeps the writes in order. */
+ * Blocking; [QueueSaver] calls it on one background thread, which keeps the writes in order. */
 class PlaybackStore(private val dir: File) {
     private val queueFile = File(dir, "playback-queue")
     private val stateFile = File(dir, "playback-state")

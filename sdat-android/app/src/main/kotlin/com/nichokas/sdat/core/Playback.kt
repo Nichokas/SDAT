@@ -2,7 +2,6 @@ package com.nichokas.sdat.core
 
 import android.content.Context
 import android.net.Uri
-import android.os.SystemClock
 import androidx.annotation.OptIn
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -20,7 +19,6 @@ import androidx.media3.exoplayer.ExoPlayer
 import com.google.common.util.concurrent.Futures
 import com.google.common.util.concurrent.ListenableFuture
 import com.nichokas.sdat.ui.TrackPlayer
-import java.util.concurrent.Executors
 import kotlin.coroutines.cancellation.CancellationException
 import kotlinx.coroutines.Deferred
 import kotlinx.coroutines.Job
@@ -31,9 +29,7 @@ import kotlinx.coroutines.job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.MainScope
-import kotlinx.coroutines.asCoroutineDispatcher
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.withContext
 import uniffi.tonearm_ffi.Mix
 import uniffi.tonearm_ffi.Quality
 import uniffi.tonearm_ffi.Shuffle
@@ -64,21 +60,12 @@ class Playback(context: Context, private val prefs: Preferences, secrets: Secret
     private var preloading: Track? = null
     private var preloaded: Preloaded? = null
     private var preload: Job? = null
-    private val store = PlaybackStore(context.filesDir)
-    private val io = Executors.newSingleThreadExecutor().asCoroutineDispatcher()
-    /** The queue file on disk; a state is saved only against it. Only touched on [io]. */
-    private var diskQueueId: Int? = null
+    private val saver = QueueSaver(context.filesDir, scope)
     private var restoring = true
     /** A restored Discover queue, until [resumeInfinite] gives it its endless source back. */
     private var restoredEndless = false
     /** Home mixes that arrived while the saved queue was still loading. */
     private var pendingMixes: List<Mix>? = null
-    private var queueId = 0
-    /** The lists the queue file was cut from. */
-    private var savedLists: List<Any?>? = null
-    /** The base-queue indices the queue file holds. */
-    private var savedRange = IntRange.EMPTY
-    private var lastSave = 0L
     /** Bumped by every [start], so a refill that waited can tell a newer play took over the same track. */
     private var starts = 0
 
@@ -147,7 +134,7 @@ class Playback(context: Context, private val prefs: Preferences, secrets: Secret
     }
 
     private val restore = scope.launch {
-        val saved = withContext(io) { store.load() }
+        val saved = saver.load()
         restoring = false
         // Anything played meanwhile wins, and is saved now that persisting is on.
         if (track != null) return@launch persist()
@@ -155,8 +142,6 @@ class Playback(context: Context, private val prefs: Preferences, secrets: Secret
         val (state, queued) = saved
         queue.restore(queued, state)
         restoredEndless = queued?.endless == true
-        // The queue file is rewritten on the next persist: the restored index no longer counts from its offset.
-        queueId = state.queueId
         duration = state.current.durationSecs.toDouble()
         position = maxOf(0.0, minOf(state.position, if (duration > 0) duration - 1 else state.position))
         pendingMixes?.let(::resumeInfinite)
@@ -455,7 +440,7 @@ class Playback(context: Context, private val prefs: Preferences, secrets: Secret
         position = player.currentPosition / 1000.0
         if (player.duration != C.TIME_UNSET && player.duration > 0) duration = player.duration / 1000.0
         listen?.let { if (it.heard(from, position, player.isPlaying)) scrobbler.scrobble(it) }
-        if (player.isPlaying && SystemClock.elapsedRealtime() - lastSave > 5000) persist()
+        if (player.isPlaying && saver.due) persist()
     }
 
     private fun start(t: Track, play: Boolean = true, resumeAt: Double = 0.0) {
@@ -563,34 +548,8 @@ class Playback(context: Context, private val prefs: Preferences, secrets: Secret
 
     private val endless get() = infinite != null || restoredEndless
 
-    private fun queueLists() = listOf(queue.tracks, queue.original, queue.userQueue, queue.source, endless)
-
-    /** iOS persist: the small state on every call, the queue only when it changed. */
     private fun persist() {
-        if (restoring) return
-        lastSave = SystemClock.elapsedRealtime()
-        val current = queue.current
-        if (current == null) {
-            savedLists = null
-            scope.launch(io) { store.clear() }
-            return
-        }
-        val lists = queueLists()
-        if (queueFileStale(savedLists, lists, savedRange, queue.index)) {
-            savedLists = lists
-            val saved = queue.saved(++queueId, endless)
-            savedRange = saved.offset until saved.offset + saved.order.size
-            scope.launch(io) {
-                if (store.saveQueue(saved)) {
-                    diskQueueId = saved.id
-                } else {
-                    // The next persist tries again; until then states stay with the queue file still on disk.
-                    scope.launch { if (savedLists === lists) savedLists = null }
-                }
-            }
-        }
-        val state = SavedState(queueId, current, queue.index, position, queue.repeat, queue.shuffle)
-        scope.launch(io) { if (state.queueId == diskQueueId) store.saveState(state) }
+        if (!restoring) saver.save(queue, endless, position)
     }
 
     /** After a failure or a controller's stop there is nothing prepared, so this starts the track again where it was;
@@ -652,11 +611,6 @@ private fun metadata(t: Track) = MediaMetadata.Builder()
     .setAlbumTitle(t.album?.title)
     .setArtworkUri(t.album?.coverUrlLarge?.let(Uri::parse))
     .build()
-
-/** The queue file must be rewritten when a list it was cut from was replaced (PlayQueue replaces a list whenever it
- * changes) or the playing index left the window it holds. */
-internal fun queueFileStale(saved: List<Any?>?, now: List<Any?>, savedRange: IntRange, index: Int?) =
-    saved == null || saved.zip(now).any { (a, b) -> a !== b } || index != null && index !in savedRange
 
 internal fun clampSeek(secs: Double, duration: Double) = if (duration > 0) secs.coerceIn(0.0, duration) else maxOf(secs, 0.0)
 

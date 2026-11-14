@@ -41,16 +41,6 @@ class PlaybackTest {
         assertEquals(42.0, clampSeek(42.0, 0.0), 1e-9)
     }
 
-    @Test fun queueFileIsRewrittenWhenAListChangesOrTheIndexLeavesItsWindow() {
-        val tracks = listOf("a", "b")
-        val lists = listOf(tracks, null)
-        assertTrue(queueFileStale(null, lists, 0 until 2, 0))
-        assertFalse(queueFileStale(lists, listOf(tracks, null), 0 until 2, 1))
-        assertTrue(queueFileStale(lists, listOf(listOf("a", "b"), null), 0 until 2, 1))
-        assertTrue(queueFileStale(lists, lists, 0 until 2, 2))
-        assertFalse(queueFileStale(lists, lists, 0 until 2, null))
-    }
-
     @Test fun controllerSeeksToAnotherItemGoThroughTheQueue() {
         assertEquals(Seek.Next, seekAction(Player.COMMAND_SEEK_TO_NEXT, 0, 0))
         assertEquals(Seek.Previous, seekAction(Player.COMMAND_SEEK_TO_PREVIOUS_MEDIA_ITEM, 0, 0))
