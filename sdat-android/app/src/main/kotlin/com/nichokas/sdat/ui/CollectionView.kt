@@ -26,6 +26,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.nichokas.sdat.core.Chrome
 import com.nichokas.sdat.core.Favs
+import com.nichokas.sdat.core.Live
 import com.nichokas.sdat.core.LocalRecent
 import com.nichokas.sdat.core.PagedLoader
 import com.nichokas.sdat.core.Recents
@@ -33,6 +34,7 @@ import com.nichokas.sdat.core.Route
 import com.nichokas.sdat.core.friendlyMessage
 import io.github.neoruaa.glasmio.core.GlasmioTheme
 import io.github.neoruaa.glasmio.core.IosTypography
+import io.github.neoruaa.glasmio.ui.GlasmioIconButton
 import kotlin.coroutines.cancellation.CancellationException
 import uniffi.tonearm_ffi.RecentItem
 import uniffi.tonearm_ffi.RecentKind
@@ -91,7 +93,15 @@ fun CollectionView() {
     // Android has no pull to refresh here, so the history refreshes each time the tab root shows instead.
     LaunchedEffect(remote) { remote.load() }
     val tiles = recentTiles(remote.items, Recents.items)
-    SdatPage("My Collection", collapsesChrome = true) {
+    SdatPage(
+        "My Collection",
+        collapsesChrome = true,
+        actions = {
+            GlasmioIconButton({ Live.showScanner = true }) { SdatIcon("qrcode.viewfinder", "Scan Listen Together invitation", size = 20.dp) }
+            // Clear of the profile button, which floats over the top bar's trailing edge.
+            Spacer(Modifier.width(52.dp))
+        },
+    ) {
         item(key = "sections") {
             Column(Modifier.padding(horizontal = ListGutter)) {
                 sections.forEachIndexed { i, (title, symbol, route) ->

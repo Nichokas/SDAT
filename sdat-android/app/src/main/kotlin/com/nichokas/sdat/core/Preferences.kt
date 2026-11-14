@@ -1,6 +1,7 @@
 package com.nichokas.sdat.core
 
 import android.content.Context
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.core.content.edit
 import kotlinx.coroutines.Dispatchers
@@ -43,6 +44,7 @@ class Preferences(context: Context) {
     private val preload = mutableStateOf(true)
     private val lastFm = mutableStateOf(false)
     private val listenBrainz = mutableStateOf(false)
+    private val liveDelay = mutableIntStateOf(0)
 
     var streamingQuality: Quality
         get() = quality.value
@@ -60,6 +62,11 @@ class Preferences(context: Context) {
         get() = listenBrainz.value
         set(on) { listenBrainz.value = on; d.edit { putBoolean("scrobbleListenBrainz", on) } }
 
+    /** Listen Together guest's manual output delay, in ms (iOS key). */
+    var liveExtraLatencyMs: Int
+        get() = liveDelay.intValue
+        set(ms) { liveDelay.intValue = ms; d.edit { putInt("liveExtraLatencyMsV2", ms) } }
+
     init { load() }
 
     private fun load() {
@@ -68,6 +75,7 @@ class Preferences(context: Context) {
         preload.value = d.getBoolean("preloadNext", true)
         lastFm.value = d.getBoolean("scrobbleLastFm", false)
         listenBrainz.value = d.getBoolean("scrobbleListenBrainz", false)
+        liveDelay.intValue = d.getInt("liveExtraLatencyMsV2", 0)
     }
 
     fun clear() { d.edit(commit = true) { clear() }; load() }

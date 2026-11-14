@@ -57,6 +57,7 @@ import com.nichokas.sdat.core.Chrome
 import com.nichokas.sdat.core.Downloads
 import com.nichokas.sdat.core.Favs
 import com.nichokas.sdat.core.Fmt
+import com.nichokas.sdat.core.Live
 import com.nichokas.sdat.core.Route
 import com.nichokas.sdat.core.artistLine
 import com.nichokas.sdat.core.displayTitle
@@ -225,10 +226,10 @@ fun trackMenuItems(
     return buildList {
         add(GlasmioCascadingMenuItem(if (fav) "Remove from Favourites" else "Add to Favourites", if (fav) "star.slash" else "star", onClick = { Favs.set(track.id, !fav) }))
         add(GlasmioCascadingMenuItem("Play Next", "text.line.first.and.arrowtriangle.forward", separatorBefore = true, onClick = {
-            player.playNext(listOf(track)); Chrome.flash("Playing next")
+            if (!Live.userPlayNext(listOf(track))) { player.playNext(listOf(track)); Chrome.flash("Playing next") }
         }))
         add(GlasmioCascadingMenuItem("Add to Queue", "text.line.last.and.arrowtriangle.forward", onClick = {
-            player.addToQueue(listOf(track)); Chrome.flash("Added to queue")
+            if (!Live.userEnqueue(listOf(track))) { player.addToQueue(listOf(track)); Chrome.flash("Added to queue") }
         }))
         add(GlasmioCascadingMenuItem("Add to Playlist…", "text.badge.plus", onClick = { Chrome.playlistPickerTrack = track }))
         addAll(downloadMenuItems(listOf(track)))

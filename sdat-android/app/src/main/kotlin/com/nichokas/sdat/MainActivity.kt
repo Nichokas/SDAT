@@ -2,6 +2,7 @@ package com.nichokas.sdat
 
 import android.Manifest
 import android.content.ComponentName
+import android.content.Intent
 import android.content.pm.PackageManager
 import android.os.Bundle
 import androidx.activity.ComponentActivity
@@ -17,6 +18,7 @@ import com.google.common.util.concurrent.ListenableFuture
 import com.nichokas.sdat.core.Chrome
 import com.nichokas.sdat.core.NavState
 import com.nichokas.sdat.core.Downloads
+import com.nichokas.sdat.core.Live
 import com.nichokas.sdat.ui.LocalTrackPlayer
 import com.nichokas.sdat.ui.RootView
 import com.nichokas.sdat.ui.inter
@@ -43,6 +45,7 @@ class MainActivity : ComponentActivity() {
                 notify.launch(Manifest.permission.POST_NOTIFICATIONS)
             }
         }
+        if (savedInstanceState == null) openLink(intent)
         controller = MediaController.Builder(this, SessionToken(this, ComponentName(this, PlaybackService::class.java))).buildAsync()
         setContent {
             GlasmioTheme(typography = glasmioTypography(inter)) {
@@ -62,6 +65,18 @@ class MainActivity : ComponentActivity() {
     override fun onStart() {
         super.onStart()
         Downloads.resumePending()
+    }
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        openLink(intent)
+    }
+
+    private fun openLink(intent: Intent) {
+        // Reopened from Recents, the task replays the link that started it, which would leave the current session.
+        if (intent.flags and Intent.FLAG_ACTIVITY_LAUNCHED_FROM_HISTORY != 0) return
+        val link = intent.dataString ?: return
+        if ((application as SdatApp).session.signedIn) Live.open(link)
     }
 
     // A connected controller is what creates PlaybackService, and the service goes foreground only once a stream

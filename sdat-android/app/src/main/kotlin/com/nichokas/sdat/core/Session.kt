@@ -57,6 +57,7 @@ class Session(context: Context) : TokenStore {
 
     /** Also the way out of a session TIDAL no longer accepts. Downloads never outlive the account, as on iOS. */
     fun signOut() {
+        Live.signOut()
         Boot.cancel()
         DiscoverCache.of(app).clear()
         Downloads.removeAll()

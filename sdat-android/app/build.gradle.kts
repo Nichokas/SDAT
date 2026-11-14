@@ -90,6 +90,7 @@ dependencies {
     implementation(libs.media3.hls)
     implementation(libs.media3.session)
     implementation(libs.jna) { artifact { type = "aar" } }
+    implementation(libs.zxing.core)
     testImplementation(libs.junit)
     // android.jar only stubs org.json; the APK uses the platform copy.
     testImplementation(libs.org.json)
