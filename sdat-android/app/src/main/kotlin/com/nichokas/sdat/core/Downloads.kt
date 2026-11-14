@@ -17,8 +17,10 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.MainScope
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.cancelChildren
+import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.ensureActive
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import org.json.JSONArray
@@ -60,6 +62,7 @@ object Downloads {
     }
     private var worker: Job? = null
     private var fetching: Job? = null
+    private var restoring: Job? = null
     private val albumMeta = mutableMapOf<String, AlbumDetail>()
 
     /** Set once the foreground service ran out of time: the queue on disk must outlive the teardown. */
@@ -129,6 +132,8 @@ object Downloads {
         val wasCurrent = queue.current?.id == id
         queue = queue.cancel(id)
         if (wasCurrent) fetching?.cancel()
+        // A restore still reading the saved queue would bring the track back.
+        restoring?.cancel()
         savePending()
     }
 
@@ -172,7 +177,7 @@ object Downloads {
 
     /** Requeues downloads that a timeout, a kill or a crash interrupted. Call from the foreground. */
     fun resumePending() {
-        work.launch {
+        restoring = work.launch {
             val saved = withContext(writes) {
                 runCatching {
                     val list = JSONArray(File(dir, PENDING).readText())
@@ -211,14 +216,20 @@ object Downloads {
         }
     }
 
-    /** Runs in the fetch's own job right after it returns, with no suspension a cancellation could slip into. */
-    private fun commit(t: Track, e: DownloadEntry) {
-        if (queue.current?.id == t.id) {
-            entries = entries + (t.id to e)
-            saveIndex()
-        } else {
-            scope.launch(writes) { discard(t.id) }
+    /** Counts the download as done only once the index that lists it is on disk; otherwise leaves no file of it. */
+    private suspend fun commit(t: Track, e: DownloadEntry) {
+        val next = entries + (t.id to e)
+        val saved = queue.current?.id == t.id &&
+            withContext(NonCancellable + writes) { atomicWrite(File(dir, INDEX), DownloadIndex.encode(next)) }
+        if (saved && currentCoroutineContext().isActive) {
+            entries = next
+            return
         }
+        withContext(NonCancellable + writes) { discard(t.id) }
+        // The index on disk may list the cancelled track; put back the one in memory.
+        if (saved) saveIndex()
+        currentCoroutineContext().ensureActive()
+        if (!saved && queue.current?.id == t.id) throw DownloadFailure.storage
     }
 
     /** Leaves no file of [t] behind unless it returns. */
@@ -381,12 +392,15 @@ object Downloads {
         }
     }
 
-    private fun atomicWrite(file: File, text: String) {
-        runCatching {
+    private fun atomicWrite(file: File, text: String): Boolean {
+        val tmp = File(dir, file.name + ".tmp")
+        return try {
             dir.mkdirs()
-            val tmp = File(dir, file.name + ".tmp")
             tmp.writeText(text)
-            if (!tmp.renameTo(file)) tmp.delete()
+            tmp.renameTo(file).also { if (!it) tmp.delete() }
+        } catch (_: IOException) {
+            tmp.delete()
+            false
         }
     }
 
