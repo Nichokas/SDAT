@@ -124,10 +124,7 @@ object Downloads {
 
     /** Queues [list]; downloaded, queued and unstreamable tracks are skipped. */
     fun download(list: List<Track>) {
-        if (frozen) {
-            frozen = false
-            resumePending()
-        }
+        if (frozen) resumePending()
         val next = queue.enqueue(list, ::isDownloaded)
         if (next === queue) return
         queue = next
@@ -193,6 +190,7 @@ object Downloads {
 
     /** Requeues downloads that a timeout, a kill or a crash interrupted. Call from the foreground. */
     fun resumePending() {
+        frozen = false
         restoring = work.launch {
             val saved = withContext(writes) {
                 runCatching {
