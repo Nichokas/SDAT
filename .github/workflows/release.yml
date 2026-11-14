@@ -84,7 +84,7 @@ jobs:
       contents: write
     uses: ./.github/workflows/desktop-fedora.yml
     with:
-      force: true
+      tag: ${{ needs.tag.outputs.desktop }}
 
   ios:
     needs: tag
