@@ -51,6 +51,7 @@ jobs:
       - uses: Swatinem/rust-cache@v2
         with:
           shared-key: android
+          save-if: ${{ github.ref == 'refs/heads/main' }}
       - name: Install cargo-ndk
         uses: taiki-e/install-action@v2
         with:
@@ -60,6 +61,7 @@ jobs:
         working-directory: sdat-android
         env:
           ANDROID_NDK_HOME: ${{ env.ANDROID_HOME }}/ndk/${{ env.NDK_VERSION }}
+          CARGO_LOG: cargo::core::compiler::fingerprint=info
         run: ./gradlew assembleDebug assembleRelease lintDebug testDebugUnitTest
       - name: Check both ABIs carry the Rust core and no iroh cdylibs
         run: |
