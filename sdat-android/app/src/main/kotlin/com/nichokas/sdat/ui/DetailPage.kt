@@ -172,10 +172,13 @@ fun DetailPage(
 ) {
     val player = LocalTrackPlayer.current
     var isFav by remember { mutableStateOf(false) }
+    // A tap made before the first check returns wins over that check.
+    var tapped by remember { mutableStateOf(false) }
     LaunchedEffect(favourite) {
         val (kind, id) = favourite ?: return@LaunchedEffect
         try {
-            isFav = isFavourite(kind, id)
+            val saved = isFavourite(kind, id)
+            if (!tapped) isFav = saved
         } catch (e: CancellationException) {
             throw e
         } catch (_: Exception) {
@@ -184,6 +187,7 @@ fun DetailPage(
     val toggleFav = {
         if (favourite != null) {
             val target = !isFav
+            tapped = true
             isFav = target
             writeScope.launch {
                 try {
