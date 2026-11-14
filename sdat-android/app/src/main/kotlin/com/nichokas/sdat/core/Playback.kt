@@ -79,6 +79,8 @@ class Playback(context: Context, private val prefs: Preferences, secrets: Secret
     /** The base-queue indices the queue file holds. */
     private var savedRange = IntRange.EMPTY
     private var lastSave = 0L
+    /** Bumped by every [start], so a refill that waited can tell a newer play took over the same track. */
+    private var starts = 0
 
     val track get() = queue.current
     override val current get() = track
@@ -365,6 +367,7 @@ class Playback(context: Context, private val prefs: Preferences, secrets: Secret
         // Endless queue ran dry before the refill landed: fetch, then go on.
         val source = infinite ?: return stopAtEnd()
         val from = track
+        val startsBefore = starts
         fetching = true
         // Like a skip to a queued track: the old one goes quiet, and a play or pause tapped while the refill loads
         // decides how the next one starts.
@@ -376,7 +379,7 @@ class Playback(context: Context, private val prefs: Preferences, secrets: Secret
         scope.launch {
             val more = fetchMore(source)
             // A track picked during the fetch owns playback now; a source replaced meanwhile had nothing more.
-            if (track !== from) return@launch
+            if (track !== from || starts != startsBefore) return@launch
             fetching = false
             // A Replay tapped during the fetch wins; that track's next end advances again.
             if (auto && player.playbackState != Player.STATE_ENDED) return@launch
@@ -456,6 +459,7 @@ class Playback(context: Context, private val prefs: Preferences, secrets: Secret
     }
 
     private fun start(t: Track, play: Boolean = true, resumeAt: Double = 0.0) {
+        starts++
         request?.cancel()
         dropPreload()
         position = resumeAt
