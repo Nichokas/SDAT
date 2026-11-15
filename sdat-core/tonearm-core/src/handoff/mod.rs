@@ -30,6 +30,8 @@ const ATTACH_EVERY: Duration = Duration::from_secs(30);
 /// State reads while an event stream is down.
 const POLL_EVERY: Duration = Duration::from_secs(15);
 const CALL_TIMEOUT: Duration = Duration::from_secs(30);
+/// How long after taking over a queue the app has to load it.
+const TAKEOVER: Duration = Duration::from_secs(10);
 
 /// Another player of the account.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -163,6 +165,8 @@ impl Handoff {
             streams: Vec::new(),
             last_local: None,
             pending: None,
+            awaiting: None,
+            held: None,
             names: HashMap::new(),
         };
         std::thread::Builder::new().name("handoff".into()).spawn(move || w.run(&rx)).map_err(|e| CoreError::Other(e.to_string()))?;
@@ -240,6 +244,12 @@ struct Worker {
     last_local: Option<LocalPlayback>,
     /// When the last report is due to be written.
     pending: Option<Instant>,
+    /// After taking over a queue: its current track, until the app reports
+    /// it or the deadline passes. Other reports meanwhile are the old local
+    /// playback, and would overwrite the queue.
+    awaiting: Option<(String, Instant)>,
+    /// The last report held back by `awaiting`, written once it ends.
+    held: Option<LocalPlayback>,
     /// Installation names, for devices that are no longer attached.
     names: HashMap<String, String>,
 }
@@ -250,12 +260,9 @@ impl Worker {
         let mut next_attach = Instant::now() + ATTACH_EVERY;
         let mut next_poll = Instant::now() + POLL_EVERY;
         loop {
-            let wake = [self.pending, dirty, Some(next_attach), Some(next_poll)].into_iter().flatten().min().unwrap_or(next_poll);
+            let wake = [self.pending, self.awaiting.as_ref().map(|a| a.1), dirty, Some(next_attach), Some(next_poll)].into_iter().flatten().min().unwrap_or(next_poll);
             match rx.recv_timeout(wake.saturating_duration_since(Instant::now())) {
-                Ok(Cmd::Report(l)) => {
-                    self.last_local = Some(l);
-                    self.pending.get_or_insert_with(|| Instant::now() + THROTTLE);
-                }
+                Ok(Cmd::Report(l)) => self.reported(l),
                 Ok(Cmd::Changed) => {
                     dirty.get_or_insert_with(|| Instant::now() + SETTLE);
                 }
@@ -282,6 +289,12 @@ impl Worker {
                 Err(RecvTimeoutError::Timeout) => {}
             }
             let now = Instant::now();
+            if self.awaiting.as_ref().is_some_and(|a| a.1 <= now) {
+                self.awaiting = None;
+                if let Some(l) = self.held.take() {
+                    self.reported(l);
+                }
+            }
             if self.pending.is_some_and(|p| p <= now) {
                 self.pending = None;
                 self.write_local(false);
@@ -305,6 +318,19 @@ impl Worker {
                 }
             }
         }
+    }
+
+    fn reported(&mut self, l: LocalPlayback) {
+        if let Some((track, _)) = &self.awaiting {
+            if l.current.as_ref() != Some(track) {
+                self.held = Some(l);
+                return;
+            }
+            self.awaiting = None;
+            self.held = None;
+        }
+        self.last_local = Some(l);
+        self.pending.get_or_insert_with(|| Instant::now() + THROTTLE);
     }
 
     fn emit(&self, ev: HandoffEvent) {
@@ -388,6 +414,8 @@ impl Worker {
         // A report from before this would overwrite the queue just taken over.
         self.pending = None;
         self.last_local = None;
+        self.held = None;
+        self.awaiting = Some((track.id().to_string(), Instant::now() + TAKEOVER));
         let from = from
             .or_else(|| head.updated_by.as_deref().and_then(|id| self.mirror.device(id)))
             .unwrap_or_else(|| Device { id: head.updated_by.clone().unwrap_or_default(), name: String::new() });
@@ -407,6 +435,8 @@ impl Worker {
         if !self.same_account() {
             return Err(CoreError::NotSignedIn);
         }
+        // Only before the first write: once started, the send runs to an answer.
+        past(deadline)?;
         if self.last_local.as_ref().is_none_or(|l| l.current.is_none()) {
             return Err(CoreError::Other("nothing playing".into()));
         }
@@ -417,7 +447,6 @@ impl Worker {
         if !self.write_local(true) {
             return Err(CoreError::Other("could not write the queue".into()));
         }
-        past(deadline)?;
         // Paused before the target owns the state, so this write cannot land after its own.
         wire::set_status(false)?;
         self.mirror.status_written(false);
@@ -563,6 +592,10 @@ mod tests {
         assert!(r.position_ms >= 30_000, "position {}", r.position_ms);
         wait(&la, "moved to SDAT test B");
         a.report(LocalPlayback { current: Some(ids[0].clone()), future: ids[1..].to_vec(), position_ms: 31_000, playing: false, repeat: Repeat::Off });
+        // B still reports its old playback, then the resumed one, then moves on.
+        b.report(LocalPlayback { current: Some("1".into()), future: vec![], position_ms: 0, playing: false, repeat: Repeat::Off });
+        b.report(LocalPlayback { current: Some(ids[0].clone()), future: ids[1..].to_vec(), position_ms: r.position_ms, playing: true, repeat: Repeat::Off });
+        std::thread::sleep(Duration::from_secs(1));
         b.report(LocalPlayback { current: Some(ids[1].clone()), future: ids[2..].to_vec(), position_ms: 12_345, playing: true, repeat: Repeat::Off });
         std::thread::sleep(Duration::from_secs(2));
         let a_id = b.devices().into_iter().find(|d| d.name == "SDAT test A").expect("a listed").id;
