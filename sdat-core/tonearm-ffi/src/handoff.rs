@@ -69,12 +69,12 @@ pub struct HandoffLocal {
     pub repeat: HandoffRepeat,
 }
 
-/// Playback taken over from another device.
+/// Playback taken over from another device: the current track only, so it
+/// starts sooner. What follows it comes after, as `HandoffEvent::Upcoming`.
 #[derive(Debug, Clone, uniffi::Record)]
 pub struct HandoffResume {
     pub from: HandoffDevice,
     pub current: Track,
-    pub future: Vec<Track>,
     pub position_ms: i64,
     pub repeat: HandoffRepeat,
 }
@@ -84,7 +84,6 @@ impl From<core::Resume> for HandoffResume {
         Self {
             from: r.from.into(),
             current: Track::from(&r.current),
-            future: crate::convert::tracks(&r.future),
             position_ms: r.position_ms,
             repeat: r.repeat.into(),
         }
@@ -101,6 +100,10 @@ pub enum HandoffEvent {
     Arrived { resume: HandoffResume },
     /// Another device became the active player: pause here.
     MovedTo { device: HandoffDevice },
+    /// What follows `current_id`, the track of the last `Arrived` or
+    /// `continue_here`, read after it. Append it while that track is still
+    /// the current one. Not sent when nothing follows.
+    Upcoming { current_id: String, tracks: Vec<Track> },
 }
 
 /// Implemented by the app; called on a background thread.
@@ -126,6 +129,7 @@ impl core::HandoffListener for Bridge {
             },
             core::HandoffEvent::Arrived(r) => HandoffEvent::Arrived { resume: r.into() },
             core::HandoffEvent::MovedTo(d) => HandoffEvent::MovedTo { device: d.into() },
+            core::HandoffEvent::Upcoming(u) => HandoffEvent::Upcoming { current_id: u.current, tracks: crate::convert::tracks(&u.tracks) },
         });
     }
 }

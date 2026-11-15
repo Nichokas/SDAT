@@ -81,14 +81,22 @@ pub struct LocalPlayback {
     pub repeat: Repeat,
 }
 
-/// Playback taken over from another device.
+/// Playback taken over from another device: the current track only, so it
+/// starts sooner. What follows it comes after, as [`HandoffEvent::Upcoming`].
 #[derive(Debug, Clone)]
 pub struct Resume {
     pub from: Device,
     pub current: Track,
-    pub future: Vec<Track>,
     pub position_ms: i64,
     pub repeat: Repeat,
+}
+
+/// The tracks after a resumed one.
+#[derive(Debug, Clone)]
+pub struct Upcoming {
+    /// Track id of the resumed track they follow.
+    pub current: String,
+    pub tracks: Vec<Track>,
 }
 
 #[derive(Debug, Clone)]
@@ -101,6 +109,10 @@ pub enum HandoffEvent {
     Arrived(Resume),
     /// Another device became the active player: pause here.
     MovedTo(Device),
+    /// What follows the track of the last [`HandoffEvent::Arrived`] or
+    /// [`Handoff::continue_here`], read after it. Append it while that track
+    /// is still the current one. Not sent when nothing follows.
+    Upcoming(Upcoming),
 }
 
 /// Called on the handoff's own thread: hand events on, don't block on them.
@@ -397,7 +409,16 @@ impl Worker {
                 }
                 Ok(Cmd::ContinueHere(deadline, reply)) => {
                     // A successful continue drops the pending report; a failed one keeps it.
-                    let _ = reply.send(self.continue_here(deadline));
+                    match self.continue_here(deadline) {
+                        Ok((r, future)) => {
+                            let current = r.current.id().to_string();
+                            let _ = reply.send(Ok(r));
+                            self.upcoming(current, future);
+                        }
+                        Err(e) => {
+                            let _ = reply.send(Err(e));
+                        }
+                    }
                 }
                 Ok(Cmd::Stop(token)) => {
                     if self.pending.is_some() {
@@ -632,9 +653,11 @@ impl Worker {
                 return Ok(());
             }
             match self.resume(None, from) {
-                Ok(r) => {
+                Ok((r, future)) => {
                     self.arrival = None;
+                    let current = r.current.id().to_string();
                     self.emit(HandoffEvent::Arrived(r));
+                    self.upcoming(current, future);
                 }
                 Err(e) => {
                     log::warn!("handoff: arrived queue unreadable, retrying error={e}");
@@ -658,7 +681,8 @@ impl Worker {
 
     /// Reads the queue for playing it here, from the device that wrote it.
     /// `claim` makes this device active once the queue proved readable.
-    fn resume(&mut self, claim: Option<Instant>, from: Option<Device>) -> Result<Resume> {
+    /// Returns the resume and the tracks after its current one.
+    fn resume(&mut self, claim: Option<Instant>, from: Option<Device>) -> Result<(Resume, Vec<Track>)> {
         let mut queue = self.mirror.queue_id().ok_or_else(|| CoreError::Other("nothing to continue".into()))?.to_string();
         let mut before: Option<String> = None;
         let mut status;
@@ -736,7 +760,14 @@ impl Worker {
         let from = from
             .or_else(|| head.updated_by.as_deref().and_then(|id| self.mirror.device(id)))
             .unwrap_or_else(|| Device { id: head.updated_by.clone().unwrap_or_default(), name: String::new() });
-        Ok(Resume { from, current: track, future, position_ms, repeat: head.repeat })
+        Ok((Resume { from, current: track, position_ms, repeat: head.repeat }, future))
+    }
+
+    /// Tells the app what follows the resumed track `current`.
+    fn upcoming(&self, current: String, tracks: Vec<Track>) {
+        if !tracks.is_empty() {
+            self.emit(HandoffEvent::Upcoming(Upcoming { current, tracks }));
+        }
     }
 
     /// Head, entries and tracks of `queue` from reads that agree on its revision.
@@ -828,7 +859,7 @@ impl Worker {
         e
     }
 
-    fn continue_here(&mut self, deadline: Instant) -> Result<Resume> {
+    fn continue_here(&mut self, deadline: Instant) -> Result<(Resume, Vec<Track>)> {
         if !self.same_account() {
             return Err(CoreError::NotSignedIn);
         }
@@ -1067,8 +1098,9 @@ mod tests {
             let line = match ev {
                 HandoffEvent::Devices(d) => format!("devices {:?}", d.iter().map(|d| &d.name).collect::<Vec<_>>()),
                 HandoffEvent::Elsewhere(e) => format!("elsewhere {:?}", e.map(|e| (e.device.name, e.track.title().to_string(), e.playing))),
-                HandoffEvent::Arrived(r) => format!("arrived {} +{} at {}", r.current.title(), r.future.len(), r.position_ms),
+                HandoffEvent::Arrived(r) => format!("arrived {} at {}", r.current.title(), r.position_ms),
                 HandoffEvent::MovedTo(d) => format!("moved to {}", d.name),
+                HandoffEvent::Upcoming(u) => format!("upcoming after {}: {}", u.current, u.tracks.iter().map(Track::id).collect::<Vec<_>>().join(",")),
             };
             eprintln!("{line}");
             self.0.lock().unwrap_or_else(PoisonError::into_inner).push(line);
@@ -1112,8 +1144,8 @@ mod tests {
         wait(&lb, "elsewhere Some((\"SDAT test A\"*true))");
         let r = b.continue_here().expect("continue here");
         assert_eq!(r.current.id(), ids[0]);
-        assert_eq!(r.future.iter().map(|t| t.id().to_string()).collect::<Vec<_>>(), ids[1..]);
         assert!(r.position_ms >= 30_000, "position {}", r.position_ms);
+        wait(&lb, &format!("upcoming after {}: {}", ids[0], ids[1..].join(",")));
         wait(&la, "moved to SDAT test B");
         a.report(LocalPlayback { current: Some(ids[0].clone()), future: ids[1..].to_vec(), position_ms: 31_000, playing: false, repeat: Repeat::Off });
         // B still reports its old playback, then the resumed one, then moves on.
@@ -1125,10 +1157,11 @@ mod tests {
         let a_id = b.devices().into_iter().find(|d| d.name == "SDAT test A").expect("a listed").id;
         b.send_to(&a_id).expect("send to a");
         wait(&la, "arrived");
+        wait(&la, &format!("upcoming after {}: {}", ids[1], ids[2..].join(",")));
         let got = la.0.lock().unwrap_or_else(PoisonError::into_inner).iter().find(|l| l.starts_with("arrived")).cloned().unwrap_or_default();
         // Reported playing at 12 345 ms about 2 s before the send: written where it plays then.
         let at: i64 = got.rsplit(' ').next().and_then(|n| n.parse().ok()).unwrap_or(0);
-        assert!(got.contains("+3 at ") && (12_345..16_000).contains(&at), "{got}");
+        assert!((12_345..16_000).contains(&at), "{got}");
         a.stop();
         b.stop();
         assert!(wait_detached(Duration::from_secs(10)), "not detached");
