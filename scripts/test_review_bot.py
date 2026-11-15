@@ -19,7 +19,6 @@ from review_bot import (
     inline_comments,
     inline_key,
     is_clean,
-    parse_coderabbit,
     parse_cubic,
     parse_macroscope,
     render,
@@ -52,33 +51,6 @@ class ParseTests(unittest.TestCase):
     def test_cubic_clean_review_is_clean(self):
         self.assertIs(parse_cubic("cubic", Output('{"issues": []}', "", 0)).status, Status.COMPLETED)
 
-    def test_coderabbit_needs_the_completion_event(self):
-        event = {"type": "finding", "severity": "major", "fileName": "a.rs", "startLine": 3,
-                 "title": "t", "comment": "**t**\n\nd"}
-        complete = {"type": "complete", "status": "review_completed"}
-        lines = [json.dumps(event), '{"type":"heartbeat"}', "not json"]
-
-        cut_short = parse_coderabbit("coderabbit", Output("\n".join(lines), "", 0))
-        self.assertIs(cut_short.status, Status.FAILED)
-
-        done = parse_coderabbit("coderabbit", Output("\n".join([*lines, json.dumps(complete)]), "", 0))
-        self.assertIs(done.status, Status.COMPLETED)
-        self.assertEqual(done.findings, [Finding("major", "a.rs", 3, "t", "d")])
-
-    def test_coderabbit_no_changes_is_a_finished_review(self):
-        stdout = json.dumps({"type": "complete", "status": "review_skipped", "findings": 0})
-        self.assertIs(parse_coderabbit("coderabbit", Output(stdout, "", 0)).status, Status.COMPLETED)
-
-    def test_coderabbit_rate_limit_is_skipped(self):
-        event = {"type": "error", "errorType": "rate_limit", "metadata": {"waitTime": "24 minutes"}}
-        result = parse_coderabbit("coderabbit", Output(json.dumps(event), "", 1))
-        self.assertIs(result.status, Status.SKIPPED)
-        self.assertIn("24 minutes", result.note)
-
-    def test_coderabbit_other_error_still_fails(self):
-        event = {"type": "error", "errorType": "auth", "message": "bad key"}
-        self.assertIs(parse_coderabbit("coderabbit", Output(json.dumps(event), "", 1)).status, Status.FAILED)
-
     def test_macroscope_failure_keeps_findings(self):
         event = {"path": "a.rs", "line": 3, "severity": "medium", "body": "Bad thing. More detail."}
         stderr = "\n".join(
@@ -104,13 +76,13 @@ class RenderTests(unittest.TestCase):
         return render(list(results), "abcdef123", "main", "https://run")
 
     def test_failed_reviewer_is_never_clean(self):
-        comment = self.render(Result("cubic", Status.FAILED), Result("coderabbit", Status.COMPLETED))
+        comment = self.render(Result("cubic", Status.FAILED), Result("macroscope", Status.COMPLETED))
         self.assertIn("| cubic | **failed**, no review |", comment)
-        self.assertIn("| CodeRabbit | clean |", comment)
+        self.assertIn("| Macroscope | clean |", comment)
 
     def test_skipped_reviewer_says_so(self):
-        comment = self.render(Result("coderabbit", Status.SKIPPED, note="Out of included reviews."))
-        self.assertIn("| CodeRabbit | skipped | Out of included reviews. |", comment)
+        comment = self.render(Result("macroscope", Status.SKIPPED, note="Out of included reviews."))
+        self.assertIn("| Macroscope | skipped | Out of included reviews. |", comment)
 
     def test_mentions_do_not_ping(self):
         comment = self.render(Result("cubic", Status.COMPLETED, [finding("uses @types/node")]))
@@ -208,7 +180,7 @@ class PublishTests(unittest.TestCase):
 
 class ApprovalTests(unittest.TestCase):
     clean = Result("cubic", Status.COMPLETED)
-    skipped = Result("coderabbit", Status.SKIPPED)
+    skipped = Result("macroscope", Status.SKIPPED)
 
     def test_skipped_reviewer_does_not_block_approval(self):
         self.assertTrue(is_clean([self.clean, self.skipped]))
@@ -247,14 +219,22 @@ class ApprovalTests(unittest.TestCase):
         self.assertIn(f"repos/{review_bot.REPO}/pulls/7/reviews/5/dismissals", args)
         self.assertIn("abc", body["message"])
 
-    def test_status_survives_the_result_artifact(self):
+    def load(self, *results):
         with tempfile.TemporaryDirectory() as directory:
-            for result in (self.clean, self.skipped):
+            for result in results:
                 path = Path(directory) / f"{result.reviewer}.json"
                 path.write_text(json.dumps(dataclasses.asdict(result)))
-            results = review_bot.load_results(Path(directory))
-        self.assertEqual([r.status for r in results], [Status.COMPLETED, Status.SKIPPED, Status.FAILED])
-        self.assertTrue(is_clean(results[:2]))
+            return review_bot.load_results(Path(directory))
+
+    def test_status_survives_the_result_artifact(self):
+        results = self.load(self.clean, self.skipped)
+        self.assertEqual([r.status for r in results], [Status.COMPLETED, Status.SKIPPED])
+        self.assertTrue(is_clean(results))
+
+    def test_missing_result_artifact_is_a_failure(self):
+        results = self.load(self.clean)
+        self.assertEqual([r.status for r in results], [Status.COMPLETED, Status.FAILED])
+        self.assertFalse(is_clean(results))
 
 
 class MacroscopeRestoreTests(unittest.TestCase):
