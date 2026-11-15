@@ -1,6 +1,8 @@
 package com.nichokas.sdat.core
 
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
+import org.junit.Assert.assertTrue
 import org.junit.Test
 import uniffi.tonearm_ffi.AlbumRef
 import uniffi.tonearm_ffi.HandoffDevice
@@ -31,17 +33,28 @@ class HandoffTest {
         Repeat.entries.forEach { assertEquals(it, it.handoff.local) }
     }
 
-    @Test fun resumedQueueStartsAtTheCurrentTrackInOrder() {
+    @Test fun resumedQueueIsTheCurrentTrackThenWhatFollowsInOrder() {
         val q = PlayQueue<String>(kotlin.random.Random(1)) { it }
         q.playShuffled(listOf("p", "q", "r"))
-        val (saved, state) = resumed("a", listOf("b", "c"), 42.5, Repeat.One)
+        q.playNext(listOf("x"))
+        val (saved, state) = resumed("a", 42.5, Repeat.One)
         q.restore(saved, state)
         assertEquals("a", q.current)
-        assertEquals(listOf("b", "c"), q.upNext)
+        assertEquals(emptyList<String>(), q.upNext)
         assertEquals(emptyList<String>(), q.userQueue)
         assertEquals(Repeat.One, q.repeat)
         assertEquals(false, q.shuffle)
         assertEquals(42.5, state.position, 0.0)
+        q.extend(listOf("b", "a", "c"))
+        assertEquals("a", q.current)
+        assertEquals(listOf("b", "a", "c"), q.upNext)
+    }
+
+    @Test fun upcomingFollowsOnlyTheResumedTrackWithNothingAfterIt() {
+        assertTrue(upcomingApplies("a", "a", emptyList()))
+        assertFalse(upcomingApplies("a", "b", emptyList()))
+        assertFalse(upcomingApplies("a", null, emptyList()))
+        assertFalse(upcomingApplies("a", "a", listOf("b")))
     }
 
     @Test fun bannerLine() {

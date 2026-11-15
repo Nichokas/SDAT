@@ -654,13 +654,19 @@ class Playback(context: Context, private val prefs: Preferences, secrets: Secret
     var onChange: (() -> Unit)? = null
 
     /** Another device's playback (Handoff), loaded like the queue saved at launch and played from [atMs]. */
-    fun resume(current: Track, future: List<Track>, atMs: Long, repeat: Repeat) {
+    fun resume(current: Track, atMs: Long, repeat: Repeat) {
         // An arrival that plays here is newer than a Continue here still on its way.
         controls++
-        val (saved, state) = resumed(current, future, maxOf(atMs, 0) / 1000.0, repeat)
+        val (saved, state) = resumed(current, maxOf(atMs, 0) / 1000.0, repeat)
         queue.restore(saved, state)
         replaceInfinite(null)
         start(current, resumeAt = state.position)
+    }
+
+    /** The rest of a resumed queue (Handoff), after the current track. */
+    fun appendUpNext(tracks: List<Track>) {
+        queue.extend(tracks)
+        changed()
     }
 
     /** After a failure or a controller's stop there is nothing prepared, so this starts the track again where it was;
