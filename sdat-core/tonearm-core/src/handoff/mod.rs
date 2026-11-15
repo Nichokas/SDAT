@@ -533,6 +533,8 @@ impl Worker {
                 self.rollback_playing = false;
             }
         }
+        let head = state.queue_id.as_deref().map(wire::head_with_track).transpose()?;
+        // Settled only by a complete read (the head too): a failed read keeps the report held.
         if let Some((l, at)) = self.quarantined.take()
             && state.active.as_deref() == Some(self.mirror.me())
         {
@@ -544,7 +546,6 @@ impl Worker {
             self.mirror.force_position();
             self.pending.get_or_insert_with(Instant::now);
         }
-        let head = state.queue_id.as_deref().map(wire::head_with_track).transpose()?;
         self.follow(&[state.stream.clone(), head.as_ref().and_then(|h| h.stream.clone())]);
         for p in &state.players {
             self.names.insert(p.id.clone(), p.name.clone());
