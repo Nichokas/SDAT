@@ -132,21 +132,29 @@ fn stopping_done() {
     STOPPING.1.notify_all();
 }
 
-/// Starts per installation id: a stopping worker detaches only if no newer
-/// start of the same installation attached after it.
-static STARTS: Mutex<Vec<(String, u64)>> = Mutex::new(Vec::new());
+/// Live instances per installation id: the attachment is shared, so only the
+/// last instance to stop detaches it.
+static LIVE: Mutex<Vec<(String, usize)>> = Mutex::new(Vec::new());
 
-/// Counts a start of installation `id` and returns its number.
-fn attached(id: &str) -> u64 {
-    let mut s = STARTS.lock().unwrap_or_else(PoisonError::into_inner);
-    let n = s.iter().find(|(i, _)| i == id).map_or(0, |(_, n)| *n) + 1;
-    s.retain(|(i, _)| i != id);
-    s.push((id.to_string(), n));
-    n
+/// One more live instance of installation `id`.
+fn attached(id: &str) {
+    let mut l = LIVE.lock().unwrap_or_else(PoisonError::into_inner);
+    match l.iter_mut().find(|(i, _)| i == id) {
+        Some((_, n)) => *n += 1,
+        None => l.push((id.to_string(), 1)),
+    }
 }
 
-fn superseded(id: &str, started: u64) -> bool {
-    STARTS.lock().unwrap_or_else(PoisonError::into_inner).iter().any(|(i, n)| i == id && *n != started)
+/// One live instance of `id` fewer; `true` if it was the last.
+fn released(id: &str) -> bool {
+    let mut l = LIVE.lock().unwrap_or_else(PoisonError::into_inner);
+    let Some(k) = l.iter().position(|(i, _)| i == id) else { return true };
+    l[k].1 -= 1;
+    let last = l[k].1 == 0;
+    if last {
+        l.remove(k);
+    }
+    last
 }
 
 /// Waits up to `timeout` until every stopped [`Handoff`] has detached
@@ -181,16 +189,19 @@ impl Handoff {
         }
         let account = crate::auth::tokens().user_id();
         let me = wire::register(installation_key, device_name)?;
-        let started = attached(&me);
-        wire::attach(&me)?;
+        attached(&me);
+        if let Err(e) = wire::attach(&me) {
+            released(&me);
+            return Err(e);
+        }
         // Signed into another account meanwhile: this installation belongs to the old one.
         if crate::auth::tokens().user_id() != account {
+            released(&me);
             return Err(CoreError::NotSignedIn);
         }
         let (tx, rx) = mpsc::channel();
         let devices = Arc::new(Mutex::new(Vec::new()));
         let mut w = Worker {
-            started,
             mirror: Mirror::new(me),
             account,
             listener,
@@ -212,7 +223,9 @@ impl Handoff {
         let me = w.mirror.me().to_string();
         if let Err(e) = std::thread::Builder::new().name("handoff".into()).spawn(move || w.run(&rx)) {
             // No worker will ever detach it.
-            drop(wire::detach(&me, None));
+            if released(&me) {
+                drop(wire::detach(&me, None));
+            }
             return Err(CoreError::Other(e.to_string()));
         }
         Ok(Self { tx, devices, stopped: AtomicBool::new(false) })
@@ -282,8 +295,6 @@ fn now_ms() -> i64 {
 struct Arrival(Option<Device>);
 
 struct Worker {
-    /// This start's number for its installation (see [`attached`]).
-    started: u64,
     mirror: Mirror,
     /// The signed-in user at start: after an account switch nothing more is
     /// read or written with the new account's credentials.
@@ -351,8 +362,8 @@ impl Worker {
                         self.write_local(false);
                     }
                     self.streams.clear();
-                    // A newer start of this installation owns the attachment now: leave it.
-                    if !superseded(self.mirror.me(), self.started)
+                    // Another live instance of this installation still uses the attachment.
+                    if released(self.mirror.me())
                         && let Err(e) = wire::detach(self.mirror.me(), token.as_deref())
                     {
                         log::info!("handoff: detach failed error={e}");
