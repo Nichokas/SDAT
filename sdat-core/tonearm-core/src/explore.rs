@@ -260,7 +260,7 @@ impl ViewAllTracks {
 
     /// The next `limit` tracks not shown yet, fewer at the end.
     pub fn next(&mut self, limit: usize) -> Result<Vec<Track>> {
-        self.next_with(limit, api::view_all_items)
+        self.next_with(limit.max(1), api::view_all_items)
     }
 
     fn next_with(&mut self, limit: usize, mut fetch: impl FnMut(&str, usize, usize) -> Result<Vec<legacy::Item2>>) -> Result<Vec<Track>> {
