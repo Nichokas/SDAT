@@ -209,7 +209,12 @@ impl Handoff {
             rollback: None,
             names: HashMap::new(),
         };
-        std::thread::Builder::new().name("handoff".into()).spawn(move || w.run(&rx)).map_err(|e| CoreError::Other(e.to_string()))?;
+        let me = w.mirror.me().to_string();
+        if let Err(e) = std::thread::Builder::new().name("handoff".into()).spawn(move || w.run(&rx)) {
+            // No worker will ever detach it.
+            drop(wire::detach(&me, None));
+            return Err(CoreError::Other(e.to_string()));
+        }
         Ok(Self { tx, devices, stopped: AtomicBool::new(false) })
     }
 

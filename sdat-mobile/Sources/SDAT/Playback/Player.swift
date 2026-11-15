@@ -279,9 +279,10 @@ final class Player {
     /// Pauses, also a start still loading: it then ends paused.
     func pause() {
         plays += 1
+        // A start still loading ends paused; an item already going but not yet marked playing stops.
         if loading { holdAutoplay = true }
         resumeAfterInterruption = false
-        if isPlaying { toggle() }
+        if isPlaying { toggle() } else { avPlayer.pause() }
     }
 
     func next() { advance(auto: false) }
