@@ -186,19 +186,38 @@ pub fn plain_bio(s: &str) -> String {
     while let Some(i) = rest.find(['[', '<']) {
         out.push_str(&rest[..i]);
         let close = if rest[i..].starts_with('[') { ']' } else { '>' };
-        if let Some(j) = rest[i..].find(close) {
-            let tag = &rest[i + 1..i + j].to_ascii_lowercase();
-            if tag.starts_with("br") || tag.starts_with("/p") {
+        let tag = rest[i..].find(close).map(|j| (j, rest[i + 1..i + j].to_ascii_lowercase()));
+        if let Some((j, t)) = tag.filter(|(_, t)| matches!(t.trim_start_matches('/').split([' ', '/']).next(), Some("wimplink" | "br" | "p"))) {
+            if t.starts_with("br") || t.starts_with("/p") {
                 out.push('\n');
             }
             rest = &rest[i + j + 1..];
         } else {
-            out.push_str(&rest[i..]);
-            rest = "";
+            out.push_str(&rest[i..=i]);
+            rest = &rest[i + 1..];
         }
     }
     out.push_str(rest);
-    out.replace("&amp;", "&").replace("&quot;", "\"").replace("&#39;", "'").replace("&lt;", "<").replace("&gt;", ">").trim().to_string()
+    decode_entities(&out).trim().to_string()
+}
+
+fn decode_entities(s: &str) -> String {
+    const ENTITIES: [(&str, char); 5] = [("&amp;", '&'), ("&quot;", '"'), ("&#39;", '\''), ("&lt;", '<'), ("&gt;", '>')];
+    let mut out = String::with_capacity(s.len());
+    let mut rest = s;
+    while let Some(i) = rest.find('&') {
+        out.push_str(&rest[..i]);
+        rest = &rest[i..];
+        if let Some((e, c)) = ENTITIES.iter().find(|(e, _)| rest.starts_with(e)) {
+            out.push(*c);
+            rest = &rest[e.len()..];
+        } else {
+            out.push('&');
+            rest = &rest[1..];
+        }
+    }
+    out.push_str(rest);
+    out
 }
 
 /// Top tracks and albums found in the legacy artist page modules (deduped, page order).
@@ -243,6 +262,12 @@ mod tests {
     fn bio_markup_becomes_plain_text() {
         let b = "Daft Punk is [wimpLink artistId=\"1\"]an organism[/wimpLink].<br/><br/>Masked &amp; robotic.";
         assert_eq!(plain_bio(b), "Daft Punk is an organism.\n\nMasked & robotic.");
+    }
+
+    #[test]
+    fn bio_keeps_text_that_is_not_markup() {
+        assert_eq!(plain_bio("Known as [the Boss], Rock <3 Pop > Jazz."), "Known as [the Boss], Rock <3 Pop > Jazz.");
+        assert_eq!(plain_bio("<p>Shows &amp;lt; literally</p>"), "Shows &lt; literally");
     }
 
     #[test]
