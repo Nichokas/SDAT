@@ -213,8 +213,13 @@ pub(super) fn state() -> Result<State> {
 
 pub(super) fn head(queue: &str) -> Result<Head> {
     let inc = TRACK_INCLUDES.split(',').map(|i| format!("current.{i}")).collect::<Vec<_>>().join(",");
-    let mut h = parse_head(&call(Method::GET, &format!("/v2/playQueues/{queue}?include=changeEventStream,{inc}"), None)?);
-    // The included metadata can be missing while the queue still names the track.
+    call(Method::GET, &format!("/v2/playQueues/{queue}?include=changeEventStream,{inc}"), None).map(|v| parse_head(&v))
+}
+
+/// [`head`] for showing or playing the current track: the included
+/// metadata can be missing while the queue still names the track.
+pub(super) fn head_with_track(queue: &str) -> Result<Head> {
+    let mut h = head(queue)?;
     if h.track.is_none()
         && let Some(c) = &h.current
     {

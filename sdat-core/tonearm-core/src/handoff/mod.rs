@@ -309,7 +309,7 @@ impl Worker {
     fn refresh(&mut self) {
         let read = || -> Result<_> {
             let state = wire::state()?;
-            let head = state.queue_id.as_deref().map(wire::head).transpose()?;
+            let head = state.queue_id.as_deref().map(wire::head_with_track).transpose()?;
             Ok((state, head))
         };
         let (state, head) = match read() {
@@ -342,7 +342,7 @@ impl Worker {
     /// `claim` makes this device active once the queue proved readable.
     fn resume(&mut self, claim: bool, from: Option<Device>) -> Result<Resume> {
         let queue = self.mirror.queue_id().ok_or_else(|| CoreError::Other("nothing to continue".into()))?.to_string();
-        let head = wire::head(&queue)?;
+        let head = wire::head_with_track(&queue)?;
         let (Some(current), Some(track)) = (head.current.clone(), head.track.clone()) else {
             return Err(CoreError::Other("nothing to continue".into()));
         };
@@ -381,15 +381,20 @@ impl Worker {
         if !self.write_local(true) {
             return Err(CoreError::Other("could not write the queue".into()));
         }
+        // Paused before the target owns the state, so this write cannot land after its own.
+        wire::set_status(false)?;
+        self.mirror.status_written(false);
         if wire::set_active(id)?.as_deref() != Some(id) {
             // An unattached target leaves no active player: take it back.
             let active = wire::set_active(self.mirror.me())?;
             self.mirror.claimed(active);
+            if self.last_local.as_ref().is_some_and(|l| l.playing) {
+                wire::set_status(true)?;
+                self.mirror.status_written(true);
+            }
             return Err(CoreError::Other("the device is not available".into()));
         }
         self.mirror.released_to(id);
-        wire::set_status(false)?;
-        self.mirror.status_written(false);
         Ok(())
     }
 
