@@ -563,7 +563,7 @@ fn plain_bio(s: &str) -> String {
     while let Some(i) = rest.find(['[', '<']) {
         out.push_str(&rest[..i]);
         let close = if rest[i..].starts_with('[') { ']' } else { '>' };
-        let tag = rest[i..].find(close).map(|j| (j, rest[i + 1..i + j].to_ascii_lowercase()));
+        let tag = tag_end(&rest[i..], close).map(|j| (j, rest[i + 1..i + j].to_ascii_lowercase()));
         if let Some((j, t)) = tag.filter(|(_, t)| is_markup(close, t)) {
             if t.starts_with("br") || t.starts_with("/p") {
                 out.push('\n');
@@ -576,6 +576,20 @@ fn plain_bio(s: &str) -> String {
     }
     out.push_str(rest);
     decode_entities(&out).trim().to_string()
+}
+
+/// Byte offset of `close`, skipping quoted attribute values such as `title="A > B"`.
+fn tag_end(s: &str, close: char) -> Option<usize> {
+    let mut quote = None;
+    for (i, c) in s.char_indices() {
+        match (quote, c) {
+            (Some(q), _) if c == q => quote = None,
+            (None, '"' | '\'') => quote = Some(c),
+            (None, _) if c == close => return Some(i),
+            _ => {}
+        }
+    }
+    None
 }
 
 /// `[...]` is markup only as `wimpLink`; `<...>` is markup when it reads as an HTML tag, so prose like `<3` survives.
@@ -637,6 +651,7 @@ mod tests {
         assert_eq!(plain_bio("<p>Shows &amp;lt; literally</p>A<br\n/>B"), "Shows &lt; literally\nA\nB");
         assert_eq!(plain_bio("A<BR/>B</P>C"), "A\nB\nC");
         assert_eq!(plain_bio("Led by <em>Stipe</em>, <a href=\"x\">more</a>"), "Led by Stipe, more");
+        assert_eq!(plain_bio("<a title=\"A > B\">Artist</a>'s band"), "Artist's band");
     }
 
     #[test]
