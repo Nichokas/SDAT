@@ -520,7 +520,7 @@ impl Machine {
                         on_stopped_stop();
                         // A queued stop or start has already replaced the
                         // source and moved on from the failed track.
-                        let superseded = self.queue.borrow().iter().any(|t| matches!(t, Trigger::Stop | Trigger::PlayTrack(..) | Trigger::PlayTrackId(..) | Trigger::Deferred(_)));
+                        let superseded = self.queue.borrow().iter().any(|t| matches!(t, Trigger::Stop | Trigger::PlayTrack(..) | Trigger::PlayTrackId(..)));
                         if !superseded {
                             (self.hooks.clear_source)();
                             (self.hooks.on_error)(&e);
