@@ -24,8 +24,8 @@ sudo apt-get install -y \
   gh python3 \
   libfuse2t64 usbmuxd libimobiledevice-utils libcurl4-openssl-dev libxml2-dev libncurses-dev
 
-if ! pkg-config --atleast-version=4.20 gtk4 || ! pkg-config --atleast-version=1.8 libadwaita-1; then
-  echo "Found GTK $(pkg-config --modversion gtk4) and libadwaita $(pkg-config --modversion libadwaita-1); the desktop app needs GTK 4.20 and libadwaita 1.8 (Ubuntu 25.10+)." >&2
+if ! pkg-config --atleast-version=4.20 gtk4 2>/dev/null || ! pkg-config --atleast-version=1.8 libadwaita-1 2>/dev/null; then
+  echo "Found GTK $(pkg-config --modversion gtk4 2>/dev/null || echo none) and libadwaita $(pkg-config --modversion libadwaita-1 2>/dev/null || echo none); the desktop app needs GTK 4.20 and libadwaita 1.8 (Ubuntu 25.10+)." >&2
   exit 1
 fi
 
@@ -45,12 +45,16 @@ if ! command -v swiftly >/dev/null; then
   tmp="$(mktemp -d)"
   curl -fsSL -o "$tmp/swiftly.tar.gz" "https://download.swift.org/swiftly/linux/swiftly-$(uname -m).tar.gz"
   tar -xzf "$tmp/swiftly.tar.gz" -C "$tmp"
-  "$tmp/swiftly" init --assume-yes --skip-install --quiet-shell-followup
+  # swiftly only knows LTS releases; the Ubuntu 26.04 toolchain also runs on newer ones.
+  "$tmp/swiftly" init --assume-yes --skip-install --quiet-shell-followup --platform ubuntu2604
   rm -rf "$tmp"
   # shellcheck disable=SC1091
   . "$HOME/.local/share/swiftly/env.sh"
 fi
-swiftly install --assume-yes "$(cat "$repo/sdat-mobile/.swift-version")"
+post_install="$(mktemp)"
+swiftly install --assume-yes --post-install-file "$post_install" "$(cat "$repo/sdat-mobile/.swift-version")"
+if [ -s "$post_install" ]; then sudo bash "$post_install"; fi
+rm -f "$post_install"
 if ! command -v xtool >/dev/null; then
   curl -fL "https://github.com/xtool-org/xtool/releases/latest/download/xtool-$(uname -m).AppImage" -o /tmp/xtool
   chmod +x /tmp/xtool
