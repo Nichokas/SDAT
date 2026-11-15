@@ -232,6 +232,7 @@ impl Handoff {
             held: None,
             arrival: None,
             sent: None,
+            quarantined: None,
             rollback: None,
             rollback_queue: None,
             rollback_playing: false,
@@ -345,6 +346,8 @@ struct Worker {
     rollback_queue: Option<String>,
     /// With `rollback` after a send: that player was playing.
     rollback_playing: bool,
+    /// The report from before a send whose outcome is unknown, until a state read tells.
+    quarantined: Option<LocalPlayback>,
     /// The track sent away by the last successful send, until the app pauses.
     sent: Option<String>,
     /// This device was made active but its queue could not be read yet.
@@ -434,6 +437,8 @@ impl Worker {
     }
 
     fn reported(&mut self, l: LocalPlayback) {
+        // A newer report replaces one held back after an unknown send outcome.
+        self.quarantined = None;
         // After a send: another track playing here is a new start, which claims back.
         if let Some(sent) = &self.sent {
             if !l.playing {
@@ -520,6 +525,16 @@ impl Worker {
                 self.rollback_queue = None;
                 self.rollback_playing = false;
             }
+        }
+        if let Some(l) = self.quarantined.take()
+            && state.active.as_deref() == Some(self.mirror.me())
+        {
+            // Still the active player after an unknown send outcome: its playback is written again.
+            self.mirror.claimed(state.active.clone());
+            self.last_local = Some(l);
+            self.last_local_at = Instant::now();
+            self.mirror.force_position();
+            self.pending.get_or_insert_with(Instant::now);
         }
         let head = state.queue_id.as_deref().map(wire::head_with_track).transpose()?;
         self.follow(&[state.stream.clone(), head.as_ref().and_then(|h| h.stream.clone())]);
@@ -833,11 +848,12 @@ impl Worker {
                 return Err(CoreError::Other("another device took over playback".into()));
             }
             // The target may have it or not: the next read tells, and a move pauses here.
-            // The report from before the send must not claim playback back meanwhile.
+            // The report from before the send waits for that read: written again if this
+            // device turns out to be still active, dropped otherwise.
             Err(e) => {
                 self.ownership_unknown();
                 self.pending = None;
-                self.last_local = None;
+                self.quarantined = self.last_local.take();
                 return Err(e);
             }
         }
