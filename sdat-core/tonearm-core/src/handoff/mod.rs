@@ -152,13 +152,18 @@ impl Handoff {
     pub fn start(installation_key: &str, device_name: &str, listener: Arc<dyn HandoffListener>) -> Result<Self> {
         // A previous instance's late detach would undo this attach.
         wait_detached(Duration::from_secs(5));
+        let account = crate::auth::tokens().user_id();
         let me = wire::register(installation_key, device_name)?;
         wire::attach(&me)?;
+        // Signed into another account meanwhile: this installation belongs to the old one.
+        if crate::auth::tokens().user_id() != account {
+            return Err(CoreError::NotSignedIn);
+        }
         let (tx, rx) = mpsc::channel();
         let devices = Arc::new(Mutex::new(Vec::new()));
         let mut w = Worker {
             mirror: Mirror::new(me),
-            account: crate::auth::tokens().user_id(),
+            account,
             listener,
             devices: Arc::clone(&devices),
             tx: tx.clone(),
