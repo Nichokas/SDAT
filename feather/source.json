@@ -18,6 +18,15 @@
       "category": "entertainment",
       "versions": [
         {
+          "version": "2.0.1",
+          "buildVersion": "11",
+          "date": "2026-11-15T19:48:24Z",
+          "localizedDescription": "## What's Changed\n* iOS: artist page shows its top tracks instead of stuck loading rows by @Nichokas in https://github.com/Nichokas/SDAT/pull/136\n\n\n**Full Changelog**: https://github.com/Nichokas/SDAT/compare/v2.0.0...v2.0.1",
+          "downloadURL": "https://github.com/Nichokas/SDAT/releases/download/v2.0.1/SDAT-v2.0.1-unsigned.ipa",
+          "size": 29101260,
+          "minOSVersion": "26.0"
+        },
+        {
           "version": "2.0.0",
           "buildVersion": "10",
           "date": "2026-11-15T19:01:54Z",
@@ -81,11 +90,11 @@
           "minOSVersion": "26.0"
         }
       ],
-      "version": "2.0.0",
-      "versionDate": "2026-11-15T19:01:54Z",
-      "versionDescription": "## What's Changed\n* Cache the Android Rust core build and run the release build in parallel by @Nichokas in https://github.com/Nichokas/SDAT/pull/123\n* Add a script that sets up sccache for shared worktree builds by @Nichokas in https://github.com/Nichokas/SDAT/pull/125\n* Remove CodeRabbit from the review bot by @Nichokas in https://github.com/Nichokas/SDAT/pull/127\n* Prefer installed search CLIs over built-in web search by @Nichokas in https://github.com/Nichokas/SDAT/pull/128\n* Add Ubuntu dev VM setup script by @Nichokas in https://github.com/Nichokas/SDAT/pull/126\n* Retry the reviewer install on failure by @Nichokas in https://github.com/Nichokas/SDAT/pull/129\n* Run PR builds only after the reviewers pass by @Nichokas in https://github.com/Nichokas/SDAT/pull/130\n* Keep the iOS seek slider from snapping back after a seek by @Nichokas in https://github.com/Nichokas/SDAT/pull/131\n* Skip the build rerun when the review run names no PR by @Nichokas in https://github.com/Nichokas/SDAT/pull/132\n* Document installing SDAT for Android with Obtainium by @Nichokas in https://github.com/Nichokas/SDAT/pull/134\n* Move Renovate config to the repo root and cover Cargo and Gradle by @Nichokas in https://github.com/Nichokas/SDAT/pull/133\n* Keep the iOS player open when adding its track to a playlist by @Nichokas in https://github.com/Nichokas/SDAT/pull/135\n* Continue playback on another device through TIDAL's playback state by @Nichokas in https://github.com/Nichokas/SDAT/pull/122\n\n\n**Full Changelog**: https://github.com/Nichokas/SDAT/compare/v1.5.0...v2.0.0",
-      "downloadURL": "https://github.com/Nichokas/SDAT/releases/download/v2.0.0/SDAT-v2.0.0-unsigned.ipa",
-      "size": 29100516
+      "version": "2.0.1",
+      "versionDate": "2026-11-15T19:48:24Z",
+      "versionDescription": "## What's Changed\n* iOS: artist page shows its top tracks instead of stuck loading rows by @Nichokas in https://github.com/Nichokas/SDAT/pull/136\n\n\n**Full Changelog**: https://github.com/Nichokas/SDAT/compare/v2.0.0...v2.0.1",
+      "downloadURL": "https://github.com/Nichokas/SDAT/releases/download/v2.0.1/SDAT-v2.0.1-unsigned.ipa",
+      "size": 29101260
     }
   ],
   "news": []
