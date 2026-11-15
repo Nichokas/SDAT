@@ -378,6 +378,7 @@ class Playback(context: Context, private val prefs: Preferences, secrets: Secret
     /** Ignored while the stream URL loads: the new item starts from its beginning. */
     fun seek(secs: Double) {
         if (track == null || fetching) return
+        controls++
         val to = clampSeek(secs, duration)
         player.seekTo((to * 1000).toLong())
         position = to

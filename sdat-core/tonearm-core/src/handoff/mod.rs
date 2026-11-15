@@ -509,6 +509,13 @@ impl Worker {
                     return Err(e);
                 }
                 state = wire::state()?;
+            } else if state.active.as_deref() == Some(b.as_str()) {
+                // Handed back already; only its playing status may still be missing.
+                self.rollback_queue = None;
+                if let Err(e) = self.restore_playing() {
+                    self.rollback = Some(b);
+                    return Err(e);
+                }
             } else {
                 self.rollback_queue = None;
                 self.rollback_playing = false;
@@ -685,9 +692,15 @@ impl Worker {
         if !back {
             return Err(CoreError::Other("the other device is not available yet".into()));
         }
-        // The send paused the account; the player it took over was playing.
-        if std::mem::take(&mut self.rollback_playing) {
+        self.restore_playing()
+    }
+
+    /// The send paused the account; the player it took over was playing.
+    /// Kept until written, so a failed write is retried.
+    fn restore_playing(&mut self) -> Result<()> {
+        if self.rollback_playing {
             self.checked(|| wire::set_status(true))?;
+            self.rollback_playing = false;
             self.mirror.status_written(true);
         }
         Ok(())
@@ -812,7 +825,11 @@ impl Worker {
             // A third device claimed meanwhile: it keeps playback, and the next
             // read reports the move so this device pauses.
             Ok(_) => {
-                self.dirty.get_or_insert_with(Instant::now);
+                // Nothing more is written from here as the active player, and the
+                // report from before the send must not claim playback back.
+                self.ownership_unknown();
+                self.pending = None;
+                self.last_local = None;
                 return Err(CoreError::Other("another device took over playback".into()));
             }
             // The target may have it or not: the next read tells, and a move pauses here.
