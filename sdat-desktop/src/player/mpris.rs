@@ -14,7 +14,7 @@ use gtk::prelude::*;
 use zbus::object_server::SignalEmitter;
 use zbus::zvariant::{ObjectPath, OwnedValue, Value};
 
-use super::{playback_state_changed, PlaybackStatus, CONTINUE, repeat_mode_changed, RepeatMode, shuffle_state_changed, track_changed, volume_changed, seeked, previous, seek_to_position, set_repeat_mode, set_shuffle, current_track_id, set_volume};
+use super::{playback_state_changed, PlaybackStatus, CONTINUE, repeat_mode_changed, RepeatMode, shuffle_state_changed, track_changed, track_repeated, volume_changed, seeked, previous, seek_to_position, set_repeat_mode, set_shuffle, current_track_id, set_volume};
 
 const BUS_NAME: &str = "org.mpris.MediaPlayer2.com.nichokas.SDAT.Desktop";
 const PATH: &str = "/org/mpris/MediaPlayer2";
@@ -352,7 +352,7 @@ pub fn init() {
     let s = send.clone();
     playback_state_changed().on(move |st| {
         s(Update::Position(us(st.position), false));
-        s(Update::Status(if st.loading {
+        s(Update::Status(if st.loading || st.buffering {
             "Paused"
         } else {
             match st.status {
@@ -379,6 +379,7 @@ pub fn init() {
     });
     let s = send.clone();
     track_changed().on(move |ev| {
+        let started = ev.is_some();
         s(Update::Metadata(ev.as_ref().map(|ev| {
             let t = &ev.track;
             Meta {
@@ -391,6 +392,16 @@ pub fn init() {
                 url: format!("https://tidal.com/track/{}", t.id()),
             }
         })));
+        // Clients such as Quickshell extrapolate the position from the last
+        // one they read; a new track starts at 0.
+        if started {
+            s(Update::Position(0, true));
+        }
+        CONTINUE
+    });
+    let s = send.clone();
+    track_repeated().on(move |_| {
+        s(Update::Position(0, true));
         CONTINUE
     });
     let s = send.clone();
