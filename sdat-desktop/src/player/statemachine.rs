@@ -436,7 +436,7 @@ impl Machine {
             // of a Pause pressed after it.
             let before = self.queue.borrow().len();
             action();
-            let mut q = self.queue.borrow_mut();
+            let mut queue = self.queue.borrow_mut();
             let fired = q.split_off(before);
             for t in fired.into_iter().rev() {
                 q.push_front(t);
