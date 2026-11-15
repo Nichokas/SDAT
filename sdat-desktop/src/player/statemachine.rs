@@ -520,7 +520,7 @@ impl Machine {
                         on_stopped_stop();
                         // A queued stop or start has already replaced the
                         // source and moved on from the failed track.
-                        let superseded = self.queue.borrow().iter().any(|t| matches!(t, Trigger::Stop | Trigger::PlayTrack(..) | Trigger::PlayTrackId(..)));
+                        let superseded = self.queue.borrow().iter().any(|t| matches!(t, Trigger::Stop | Trigger::PlayTrack(..) | Trigger::PlayTrackId(..) | Trigger::Deferred(_)));
                         if !superseded {
                             (self.hooks.clear_source)();
                             (self.hooks.on_error)(&e);
@@ -917,7 +917,7 @@ pub mod tests {
         ctx.with_thread_default(|| {
             let m = Machine::new(
                 Rc::new(Testbin::default()),
-                Hooks { next_track: |_| (None, false), on_eos_stopped: || Box::pin(async {}), clear_source: || {} },
+                Hooks { next_track: |_| (None, false), on_eos_stopped: || Box::pin(async {}), clear_source: || {}, on_error: |_| {} },
             );
             assert!(m.stopped_without_pending_start());
             m.queue.borrow_mut().push_back(Trigger::Deferred(Box::new(|| DEFERRED_RAN.with(|c| c.set(c.get() + 1)))));
@@ -945,7 +945,7 @@ pub mod tests {
         ctx.with_thread_default(|| {
             let m = Machine::new(
                 Rc::new(Testbin::default()),
-                Hooks { next_track: |_| (None, false), on_eos_stopped: || Box::pin(async {}), clear_source: || {} },
+                Hooks { next_track: |_| (None, false), on_eos_stopped: || Box::pin(async {}), clear_source: || {}, on_error: |_| {} },
             );
             let inner = Rc::clone(&m);
             m.queue.borrow_mut().push_back(Trigger::Deferred(Box::new(move || {
