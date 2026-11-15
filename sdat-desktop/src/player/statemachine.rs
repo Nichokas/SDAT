@@ -388,8 +388,12 @@ impl Machine {
 
     async fn handle(self: &Rc<Self>, t: Trigger) {
         if let Trigger::Deferred(action) = t {
+            // A Stop pressed after it wins; don't take a track for nothing.
+            if self.has_queued_stop() {
+                return;
+            }
             // What the action fires belongs at its place in the queue, ahead
-            // of a Pause or Stop pressed after it.
+            // of a Pause pressed after it.
             let before = self.queue.borrow().len();
             action();
             let mut q = self.queue.borrow_mut();
@@ -831,8 +835,9 @@ pub mod tests {
         static ORDER: RefCell<Vec<&'static str>> = const { RefCell::new(Vec::new()) };
     }
 
-    /// What a deferred action fires runs before triggers queued after it
-    /// (a Pause or Stop pressed after a quick Next applies to its track).
+    /// What a deferred action fires runs before triggers queued after it (a
+    /// Pause pressed after a quick Next applies to its track); a later Stop
+    /// cancels it.
     #[test]
     fn deferred_action_fires_ahead_of_later_triggers() {
         let ctx = glib::MainContext::new();
@@ -846,6 +851,11 @@ pub mod tests {
                 inner.fire(Trigger::Deferred(Box::new(|| ORDER.with(|o| o.borrow_mut().push("fired")))));
             })));
             m.queue.borrow_mut().push_back(Trigger::Deferred(Box::new(|| ORDER.with(|o| o.borrow_mut().push("later")))));
+            m.fire(Trigger::Pause);
+            while ctx.iteration(false) {}
+            assert_eq!(ORDER.with(|o| o.borrow().clone()), ["fired", "later"]);
+            // A Stop pressed after a deferred action cancels it.
+            m.queue.borrow_mut().push_back(Trigger::Deferred(Box::new(|| ORDER.with(|o| o.borrow_mut().push("cancelled")))));
             m.fire(Trigger::Stop);
             while ctx.iteration(false) {}
             assert_eq!(ORDER.with(|o| o.borrow().clone()), ["fired", "later"]);
