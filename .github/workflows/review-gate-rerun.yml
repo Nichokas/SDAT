@@ -1,0 +1,28 @@
+name: Rebuild after review
+
+# A `/review` run that passes comes after the builds' gates already failed, so it reruns them.
+# Runs from push events have their gates still waiting and need nothing.
+on:
+  workflow_run:
+    workflows: [Review bot]
+    types: [completed]
+
+permissions: {}
+
+jobs:
+  rerun:
+    if: github.event.workflow_run.event == 'issue_comment'
+    runs-on: ubuntu-latest
+    permissions:
+      actions: write
+      contents: read
+      pull-requests: read
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          sparse-checkout: scripts/review_bot.py
+          sparse-checkout-cone-mode: false
+          persist-credentials: false
+      - env:
+          GH_TOKEN: ${{ github.token }}
+        run: python3 scripts/review_bot.py rerun-builds
