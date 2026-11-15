@@ -496,11 +496,17 @@ impl Worker {
         let mut rounds = 0;
         let (head, mut entries, future, current, track) = loop {
             rounds += 1;
-            let read = Self::snapshot(&queue).and_then(|r| Ok((r, wire::state()?.queue_id)));
-            let ((head, entries, future), selected) = match read {
+            let read = Self::snapshot(&queue).and_then(|r| Ok((r, wire::state()?)));
+            let ((head, entries, future), now) = match read {
                 Ok(r) => r,
                 Err(e) => return Err(self.undo_claim(claimed, before.as_deref(), e)),
             };
+            // Another device claimed after this one: it owns playback now, and is left alone.
+            if claimed && now.active.as_deref() != Some(self.mirror.me()) {
+                self.mirror.claimed(now.active);
+                return Err(CoreError::Other("another device took over playback".into()));
+            }
+            let selected = now.queue_id;
             if selected.as_deref() != Some(queue.as_str()) {
                 let Some(next) = selected.filter(|_| rounds < 4) else {
                     return Err(self.undo_claim(claimed, before.as_deref(), CoreError::Network("the queue changed while it was read".into())));
@@ -559,7 +565,12 @@ impl Worker {
 
     /// A pull that claimed and then failed hands playback back to where it was.
     fn undo_claim(&mut self, claimed: bool, before: Option<&str>, e: CoreError) -> CoreError {
-        if claimed && let Some(b) = before {
+        // Only while this device still holds it: a newer claim by a third device stays.
+        let still_mine = || wire::state().is_ok_and(|s| s.active.as_deref() == Some(self.mirror.me()));
+        if claimed
+            && let Some(b) = before
+            && still_mine()
+        {
             match wire::set_active(b) {
                 Ok(active) => self.mirror.claimed(active),
                 Err(e) => log::warn!("handoff: could not hand playback back error={e}"),
