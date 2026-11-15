@@ -171,6 +171,15 @@ final class Player {
         load(0, resumeAt: max(secs, 0))
     }
 
+    /// Appends to the base queue after its last track (what follows a handoff's resumed track).
+    func appendUpNext(_ tracks: [Track]) {
+        defer { persist() }
+        guard index != nil, !tracks.isEmpty else { return }
+        queue.append(contentsOf: tracks)
+        original.append(contentsOf: tracks)
+        invalidatePreload()
+    }
+
     func setShuffle(_ on: Bool) {
         guard on != shuffle else { return }
         shuffle = on

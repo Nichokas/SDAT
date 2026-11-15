@@ -27,6 +27,8 @@ final class HandoffHub {
     /// Bumped on every start and stop; a late start result or event from an older one is dropped.
     @ObservationIgnored private var generation = 0
     @ObservationIgnored private var reported: (local: HandoffLocal, at: Date)?
+    /// An Upcoming that came while `continuing`: applied once that result is played.
+    @ObservationIgnored private var pendingUpcoming: (currentId: String, tracks: [Track])?
     private let player = Player.shared
 
     var showsBanner: Bool { elsewhere != nil && !continuing && !Live.shared.isGuest }
@@ -99,6 +101,7 @@ final class HandoffHub {
         elsewhere = nil
         devices = []
         continuing = false
+        pendingUpcoming = nil
     }
 
     // MARK: reporting
@@ -146,7 +149,11 @@ final class HandoffHub {
             } catch {
                 if gen == generation { Chrome.shared.flash("Couldn't continue here") }
             }
-            if gen == generation { continuing = false }
+            guard gen == generation else { return }
+            continuing = false
+            // Also when this result was not played: it may be for a track that arrived meanwhile.
+            if let u = pendingUpcoming, !Live.shared.isGuest { appendUpcoming(u.currentId, u.tracks) }
+            pendingUpcoming = nil
         }
     }
 
@@ -171,7 +178,14 @@ final class HandoffHub {
 
     private func play(_ r: HandoffResume) {
         let rep: Player.Repeat = switch r.repeat { case .off: .off; case .all: .all; case .one: .one }
-        player.resume([r.current] + r.future, at: Double(r.positionMs) / 1000, repeat: rep, from: r.from.name)
+        player.resume([r.current], at: Double(r.positionMs) / 1000, repeat: rep, from: r.from.name)
+    }
+
+    /// Only onto the resumed track with nothing after it yet; else the user moved on, or it is a duplicate.
+    private func appendUpcoming(_ currentId: String, _ tracks: [Track]) {
+        guard player.current?.id == currentId, player.upNext.isEmpty else { return }
+        player.appendUpNext(tracks)
+        report()
     }
 
     // MARK: events
@@ -192,6 +206,9 @@ final class HandoffHub {
             guard !Live.shared.isGuest else { return }
             player.pause()
             Chrome.shared.flash("Playing on \(Self.name(d))")
+        case .upcoming(let currentId, let tracks):
+            guard !Live.shared.isGuest else { return }
+            if continuing { pendingUpcoming = (currentId, tracks) } else { appendUpcoming(currentId, tracks) }
         }
     }
 
