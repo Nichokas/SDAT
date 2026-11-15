@@ -1006,12 +1006,18 @@ pub fn play_at(source: Option<PlaybackSource>, tracks: Vec<Track>, position: Dur
     let first = tracks.first().map(|t| t.id().to_string());
     // Loads paused, so the start of the track is never heard before the seek.
     if let Some(id) = first.as_deref().filter(|_| !position.is_zero()) {
-        statemachine::start_paused(Some(id));
+        statemachine::start_paused(id);
     }
-    let started = play_tracks(tracks, false, 0).inspect_err(|_| statemachine::start_paused(None))?;
+    let started = play_tracks(tracks, false, 0).inspect_err(|_| {
+        if let Some(id) = first.as_deref() {
+            statemachine::drop_start_paused(id);
+        }
+    })?;
     source_changed().set(source);
     if position.is_zero() || first.as_deref() != Some(started.id()) {
-        statemachine::start_paused(None);
+        if let Some(id) = first.as_deref() {
+            statemachine::drop_start_paused(id);
+        }
         return Ok(());
     }
     let generation = LIST_GENERATION.with(Cell::get);
@@ -1020,7 +1026,7 @@ pub fn play_at(source: Option<PlaybackSource>, tracks: Vec<Track>, position: Dur
     let gate = std::cell::RefCell::new(StartGate::default());
     playback_state_changed().on_lazy(move |ps| {
         if LIST_GENERATION.with(Cell::get) != generation {
-            statemachine::start_paused(None);
+            statemachine::drop_start_paused(started.id());
             return crate::signals::UNSUBSCRIBE;
         }
         match gate.borrow_mut().step(ps, current_track_id().as_deref() == Some(started.id())) {
@@ -1055,7 +1061,7 @@ pub fn play_at(source: Option<PlaybackSource>, tracks: Vec<Track>, position: Dur
             }
             StartAt::GiveUp => {
                 // The handed-off start failed or was replaced: no later start of it loads paused.
-                statemachine::start_paused(None);
+                statemachine::drop_start_paused(started.id());
                 crate::signals::UNSUBSCRIBE
             }
         }

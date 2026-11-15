@@ -234,10 +234,14 @@ thread_local! {
     static START_PAUSED: RefCell<Option<String>> = const { RefCell::new(None) };
 }
 
-/// The next start loads paused instead of playing, if it is `track_id`;
-/// `None` drops a request no start took.
-pub fn start_paused(track_id: Option<&str>) {
-    START_PAUSED.with(|s| *s.borrow_mut() = track_id.map(str::to_string));
+/// The next start loads paused instead of playing, if it is `track_id`.
+pub fn start_paused(track_id: &str) {
+    START_PAUSED.with(|s| *s.borrow_mut() = Some(track_id.to_string()));
+}
+
+/// Drops a paused-start request for `track_id` that no start took (a newer one stays).
+pub fn drop_start_paused(track_id: &str) {
+    START_PAUSED.with(|s| drop(s.borrow_mut().take_if(|id| id == track_id)));
 }
 
 pub async fn on_play_track(playbin: &dyn Playbin, track: Track, skip_history: bool) -> Result<()> {

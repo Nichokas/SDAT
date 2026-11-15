@@ -313,7 +313,7 @@ impl Worker {
                         self.last_local = Some(l);
                         self.last_local_at = Instant::now();
                     }
-                    self.pending = None;
+                    // The pending report stays scheduled: a send that fails early must not drop it.
                     let _ = reply.send(self.send_to(&id, deadline));
                 }
                 Ok(Cmd::ContinueHere(deadline, reply)) => {
