@@ -607,13 +607,26 @@ impl Machine {
                 }
                 Ok(())
             }
-            // Resumed after the token expired while paused: also publish
-            // the playing state that a retry from Playing already has.
-            (State::PlayingRetrying, _) if from == State::Paused => match self.retry().await {
-                Ok(()) => on_playing(Rc::clone(&self.playbin), self.buffering.get()),
-                Err(e) => Err(e),
-            },
-            (State::PlayingRetrying, _) => self.retry().await,
+            (State::PlayingRetrying, _) => {
+                let mut r = self.retry().await;
+                // Resumed after the token expired while paused: also publish
+                // the playing state that a retry from Playing already has.
+                if r.is_ok() && from == State::Paused {
+                    r = on_playing(Rc::clone(&self.playbin), self.buffering.get());
+                }
+                if let Err(e) = &r {
+                    // Stuck in PlayingRetrying, Play would do nothing.
+                    log::error!("failed to reload the stream: {e:#}");
+                    let track = track_changed().with(|t| t.as_ref().map(|e| e.track.id().to_string()));
+                    self.state.set(State::Stopped);
+                    on_playing_exit();
+                    if let Err(e) = on_stopped(&*self.playbin) {
+                        log::error!("failed to reset the pipeline after a playback error: {e:#}");
+                    }
+                    self.stopped_on_error(track, e.to_string());
+                }
+                r
+            }
             _ => Ok(()),
         };
         if let Err(e) = res {
@@ -1256,6 +1269,25 @@ pub mod tests {
             while ctx.iteration(false) {}
             assert_eq!(m.state.get(), State::Stopped);
             assert!(track_changed().get().is_none());
+            assert_eq!(ERRORS.with(|v| v.borrow().len()), 1);
+        })
+        .unwrap();
+    }
+
+    /// A failed reload stops and reports instead of leaving the machine in
+    /// `PlayingRetrying`, where Play does nothing.
+    #[test]
+    fn failed_reload_stops() {
+        let ctx = glib::MainContext::new();
+        ctx.with_thread_default(|| {
+            ERRORS.with(|v| v.borrow_mut().clear());
+            let pb = Rc::new(Testbin { state_should_error: true, ..Default::default() });
+            let m = test_machine(&pb);
+            m.state.set(State::Paused);
+            m.reload_on_resume.set(true);
+            m.fire(Trigger::Resume);
+            while ctx.iteration(false) {}
+            assert_eq!(m.state.get(), State::Stopped);
             assert_eq!(ERRORS.with(|v| v.borrow().len()), 1);
         })
         .unwrap();
