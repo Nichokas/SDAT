@@ -2,6 +2,8 @@ package com.nichokas.sdat.ui
 
 import android.content.Context
 import android.content.Intent
+import android.content.pm.ApplicationInfo
+import android.content.pm.PackageManager
 import android.media.MediaRouter2
 import android.os.Build
 import androidx.compose.animation.AnimatedContent
@@ -255,9 +257,10 @@ private fun TitleRow(playback: Playback, track: Track, slide: () -> ContentTrans
 private fun showOutputSwitcher(context: Context): Boolean {
     if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) return MediaRouter2.getInstance(context).showSystemOutputSwitcher()
     // Android 13 has no API for it; System UI listens for this broadcast, as androidx.mediarouter sends it.
-    context.sendBroadcast(
-        Intent("com.android.systemui.action.LAUNCH_MEDIA_OUTPUT_DIALOG").setPackage("com.android.systemui").putExtra("package_name", context.packageName),
-    )
+    val intent = Intent("com.android.systemui.action.LAUNCH_MEDIA_OUTPUT_DIALOG").setPackage("com.android.systemui").putExtra("package_name", context.packageName)
+    val receivers = context.packageManager.queryBroadcastReceivers(intent, PackageManager.ResolveInfoFlags.of(0))
+    if (receivers.none { (it.activityInfo?.applicationInfo?.flags ?: 0) and ApplicationInfo.FLAG_SYSTEM != 0 }) return false
+    context.sendBroadcast(intent)
     return true
 }
 

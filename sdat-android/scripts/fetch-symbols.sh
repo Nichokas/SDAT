@@ -3,7 +3,7 @@
 # Run it after adding an icon to Symbols.kt.
 set -euo pipefail
 app="$(cd "$(dirname "$0")/../app/src/main" && pwd)"
-names=$(grep -o 'to "[a-z0-9_]*"' "$app/kotlin/com/nichokas/sdat/ui/Symbols.kt" | cut -d'"' -f2 | sort -u | paste -sd, -)
+names=$(grep -o 'to "[a-z0-9_]*"' "$app/kotlin/com/nichokas/sdat/ui/Symbols.kt" | cut -d'"' -f2 | LC_ALL=C sort -u | paste -sd, -)
 fetch() {
     local css
     css=$(curl -sSf "https://fonts.googleapis.com/css2?family=Material+Symbols+Rounded:opsz,wght,FILL,GRAD@24,400,$1,0&icon_names=$names")
