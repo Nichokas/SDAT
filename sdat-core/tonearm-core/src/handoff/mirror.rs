@@ -233,9 +233,15 @@ impl Mirror {
     /// claim is tried again on the next report.
     pub(super) fn write_failed(&mut self) {
         self.written = None;
-        if !self.is_active() {
+        // Also after this device's own attachment lapsed, when TIDAL names no player.
+        if self.state.active.as_deref() != Some(self.me.as_str()) {
             self.local_playing = false;
         }
+    }
+
+    /// The next playing report counts as a start, and claims the active player.
+    pub(super) fn reset_start(&mut self) {
+        self.local_playing = false;
     }
 
     /// Takes over the queue as read for a resume, so the first report after
@@ -454,6 +460,16 @@ mod tests {
         m.fetched(state(None, Status::Paused), None, None);
         m.local_playing = false;
         assert_eq!(m.plan(&local("1", &[], 0, true), 0).first(), Some(&Write::Claim));
+    }
+
+    #[test]
+    fn a_failed_claim_after_a_lapse_is_retried() {
+        let mut m = active_with(&["1"]);
+        m.fetched(state(None, Status::Paused), None, None);
+        m.local_playing = false;
+        assert_eq!(m.plan(&local("1", &[], 0, true), 0).first(), Some(&Write::Claim));
+        m.write_failed();
+        assert_eq!(m.plan(&local("1", &[], 0, true), 500).first(), Some(&Write::Claim));
     }
 
     #[test]

@@ -36,6 +36,8 @@ const MAX_RETRY: Duration = Duration::from_mins(1);
 /// A position written this recently by another device, found at the first
 /// read with this device active, was a push to it.
 const FRESH_PUSH_MS: i64 = 60_000;
+/// How far from the resumed position a report may be and still be the resumed playback.
+const ACK_MS: i64 = 5_000;
 /// How long after taking over a queue the app has to load it.
 const TAKEOVER: Duration = Duration::from_secs(10);
 
@@ -183,6 +185,7 @@ impl Handoff {
             awaiting: None,
             held: None,
             arrival: None,
+            sent: None,
             names: HashMap::new(),
         };
         std::thread::Builder::new().name("handoff".into()).spawn(move || w.run(&rx)).map_err(|e| CoreError::Other(e.to_string()))?;
@@ -274,6 +277,8 @@ struct Worker {
     awaiting: Option<(LocalPlayback, Instant)>,
     /// The last report held back by `awaiting`, written once it ends.
     held: Option<LocalPlayback>,
+    /// The track sent away by the last successful send, until the app pauses.
+    sent: Option<String>,
     /// This device was made active but its queue could not be read yet.
     arrival: Option<Arrival>,
     /// Installation names, for devices that are no longer attached.
@@ -336,7 +341,8 @@ impl Worker {
             if self.dirty.is_some_and(|d| d <= now) {
                 self.dirty = None;
                 if let Err(e) = self.refresh() {
-                    log::info!("handoff: state read failed error={e}");
+                    log::info!("handoff: state read failed, retrying error={e}");
+                    self.dirty.get_or_insert_with(|| Instant::now() + RETRY);
                 }
             }
             if next_attach <= now {
@@ -352,15 +358,28 @@ impl Worker {
                 if (self.streams.is_empty() || self.streams.iter().any(Follower::is_down))
                     && let Err(e) = self.refresh()
                 {
-                    log::info!("handoff: state read failed error={e}");
+                    log::info!("handoff: state read failed, retrying error={e}");
+                    self.dirty.get_or_insert_with(|| Instant::now() + RETRY);
                 }
             }
         }
     }
 
     fn reported(&mut self, l: LocalPlayback) {
-        if let Some((resumed, _)) = &self.awaiting {
-            if l.current != resumed.current || l.future != resumed.future {
+        // After a send: another track playing here is a new start, which claims back.
+        if let Some(sent) = &self.sent {
+            if !l.playing {
+                self.sent = None;
+            } else if l.current.as_ref() != Some(sent) {
+                self.sent = None;
+                self.mirror.reset_start();
+            }
+        }
+        if let Some((resumed, since)) = &self.awaiting {
+            // The resumed playback, at about the resumed position (playing on from it).
+            let elapsed = i64::try_from(TAKEOVER.saturating_sub(since.saturating_duration_since(Instant::now())).as_millis()).unwrap_or(0);
+            let near = l.position_ms >= resumed.position_ms - ACK_MS && l.position_ms <= resumed.position_ms + elapsed + ACK_MS;
+            if l.current != resumed.current || l.future != resumed.future || !near {
                 self.held = Some(l);
                 return;
             }
@@ -436,6 +455,7 @@ impl Worker {
         }
         if let Some(Arrival(from)) = self.arrival.clone() {
             // The reads above may span another claim: only a device still active plays.
+            // A failed read keeps the arrival; the caller reads again shortly.
             if wire::state()?.active.as_deref() != Some(self.mirror.me()) {
                 self.arrival = None;
                 return Ok(());
@@ -486,6 +506,10 @@ impl Worker {
             past(deadline)?;
             self.claim()?;
         }
+        // Another device may have selected another queue meanwhile.
+        if wire::state()?.queue_id.as_deref() != Some(queue.as_str()) {
+            return Err(CoreError::Network("the queue changed while it was read".into()));
+        }
         let duration = i64::try_from(track.duration().as_millis()).unwrap_or(i64::MAX);
         // A pull takes over a player that may still be playing; a push wrote its exact position.
         let playing = claim.is_some() && self.mirror.state().status == wire::Status::Playing;
@@ -494,6 +518,7 @@ impl Worker {
         let resumed = LocalPlayback {
             current: Some(track.id().to_string()),
             future: future.iter().map(|t| t.id().to_string()).collect(),
+            position_ms,
             ..LocalPlayback::default()
         };
         entries.insert(0, current);
@@ -538,16 +563,18 @@ impl Worker {
         // Paused before the target owns the state, so this write cannot land after its own.
         wire::set_status(false)?;
         self.mirror.status_written(false);
-        if wire::set_active(id)?.as_deref() != Some(id) {
-            // An unattached target leaves no active player: take it back.
-            self.claim()?;
-            if self.last_local.as_ref().is_some_and(|l| l.playing) {
-                wire::set_status(true)?;
+        let handed = wire::set_active(id);
+        if !matches!(&handed, Ok(Some(a)) if a == id) {
+            // An unattached target leaves no active player, and a failed call
+            // leaves it unknown: take it back and undo the pause.
+            if self.claim().is_ok() && self.last_local.as_ref().is_some_and(|l| l.playing) && wire::set_status(true).is_ok() {
                 self.mirror.status_written(true);
             }
+            handed?;
             return Err(CoreError::Other("the device is not available".into()));
         }
         self.mirror.released_to(id);
+        self.sent = self.last_local.as_ref().and_then(|l| l.current.clone());
         Ok(())
     }
 

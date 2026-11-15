@@ -285,9 +285,12 @@ pub(crate) fn cached_user_token() -> Option<String> {
 /// user's token. `Value::Null` for an empty answer.
 pub(crate) fn openapi_call(method: Method, path: &str, body: Option<&serde_json::Value>) -> Result<serde_json::Value> {
     openapi_path(path)?;
-    user_bearer()?;
+    // One token for the whole request: the account cannot change under it.
+    let token = user_bearer()?;
     let label = method.to_string();
-    jsonapi(request(method, &openapi(path), &[])?, &label, path, body)
+    let sep = if path.contains('?') { '&' } else { '?' };
+    let rb = authed(method, &format!("{path}{sep}countryCode={}", country_code()), &token);
+    jsonapi(rb, &label, path, body)
 }
 
 /// [`openapi_call`] with a token taken earlier, for work that outlives the
@@ -295,8 +298,11 @@ pub(crate) fn openapi_call(method: Method, path: &str, body: Option<&serde_json:
 pub(crate) fn openapi_call_as(token: &str, method: Method, path: &str, body: Option<&serde_json::Value>) -> Result<serde_json::Value> {
     openapi_path(path)?;
     let label = method.to_string();
-    let rb = http().request(method, openapi(path)).bearer_auth(token).header("x-tidal-token", client_id()).header("x-tidal-client-version", CLIENT_VERSION);
-    jsonapi(rb, &label, path, body)
+    jsonapi(authed(method, path, token), &label, path, body)
+}
+
+fn authed(method: Method, path: &str, token: &str) -> RequestBuilder {
+    http().request(method, openapi(path)).bearer_auth(token).header("x-tidal-token", client_id()).header("x-tidal-client-version", CLIENT_VERSION)
 }
 
 /// The user token goes to the `OpenAPI` host only.
