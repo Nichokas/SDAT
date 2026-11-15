@@ -26,7 +26,6 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 45
     # R8 and lint each take about three minutes and fought for the same four cores in one job.
-    # lintDebug covers the release lint check, so the release leg skips it.
     strategy:
       fail-fast: false
       matrix:
@@ -34,7 +33,7 @@ jobs:
           - variant: debug
             tasks: assembleDebug lintDebug testDebugUnitTest
           - variant: release
-            tasks: assembleRelease -x lintVitalRelease
+            tasks: assembleRelease
     env:
       NDK_VERSION: 27.1.12297006
     steps:
