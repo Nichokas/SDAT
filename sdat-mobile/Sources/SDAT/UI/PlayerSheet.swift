@@ -1,6 +1,7 @@
+import AVKit
 import SwiftUI
 
-/// Full player. Swipe left (or tap the queue hint) for the queue.
+/// Full player. Swipe left (or tap the queue button) for the queue.
 struct PlayerSheet: View {
     @Environment(Player.self) private var player
     @Environment(\.scenePhase) private var phase
@@ -52,33 +53,7 @@ private struct NowPlayingPage: View {
 
     var body: some View {
         let fav = player.current.flatMap { Favs.shared.known($0.id) } ?? false
-        VStack(spacing: 18) {
-            HStack {
-                GlassEffectContainer {
-                    HStack(spacing: 0) {
-                        if let t = player.current {
-                            ShareLink(item: URL(string: "https://tidal.com/track/\(t.id)")!) {
-                                Image(systemName: "square.and.arrow.up").frame(width: 44, height: 40)
-                            }
-                        }
-                        Button { if let id = player.current?.id { Favs.shared.toggle(id) } } label: {
-                            Image(systemName: fav ? "star.fill" : "star").frame(width: 44, height: 40)
-                                .foregroundStyle(fav ? Color.yellow : .white)
-                        }
-                    }
-                    .glassEffect(.regular.interactive(), in: .capsule)
-                }
-                Spacer()
-                Menu {
-                    if let t = player.current { TrackMenu(track: t) }
-                } label: {
-                    Image(systemName: "ellipsis").frame(width: 44, height: 44)
-                        .glassEffect(.regular.interactive(), in: .circle)
-                }
-            }
-            .foregroundStyle(.white)
-            .padding(.top, 14)
-
+        VStack(spacing: 0) {
             Spacer(minLength: 0)
             Cover(url: player.current?.album?.coverUrlLarge ?? player.current?.album?.coverUrl, radius: 16)
                 .shadow(color: .black.opacity(0.45), radius: 28, y: 14)
@@ -88,53 +63,72 @@ private struct NowPlayingPage: View {
                 .animation(.spring(duration: 0.45, bounce: 0.25), value: player.isPlaying)
             Spacer(minLength: 0)
 
-            VStack(alignment: .leading, spacing: 4) {
-                Text(player.current?.displayTitle ?? "").font(.title3.bold()).lineLimit(1)
-                HStack(spacing: 6) {
-                    if player.isOffline {
-                        Image(systemName: "arrow.down.circle.fill").font(.footnote)
-                            .foregroundStyle(.white.opacity(0.65))
-                            .accessibilityLabel("Playing downloaded copy")
+            HStack(spacing: 0) {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(player.current?.displayTitle ?? "").font(.title3.bold()).lineLimit(1)
+                    HStack(spacing: 6) {
+                        if player.isOffline {
+                            Image(systemName: "arrow.down.circle.fill").font(.footnote)
+                                .foregroundStyle(.white.opacity(0.65))
+                                .accessibilityLabel("Playing downloaded copy")
+                        }
+                        Text(player.current?.artistLine ?? "").foregroundStyle(.white.opacity(0.65)).lineLimit(1)
                     }
-                    Text(player.current?.artistLine ?? "").foregroundStyle(.white.opacity(0.65)).lineLimit(1)
                 }
+                .id(player.current?.id)
+                .transition(slide)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                Button { if let id = player.current?.id { Favs.shared.toggle(id) } } label: {
+                    Image(systemName: fav ? "star.fill" : "star").font(.title3)
+                        .frame(width: 44, height: 44).contentShape(.rect)
+                }
+                .accessibilityLabel(fav ? "Unfavourite" : "Favourite")
+                Menu {
+                    if let t = player.current {
+                        ShareLink(item: URL(string: "https://tidal.com/track/\(t.id)")!) {
+                            Label("Share", systemImage: "square.and.arrow.up")
+                        }
+                        Divider()
+                        TrackMenu(track: t)
+                    }
+                } label: {
+                    Image(systemName: "ellipsis").font(.title3)
+                        .frame(width: 44, height: 44).contentShape(.rect)
+                }
+                .accessibilityLabel("More")
             }
-            .id(player.current?.id)
-            .transition(slide)
-            .frame(maxWidth: .infinity, alignment: .leading)
+            .foregroundStyle(.white)
+            .buttonStyle(.plain)
+            .padding(.top, 24)
 
-            Scrubber()
+            Scrubber().padding(.top, 14)
 
             QualityMenu(selection: Binding(
                 get: { prefs.streamingQuality },
                 set: { prefs.streamingQuality = $0; player.reloadQuality() }
             )) {
                 let q = player.shownQuality ?? prefs.streamingQuality
-                HStack(spacing: 10) {
-                    QualityLogo(quality: q, height: 22)
-                    Text(q.badgeText).font(.subheadline.weight(.semibold)).foregroundStyle(.white.opacity(0.9))
+                HStack(spacing: 8) {
+                    QualityLogo(quality: q, height: 16)
+                    Text(q.badgeText).font(.caption.weight(.semibold)).foregroundStyle(.white.opacity(0.7))
                         .lineLimit(1).fixedSize()
-                    Image(systemName: "chevron.up.chevron.down").font(.caption.weight(.semibold)).foregroundStyle(.white.opacity(0.6))
+                    Image(systemName: "chevron.up.chevron.down").font(.caption2.weight(.semibold)).foregroundStyle(.white.opacity(0.5))
                 }
-                .padding(.horizontal, 18).frame(minHeight: 44)
-                .contentShape(.capsule)
-                .glassEffect(.regular.interactive(), in: .capsule)
+                .frame(minHeight: 44)
+                .contentShape(.rect)
                 .animation(.smooth, value: q)
             }
             .foregroundStyle(.white)
+            .padding(.top, 2)
 
-            HStack {
-                Button { player.setShuffle(!player.shuffle) } label: {
-                    Image(systemName: "shuffle").font(.title3).foregroundStyle(player.shuffle ? Color.blue : .white.opacity(0.8))
-                }
-                Spacer()
+            HStack(spacing: 46) {
                 Button { forward = false; prevTap += 1; if !Live.shared.guestRefuses() { withAnimation(.spring(duration: 0.4, bounce: 0.2)) { player.previous() } } } label: {
                     Image(systemName: "backward.fill").font(.system(size: 30))
                         .symbolEffect(.wiggle.left, value: prevTap)
                 }
                 .opacity(Live.shared.isGuest ? 0.4 : 1)
                 .sensoryFeedback(.impact(weight: .light), trigger: prevTap)
-                Spacer()
+                .accessibilityLabel("Previous")
                 Button { Live.shared.userToggle() } label: {
                     Group {
                         if player.loading { ProgressView().controlSize(.large).tint(.white) } else {
@@ -145,37 +139,34 @@ private struct NowPlayingPage: View {
                     .frame(width: 64, height: 64)
                 }
                 .opacity(Live.shared.playbackLocked ? 0.4 : 1)
-                Spacer()
+                .accessibilityLabel(player.isPlaying ? "Pause" : "Play")
                 Button { forward = true; nextTap += 1; if Live.shared.isGuest { Live.shared.userNext() } else { withAnimation(.spring(duration: 0.4, bounce: 0.2)) { player.next() } } } label: {
                     Image(systemName: "forward.fill").font(.system(size: 30))
                         .symbolEffect(.wiggle.right, value: nextTap)
                 }
                 .opacity(Live.shared.playbackLocked ? 0.4 : 1)
                 .sensoryFeedback(.impact(weight: .light), trigger: nextTap)
-                Spacer()
-                Button { player.cycleRepeat() } label: {
-                    Image(systemName: player.repeatMode == .one ? "repeat.1" : "repeat").font(.title3)
-                        .foregroundStyle(player.repeatMode == .off ? .white.opacity(0.8) : Color.blue)
-                }
+                .accessibilityLabel("Next")
             }
             .foregroundStyle(.white)
             .buttonStyle(.plain)
+            .padding(.top, 20)
 
             HStack {
+                RoutePicker().frame(width: 44, height: 44)
                 Spacer()
                 Button(action: showQueue) {
-                    HStack(spacing: 4) {
-                        Image(systemName: "list.bullet")
-                        Image(systemName: "chevron.right").font(.caption.weight(.bold))
-                    }
-                    .padding(.horizontal, 14).padding(.vertical, 9)
-                    .glassEffect(.regular.interactive(), in: .capsule)
+                    Image(systemName: "list.bullet").font(.title3)
+                        .frame(width: 44, height: 44).contentShape(.rect)
                 }
                 .buttonStyle(.plain)
-                .foregroundStyle(.white.opacity(0.85))
+                .accessibilityLabel("Queue")
             }
+            .foregroundStyle(.white.opacity(0.85))
+            .padding(.top, 16)
         }
         .padding(.horizontal, 24)
+        .padding(.top, 24)
         .padding(.bottom, 12)
         .task(id: player.current?.id) {
             if let id = player.current?.id { await Favs.shared.check(id) }
@@ -183,8 +174,21 @@ private struct NowPlayingPage: View {
     }
 }
 
+/// The system AirPlay picker, in the player's white instead of the system blue.
+private struct RoutePicker: UIViewRepresentable {
+    func makeUIView(context: Context) -> AVRoutePickerView {
+        let view = AVRoutePickerView()
+        view.prioritizesVideoDevices = false
+        view.tintColor = UIColor.white.withAlphaComponent(0.85)
+        view.activeTintColor = .white
+        return view
+    }
+
+    func updateUIView(_ uiView: AVRoutePickerView, context: Context) {}
+}
+
 /// Seek slider and times. Its own view so the 4 Hz position ticks re-render only this,
-/// not the whole page with its glass controls.
+/// not the whole page.
 private struct Scrubber: View {
     @Environment(Player.self) private var player
     @State private var scrub: Double?
@@ -216,6 +220,14 @@ private struct Scrubber: View {
 private struct QueuePage: View {
     @Environment(Player.self) private var player
 
+    private var repeatLabel: String {
+        switch player.repeatMode {
+        case .off: "Repeat: Off"
+        case .all: "Repeat: All"
+        case .one: "Repeat: One"
+        }
+    }
+
     var body: some View {
         NavigationStack {
             List {
@@ -232,6 +244,7 @@ private struct QueuePage: View {
                     } header: {
                         Button { Live.shared.showSheet = true } label: {
                             Label("Playing from Listen Together", systemImage: "dot.radiowaves.left.and.right")
+                                .foregroundStyle(.white)
                         }
                     }
                 } else if !player.userQueue.isEmpty {
@@ -268,14 +281,20 @@ private struct QueuePage: View {
                 ToolbarItem(placement: .topBarLeading) {
                     Button { Live.shared.showSheet = true } label: {
                         Image(systemName: "dot.radiowaves.left.and.right")
-                            .foregroundStyle(Live.shared.active ? Color.blue : .white)
+                            .foregroundStyle(Live.shared.active ? .white : .white.opacity(0.45))
                     }
                     .accessibilityLabel("Listen Together")
                 }
-                ToolbarItem(placement: .topBarTrailing) {
+                ToolbarItemGroup(placement: .topBarTrailing) {
                     Button { player.setShuffle(!player.shuffle) } label: {
-                        Image(systemName: "shuffle").foregroundStyle(player.shuffle ? Color.blue : .white)
+                        Image(systemName: "shuffle").foregroundStyle(player.shuffle ? .white : .white.opacity(0.45))
                     }
+                    .accessibilityLabel(player.shuffle ? "Shuffle: On" : "Shuffle: Off")
+                    Button { player.cycleRepeat() } label: {
+                        Image(systemName: player.repeatMode == .one ? "repeat.1" : "repeat")
+                            .foregroundStyle(player.repeatMode == .off ? .white.opacity(0.45) : .white)
+                    }
+                    .accessibilityLabel(repeatLabel)
                 }
             }
             .background { ZStack { Color.black.opacity(0.55); Rectangle().fill(.ultraThinMaterial).opacity(0.9) }.ignoresSafeArea() }
