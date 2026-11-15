@@ -186,6 +186,7 @@ impl Handoff {
             held: None,
             arrival: None,
             sent: None,
+            rollback: None,
             names: HashMap::new(),
         };
         std::thread::Builder::new().name("handoff".into()).spawn(move || w.run(&rx)).map_err(|e| CoreError::Other(e.to_string()))?;
@@ -277,6 +278,8 @@ struct Worker {
     awaiting: Option<(LocalPlayback, Instant)>,
     /// The last report held back by `awaiting`, written once it ends.
     held: Option<LocalPlayback>,
+    /// A failed pull to undo once the account can be read: the player it took over from.
+    rollback: Option<String>,
     /// The track sent away by the last successful send, until the app pauses.
     sent: Option<String>,
     /// This device was made active but its queue could not be read yet.
@@ -422,7 +425,23 @@ impl Worker {
         if !self.same_account() {
             return Err(CoreError::NotSignedIn);
         }
-        let state = wire::state()?;
+        let mut state = wire::state()?;
+        if let Some(b) = self.rollback.take() {
+            // A failed pull still holding playback that nothing plays here: hand it back.
+            let idle = self.last_local.as_ref().is_none_or(|l| !l.playing);
+            if idle && state.active.as_deref() == Some(self.mirror.me()) {
+                match wire::set_active(&b) {
+                    Ok(active) => {
+                        self.mirror.claimed(active.clone());
+                        state.active = active;
+                    }
+                    Err(e) => {
+                        self.rollback = Some(b);
+                        return Err(e);
+                    }
+                }
+            }
+        }
         let head = state.queue_id.as_deref().map(wire::head_with_track).transpose()?;
         self.follow(&[state.stream.clone(), head.as_ref().and_then(|h| h.stream.clone())]);
         for p in &state.players {
@@ -503,7 +522,8 @@ impl Worker {
             };
             // Another device claimed after this one: it owns playback now, and is left alone.
             if claimed && now.active.as_deref() != Some(self.mirror.me()) {
-                self.mirror.claimed(now.active);
+                // The next read reports the move, so a player still going here pauses.
+                self.dirty.get_or_insert_with(Instant::now);
                 return Err(CoreError::Other("another device took over playback".into()));
             }
             let selected = now.queue_id;
@@ -565,16 +585,19 @@ impl Worker {
 
     /// A pull that claimed and then failed hands playback back to where it was.
     fn undo_claim(&mut self, claimed: bool, before: Option<&str>, e: CoreError) -> CoreError {
+        let (true, Some(b)) = (claimed, before) else { return e };
         // Only while this device still holds it: a newer claim by a third device stays.
-        let still_mine = || wire::state().is_ok_and(|s| s.active.as_deref() == Some(self.mirror.me()));
-        if claimed
-            && let Some(b) = before
-            && still_mine()
-        {
-            match wire::set_active(b) {
+        // Unknown (a failed read): the next state read decides.
+        match wire::state() {
+            Ok(s) if s.active.as_deref() == Some(self.mirror.me()) => match wire::set_active(b) {
                 Ok(active) => self.mirror.claimed(active),
-                Err(e) => log::warn!("handoff: could not hand playback back error={e}"),
-            }
+                Err(_) => self.rollback = Some(b.to_string()),
+            },
+            Ok(_) => {}
+            Err(_) => self.rollback = Some(b.to_string()),
+        }
+        if self.rollback.is_some() {
+            self.dirty.get_or_insert_with(|| Instant::now() + RETRY);
         }
         e
     }

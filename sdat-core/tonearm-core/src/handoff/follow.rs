@@ -49,7 +49,16 @@ impl Drop for Follower {
     }
 }
 
+/// The user token goes only to TIDAL hosts over TLS.
+fn trusted(url: &str) -> bool {
+    url::Url::parse(url).is_ok_and(|u| u.scheme() == "https" && u.host_str().is_some_and(|h| h == "tidal.com" || h.ends_with(".tidal.com")))
+}
+
 fn run(url: &str, tx: &Sender<Cmd>, stop: &AtomicBool, down: &AtomicBool) {
+    if !trusted(url) {
+        log::warn!("handoff: not following an event stream outside TIDAL url={url}");
+        return;
+    }
     let client = match crate::http::client_builder().timeout(CONNECTION).build() {
         Ok(c) => c,
         Err(e) => {
@@ -93,5 +102,16 @@ fn run(url: &str, tx: &Sender<Cmd>, stop: &AtomicBool, down: &AtomicBool) {
             std::thread::sleep(Duration::from_millis(500));
         }
         backoff = (backoff * 2).min(MAX_BACKOFF);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn follows_tidal_streams_only() {
+        assert!(super::trusted("https://pulsar.tidal.com/userPlaybackStates/x"));
+        assert!(!super::trusted("http://pulsar.tidal.com/x"));
+        assert!(!super::trusted("https://pulsar.tidal.com.evil.example/x"));
+        assert!(!super::trusted("https://eviltidal.com/x"));
     }
 }
