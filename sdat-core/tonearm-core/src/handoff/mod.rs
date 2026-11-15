@@ -233,6 +233,7 @@ impl Handoff {
             arrival: None,
             sent: None,
             quarantined: None,
+            quarantine_track: None,
             rollback: None,
             rollback_queue: None,
             rollback_playing: false,
@@ -348,6 +349,8 @@ struct Worker {
     rollback_playing: bool,
     /// The report from before a send whose outcome is unknown, until a state read tells.
     quarantined: Option<(LocalPlayback, Instant)>,
+    /// The track that send was about, to tell a new local start from the old report.
+    quarantine_track: Option<String>,
     /// The track sent away by the last successful send, until the app pauses.
     sent: Option<String>,
     /// This device was made active but its queue could not be read yet.
@@ -535,16 +538,27 @@ impl Worker {
         }
         let head = state.queue_id.as_deref().map(wire::head_with_track).transpose()?;
         // Settled only by a complete read (the head too): a failed read keeps the report held.
-        if let Some((l, at)) = self.quarantined.take()
-            && state.active.as_deref() == Some(self.mirror.me())
-        {
-            // Still the active player after an unknown send outcome: its playback is written
-            // again, with the time it was reported so a playing position moves on from there.
-            self.mirror.claimed(state.active.clone());
-            self.last_local = Some(l);
-            self.last_local_at = at;
-            self.mirror.force_position();
-            self.pending.get_or_insert_with(Instant::now);
+        if let Some((l, at)) = self.quarantined.take() {
+            let sent = self.quarantine_track.take();
+            if state.active.as_deref() == Some(self.mirror.me()) {
+                // Still the active player after an unknown send outcome: its playback is written
+                // again, with the time it was reported so a playing position moves on from there.
+                self.mirror.claimed(state.active.clone());
+                self.last_local = Some(l);
+                self.last_local_at = at;
+                self.mirror.force_position();
+                self.pending.get_or_insert_with(Instant::now);
+            } else if l.playing && l.current.is_some() && l.current != sent {
+                // The send went through, but the user started another track here since:
+                // that start claims playback, and isn't paused by the move.
+                if let Some(a) = state.active.as_deref() {
+                    self.mirror.released_to(a);
+                }
+                self.mirror.reset_start();
+                self.last_local = Some(l);
+                self.last_local_at = at;
+                self.pending.get_or_insert_with(Instant::now);
+            }
         }
         self.follow(&[state.stream.clone(), head.as_ref().and_then(|h| h.stream.clone())]);
         for p in &state.players {
@@ -733,6 +747,14 @@ impl Worker {
     /// A send that took playback from another device and then failed: that
     /// device gets its queue selected again and playback back.
     fn undo_send(&mut self, claimed: bool, before: Option<&str>, their_queue: Option<&str>, e: CoreError) -> CoreError {
+        if !claimed {
+            // This device kept playback: its own playing status (paused by the send) is written again.
+            if self.restore_playing().is_err() {
+                self.rollback_playing = false;
+                self.pending.get_or_insert_with(|| Instant::now() + RETRY);
+            }
+            return e;
+        }
         self.rollback_queue = their_queue.map(str::to_string);
         self.undo_claim(claimed, before, e)
     }
@@ -741,12 +763,7 @@ impl Worker {
     fn undo_claim(&mut self, claimed: bool, before: Option<&str>, e: CoreError) -> CoreError {
         let (true, Some(b)) = (claimed, before) else {
             self.rollback_queue = None;
-            // Nobody to hand back to: this device keeps playback, and its own playing
-            // status (paused by a failed send) is written again.
-            if self.restore_playing().is_err() {
-                self.rollback_playing = false;
-                self.pending.get_or_insert_with(|| Instant::now() + RETRY);
-            }
+            self.rollback_playing = false;
             return e;
         };
         // Only while this device still holds it: a newer claim by a third device
@@ -864,6 +881,8 @@ impl Worker {
                 self.ownership_unknown();
                 self.pending = None;
                 self.last_local = None;
+                self.rollback_playing = false;
+                self.rollback_queue = None;
                 return Err(CoreError::Other("another device took over playback".into()));
             }
             // The target may have it or not: the next read tells, and a move pauses here.
@@ -872,6 +891,9 @@ impl Worker {
             Err(e) => {
                 self.ownership_unknown();
                 self.pending = None;
+                self.rollback_playing = false;
+                self.rollback_queue = None;
+                self.quarantine_track = self.last_local.as_ref().and_then(|l| l.current.clone());
                 self.quarantined = self.last_local.take().map(|l| (l, self.last_local_at));
                 return Err(e);
             }
