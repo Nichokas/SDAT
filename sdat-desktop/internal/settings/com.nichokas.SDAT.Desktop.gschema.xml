@@ -17,6 +17,11 @@
             <summary>Hide Secret Service Warning</summary>
             <description>Do not show any warning when the secret service health check fails on startup</description>
         </key>
+		<key name="handoff-installation-key" type="s">
+			<default>''</default>
+			<summary>Handoff installation key</summary>
+			<description>Identifies this install as a player of the TIDAL account, to continue playback on other devices</description>
+		</key>
     	<key name="window-height" type="i">
     		<default>920</default>
     		<summary>Window Height</summary>

@@ -607,6 +607,11 @@ pub fn seek_to_percent(percent: f64) {
 }
 
 pub fn seek_to_position(position: Duration, precise: bool) {
+    try_seek(position, precise);
+}
+
+/// `false` when the pipeline refused the seek.
+fn try_seek(position: Duration, precise: bool) -> bool {
     let flags = if precise {
         gst::SeekFlags::FLUSH | gst::SeekFlags::ACCURATE
     } else {
@@ -614,9 +619,11 @@ pub fn seek_to_position(position: Duration, precise: bool) {
     };
     // Subscribers (MPRIS `Seeked`, the Listen Together host anchor) take
     // `position` as reached, so a seek the pipeline refused must not notify.
-    if playbin().is_some_and(|p| statemachine::Playbin::seek(&p, position, flags)) {
+    let ok = playbin().is_some_and(|p| statemachine::Playbin::seek(&p, position, flags));
+    if ok {
         seeked().notify(&position);
     }
+    ok
 }
 
 pub fn set_volume(volume: f64) {
@@ -927,11 +934,111 @@ fn play_tracks(tracks: Vec<Track>, shuffle: bool, starting_position: usize) -> R
     Ok(t)
 }
 
+/// What a start at a position does on a player state change.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum StartAt {
+    Wait,
+    /// Loaded on the track: seek, then play.
+    Seek,
+    /// The load ended elsewhere (failed, or another track).
+    GiveUp,
+}
+
+/// Follows a track loaded paused until it can seek. `on_track`: the player's
+/// current track is the one started.
+#[derive(Debug, Default)]
+pub struct StartGate {
+    loading_seen: bool,
+}
+
+impl StartGate {
+    pub fn step(&mut self, ps: &PlaybackState, on_track: bool) -> StartAt {
+        if ps.loading {
+            self.loading_seen = true;
+            return StartAt::Wait;
+        }
+        // Until the load starts, the state is still the previous track's.
+        if !self.loading_seen {
+            return StartAt::Wait;
+        }
+        if on_track && ps.status != PlaybackStatus::Stopped { StartAt::Seek } else { StartAt::GiveUp }
+    }
+}
+
+/// Plays `tracks` from `position` into the first one. It loads paused and
+/// seeks before playing, so the start of the track is never heard.
+pub fn play_at(source: Option<PlaybackSource>, tracks: Vec<Track>, position: Duration) -> Result<()> {
+    let first = tracks.first().map(|t| t.id().to_string());
+    let started = play_tracks(tracks, false, 0)?;
+    source_changed().set(source);
+    if position.is_zero() || first.as_deref() != Some(started.id()) {
+        return Ok(());
+    }
+    pause();
+    let generation = LIST_GENERATION.with(Cell::get);
+    let gate = std::cell::RefCell::new(StartGate::default());
+    playback_state_changed().on_lazy(move |ps| {
+        if LIST_GENERATION.with(Cell::get) != generation {
+            return crate::signals::UNSUBSCRIBE;
+        }
+        match gate.borrow_mut().step(ps, current_track_id().as_deref() == Some(started.id())) {
+            StartAt::Wait => CONTINUE,
+            StartAt::Seek => {
+                // The pipeline may still be prerolling and refuse the seek.
+                let mut tries = 0;
+                glib::timeout_add_local(Duration::from_millis(100), move || {
+                    tries += 1;
+                    if LIST_GENERATION.with(Cell::get) != generation {
+                        return glib::ControlFlow::Break;
+                    }
+                    if try_seek(position, true) || tries >= 20 {
+                        play();
+                        return glib::ControlFlow::Break;
+                    }
+                    glib::ControlFlow::Continue
+                });
+                crate::signals::UNSUBSCRIBE
+            }
+            StartAt::GiveUp => crate::signals::UNSUBSCRIBE,
+        }
+    });
+    Ok(())
+}
+
 // ---------------------------------------------------------------- listen together
 
 /// Current playback position as reported by `GStreamer`.
 pub fn position() -> Option<Duration> {
     playbin().and_then(|p| statemachine::Playbin::query_position(&p))
+}
+
+#[cfg(test)]
+mod start_tests {
+    use super::{PlaybackState, PlaybackStatus, StartAt, StartGate};
+
+    fn ps(status: PlaybackStatus, loading: bool) -> PlaybackState {
+        PlaybackState { status, loading, ..PlaybackState::default() }
+    }
+
+    #[test]
+    fn seeks_once_the_track_has_loaded_paused() {
+        let mut g = StartGate::default();
+        // The previous track's state, before the new load starts.
+        assert_eq!(g.step(&ps(PlaybackStatus::Paused, false), true), StartAt::Wait);
+        assert_eq!(g.step(&ps(PlaybackStatus::Stopped, false), false), StartAt::Wait);
+        assert_eq!(g.step(&ps(PlaybackStatus::Stopped, true), true), StartAt::Wait);
+        assert_eq!(g.step(&ps(PlaybackStatus::Paused, false), true), StartAt::Seek);
+    }
+
+    #[test]
+    fn gives_up_when_the_load_fails_or_another_track_plays() {
+        let mut g = StartGate::default();
+        g.step(&ps(PlaybackStatus::Stopped, true), true);
+        assert_eq!(g.step(&ps(PlaybackStatus::Stopped, false), true), StartAt::GiveUp);
+        let mut g = StartGate::default();
+        g.step(&ps(PlaybackStatus::Stopped, true), true);
+        assert_eq!(g.step(&ps(PlaybackStatus::Playing, false), false), StartAt::GiveUp);
+    }
 }
 
 #[cfg(test)]

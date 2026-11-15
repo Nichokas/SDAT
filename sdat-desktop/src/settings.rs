@@ -109,6 +109,29 @@ pub fn should_hide_secret_service_warning() -> bool {
 pub fn set_hide_secret_service_warning(v: bool) {
     warn_on_err("hide-secret-service-warning", general().set_boolean("hide-secret-service-warning", v));
 }
+/// This install's key as a player of the account, created on first use.
+/// `None` when it cannot be kept (older installed schema, failed write): a
+/// new key on every start would add a new device to the account each time.
+pub fn handoff_installation_key() -> Option<String> {
+    const KEY: &str = "handoff-installation-key";
+    let s = general();
+    if !s.settings_schema().is_some_and(|s| s.has_key(KEY)) {
+        log::warn!("the installed settings schema has no {KEY}; handoff is off");
+        return None;
+    }
+    let key: String = s.string(KEY).into();
+    if !key.is_empty() {
+        return Some(key);
+    }
+    let key = tonearm_core::handoff::new_installation_key();
+    match s.set_string(KEY, &key) {
+        Ok(()) => Some(key),
+        Err(e) => {
+            log::warn!("failed to store the handoff installation key error={e}");
+            None
+        }
+    }
+}
 pub fn window_width() -> i32 {
     general().int("window-width")
 }

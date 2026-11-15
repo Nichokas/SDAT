@@ -319,6 +319,7 @@ fn build_sidebar_header(app: &adw::Application, window: &adw::ApplicationWindow)
 fn build_sidebar_layout(app: &adw::Application, window: &adw::ApplicationWindow) -> gtk::Widget {
     let tv = adw::ToolbarView::new();
     tv.add_top_bar(&build_sidebar_header(app, window));
+    tv.add_top_bar(&crate::ui::components::sidebar::handoff::banner());
     let stack = adw::ViewStack::new();
     stack.add_titled_with_icon(&player_view::new_player(), Some("player"), &tr("Player"), "music-note-outline-symbolic");
     stack.add_titled_with_icon(&lyrics::new_lyrics_panel(), Some("lyrics"), &tr("Lyrics"), "chat-bubble-text-symbolic");
@@ -538,6 +539,7 @@ fn install_actions(app: &adw::Application, window: &adw::ApplicationWindow) {
     window.add_action(&with_string("player.queue", |p| queue_param(&p, false)));
     window.add_action(&with_string("player.play-next-track", |id| queue_param(&format!("track/{id}"), true)));
     window.add_action(&with_string("player.play-next", |p| queue_param(&p, true)));
+    window.add_action(&with_string("handoff.send-to", crate::handoff::send_to));
 
     window.add_action(&simple("route.home", || router::navigate(&settings::default_page())));
     accel(app, "win.route.home", &[p("h")]);
@@ -552,10 +554,13 @@ fn install_actions(app: &adw::Application, window: &adw::ApplicationWindow) {
         }
     }));
     window.add_action(&simple("sign-out", || {
+        // Detach while the session still works.
+        crate::handoff::stop();
         glib::spawn_future_local(async {
             if let Err(e) = api::run(secrets::delete_refresh_token).await {
                 log::error!("failed to delete refresh token error={e:#}");
                 toast(&tr("Sign out failed"));
+                crate::handoff::start();
                 return;
             }
             session_changed().await;

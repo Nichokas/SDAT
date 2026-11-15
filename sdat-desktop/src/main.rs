@@ -5,6 +5,7 @@
 
 mod api;
 mod cache;
+mod handoff;
 mod imgutil;
 mod live;
 mod player;
@@ -98,7 +99,9 @@ fn main() -> glib::ExitCode {
         }
         player::mpris::init();
         scrobbling::init();
+        handoff::init();
     });
+    app.connect_shutdown(|_| handoff::stop());
     app.connect_activate(on_activate);
     app.connect_command_line(|app, cmd| {
         let args = cmd.arguments();
