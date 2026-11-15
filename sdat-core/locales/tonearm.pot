@@ -76,6 +76,10 @@ msgstr ""
 msgid "Add to Queue"
 msgstr ""
 
+#: sdat-desktop/src/ui/components/mod.rs
+msgid "Could not load more tracks"
+msgstr ""
+
 msgid "Play Next"
 msgstr ""
 
@@ -786,6 +790,10 @@ msgstr ""
 
 #: internal/ui/window_preferences.go:91
 msgid "Set the same volume for all tracks"
+msgstr ""
+
+#: sdat-desktop/src/ui/components/mod.rs
+msgid "Show More"
 msgstr ""
 
 #: internal/ui/components/tracklist_header/component_controls.go:13

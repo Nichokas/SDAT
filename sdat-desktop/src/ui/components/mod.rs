@@ -242,6 +242,38 @@ fn page_list_source(title: &str) -> model::PlaybackSource {
     model::PlaybackSource::List { title: title.to_string(), route }
 }
 
+/// Appends the next tracks of `view_all` to `list`; hides itself once the list is exhausted.
+fn show_more_button(list: &TrackList, view_all: String) -> gtk::Button {
+    const PAGE: usize = 10;
+    let b = gtk::Button::with_label(&tr("Show More")).class("flat").halign(gtk::Align::Center).mtop(6);
+    let shown = list.tracks().into_iter().map(|t| t.info.id);
+    let pager = std::sync::Arc::new(std::sync::Mutex::new(tonearm_core::explore::ViewAllTracks::new(view_all, shown)));
+    let list = list.downgrade();
+    b.connect_clicked(move |b| {
+        b.set_sensitive(false);
+        let (pager, b, list) = (std::sync::Arc::clone(&pager), b.downgrade(), list.clone());
+        glib::spawn_future_local(async move {
+            let worker = std::sync::Arc::clone(&pager);
+            let page = crate::api::run(move || worker.lock().unwrap_or_else(std::sync::PoisonError::into_inner).next(PAGE)).await;
+            let (Some(b), Some(l)) = (b.upgrade(), list.upgrade()) else { return };
+            b.set_sensitive(true);
+            match page {
+                Ok(tracks) => {
+                    for t in tracks {
+                        l.add_track(t);
+                    }
+                    b.set_visible(!pager.lock().unwrap_or_else(std::sync::PoisonError::into_inner).is_done());
+                }
+                Err(e) => {
+                    crate::player::toasts().notify(&tr("Could not load more tracks"));
+                    log::error!("loading more top tracks failed error={e:#}");
+                }
+            }
+        });
+    });
+    b
+}
+
 pub fn for_page_item(item: &legacy::PageItem) -> gtk::Widget {
     match item.type_.as_str() {
         item_type::HORIZONTAL_LIST | item_type::HORIZONTAL_LIST_WITH_CONTEXT => {
@@ -286,7 +318,12 @@ pub fn for_page_item(item: &legacy::PageItem) -> gtk::Widget {
             }
             let title = item.title.clone();
             list.play_all_on_click(move || page_list_source(&title));
-            vstack(&[RowTitle::new().set_title(&item.title).widget.upcast_ref(), list.widget()]).hmargin(40).upcast()
+            let row_title = RowTitle::new().set_title(&item.title);
+            if item.module_id == "ARTIST_TOP_TRACKS" && !item.view_all.is_empty() {
+                let more = show_more_button(&list, item.view_all.clone());
+                return vstack(&[row_title.widget.upcast_ref(), list.widget(), more.upcast_ref()]).hmargin(40).upcast();
+            }
+            vstack(&[row_title.widget.upcast_ref(), list.widget()]).hmargin(40).upcast()
         }
         item_type::SHORTCUT_LIST => {
             let list = shortcut_list::ShortcutList::new();

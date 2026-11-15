@@ -213,9 +213,110 @@ pub fn get_artist_overview(id: &str) -> Result<(model::Artist, Vec<Track>, Vec<A
     Ok((model::artist_page_from_v2(&page), t, a))
 }
 
+/// Pages a track module's "view all" list for "Show more". Skips tracks already shown and
+/// advances by what TIDAL returned, so overlaps and non-track items neither stall nor skip.
+#[derive(Debug)]
+pub struct ViewAllTracks {
+    path: String,
+    offset: usize,
+    seen: std::collections::HashSet<String>,
+    done: bool,
+}
+
+impl ViewAllTracks {
+    pub fn new(path: String, shown: impl IntoIterator<Item = String>) -> Self {
+        ViewAllTracks { path, offset: 0, seen: shown.into_iter().collect(), done: false }
+    }
+
+    pub fn artist_top_tracks(id: &str, shown: impl IntoIterator<Item = String>) -> Self {
+        Self::new(format!("artist/ARTIST_TOP_TRACKS/view-all?artistId={id}"), shown)
+    }
+
+    pub fn is_done(&self) -> bool {
+        self.done
+    }
+
+    /// The next `limit` tracks not shown yet, fewer at the end.
+    pub fn next(&mut self, limit: usize) -> Result<Vec<Track>> {
+        self.next_with(limit.max(1), api::view_all_items)
+    }
+
+    fn next_with(&mut self, limit: usize, mut fetch: impl FnMut(&str, usize, usize) -> Result<Vec<legacy::Item2>>) -> Result<Vec<Track>> {
+        let mut out = Vec::new();
+        // Bounded so a server that never sends a short page can't hold a click forever.
+        for _ in 0..5 {
+            if out.len() >= limit || self.done {
+                break;
+            }
+            let items = match fetch(&self.path, self.offset, limit) {
+                Ok(items) => items,
+                Err(e) if out.is_empty() => return Err(e),
+                Err(_) => break,
+            };
+            let mut used = items.len();
+            for (i, it) in items.iter().enumerate() {
+                if let legacy::ItemData::Track(t) = &it.data {
+                    let t = model::track_from_v2(t);
+                    if self.seen.insert(t.info.id.clone()) {
+                        out.push(t);
+                    }
+                }
+                if out.len() == limit {
+                    used = i + 1;
+                    break;
+                }
+            }
+            self.offset += used;
+            self.done = items.len() < limit && used == items.len();
+        }
+        Ok(out)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn page(items: &[(&str, i64)]) -> Vec<legacy::Item2> {
+        let v: Vec<_> = items.iter().map(|(ty, id)| serde_json::json!({"type": ty, "data": {"id": id, "title": format!("t{id}")}})).collect();
+        serde_json::from_value(serde_json::Value::Array(v)).expect("items")
+    }
+
+    fn ids(t: &[Track]) -> Vec<String> {
+        t.iter().map(|t| t.info.id.clone()).collect()
+    }
+
+    #[test]
+    fn view_all_skips_shown_tracks_and_pages_by_items_returned() {
+        // TIDAL's list: a video, the 2 shown tracks, then 1..=5 unseen; 2 per request.
+        let all = [("VIDEO", 99), ("TRACK", 10), ("TRACK", 11), ("TRACK", 1), ("TRACK", 2), ("TRACK", 3), ("TRACK", 4), ("TRACK", 5)];
+        let mut requested = Vec::new();
+        let mut fetch = |_: &str, offset: usize, limit: usize| {
+            requested.push(offset);
+            Ok(page(&all[offset.min(all.len())..(offset + limit).min(all.len())]))
+        };
+        let mut p = ViewAllTracks::new("p".into(), ["10".to_string(), "11".to_string()]);
+        assert_eq!(ids(&p.next_with(2, &mut fetch).expect("page")), ["1", "2"], "pages of shown tracks move on instead of stalling");
+        assert_eq!(ids(&p.next_with(2, &mut fetch).expect("page")), ["3", "4"], "resumes mid-page after the last track returned");
+        assert!(!p.is_done());
+        assert_eq!(ids(&p.next_with(2, &mut fetch).expect("page")), ["5"]);
+        assert!(p.is_done(), "a short page ends the list");
+        assert_eq!(requested, [0, 2, 4, 5, 7], "offsets count every item used, videos and shown tracks included");
+    }
+
+    #[test]
+    fn view_all_requests_are_bounded_per_call() {
+        let mut calls = 0;
+        let mut p = ViewAllTracks::new("p".into(), ["1".to_string()]);
+        let got = p
+            .next_with(2, |_, _, _| {
+                calls += 1;
+                Ok(page(&[("TRACK", 1), ("VIDEO", 2)]))
+            })
+            .expect("page");
+        assert!(got.is_empty());
+        assert_eq!(calls, 5, "a server repeating full pages of nothing new stops after a few requests");
+    }
 
     #[test]
     fn explore_links_and_recents_parse() {

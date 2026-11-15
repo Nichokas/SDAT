@@ -60,6 +60,9 @@ msgstr "Añadir a la colección"
 msgid "Add to Queue"
 msgstr "Añadir a la cola"
 
+msgid "Could not load more tracks"
+msgstr "No se pudieron cargar más canciones"
+
 msgid "Play Next"
 msgstr "Reproducir a continuación"
 
@@ -583,6 +586,9 @@ msgstr "Fijar como inicio"
 
 msgid "Set the same volume for all tracks"
 msgstr "Igualar volumen para todas las canciones"
+
+msgid "Show More"
+msgstr "Mostrar más"
 
 msgid "Shuffle Album"
 msgstr "Álbum en aleatorio"
