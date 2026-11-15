@@ -138,6 +138,10 @@ fn stopping_done() {
 /// last instance to stop detaches it.
 static LIVE: Mutex<Vec<(String, usize)>> = Mutex::new(Vec::new());
 
+/// Held around every attach and detach, so a stopping instance's detach and a
+/// new instance's attach of the same installation can't interleave.
+static ATTACHING: Mutex<()> = Mutex::new(());
+
 /// One more live instance of installation `id`.
 fn attached(id: &str) {
     let mut l = LIVE.lock().unwrap_or_else(PoisonError::into_inner);
@@ -193,10 +197,13 @@ impl Handoff {
         // To detach with this account if another one signs in during the start.
         let token = crate::api::cached_user_token();
         let me = wire::register(installation_key, device_name)?;
-        attached(&me);
-        if let Err(e) = wire::attach(&me) {
-            released(&me);
-            return Err(e);
+        {
+            let _serial = ATTACHING.lock().unwrap_or_else(PoisonError::into_inner);
+            attached(&me);
+            if let Err(e) = wire::attach(&me) {
+                released(&me);
+                return Err(e);
+            }
         }
         // Signed into another account meanwhile: this installation belongs to the old one.
         if crate::auth::tokens().user_id() != account {
@@ -226,6 +233,7 @@ impl Handoff {
             arrival: None,
             sent: None,
             rollback: None,
+            rollback_queue: None,
             names: HashMap::new(),
         };
         let me = w.mirror.me().to_string();
@@ -330,8 +338,10 @@ struct Worker {
     awaiting: Option<(LocalPlayback, Instant)>,
     /// The last report held back by `awaiting`, written once it ends.
     held: Option<LocalPlayback>,
-    /// A failed pull to undo once the account can be read: the player it took over from.
+    /// A failed pull or send to undo once the account can be read: the player it took over from.
     rollback: Option<String>,
+    /// With `rollback` after a send: that player's queue, selected again first.
+    rollback_queue: Option<String>,
     /// The track sent away by the last successful send, until the app pauses.
     sent: Option<String>,
     /// This device was made active but its queue could not be read yet.
@@ -369,11 +379,13 @@ impl Worker {
                     }
                     self.streams.clear();
                     // Another live instance of this installation still uses the attachment.
+                    let serial = ATTACHING.lock().unwrap_or_else(PoisonError::into_inner);
                     if released(self.mirror.me())
                         && let Err(e) = wire::detach(self.mirror.me(), token.as_deref())
                     {
                         log::info!("handoff: detach failed error={e}");
                     }
+                    drop(serial);
                     stopping_done();
                     return;
                 }
@@ -489,16 +501,13 @@ impl Worker {
             // A failed pull still holding playback that nothing plays here: hand it back.
             let idle = self.last_local.as_ref().is_none_or(|l| !l.playing);
             if idle && state.active.as_deref() == Some(self.mirror.me()) {
-                match wire::set_active(&b) {
-                    Ok(active) => {
-                        self.mirror.claimed(active.clone());
-                        state.active = active;
-                    }
-                    Err(e) => {
-                        self.rollback = Some(b);
-                        return Err(e);
-                    }
+                if let Err(e) = self.hand_back(&b) {
+                    self.rollback = Some(b);
+                    return Err(e);
                 }
+                state = wire::state()?;
+            } else {
+                self.rollback_queue = None;
             }
         }
         let head = state.queue_id.as_deref().map(wire::head_with_track).transpose()?;
@@ -657,29 +666,41 @@ impl Worker {
         Err(CoreError::Network("the queue kept changing while it was read".into()))
     }
 
+    /// Selects the other device's queue again (after a failed send), then makes
+    /// it active. Nothing is handed back while its queue isn't restored.
+    fn hand_back(&mut self, to: &str) -> Result<()> {
+        if let Some(q) = self.rollback_queue.clone() {
+            self.checked(|| wire::select_queue(&q))?;
+            self.mirror.queue_created(q);
+            self.rollback_queue = None;
+        }
+        let active = self.checked(|| wire::set_active(to))?;
+        self.mirror.claimed(active);
+        Ok(())
+    }
+
     /// A send that took playback from another device and then failed: that
     /// device gets its queue selected again and playback back.
     fn undo_send(&mut self, claimed: bool, before: Option<&str>, their_queue: Option<&str>, e: CoreError) -> CoreError {
-        if let Some(q) = their_queue {
-            match self.checked(|| wire::select_queue(q)) {
-                Ok(()) => self.mirror.queue_created(q.to_string()),
-                Err(e) => log::warn!("handoff: could not select the other device's queue again error={e}"),
-            }
-        }
+        self.rollback_queue = their_queue.map(str::to_string);
         self.undo_claim(claimed, before, e)
     }
 
     /// A pull that claimed and then failed hands playback back to where it was.
     fn undo_claim(&mut self, claimed: bool, before: Option<&str>, e: CoreError) -> CoreError {
-        let (true, Some(b)) = (claimed, before) else { return e };
-        // Only while this device still holds it: a newer claim by a third device stays.
-        // Unknown (a failed read): the next state read decides.
+        let (true, Some(b)) = (claimed, before) else {
+            self.rollback_queue = None;
+            return e;
+        };
+        // Only while this device still holds it: a newer claim by a third device
+        // keeps playback and its queue. Unknown (a failed read): the next state read decides.
         match wire::state() {
-            Ok(s) if s.active.as_deref() == Some(self.mirror.me()) => match self.checked(|| wire::set_active(b)) {
-                Ok(active) => self.mirror.claimed(active),
-                Err(_) => self.rollback = Some(b.to_string()),
-            },
-            Ok(_) => {}
+            Ok(s) if s.active.as_deref() == Some(self.mirror.me()) => {
+                if self.hand_back(b).is_err() {
+                    self.rollback = Some(b.to_string());
+                }
+            }
+            Ok(_) => self.rollback_queue = None,
             Err(_) => self.rollback = Some(b.to_string()),
         }
         if self.rollback.is_some() {
@@ -720,8 +741,9 @@ impl Worker {
         let claimed = self.mirror.state().active.as_deref() != Some(self.mirror.me());
         // Its queue stays as it was: this device writes into a queue of its own.
         let their_queue = self.mirror.queue_id().map(str::to_string).filter(|_| before.is_some());
-        if claimed {
-            self.claim()?;
+        // A failed claim may still have reached TIDAL: undo it if it did.
+        if claimed && let Err(e) = self.claim() {
+            return Err(self.undo_send(claimed, before.as_deref(), None, e));
         }
         if their_queue.is_some() {
             match self.checked(wire::create_queue) {
