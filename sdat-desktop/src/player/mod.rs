@@ -57,6 +57,9 @@ thread_local! {
     /// Id of the gapless-prepared track moved from the base queue to the head
     /// of the user queue by "play next", until that entry is consumed.
     static GAPLESS_MOVED: std::cell::RefCell<Option<String>> = const { std::cell::RefCell::new(None) };
+    /// Bumped when the queues are replaced, so a deferred next / previous
+    /// meant for the old queue is dropped.
+    static QUEUE_GENERATION: Cell<u64> = const { Cell::new(0) };
     /// Set while end-of-queue autoplay is fetching a radio mix.
     static AUTOPLAY_PENDING: Cell<bool> = const { Cell::new(false) };
 }
@@ -292,16 +295,21 @@ async fn on_eos_stopped() {
         feed(true);
         return;
     }
-    // A failed gapless prefetch ends the current track with tracks still
-    // queued: carry on with them instead of stopping or starting a radio.
-    if next_track(true).0.is_some() {
-        next();
-        return;
-    }
     let stop = || {
         source_changed().set(None);
         statemachine::on_stopped_stop();
     };
+    // A failed gapless prefetch ends the current track with tracks still
+    // queued: carry on with them instead of stopping or starting a radio,
+    // unless a Stop or another start is already queued.
+    if next_track(true).0.is_some() {
+        if with(|p| p.machine.has_queued_stop()).unwrap_or(false) {
+            stop();
+        } else if !with(|p| p.machine.start_pending()).unwrap_or(true) {
+            next_now();
+        }
+        return;
+    }
     if !settings::allow_autoplay() {
         stop();
         return;
@@ -364,6 +372,7 @@ pub fn current_track_id() -> Option<String> {
 // ---------------------------------------------------------------- queue.go
 
 fn clear_queues() {
+    QUEUE_GENERATION.with(|g| g.set(g.get() + 1));
     user_queue().clear();
     update_pinned(|_| 0);
     // A guest's pending "play next" requests belong to the session and go to
@@ -531,7 +540,12 @@ pub fn next() {
 /// Runs `action` now, or after the track starts that are queued or loading.
 fn defer_while_starting(action: fn()) {
     if with(|p| p.machine.start_pending()).unwrap_or(false) {
-        fire(Trigger::Deferred(action));
+        let generation = QUEUE_GENERATION.with(Cell::get);
+        fire(Trigger::Deferred(Box::new(move || {
+            if QUEUE_GENERATION.with(Cell::get) == generation {
+                action();
+            }
+        })));
     } else {
         action();
     }

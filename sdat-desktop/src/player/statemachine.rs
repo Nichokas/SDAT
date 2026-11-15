@@ -247,9 +247,9 @@ pub enum Trigger {
     #[expect(dead_code, reason = "TRIGGER_PLAY_TRACK_ID is part of the Go state machine; no caller fires it yet")]
     PlayTrackId(String, bool),
     PlayTrack(Track, bool),
-    /// Runs a queue action (next / previous) once every start queued before
-    /// it was handled, so it sees the track that start made current.
-    Deferred(fn()),
+    /// Runs a queue action (next / previous) once the triggers queued before
+    /// it were handled, so it sees the track their start made current.
+    Deferred(Box<dyn FnOnce()>),
     Pause,
     Resume,
     Stop,
@@ -388,11 +388,14 @@ impl Machine {
 
     async fn handle(self: &Rc<Self>, t: Trigger) {
         if let Trigger::Deferred(action) = t {
-            let start_queued = self.queue.borrow().iter().any(|t| matches!(t, Trigger::PlayTrack(..) | Trigger::PlayTrackId(..)));
-            if start_queued {
-                self.queue.borrow_mut().push_back(t);
-            } else {
-                action();
+            // What the action fires belongs at its place in the queue, ahead
+            // of a Pause or Stop pressed after it.
+            let before = self.queue.borrow().len();
+            action();
+            let mut q = self.queue.borrow_mut();
+            let fired = q.split_off(before);
+            for t in fired.into_iter().rev() {
+                q.push_front(t);
             }
             return;
         }
@@ -812,14 +815,40 @@ pub mod tests {
                 Hooks { next_track: |_| (None, false), on_eos_stopped: || Box::pin(async {}), clear_source: || {} },
             );
             assert!(m.stopped_without_pending_start());
-            m.queue.borrow_mut().push_back(Trigger::Deferred(|| DEFERRED_RAN.with(|c| c.set(c.get() + 1))));
+            m.queue.borrow_mut().push_back(Trigger::Deferred(Box::new(|| DEFERRED_RAN.with(|c| c.set(c.get() + 1)))));
             assert!(!m.stopped_without_pending_start());
             m.queue.borrow_mut().clear();
-            m.fire(Trigger::Deferred(|| DEFERRED_RAN.with(|c| c.set(c.get() + 1))));
+            m.fire(Trigger::Deferred(Box::new(|| DEFERRED_RAN.with(|c| c.set(c.get() + 1)))));
             while ctx.iteration(false) {}
             assert_eq!(DEFERRED_RAN.with(Cell::get), 1);
             assert_eq!(m.state.get(), State::Stopped);
             assert!(m.stopped_without_pending_start());
+        })
+        .unwrap();
+    }
+
+    thread_local! {
+        static ORDER: RefCell<Vec<&'static str>> = const { RefCell::new(Vec::new()) };
+    }
+
+    /// What a deferred action fires runs before triggers queued after it
+    /// (a Pause or Stop pressed after a quick Next applies to its track).
+    #[test]
+    fn deferred_action_fires_ahead_of_later_triggers() {
+        let ctx = glib::MainContext::new();
+        ctx.with_thread_default(|| {
+            let m = Machine::new(
+                Rc::new(Testbin::default()),
+                Hooks { next_track: |_| (None, false), on_eos_stopped: || Box::pin(async {}), clear_source: || {} },
+            );
+            let inner = Rc::clone(&m);
+            m.queue.borrow_mut().push_back(Trigger::Deferred(Box::new(move || {
+                inner.fire(Trigger::Deferred(Box::new(|| ORDER.with(|o| o.borrow_mut().push("fired")))));
+            })));
+            m.queue.borrow_mut().push_back(Trigger::Deferred(Box::new(|| ORDER.with(|o| o.borrow_mut().push("later")))));
+            m.fire(Trigger::Stop);
+            while ctx.iteration(false) {}
+            assert_eq!(ORDER.with(|o| o.borrow().clone()), ["fired", "later"]);
         })
         .unwrap();
     }

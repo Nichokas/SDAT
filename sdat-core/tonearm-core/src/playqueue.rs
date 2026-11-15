@@ -163,13 +163,14 @@ impl DurableQueue {
         t
     }
     /// Moves the restore point past `t`: its next occurrence in the source
-    /// (so a repeated track counts once per play), else its first one.
+    /// (so a repeated track counts once per play), else its first one. It
+    /// never moves back, so a shuffled pop of an earlier track replays nothing.
     fn mark_played(&self, t: &Track) {
         let src = self.source.borrow();
         let from = self.played.get().min(src.len());
         let found = src[from..].iter().position(|s| s.id() == t.id()).map(|i| from + i);
         if let Some(i) = found.or_else(|| src.iter().position(|s| s.id() == t.id())) {
-            self.played.set(i + 1);
+            self.played.set(self.played.get().max(i + 1));
         }
     }
     pub fn remove_at(&self, i: usize) -> Result<()> {
@@ -361,8 +362,22 @@ mod tests {
         let played: Vec<Track> = (0..3).filter_map(|_| q.pop()).collect();
         // a "play next" track from elsewhere is playing now
         q.restore();
-        let last: usize = played[2].id().parse().unwrap();
+        let last = played.iter().map(|x| x.id().parse::<usize>().unwrap()).max().unwrap();
         assert_eq!(ids(&q.queue), (last + 1..10).map(|i| i.to_string()).collect::<Vec<_>>());
+    }
+
+    #[test]
+    fn restore_never_requeues_played_tracks() {
+        let q = DurableQueue::default();
+        q.set(["a", "b", "c", "d"].map(t).to_vec());
+        q.skip(2).unwrap(); // "a" and "b" played
+        q.shuffle("");
+        while q.peek().is_some_and(|x| x.id() != "a") {
+            q.pop();
+        }
+        q.pop(); // "a" again, listed before the restore point
+        q.restore();
+        assert!(ids(&q.queue).iter().all(|id| id != "a" && id != "b"));
     }
 
     #[test]
