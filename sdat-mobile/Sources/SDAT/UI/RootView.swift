@@ -31,16 +31,12 @@ struct RootView: View {
             }
         }
         .overlay(alignment: .bottom) { BottomChrome().ignoresSafeArea(.keyboard) }
-        .overlay(alignment: .top) {
-            if let t = chrome.toast {
-                Text(t).font(.subheadline.weight(.semibold)).padding(.horizontal, 16).padding(.vertical, 10)
-                    .glassEffect().padding(.top, 8).transition(.move(edge: .top).combined(with: .opacity))
-            }
-        }
-        .animation(.spring(duration: 0.35), value: chrome.toast)
+        .toastOverlay(chrome.showPlayer ? nil : chrome.toast)
         .onChange(of: chrome.tab) { chrome.setCollapsed(false) }
         .sheet(isPresented: $chrome.showPlayer) { PlayerSheet() }
-        .sheet(item: $chrome.playlistPickerTrack) { t in PlaylistPicker(track: t) }
+        // While the player is up, PlayerSheet presents the picker: a second sheet here would replace it.
+        .sheet(item: Binding(get: { chrome.showPlayer ? nil : chrome.playlistPickerTrack },
+                             set: { chrome.playlistPickerTrack = $0 })) { t in PlaylistPicker(track: t) }
         .alert("Playback error", isPresented: Binding(
             get: { player.error != nil },
             set: { if !$0 { player.error = nil } }
@@ -55,6 +51,18 @@ struct RootView: View {
 }
 
 extension Track: Identifiable {}
+
+extension View {
+    func toastOverlay(_ text: String?) -> some View {
+        overlay(alignment: .top) {
+            if let text {
+                Text(text).font(.subheadline.weight(.semibold)).padding(.horizontal, 16).padding(.vertical, 10)
+                    .glassEffect().padding(.top, 8).transition(.move(edge: .top).combined(with: .opacity))
+            }
+        }
+        .animation(.spring(duration: 0.35), value: text)
+    }
+}
 
 private struct BottomChrome: View {
     @Environment(Player.self) private var player
