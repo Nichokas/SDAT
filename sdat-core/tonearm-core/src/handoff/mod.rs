@@ -833,8 +833,11 @@ impl Worker {
                 return Err(CoreError::Other("another device took over playback".into()));
             }
             // The target may have it or not: the next read tells, and a move pauses here.
+            // The report from before the send must not claim playback back meanwhile.
             Err(e) => {
                 self.ownership_unknown();
+                self.pending = None;
+                self.last_local = None;
                 return Err(e);
             }
         }

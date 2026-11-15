@@ -91,8 +91,9 @@ fn key(e: &Elsewhere) -> ElsewhereKey {
 
 /// Where a player that was at `position_ms` at `at_ms` is at `now_ms`.
 pub(super) fn position_now(position_ms: i64, at_ms: i64, now_ms: i64, playing: bool, duration_ms: i64) -> i64 {
-    let p = if playing { position_ms + (now_ms - at_ms).max(0) } else { position_ms };
-    p.min(duration_ms - 1_000).max(0)
+    // Saturating: a timestamp from long ago must not overflow.
+    let p = if playing { position_ms.saturating_add(now_ms.saturating_sub(at_ms).max(0)) } else { position_ms };
+    p.min(duration_ms.saturating_sub(1_000)).max(0)
 }
 
 impl Mirror {
@@ -164,8 +165,8 @@ impl Mirror {
             if w.repeat != local.repeat {
                 out.push(Write::Repeat(local.repeat));
             }
-            let expected = if w.playing { w.position_ms + (now_ms - w.at_ms) } else { w.position_ms };
-            if index != w.cur || self.need_position || w.playing != local.playing || (local.position_ms - expected).abs() > SEEK_MS {
+            let expected = if w.playing { w.position_ms.saturating_add(now_ms.saturating_sub(w.at_ms)) } else { w.position_ms };
+            if index != w.cur || self.need_position || w.playing != local.playing || local.position_ms.saturating_sub(expected).saturating_abs() > SEEK_MS {
                 out.push(Write::Current { index, position_ms: local.position_ms });
             }
         } else {
@@ -259,6 +260,8 @@ impl Mirror {
         let wrote = entries.iter().map(|e| e.track_id.clone()).collect();
         self.written =
             Some(Written { wrote, entries, cur: 0, revision: head.revision.clone(), repeat: head.repeat, position_ms, at_ms: now_ms, playing: false });
+        // The queue read for this is the baseline now: the next read must not take it for a new push.
+        self.head = Some(head.clone());
         self.need_position = true;
     }
 
@@ -595,6 +598,7 @@ mod tests {
         assert_eq!(position_now(10_000, 1_000, 6_000, false, 200_000), 10_000);
         assert_eq!(position_now(10_000, 1_000, 900_000, true, 200_000), 199_000);
         assert_eq!(position_now(10_000, 5_000, 1_000, true, 200_000), 10_000);
+        assert_eq!(position_now(i64::MAX - 5, i64::MIN, i64::MAX, true, 200_000), 199_000);
     }
 
     #[test]
