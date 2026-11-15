@@ -164,6 +164,28 @@ pub async fn artist_overview(id: String) -> Result<ArtistOverview, FfiError> {
     Ok(ArtistOverview { artist: Artist::from(&a), top_tracks: t.iter().map(Track::from).collect(), albums: al.iter().map(Album::from).collect() })
 }
 
+/// "Show more" under an artist's top tracks; `shown` are the ids already on screen.
+#[uniffi::export]
+pub fn artist_top_tracks_pager(id: String, shown: Vec<String>) -> Arc<TopTracksPager> {
+    Arc::new(TopTracksPager(Arc::new(Mutex::new(explore::ViewAllTracks::artist_top_tracks(&id, shown)))))
+}
+
+#[derive(Debug, uniffi::Object)]
+pub struct TopTracksPager(Arc<Mutex<explore::ViewAllTracks>>);
+
+#[uniffi::export]
+impl TopTracksPager {
+    /// The next `limit` tracks not shown yet, fewer at the end.
+    pub async fn next(&self, limit: u32) -> Result<Vec<Track>, FfiError> {
+        let p = Arc::clone(&self.0);
+        Ok(tracks(&run(move || p.lock().unwrap_or_else(PoisonError::into_inner).next(limit as usize)).await?))
+    }
+
+    pub fn is_done(&self) -> bool {
+        self.0.lock().unwrap_or_else(PoisonError::into_inner).is_done()
+    }
+}
+
 // ---- Favourites and playlists
 
 #[derive(Debug, Clone, Copy, uniffi::Enum)]
