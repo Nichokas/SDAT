@@ -22,8 +22,19 @@ concurrency:
 
 jobs:
   build:
+    name: build (${{ matrix.variant }})
     runs-on: ubuntu-latest
     timeout-minutes: 45
+    # R8 and lint each take about three minutes and fought for the same four cores in one job.
+    # lintDebug covers the release lint check, so the release leg skips it.
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - variant: debug
+            tasks: assembleDebug lintDebug testDebugUnitTest
+          - variant: release
+            tasks: assembleRelease -x lintVitalRelease
     env:
       NDK_VERSION: 27.1.12297006
     steps:
@@ -53,7 +64,8 @@ jobs:
       - uses: Swatinem/rust-cache@v2
         with:
           shared-key: android-${{ env.NDK_VERSION }}-${{ hashFiles('scripts/build-rust-android.sh') }}
-          save-if: ${{ github.ref == 'refs/heads/main' }}
+          # Both legs build the same Rust, so one save is enough.
+          save-if: ${{ github.ref == 'refs/heads/main' && matrix.variant == 'debug' }}
       - name: Install cargo-ndk
         uses: taiki-e/install-action@v2
         with:
@@ -63,8 +75,9 @@ jobs:
         working-directory: sdat-android
         env:
           ANDROID_NDK_HOME: ${{ env.ANDROID_HOME }}/ndk/${{ env.NDK_VERSION }}
-        run: ./gradlew assembleDebug assembleRelease lintDebug testDebugUnitTest
+        run: ./gradlew ${{ matrix.tasks }}
       - name: Check both ABIs carry the Rust core and no iroh cdylibs
+        if: matrix.variant == 'debug'
         run: |
           for abi in arm64-v8a x86_64; do
             apk=sdat-android/app/build/outputs/apk/debug/app-$abi-debug.apk
@@ -72,6 +85,7 @@ jobs:
             if unzip -l "$apk" | grep -q "/libiroh"; then echo "iroh cdylib in $apk"; exit 1; fi
           done
       - uses: actions/upload-artifact@v4
+        if: matrix.variant == 'debug'
         with:
           name: sdat-android-debug
           path: sdat-android/app/build/outputs/apk/debug/app-*-debug.apk

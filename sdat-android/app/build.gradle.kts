@@ -52,9 +52,13 @@ android {
 }
 
 /** Builds libtonearm_ffi.so and its UniFFI Kotlin bindings; neither is committed. */
+// Cacheable so a build with an unchanged core (most Android PRs) reuses main's output instead of two
+// minutes of fat LTO. The toolchain is an input, so a new rustc or NDK still rebuilds.
+@CacheableTask
 abstract class BuildRustCore : DefaultTask() {
     @get:Inject abstract val exec: ExecOperations
     @get:InputFiles @get:PathSensitive(PathSensitivity.RELATIVE) abstract val sources: ConfigurableFileCollection
+    @get:Input abstract val toolchain: Property<String>
     @get:Internal abstract val script: RegularFileProperty
     @get:OutputDirectory abstract val jniLibs: DirectoryProperty
     @get:OutputDirectory abstract val bindings: DirectoryProperty
@@ -77,6 +81,10 @@ val buildRustCore = tasks.register<BuildRustCore>("buildRustCore") {
         repo.file("Cargo.toml"),
         repo.file("Cargo.lock"),
         repo.dir("sdat-core").asFileTree.matching { exclude("**/target/**") },
+    )
+    toolchain.set(
+        providers.exec { commandLine("rustc", "-vV") }.standardOutput.asText
+            .map { "$it\nndk ${android.ndkVersion}" },
     )
     jniLibs.set(layout.buildDirectory.dir("generated/rust/jniLibs"))
     bindings.set(layout.buildDirectory.dir("generated/rust/kotlin"))
