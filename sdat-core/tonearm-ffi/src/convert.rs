@@ -180,7 +180,7 @@ impl From<&model::Artist> for Artist {
             id: a.info.id.clone(),
             name: a.info.name.clone(),
             picture_url: opt(a.info.cover(ARTIST_LARGE).static_),
-            bio: tonearm_core::explore::plain_bio(&a.description),
+            bio: a.description.clone(),
             followers: a.follower_count,
         }
     }

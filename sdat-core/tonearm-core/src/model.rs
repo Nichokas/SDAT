@@ -553,7 +553,7 @@ pub fn artist_page_from_v2(p: &legacy::ArtistPage) -> Artist {
         legacy::ItemData::Artist(a) => artist_from_v2(a),
         _ => ArtistInfo::default(),
     };
-    Artist { info, description: p.header.biography.text.clone(), follower_count: p.header.followers_amount }
+    Artist { info, description: crate::explore::plain_bio(&p.header.biography.text), follower_count: p.header.followers_amount }
 }
 
 #[cfg(test)]
@@ -574,6 +574,14 @@ mod tests {
         assert_eq!(queue_start(&l, "b", 3), 1);
         assert_eq!(queue_start(&l, "zz", 1), 0);
         assert_eq!(queue_start(&[], "a", 0), 0);
+    }
+    #[test]
+    fn artist_page_bio_is_plain_text() {
+        let page: legacy::ArtistPage = serde_json::from_str(
+            r#"{"header":{"biography":{"text":"[wimpLink artistId=\"50073624\"]R.E.M.[/wimpLink] marked a turn.<br/>Garage &amp; rock."}}}"#,
+        )
+        .expect("artist page json");
+        assert_eq!(artist_page_from_v2(&page).description, "R.E.M. marked a turn.\nGarage & rock.");
     }
     #[test]
     fn durations() {
