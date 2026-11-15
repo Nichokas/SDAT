@@ -151,8 +151,6 @@ pub fn on_paused(playbin: &dyn Playbin) -> Result<()> {
     playbin.set_state(gst::State::Paused)?;
     playback_state_changed().notify(|mut s| {
         s.status = PlaybackStatus::Paused;
-        // Paused while buffering: there is nothing to wait for any more.
-        s.buffering = false;
         s
     });
     Ok(())
@@ -579,23 +577,18 @@ impl Machine {
         if self.buffering.replace(buffering) == buffering {
             return;
         }
-        let playing = state.is_playing();
-        // Paused, or held paused for a paused start: the pipeline stays paused.
-        let held = playing || (state == State::Preparing && !self.pause_on_start.get());
-        if !held {
-            return;
-        }
         log::debug!("buffering={buffering} state={state:?}");
-        if let Err(e) = self.playbin.set_state(if buffering { gst::State::Paused } else { gst::State::Playing }) {
+        // Paused, or held paused for a paused start: the pipeline stays paused.
+        let held = state.is_playing() || (state == State::Preparing && !self.pause_on_start.get());
+        if held && let Err(e) = self.playbin.set_state(if buffering { gst::State::Paused } else { gst::State::Playing }) {
             log::error!("failed to change the pipeline state for buffering: {e:#}");
         }
-        // Preparing already shows as loading.
-        if playing {
-            playback_state_changed().notify(|mut s| {
-                s.buffering = buffering;
-                s
-            });
-        }
+        // Published in every state: a Listen Together guest loads paused and
+        // waits for the buffer before its aligned start.
+        playback_state_changed().notify(|mut s| {
+            s.buffering = buffering;
+            s
+        });
     }
 
     /// Called once the old stream is torn down: what it posted (a follow-up
@@ -962,7 +955,7 @@ pub mod tests {
             m.fire(Trigger::Pause);
             while ctx.iteration(false) {}
             assert_eq!(m.state.get(), State::Paused);
-            assert!(!playback_state_changed().get().buffering);
+            assert!(playback_state_changed().get().buffering, "a paused stream still reports its buffering");
             m.fire(Trigger::Resume);
             while ctx.iteration(false) {}
             assert_eq!(pb.state.get(), Some(gst::State::Paused));
@@ -976,6 +969,27 @@ pub mod tests {
             while ctx.iteration(false) {}
             assert_eq!(pb.state.get(), Some(gst::State::Paused), "buffering resumed a paused track");
             on_playing_exit();
+        })
+        .unwrap();
+    }
+
+    #[test]
+    fn paused_start_reports_buffering() {
+        let ctx = glib::MainContext::new();
+        ctx.with_thread_default(|| {
+            let pb = Rc::new(Testbin::default());
+            let m = test_machine(&pb);
+            m.state.set(State::Preparing);
+            m.fire(Trigger::Pause);
+            m.fire(Trigger::Buffering(true));
+            m.fire(Trigger::StreamStart);
+            while ctx.iteration(false) {}
+            assert_eq!(m.state.get(), State::Paused);
+            assert!(playback_state_changed().get().buffering);
+            m.fire(Trigger::Buffering(false));
+            while ctx.iteration(false) {}
+            assert!(!playback_state_changed().get().buffering);
+            assert_eq!(pb.state.get(), Some(gst::State::Paused));
         })
         .unwrap();
     }
