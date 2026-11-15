@@ -4712,21 +4712,20 @@ public func FfiConverterTypeHandoffLocal_lower(_ value: HandoffLocal) -> RustBuf
 
 
 /**
- * Playback taken over from another device.
+ * Playback taken over from another device: the current track only, so it
+ * starts sooner. What follows it comes after, as `HandoffEvent::Upcoming`.
  */
 public struct HandoffResume: Equatable, Hashable {
     public var from: HandoffDevice
     public var current: Track
-    public var future: [Track]
     public var positionMs: Int64
     public var `repeat`: HandoffRepeat
 
     // Default memberwise initializers are never public by default, so we
     // declare one manually.
-    public init(from: HandoffDevice, current: Track, future: [Track], positionMs: Int64, `repeat`: HandoffRepeat) {
+    public init(from: HandoffDevice, current: Track, positionMs: Int64, `repeat`: HandoffRepeat) {
         self.from = from
         self.current = current
-        self.future = future
         self.positionMs = positionMs
         self.`repeat` = `repeat`
     }
@@ -4749,7 +4748,6 @@ public struct FfiConverterTypeHandoffResume: FfiConverterRustBuffer {
             try HandoffResume(
                 from: FfiConverterTypeHandoffDevice.read(from: &buf), 
                 current: FfiConverterTypeTrack.read(from: &buf), 
-                future: FfiConverterSequenceTypeTrack.read(from: &buf), 
                 positionMs: FfiConverterInt64.read(from: &buf), 
                 repeat: FfiConverterTypeHandoffRepeat.read(from: &buf)
         )
@@ -4758,7 +4756,6 @@ public struct FfiConverterTypeHandoffResume: FfiConverterRustBuffer {
     public static func write(_ value: HandoffResume, into buf: inout [UInt8]) {
         FfiConverterTypeHandoffDevice.write(value.from, into: &buf)
         FfiConverterTypeTrack.write(value.current, into: &buf)
-        FfiConverterSequenceTypeTrack.write(value.future, into: &buf)
         FfiConverterInt64.write(value.positionMs, into: &buf)
         FfiConverterTypeHandoffRepeat.write(value.`repeat`, into: &buf)
     }
@@ -6149,6 +6146,13 @@ public enum HandoffEvent: Equatable, Hashable {
      */
     case movedTo(device: HandoffDevice
     )
+    /**
+     * What follows `current_id`, the track of the last `Arrived` or
+     * `continue_here`, read after it. Append it while that track is still
+     * the current one. Not sent when nothing follows.
+     */
+    case upcoming(currentId: String, tracks: [Track]
+    )
 
 
 
@@ -6182,6 +6186,9 @@ public struct FfiConverterTypeHandoffEvent: FfiConverterRustBuffer {
         case 4: return .movedTo(device: try FfiConverterTypeHandoffDevice.read(from: &buf)
         )
         
+        case 5: return .upcoming(currentId: try FfiConverterString.read(from: &buf), tracks: try FfiConverterSequenceTypeTrack.read(from: &buf)
+        )
+        
         default: throw UniffiInternalError.unexpectedEnumCase
         }
     }
@@ -6208,6 +6215,12 @@ public struct FfiConverterTypeHandoffEvent: FfiConverterRustBuffer {
         case let .movedTo(device):
             writeInt(&buf, Int32(4))
             FfiConverterTypeHandoffDevice.write(device, into: &buf)
+            
+        
+        case let .upcoming(currentId,tracks):
+            writeInt(&buf, Int32(5))
+            FfiConverterString.write(currentId, into: &buf)
+            FfiConverterSequenceTypeTrack.write(tracks, into: &buf)
             
         }
     }
