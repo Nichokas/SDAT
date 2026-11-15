@@ -440,6 +440,10 @@ struct ArtistView: View {
         do {
             let o = try await artistOverview(id: id)
             ArtistCache.overviews[id] = o
+            // The extra tracks were picked against the old list.
+            if overview.map({ $0.topTracks.map(\.id) }) != o.topTracks.map(\.id) {
+                moreTracks = []; morePager = nil; canShowMore = true
+            }
             overview = o
         } catch {
             if overview == nil { self.error = friendlyMessage(error) }
@@ -453,7 +457,9 @@ struct ArtistView: View {
         do {
             let pager = morePager ?? artistTopTracksPager(id: id, shown: shown.map(\.id))
             morePager = pager
-            moreTracks += try await pager.next(limit: Self.morePage)
+            let page = try await pager.next(limit: Self.morePage)
+            guard morePager === pager else { return }
+            moreTracks += page
             canShowMore = !pager.isDone()
         } catch {
             Chrome.shared.flash(friendlyMessage(error))

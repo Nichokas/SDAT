@@ -64,6 +64,8 @@ fun ArtistView(id: String) {
         try {
             val o = artistOverview(id)
             ArtistCache.overviews[id] = o
+            // The extra tracks were picked against the old list.
+            if ((state as? PageLoad.Ready)?.value?.topTracks?.map { it.id } != o.topTracks.map { it.id }) more.reset()
             state = PageLoad.Ready(o)
         } catch (e: CancellationException) {
             throw e
@@ -116,13 +118,21 @@ private class MoreTopTracks(private val artistId: String, private val scope: Cor
 
     private var pager: TopTracksPager? = null
 
+    fun reset() {
+        pager = null
+        tracks = emptyList()
+        canLoad = true
+    }
+
     fun load(shown: List<Track>) {
         if (loading) return
         loading = true
         scope.launch {
             try {
                 val p = pager ?: artistTopTracksPager(artistId, shown.map { it.id }).also { pager = it }
-                tracks = tracks + p.next(PAGE)
+                val page = p.next(PAGE)
+                if (pager !== p) return@launch
+                tracks = tracks + page
                 canLoad = !p.isDone()
             } catch (e: CancellationException) {
                 throw e
