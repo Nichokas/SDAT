@@ -503,7 +503,7 @@ impl Worker {
         if let Some(b) = self.rollback.take() {
             // A failed pull still holding playback that nothing plays here: hand it back.
             let idle = self.last_local.as_ref().is_none_or(|l| !l.playing);
-            if idle && state.active.as_deref() == Some(self.mirror.me()) {
+            if idle && (state.active.is_none() || state.active.as_deref() == Some(self.mirror.me())) {
                 if let Err(e) = self.hand_back(&b) {
                     self.rollback = Some(b);
                     return Err(e);
@@ -511,6 +511,7 @@ impl Worker {
                 state = wire::state()?;
             } else {
                 self.rollback_queue = None;
+                self.rollback_playing = false;
             }
         }
         let head = state.queue_id.as_deref().map(wire::head_with_track).transpose()?;
@@ -680,8 +681,12 @@ impl Worker {
         let active = self.checked(|| wire::set_active(to))?;
         let back = active.as_deref() == Some(to);
         self.mirror.claimed(active);
+        // Its attachment lapsed meanwhile: tried again on a later read.
+        if !back {
+            return Err(CoreError::Other("the other device is not available yet".into()));
+        }
         // The send paused the account; the player it took over was playing.
-        if back && std::mem::take(&mut self.rollback_playing) {
+        if std::mem::take(&mut self.rollback_playing) {
             self.checked(|| wire::set_status(true))?;
             self.mirror.status_written(true);
         }
@@ -699,17 +704,23 @@ impl Worker {
     fn undo_claim(&mut self, claimed: bool, before: Option<&str>, e: CoreError) -> CoreError {
         let (true, Some(b)) = (claimed, before) else {
             self.rollback_queue = None;
+            self.rollback_playing = false;
             return e;
         };
         // Only while this device still holds it: a newer claim by a third device
         // keeps playback and its queue. Unknown (a failed read): the next state read decides.
         match wire::state() {
-            Ok(s) if s.active.as_deref() == Some(self.mirror.me()) => {
+            // Still this device, or nobody (an attachment lapsed): hand back.
+            Ok(s) if s.active.is_none() || s.active.as_deref() == Some(self.mirror.me()) => {
                 if self.hand_back(b).is_err() {
                     self.rollback = Some(b.to_string());
                 }
             }
-            Ok(_) => self.rollback_queue = None,
+            // A third device: it keeps playback and its queue.
+            Ok(_) => {
+                self.rollback_queue = None;
+                self.rollback_playing = false;
+            }
             Err(_) => self.rollback = Some(b.to_string()),
         }
         if self.rollback.is_some() {
