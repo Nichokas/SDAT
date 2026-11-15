@@ -15,7 +15,7 @@ Or add it by hand: **Add App**, source URL `https://github.com/Nichokas/SDAT`, t
 | Filter release titles by regex | `^SDAT Android` |
 | Extract version with regex | `\d+\.\d+\.\d+` |
 
-This repository also publishes iOS (`vX.Y.Z`) and desktop (`desktop-vX.Y.Z`) releases. The title filter keeps Obtainium on the Android ones (titled "SDAT Android X.Y.Z"). The version regex turns the tag `android-v1.0.0` into `1.0.0`, which is what the installed app reports.
+This repository also publishes iOS (`vX.Y.Z`) and desktop (`desktop-vX.Y.Z`) releases. The title filter keeps Obtainium on the Android ones (titled "SDAT Android X.Y.Z"). Obtainium takes the version from the release tag unless "Use release title as version" is on, so the version regex turns `android-v1.0.0` into `1.0.0`, which is what the installed app reports. Leave that option off.
 
 Each Android release carries two APKs, `arm64-v8a` and `x86_64`. Obtainium picks the one that matches the device; leave **Filter APKs by regex** empty.
 
