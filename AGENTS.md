@@ -68,3 +68,7 @@ Notes for coding agents working on SDAT, a TIDAL player for Fedora (GTK), iPhone
 - Squash-merge when reviewers are clean, CI is green and review threads are resolved.
 - Agents watch every PR they open or push to until it merges or is closed: fix CI and the findings, answer the rest on their threads, and squash-merge as soon as the conditions above hold, without asking: the owner gave that standing OK.
 - The CodeRabbit GitHub app is removed: never post `@coderabbitai review`.
+
+## Web search
+
+- If a dedicated search or scraping CLI is installed, such as `tavily-cli` or `firecrawl-cli`, prefer it over the default built-in web search tool.
