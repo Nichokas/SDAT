@@ -84,6 +84,10 @@ pub(super) fn bind_to(user: String) {
     BOUND_USER.with(|b| *b.borrow_mut() = Some(user));
 }
 
+pub(super) fn unbind() {
+    BOUND_USER.with(|b| *b.borrow_mut() = None);
+}
+
 fn call(method: Method, path: &str, body: Option<&Value>) -> Result<Value> {
     let Some(user) = BOUND_USER.with(|b| b.borrow().clone()) else {
         return api::openapi_call(method, path, body);

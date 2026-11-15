@@ -177,6 +177,8 @@ pub struct Handoff {
     tx: Sender<Cmd>,
     devices: Arc<Mutex<Vec<Device>>>,
     stopped: AtomicBool,
+    /// The user this instance was started for: the detach token must be theirs.
+    account: String,
 }
 
 impl std::fmt::Debug for Handoff {
@@ -190,6 +192,14 @@ impl Handoff {
     /// account's state. Blocking. `installation_key` comes from
     /// [`new_installation_key`], kept by the app.
     pub fn start(installation_key: &str, device_name: &str, listener: Arc<dyn HandoffListener>) -> Result<Self> {
+        // Registration and attach go out for the account signed in now, and no other.
+        wire::bind_to(crate::auth::tokens().user_id());
+        let started = Self::start_bound(installation_key, device_name, listener);
+        wire::unbind();
+        started
+    }
+
+    fn start_bound(installation_key: &str, device_name: &str, listener: Arc<dyn HandoffListener>) -> Result<Self> {
         // A previous instance's late detach would undo this attach.
         if !wait_detached(Duration::from_secs(5)) {
             return Err(CoreError::Network("an earlier handoff is still detaching".into()));
@@ -249,7 +259,7 @@ impl Handoff {
             }
             return Err(CoreError::Other(e.to_string()));
         }
-        Ok(Self { tx, devices, stopped: AtomicBool::new(false) })
+        Ok(Self { tx, devices, stopped: AtomicBool::new(false), account: crate::auth::tokens().user_id() })
     }
 
     /// Every local change (track, queue, play, pause, seek). Cheap: only
@@ -279,7 +289,9 @@ impl Handoff {
             return;
         }
         *STOPPING.0.lock().unwrap_or_else(PoisonError::into_inner) += 1;
-        if self.tx.send(Cmd::Stop(crate::api::cached_user_token())).is_err() {
+        // Another account already signed in: its token mustn't detach this one; TIDAL drops it later.
+        let token = crate::api::cached_user_token().filter(|_| crate::auth::tokens().user_id() == self.account);
+        if self.tx.send(Cmd::Stop(token)).is_err() {
             stopping_done();
         }
     }
@@ -819,8 +831,12 @@ impl Worker {
         if !self.same_account() {
             return Err(CoreError::NotSignedIn);
         }
-        // Never continue from a remembered queue: it may be gone.
-        self.refresh()?;
+        // Never continue from a remembered queue: it may be gone. A failed read is retried
+        // (a pending arrival with it).
+        if let Err(e) = self.refresh() {
+            self.dirty.get_or_insert_with(|| Instant::now() + RETRY);
+            return Err(e);
+        }
         let from = self.mirror.state().active.as_deref().filter(|a| *a != self.mirror.me()).and_then(|a| self.mirror.device(a));
         // A pending arrival is what this pull takes over; kept if the pull fails, so it is retried.
         let arrival = self.arrival.take();
