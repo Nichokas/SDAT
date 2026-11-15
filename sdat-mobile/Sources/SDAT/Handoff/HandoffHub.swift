@@ -144,7 +144,7 @@ final class HandoffHub {
                 // the user started something else: that wins.
                 if gen == generation, !Live.shared.isGuest, (player.starts, player.plays) == started { play(r) }
             } catch {
-                Chrome.shared.flash("Couldn't continue here")
+                if gen == generation { Chrome.shared.flash("Couldn't continue here") }
             }
             if gen == generation { continuing = false }
         }

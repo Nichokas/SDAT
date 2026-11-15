@@ -206,9 +206,11 @@ fn play(r: Resume) -> anyhow::Result<()> {
     let source = (!r.from.name.is_empty()).then(|| PlaybackSource::List { title: r.from.name.clone(), route: String::new() });
     let tracks = std::iter::once(r.current).chain(r.future).collect();
     // Repeat-one would make the load pick the old track again: set it after.
+    let before = player::repeat_mode_changed().get();
     player::set_repeat_mode(RepeatMode::None);
     let played = player::play_at(source, tracks, Duration::from_millis(u64::try_from(r.position_ms).unwrap_or(0)));
-    player::set_repeat_mode(repeat_mode(r.repeat));
+    // A failed load keeps the user's own repeat mode.
+    player::set_repeat_mode(if played.is_ok() { repeat_mode(r.repeat) } else { before });
     played
 }
 

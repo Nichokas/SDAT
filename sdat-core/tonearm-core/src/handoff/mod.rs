@@ -188,6 +188,8 @@ impl Handoff {
             return Err(CoreError::Network("an earlier handoff is still detaching".into()));
         }
         let account = crate::auth::tokens().user_id();
+        // To detach with this account if another one signs in during the start.
+        let token = crate::api::cached_user_token();
         let me = wire::register(installation_key, device_name)?;
         attached(&me);
         if let Err(e) = wire::attach(&me) {
@@ -196,7 +198,11 @@ impl Handoff {
         }
         // Signed into another account meanwhile: this installation belongs to the old one.
         if crate::auth::tokens().user_id() != account {
-            released(&me);
+            if released(&me)
+                && let Some(t) = token.as_deref()
+            {
+                drop(wire::detach(&me, Some(t)));
+            }
             return Err(CoreError::NotSignedIn);
         }
         let (tx, rx) = mpsc::channel();
@@ -453,7 +459,7 @@ impl Worker {
 
     fn follow(&mut self, urls: &[Option<String>]) {
         let urls: Vec<String> = urls.iter().flatten().cloned().collect();
-        self.streams.retain(|s| urls.contains(&s.url));
+        self.streams.retain(|s| urls.contains(&s.url) && !s.is_dead());
         for u in urls {
             if !self.streams.iter().any(|s| s.url == u) {
                 self.streams.push(Follower::spawn(u, self.tx.clone()));

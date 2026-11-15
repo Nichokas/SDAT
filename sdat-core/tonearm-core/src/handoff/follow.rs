@@ -24,18 +24,26 @@ pub(super) struct Follower {
     /// Not connected (also before the first connection, and for good when
     /// the thread could not start), so the worker polls instead.
     down: Arc<AtomicBool>,
+    /// The thread gave up for good (no client): replace this follower.
+    dead: Arc<AtomicBool>,
 }
 
 impl Follower {
     pub(super) fn spawn(url: String, tx: Sender<Cmd>) -> Self {
         let stop = Arc::new(AtomicBool::new(false));
         let down = Arc::new(AtomicBool::new(true));
-        let (u, s, d) = (url.clone(), Arc::clone(&stop), Arc::clone(&down));
-        let spawned = std::thread::Builder::new().name("handoff-follow".into()).spawn(move || run(&u, &tx, &s, &d));
+        let dead = Arc::new(AtomicBool::new(false));
+        let (u, s, d, x) = (url.clone(), Arc::clone(&stop), Arc::clone(&down), Arc::clone(&dead));
+        let spawned = std::thread::Builder::new().name("handoff-follow".into()).spawn(move || run(&u, &tx, &s, &d, &x));
         if let Err(e) = spawned {
             log::warn!("handoff: no stream thread error={e}");
+            dead.store(true, Ordering::Relaxed);
         }
-        Self { url, stop, down }
+        Self { url, stop, down, dead }
+    }
+
+    pub(super) fn is_dead(&self) -> bool {
+        self.dead.load(Ordering::Relaxed)
     }
 
     pub(super) fn is_down(&self) -> bool {
@@ -54,7 +62,7 @@ fn trusted(url: &str) -> bool {
     url::Url::parse(url).is_ok_and(|u| u.scheme() == "https" && u.host_str().is_some_and(|h| h == "tidal.com" || h.ends_with(".tidal.com")))
 }
 
-fn run(url: &str, tx: &Sender<Cmd>, stop: &AtomicBool, down: &AtomicBool) {
+fn run(url: &str, tx: &Sender<Cmd>, stop: &AtomicBool, down: &AtomicBool, dead: &AtomicBool) {
     if !trusted(url) {
         log::warn!("handoff: not following an event stream outside TIDAL url={url}");
         return;
@@ -63,6 +71,8 @@ fn run(url: &str, tx: &Sender<Cmd>, stop: &AtomicBool, down: &AtomicBool) {
         Ok(c) => c,
         Err(e) => {
             log::warn!("handoff: no stream client error={e}");
+            // Tried again by a new follower on the next state read.
+            dead.store(true, Ordering::Relaxed);
             return;
         }
     };

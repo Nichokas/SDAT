@@ -38,7 +38,8 @@ enum Fmt {
 
     /// "just now", "5 min ago", "2 h ago", "3 d ago".
     static func ago(_ date: Date, now: Date = Date()) -> String {
-        let mins = Int(now.timeIntervalSince(date) / 60)
+        // A clock ahead of TIDAL's can put the date in the future.
+        let mins = max(Int(now.timeIntervalSince(date) / 60), 0)
         if mins < 1 { return "just now" }
         if mins < 60 { return "\(mins) min ago" }
         if mins < 24 * 60 { return "\(mins / 60) h ago" }
