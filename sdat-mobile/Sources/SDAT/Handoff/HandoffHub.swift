@@ -86,6 +86,8 @@ final class HandoffHub {
     func stop() {
         generation += 1
         starting = false
+        // An account switch must not wait for the old account's retry.
+        retryAt = nil
         handoff?.stop()
         handoff = nil
         reported = nil

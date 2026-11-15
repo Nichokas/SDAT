@@ -448,6 +448,9 @@ fn sign_in(window: &adw::ApplicationWindow) {
                 if let Err(e) = api::run(move || secrets::set_refresh_token(&token)).await {
                     log::error!("failed to store refresh token error={e:#}");
                     toast(&tr("Sign in failed: the keyring could not store the session"));
+                    if replacing {
+                        crate::handoff::start();
+                    }
                     return;
                 }
                 session_changed().await;
