@@ -207,7 +207,14 @@ pub(super) fn state() -> Result<State> {
 
 pub(super) fn head(queue: &str) -> Result<Head> {
     let inc = TRACK_INCLUDES.split(',').map(|i| format!("current.{i}")).collect::<Vec<_>>().join(",");
-    call(Method::GET, &format!("/v2/playQueues/{queue}?include=changeEventStream,{inc}"), None).map(|v| parse_head(&v))
+    let mut h = parse_head(&call(Method::GET, &format!("/v2/playQueues/{queue}?include=changeEventStream,{inc}"), None)?);
+    // The included metadata can be missing while the queue still names the track.
+    if h.track.is_none()
+        && let Some(c) = &h.current
+    {
+        h.track = crate::service::get_track(&c.track_id).ok();
+    }
+    Ok(h)
 }
 
 pub(super) fn installation_name(id: &str) -> Result<String> {

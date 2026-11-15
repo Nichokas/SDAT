@@ -10,8 +10,10 @@ use std::time::{Duration, Instant};
 use super::Cmd;
 
 /// Each connection is cut after this long and reopened, so a dead one is
-/// noticed (the server sends a keepalive about every 15 s).
-const CONNECTION: Duration = Duration::from_mins(2);
+/// noticed (the server sends a keepalive about every 15 s). It also bounds
+/// how long a stopped follower blocked in a read lives on: a blocking
+/// request cannot be interrupted.
+const CONNECTION: Duration = Duration::from_mins(1);
 const MAX_BACKOFF: Duration = Duration::from_mins(1);
 
 /// A stream thread; it ends within one keepalive after [`Self::stop`] or drop.

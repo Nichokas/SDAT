@@ -279,6 +279,10 @@ pub(crate) fn user_bearer() -> Result<String> {
 /// JSON:API call to openapi.tidal.com (`path` starts with `/v2/`) with the
 /// user's token. `Value::Null` for an empty answer.
 pub(crate) fn openapi_call(method: Method, path: &str, body: Option<&serde_json::Value>) -> Result<serde_json::Value> {
+    // The user token goes to the OpenAPI host only.
+    if !path.starts_with("/v2/") {
+        bail!("not an OpenAPI path: {path}");
+    }
     user_bearer()?;
     let label = method.to_string();
     let mut rb = request(method, &openapi(path), &[])?.header("Accept", "application/vnd.api+json");

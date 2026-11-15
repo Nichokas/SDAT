@@ -312,15 +312,21 @@ impl Worker {
     }
 
     /// Reads the queue for playing it here, from the device that wrote it.
-    fn resume(&mut self, extrapolate: bool, from: Option<Device>) -> Result<Resume> {
+    /// `claim` makes this device active once the queue proved readable.
+    fn resume(&mut self, claim: bool, from: Option<Device>) -> Result<Resume> {
         let queue = self.mirror.queue_id().ok_or_else(|| CoreError::Other("nothing to continue".into()))?.to_string();
         let head = wire::head(&queue)?;
         let (Some(current), Some(track)) = (head.current.clone(), head.track.clone()) else {
             return Err(CoreError::Other("nothing to continue".into()));
         };
         let (mut entries, future) = wire::future_tracks(&queue, MAX_FUTURE)?;
+        if claim {
+            let active = wire::set_active(self.mirror.me())?;
+            self.mirror.claimed(active);
+        }
         let duration = i64::try_from(track.duration().as_millis()).unwrap_or(i64::MAX);
-        let playing = extrapolate && self.mirror.state().status == wire::Status::Playing;
+        // A pull takes over a player that may still be playing; a push wrote its exact position.
+        let playing = claim && self.mirror.state().status == wire::Status::Playing;
         let now = now_ms();
         let position_ms = mirror::position_now(head.position_ms.unwrap_or(0), head.position_at_ms.unwrap_or(now), now, playing, duration);
         entries.insert(0, current);
@@ -334,8 +340,6 @@ impl Worker {
     fn continue_here(&mut self) -> Result<Resume> {
         self.refresh();
         let from = self.mirror.state().active.as_deref().filter(|a| *a != self.mirror.me()).and_then(|a| self.mirror.device(a));
-        let active = wire::set_active(self.mirror.me())?;
-        self.mirror.claimed(active);
         self.resume(true, from)
     }
 
@@ -350,12 +354,15 @@ impl Worker {
         if !self.write_local(true) {
             return Err(CoreError::Other("could not write the queue".into()));
         }
-        wire::set_status(false)?;
-        self.mirror.status_written(false);
         if wire::set_active(id)?.as_deref() != Some(id) {
+            // An unattached target leaves no active player: take it back.
+            let active = wire::set_active(self.mirror.me())?;
+            self.mirror.claimed(active);
             return Err(CoreError::Other("the device is not available".into()));
         }
         self.mirror.released_to(id);
+        wire::set_status(false)?;
+        self.mirror.status_written(false);
         Ok(())
     }
 
@@ -464,7 +471,7 @@ mod tests {
         let wait = |log: &Log, what: &str| {
             let until = Instant::now() + Duration::from_secs(20);
             while Instant::now() < until {
-                if log.0.lock().unwrap_or_else(PoisonError::into_inner).iter().any(|l| l.starts_with(what)) {
+                if log.0.lock().unwrap_or_else(PoisonError::into_inner).iter().any(|l| l.starts_with(what) || what.contains('*') && what.split('*').all(|p| l.contains(p))) {
                     return;
                 }
                 std::thread::sleep(Duration::from_millis(200));
@@ -476,7 +483,8 @@ mod tests {
         let b = Handoff::start(&std::env::var("SDAT_LIVE_KEY_B").unwrap_or_else(|_| new_installation_key()), "SDAT test B", Arc::clone(&lb) as Arc<dyn HandoffListener>).expect("start b");
         let ids: Vec<String> = ["35707532", "60923645", "40475829", "504370449", "162358163"].map(String::from).to_vec();
         a.report(LocalPlayback { current: Some(ids[0].clone()), future: ids[1..].to_vec(), position_ms: 30_000, playing: true, repeat: Repeat::Off });
-        wait(&lb, "elsewhere Some((\"SDAT test A\"");
+        // Playing, so not what a previous run left behind.
+        wait(&lb, "elsewhere Some((\"SDAT test A\"*true))");
         let r = b.continue_here().expect("continue here");
         assert_eq!(r.current.id(), ids[0]);
         assert_eq!(r.future.iter().map(|t| t.id().to_string()).collect::<Vec<_>>(), ids[1..]);
