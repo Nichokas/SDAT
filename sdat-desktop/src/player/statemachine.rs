@@ -497,9 +497,14 @@ impl Machine {
                     }
                     Trigger::Eos => (self.hooks.on_eos_stopped)().await,
                     Trigger::Error(e) => {
-                        (self.hooks.clear_source)();
                         on_stopped_stop();
-                        (self.hooks.on_error)(&e);
+                        // A queued stop or start has already replaced the
+                        // source and moved on from the failed track.
+                        let superseded = self.queue.borrow().iter().any(|t| matches!(t, Trigger::Stop | Trigger::PlayTrack(..) | Trigger::PlayTrackId(..)));
+                        if !superseded {
+                            (self.hooks.clear_source)();
+                            (self.hooks.on_error)(&e);
+                        }
                     }
                     _ => {}
                 }
@@ -605,7 +610,12 @@ impl Machine {
 
     async fn retry(&self) -> Result<()> {
         let pb = &*self.playbin;
-        self.buffering.set(false);
+        if self.buffering.replace(false) {
+            playback_state_changed().notify(|mut s| {
+                s.buffering = false;
+                s
+            });
+        }
         pb.set_state(gst::State::Ready)?;
         self.drop_stream_messages();
         let id = track_changed().with(|t| t.as_ref().map(|e| e.track.id().to_string())).unwrap_or_default();
@@ -1006,6 +1016,15 @@ pub mod tests {
             }
             let errors = ERRORS.with(|v| v.borrow().clone());
             assert_eq!(errors, vec!["Could not read from resource."; 4]);
+
+            // The user already picked another track: no error for the old one.
+            let pb = Rc::new(Testbin::default());
+            let m = test_machine(&pb);
+            m.state.set(State::Playing);
+            m.fire(Trigger::Error("Could not read from resource.".into()));
+            m.queue.borrow_mut().push_back(Trigger::Stop);
+            while ctx.iteration(false) {}
+            assert_eq!(ERRORS.with(|v| v.borrow().len()), 4, "a superseded error was reported");
         })
         .unwrap();
     }

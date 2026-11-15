@@ -1013,7 +1013,14 @@ fn guest_tick() {
             return;
         }
     }
-    if ps.loading || ps.buffering {
+    if ps.loading {
+        return;
+    }
+    if ps.buffering {
+        // Only seeking and resuming wait for the buffer; a host pause applies now.
+        if !t.playing && local_playing {
+            player::pause();
+        }
         return;
     }
     let actual = player::position().map(ms);
