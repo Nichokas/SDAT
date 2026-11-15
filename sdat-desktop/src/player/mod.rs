@@ -195,7 +195,11 @@ pub fn init() -> Result<()> {
             next_track,
             on_eos_stopped: || Box::pin(on_eos_stopped()),
             clear_source: || source_changed().set(None),
-            on_error: |e| toasts().notify(&crate::i18n::trf("Playback failed: %s", &[&e])),
+            on_error: |track, e| {
+                if crate::live::playback_failed(track) {
+                    toasts().notify(&crate::i18n::trf("Playback failed: %s", &[&e]));
+                }
+            },
         },
     );
 

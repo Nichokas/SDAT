@@ -501,6 +501,16 @@ pub(crate) fn is_guest() -> bool {
     guest().is_some()
 }
 
+/// The player stopped `track` on an error; returns whether to tell the user.
+/// A guest counts it as a failed load, so the next tick does not reload the
+/// host's track (and fail again) at once.
+pub fn playback_failed(track: Option<&str>) -> bool {
+    match track {
+        Some(t) if is_guest() => LOADS.with(|l| l.borrow_mut().failed(t, Instant::now())),
+        _ => true,
+    }
+}
+
 /// UI play/pause. Guests ask the host (or are refused).
 pub fn user_play_pause() {
     let playing = guest().and_then(|g| g.target(0)).is_some_and(|t| t.playing);

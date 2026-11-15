@@ -310,8 +310,8 @@ pub struct Hooks {
     pub next_track: fn(peek: bool) -> (Option<Track>, bool),
     pub on_eos_stopped: fn() -> std::pin::Pin<Box<dyn std::future::Future<Output = ()>>>,
     pub clear_source: fn(),
-    /// Tells the user that playback stopped on an error.
-    pub on_error: fn(&str),
+    /// Playback of the track (its id) stopped on an error.
+    pub on_error: fn(Option<&str>, &str),
 }
 
 pub struct Machine {
@@ -329,6 +329,9 @@ pub struct Machine {
     /// The stream ran dry and holds the pipeline paused until its buffer is
     /// full again.
     buffering: Cell<bool>,
+    /// The token expired while paused: the stream was torn down and is
+    /// fetched again on resume.
+    reload_on_resume: Cell<bool>,
     hooks: Hooks,
 }
 
@@ -344,6 +347,7 @@ impl Machine {
             retry_position: Cell::new(Duration::ZERO),
             pause_on_start: Cell::new(false),
             buffering: Cell::new(false),
+            reload_on_resume: Cell::new(false),
             hooks,
         })
     }
@@ -398,6 +402,7 @@ impl Machine {
         match (s, t) {
             // From Preparing too: the newest start wins over one still loading.
             (_, Trigger::PlayTrackId(..) | Trigger::PlayTrack(..)) => Some(Preparing),
+            (Paused, Trigger::Resume) if self.reload_on_resume.get() => Some(PlayingRetrying),
             (Paused, Trigger::Resume) => Some(Playing),
             (Paused | Preparing, Trigger::Stop) => Some(Stopped),
             (Preparing, Trigger::TokenExpired) => Some(Stopped),
@@ -459,6 +464,16 @@ impl Machine {
                         let _ = d.send(());
                     }
                 }
+                Trigger::TokenExpired if from == State::Paused => {
+                    log::warn!("playback token expired while paused, reloading on resume");
+                    // Tear down now so the stream error that follows the
+                    // 401/404 does not stop playback.
+                    if let Err(e) = self.playbin.set_state(gst::State::Ready) {
+                        log::error!("failed to reset the pipeline after an expired token: {e:#}");
+                    }
+                    self.drop_stream_messages();
+                    self.reload_on_resume.set(true);
+                }
                 Trigger::Stop if from == State::Stopped => log::debug!("already stopped"),
                 Trigger::Error(e) if from == State::Stopped => log::debug!("playback error while stopped: {e}"),
                 Trigger::StreamStart if from == State::Playing => {}
@@ -467,6 +482,9 @@ impl Machine {
             return;
         };
         // An accepted new start or stop drops a pause meant for the old one.
+        if matches!(to, State::Preparing | State::Stopped | State::PlayingRetrying) {
+            self.reload_on_resume.set(false);
+        }
         if matches!(to, State::Preparing | State::Stopped) {
             self.pause_on_start.set(false);
             self.buffering.set(false);
@@ -517,13 +535,14 @@ impl Machine {
                     }
                     Trigger::Eos => (self.hooks.on_eos_stopped)().await,
                     Trigger::Error(e) => {
+                        let track = track_changed().with(|t| t.as_ref().map(|e| e.track.id().to_string()));
                         on_stopped_stop();
                         // A queued stop or start has already replaced the
                         // source and moved on from the failed track.
                         let superseded = self.queue.borrow().iter().any(|t| matches!(t, Trigger::Stop | Trigger::PlayTrack(..) | Trigger::PlayTrackId(..)));
                         if !superseded {
                             (self.hooks.clear_source)();
-                            (self.hooks.on_error)(&e);
+                            (self.hooks.on_error)(track.as_deref(), &e);
                         }
                     }
                     _ => {}
@@ -579,6 +598,12 @@ impl Machine {
                 }
                 Ok(())
             }
+            // Resumed after the token expired while paused: also publish
+            // the playing state that a retry from Playing already has.
+            (State::PlayingRetrying, _) if from == State::Paused => match self.retry().await {
+                Ok(()) => on_playing(Rc::clone(&self.playbin), self.buffering.get()),
+                Err(e) => Err(e),
+            },
             (State::PlayingRetrying, _) => self.retry().await,
             _ => Ok(()),
         };
@@ -592,6 +617,9 @@ impl Machine {
     /// does not run on over silence, and resumes it once the buffer is full.
     fn on_buffering(&self, buffering: bool) {
         let state = self.state.get();
+        if state == State::Stopped {
+            return;
+        }
         // The gapless next track buffers while the current one still plays.
         if state == State::PlayingGapless && buffering {
             return;
@@ -824,7 +852,7 @@ pub mod tests {
         use State::*;
         let m = Machine::new(
             Rc::new(Testbin::default()),
-            Hooks { next_track: |_| (None, false), on_eos_stopped: || Box::pin(async {}), clear_source: || {}, on_error: |_| {} },
+            Hooks { next_track: |_| (None, false), on_eos_stopped: || Box::pin(async {}), clear_source: || {}, on_error: |_, _| {} },
         );
         let play = || Trigger::PlayTrack(Track::default(), false);
         let cases: Vec<(State, Trigger, Option<State>)> = vec![
@@ -866,7 +894,7 @@ pub mod tests {
     fn eos_from_playing_targets_stopped_and_is_ignored_when_stopped() {
         let m = Machine::new(
             Rc::new(Testbin::default()),
-            Hooks { next_track: |_| (None, false), on_eos_stopped: || Box::pin(async {}), clear_source: || {}, on_error: |_| {} },
+            Hooks { next_track: |_| (None, false), on_eos_stopped: || Box::pin(async {}), clear_source: || {}, on_error: |_, _| {} },
         );
         assert_eq!(m.target(&Trigger::Eos), None);
         for s in [State::Playing, State::PlayingGapless, State::PlayingRetrying] {
@@ -892,7 +920,7 @@ pub mod tests {
                 CLEARED.with(|c| c.set(0));
                 let m = Machine::new(
                     Rc::new(Testbin::default()),
-                    Hooks { next_track: |_| (None, false), on_eos_stopped: || Box::pin(async {}), clear_source: || CLEARED.with(|c| c.set(c.get() + 1)), on_error: |_| {} },
+                    Hooks { next_track: |_| (None, false), on_eos_stopped: || Box::pin(async {}), clear_source: || CLEARED.with(|c| c.set(c.get() + 1)), on_error: |_, _| {} },
                 );
                 m.state.set(from);
                 m.fire(Trigger::Stop);
@@ -917,7 +945,7 @@ pub mod tests {
         ctx.with_thread_default(|| {
             let m = Machine::new(
                 Rc::new(Testbin::default()),
-                Hooks { next_track: |_| (None, false), on_eos_stopped: || Box::pin(async {}), clear_source: || {}, on_error: |_| {} },
+                Hooks { next_track: |_| (None, false), on_eos_stopped: || Box::pin(async {}), clear_source: || {}, on_error: |_, _| {} },
             );
             assert!(m.stopped_without_pending_start());
             m.queue.borrow_mut().push_back(Trigger::Deferred(Box::new(|| DEFERRED_RAN.with(|c| c.set(c.get() + 1)))));
@@ -945,7 +973,7 @@ pub mod tests {
         ctx.with_thread_default(|| {
             let m = Machine::new(
                 Rc::new(Testbin::default()),
-                Hooks { next_track: |_| (None, false), on_eos_stopped: || Box::pin(async {}), clear_source: || {}, on_error: |_| {} },
+                Hooks { next_track: |_| (None, false), on_eos_stopped: || Box::pin(async {}), clear_source: || {}, on_error: |_, _| {} },
             );
             let inner = Rc::clone(&m);
             m.queue.borrow_mut().push_back(Trigger::Deferred(Box::new(move || {
@@ -974,7 +1002,7 @@ pub mod tests {
             let pb = Rc::new(Testbin { state: Cell::new(Some(gst::State::Playing)), ..Default::default() });
             let m = Machine::new(
                 Rc::clone(&pb) as Rc<dyn Playbin>,
-                Hooks { next_track: |_| (None, false), on_eos_stopped: || Box::pin(async {}), clear_source: || {}, on_error: |_| {} },
+                Hooks { next_track: |_| (None, false), on_eos_stopped: || Box::pin(async {}), clear_source: || {}, on_error: |_, _| {} },
             );
             m.state.set(State::Preparing);
             m.fire(Trigger::Pause);
@@ -1000,7 +1028,7 @@ pub mod tests {
                 next_track: |_| (None, false),
                 on_eos_stopped: || Box::pin(async {}),
                 clear_source: || {},
-                on_error: |e| ERRORS.with(|v| v.borrow_mut().push(e.to_string())),
+                on_error: |_, e| ERRORS.with(|v| v.borrow_mut().push(e.to_string())),
             },
         )
     }
@@ -1136,6 +1164,37 @@ pub mod tests {
         m.drop_stream_messages();
         let left: Vec<String> = m.queue.borrow().iter().map(|t| format!("{t:?}")).collect();
         assert_eq!(left, ["TRIGGER_PAUSE", "TRIGGER_STOP"]);
+    }
+
+    /// An expired token while paused tears the stream down at once, so its
+    /// follow-up stream error does not stop playback, and reloads on resume.
+    #[test]
+    fn token_expired_while_paused_reloads_on_resume() {
+        let ctx = glib::MainContext::new();
+        ctx.with_thread_default(|| {
+            ERRORS.with(|v| v.borrow_mut().clear());
+            let pb = Rc::new(Testbin { state: Cell::new(Some(gst::State::Paused)), ..Default::default() });
+            let m = test_machine(&pb);
+            m.state.set(State::Paused);
+            m.fire(Trigger::TokenExpired);
+            m.fire(Trigger::Error("Internal data stream error.".into()));
+            while ctx.iteration(false) {}
+            assert_eq!(m.state.get(), State::Paused);
+            assert_eq!(pb.state.get(), Some(gst::State::Ready));
+            assert!(ERRORS.with(|v| v.borrow().is_empty()));
+            assert_eq!(m.target(&Trigger::Resume), Some(State::PlayingRetrying));
+        })
+        .unwrap();
+    }
+
+    #[test]
+    fn buffering_after_stop_is_ignored() {
+        let pb = Rc::new(Testbin::default());
+        let m = test_machine(&pb);
+        playback_state_changed().set(PlaybackState::default());
+        m.on_buffering(true);
+        assert!(!playback_state_changed().get().buffering);
+        assert_eq!(pb.state.get(), None);
     }
 
     /// #99: the old track's position is not published while the next loads.
