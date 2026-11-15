@@ -107,8 +107,9 @@ pub fn new_installation_key() -> String {
 enum Cmd {
     Report(LocalPlayback),
     Changed,
-    SendTo(String, Sender<Result<()>>),
-    ContinueHere(Sender<Result<Resume>>),
+    /// The caller gives up at the deadline: nothing changes hands after it.
+    SendTo(String, Instant, Sender<Result<()>>),
+    ContinueHere(Instant, Sender<Result<Resume>>),
     /// With the access token at the time of the stop, for the detach.
     Stop(Option<String>),
 }
@@ -160,6 +161,7 @@ impl Handoff {
             tx: tx.clone(),
             streams: Vec::new(),
             last_local: None,
+            pending: None,
             names: HashMap::new(),
         };
         std::thread::Builder::new().name("handoff".into()).spawn(move || w.run(&rx)).map_err(|e| CoreError::Other(e.to_string()))?;
@@ -178,7 +180,7 @@ impl Handoff {
 
     /// Push the playback last reported to `device_id`. Pause here after it returns.
     pub fn send_to(&self, device_id: &str) -> Result<()> {
-        self.call(|tx| Cmd::SendTo(device_id.to_string(), tx))
+        self.call(|deadline, tx| Cmd::SendTo(device_id.to_string(), deadline, tx))
     }
 
     /// Pull: makes this device active and returns what to play.
@@ -198,10 +200,12 @@ impl Handoff {
         }
     }
 
-    fn call<T>(&self, cmd: impl FnOnce(Sender<Result<T>>) -> Cmd) -> Result<T> {
+    /// Waits for the worker's answer, which always comes: every request has
+    /// its own timeout, and past the deadline it refuses to change hands.
+    fn call<T>(&self, cmd: impl FnOnce(Instant, Sender<Result<T>>) -> Cmd) -> Result<T> {
         let (tx, rx) = mpsc::channel();
-        self.tx.send(cmd(tx)).map_err(|_stopped| CoreError::Other("handoff stopped".into()))?;
-        rx.recv_timeout(CALL_TIMEOUT).map_err(|e| CoreError::Network(format!("handoff: {e}")))?
+        self.tx.send(cmd(Instant::now() + CALL_TIMEOUT, tx)).map_err(|_stopped| CoreError::Other("handoff stopped".into()))?;
+        rx.recv().map_err(|_stopped| CoreError::Other("handoff stopped".into()))?
     }
 }
 
@@ -209,6 +213,14 @@ impl Drop for Handoff {
     fn drop(&mut self) {
         self.stop();
     }
+}
+
+/// The caller gave up waiting: change nothing more.
+fn past(deadline: Instant) -> Result<()> {
+    if Instant::now() > deadline {
+        return Err(CoreError::Network("handoff: timed out".into()));
+    }
+    Ok(())
 }
 
 fn now_ms() -> i64 {
@@ -222,36 +234,37 @@ struct Worker {
     tx: Sender<Cmd>,
     streams: Vec<Follower>,
     last_local: Option<LocalPlayback>,
+    /// When the last report is due to be written.
+    pending: Option<Instant>,
     /// Installation names, for devices that are no longer attached.
     names: HashMap<String, String>,
 }
 
 impl Worker {
     fn run(&mut self, rx: &Receiver<Cmd>) {
-        let mut pending: Option<Instant> = None;
         let mut dirty: Option<Instant> = Some(Instant::now());
         let mut next_attach = Instant::now() + ATTACH_EVERY;
         let mut next_poll = Instant::now() + POLL_EVERY;
         loop {
-            let wake = [pending, dirty, Some(next_attach), Some(next_poll)].into_iter().flatten().min().unwrap_or(next_poll);
+            let wake = [self.pending, dirty, Some(next_attach), Some(next_poll)].into_iter().flatten().min().unwrap_or(next_poll);
             match rx.recv_timeout(wake.saturating_duration_since(Instant::now())) {
                 Ok(Cmd::Report(l)) => {
                     self.last_local = Some(l);
-                    pending.get_or_insert_with(|| Instant::now() + THROTTLE);
+                    self.pending.get_or_insert_with(|| Instant::now() + THROTTLE);
                 }
                 Ok(Cmd::Changed) => {
                     dirty.get_or_insert_with(|| Instant::now() + SETTLE);
                 }
-                Ok(Cmd::SendTo(id, reply)) => {
-                    pending = None;
-                    let _ = reply.send(self.send_to(&id));
+                Ok(Cmd::SendTo(id, deadline, reply)) => {
+                    self.pending = None;
+                    let _ = reply.send(self.send_to(&id, deadline));
                 }
-                Ok(Cmd::ContinueHere(reply)) => {
-                    pending = None;
-                    let _ = reply.send(self.continue_here());
+                Ok(Cmd::ContinueHere(deadline, reply)) => {
+                    self.pending = None;
+                    let _ = reply.send(self.continue_here(deadline));
                 }
                 Ok(Cmd::Stop(token)) => {
-                    if pending.is_some() {
+                    if self.pending.is_some() {
                         self.write_local(false);
                     }
                     self.streams.clear();
@@ -265,8 +278,8 @@ impl Worker {
                 Err(RecvTimeoutError::Timeout) => {}
             }
             let now = Instant::now();
-            if pending.is_some_and(|p| p <= now) {
-                pending = None;
+            if self.pending.is_some_and(|p| p <= now) {
+                self.pending = None;
                 self.write_local(false);
             }
             if dirty.is_some_and(|d| d <= now) {
@@ -330,7 +343,7 @@ impl Worker {
         for o in self.mirror.fetched(state, head, by.clone()) {
             match o {
                 Out::Event(ev) => self.emit(*ev),
-                Out::Arrive => match self.resume(false, by.clone()) {
+                Out::Arrive => match self.resume(None, by.clone()) {
                     Ok(r) => self.emit(HandoffEvent::Arrived(r)),
                     Err(e) => log::warn!("handoff: arrived queue unreadable error={e}"),
                 },
@@ -340,37 +353,41 @@ impl Worker {
 
     /// Reads the queue for playing it here, from the device that wrote it.
     /// `claim` makes this device active once the queue proved readable.
-    fn resume(&mut self, claim: bool, from: Option<Device>) -> Result<Resume> {
+    fn resume(&mut self, claim: Option<Instant>, from: Option<Device>) -> Result<Resume> {
         let queue = self.mirror.queue_id().ok_or_else(|| CoreError::Other("nothing to continue".into()))?.to_string();
         let head = wire::head_with_track(&queue)?;
         let (Some(current), Some(track)) = (head.current.clone(), head.track.clone()) else {
             return Err(CoreError::Other("nothing to continue".into()));
         };
         let (mut entries, future) = wire::future_tracks(&queue, MAX_FUTURE)?;
-        if claim {
+        if let Some(deadline) = claim {
+            past(deadline)?;
             let active = wire::set_active(self.mirror.me())?;
             self.mirror.claimed(active);
         }
         let duration = i64::try_from(track.duration().as_millis()).unwrap_or(i64::MAX);
         // A pull takes over a player that may still be playing; a push wrote its exact position.
-        let playing = claim && self.mirror.state().status == wire::Status::Playing;
+        let playing = claim.is_some() && self.mirror.state().status == wire::Status::Playing;
         let now = now_ms();
         let position_ms = mirror::position_now(head.position_ms.unwrap_or(0), head.position_at_ms.unwrap_or(now), now, playing, duration);
         entries.insert(0, current);
         self.mirror.adopt(entries, &head, position_ms, now);
+        // A report from before this would overwrite the queue just taken over.
+        self.pending = None;
+        self.last_local = None;
         let from = from
             .or_else(|| head.updated_by.as_deref().and_then(|id| self.mirror.device(id)))
             .unwrap_or_else(|| Device { id: head.updated_by.clone().unwrap_or_default(), name: String::new() });
         Ok(Resume { from, current: track, future, position_ms, repeat: head.repeat })
     }
 
-    fn continue_here(&mut self) -> Result<Resume> {
+    fn continue_here(&mut self, deadline: Instant) -> Result<Resume> {
         self.refresh();
         let from = self.mirror.state().active.as_deref().filter(|a| *a != self.mirror.me()).and_then(|a| self.mirror.device(a));
-        self.resume(true, from)
+        self.resume(Some(deadline), from)
     }
 
-    fn send_to(&mut self, id: &str) -> Result<()> {
+    fn send_to(&mut self, id: &str, deadline: Instant) -> Result<()> {
         if self.last_local.as_ref().is_none_or(|l| l.current.is_none()) {
             return Err(CoreError::Other("nothing playing".into()));
         }
@@ -381,6 +398,7 @@ impl Worker {
         if !self.write_local(true) {
             return Err(CoreError::Other("could not write the queue".into()));
         }
+        past(deadline)?;
         // Paused before the target owns the state, so this write cannot land after its own.
         wire::set_status(false)?;
         self.mirror.status_written(false);

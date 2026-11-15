@@ -202,10 +202,13 @@ pub fn name(d: &Device) -> String {
 
 /// Loads playback taken over from another device and plays it.
 fn play(r: Resume) -> anyhow::Result<()> {
-    player::set_repeat_mode(repeat_mode(r.repeat));
     let source = (!r.from.name.is_empty()).then(|| PlaybackSource::List { title: r.from.name.clone(), route: String::new() });
     let tracks = std::iter::once(r.current).chain(r.future).collect();
-    player::play_at(source, tracks, Duration::from_millis(u64::try_from(r.position_ms).unwrap_or(0)))
+    // Repeat-one would make the load pick the old track again: set it after.
+    player::set_repeat_mode(RepeatMode::None);
+    let played = player::play_at(source, tracks, Duration::from_millis(u64::try_from(r.position_ms).unwrap_or(0)));
+    player::set_repeat_mode(repeat_mode(r.repeat));
+    played
 }
 
 // ---------------------------------------------------------------- actions
@@ -225,6 +228,10 @@ pub fn continue_here() {
             return;
         }
         CONTINUING.with(|c| c.set(false));
+        // Joined Listen Together meanwhile: the host drives playback now.
+        if crate::live::is_guest() {
+            return;
+        }
         let r = r.and_then(play);
         if let Err(e) = r {
             log::error!("handoff: continue here failed error={e:#}");
@@ -251,8 +258,8 @@ pub fn send_to(device_id: String) {
         }
         match r {
             Ok(()) => {
-                // Not what the user started while the send ran.
-                if player::current_track_id() == sent {
+                // Not what the user (or a joined Listen Together host) started while the send ran.
+                if player::current_track_id() == sent && !crate::live::is_guest() {
                     player::pause();
                 }
                 player::toasts().notify(&trf("Playing on %s", &[&target]));

@@ -57,7 +57,8 @@ final class HandoffHub {
         let want = session.signedIn && !signingOut && (foreground || player.isPlaying)
         // Coming to the foreground or signing in retries a failed start at once.
         if want != wanted { wanted = want; retryAt = nil }
-        guard want else { if handoff != nil || starting { stop() }; return }
+        // The last report (a pause, say) goes out before the detach.
+        guard want else { if handoff != nil || starting { report(); stop() }; return }
         if handoff != nil { report(); return }
         guard !starting, retryAt.map({ Date() >= $0 }) ?? true else { return }
         starting = true
@@ -125,14 +126,14 @@ final class HandoffHub {
     // MARK: actions
 
     func continueHere() {
-        guard let h = handoff, !continuing else { return }
+        guard let h = handoff, !continuing, !Live.shared.isGuest else { return }
         continuing = true
         let gen = generation
         Task {
             do {
                 let r = try await h.continueHere()
-                guard gen == generation else { return }
-                play(r)
+                // Joined Listen Together meanwhile: the host drives playback now.
+                if gen == generation, !Live.shared.isGuest { play(r) }
             } catch {
                 Chrome.shared.flash("Couldn't continue here")
             }
@@ -148,7 +149,7 @@ final class HandoffHub {
             do {
                 try await h.sendTo(deviceId: device.id)
                 // Not what the user started while the send ran.
-                if player.isPlaying, player.current?.id == sent { player.toggle() }
+                if player.current?.id == sent, !Live.shared.isGuest { player.pause() }
                 Chrome.shared.flash("Playing on \(Self.name(device))")
             } catch {
                 Chrome.shared.flash("Couldn't send to \(Self.name(device))")
@@ -177,7 +178,7 @@ final class HandoffHub {
             Chrome.shared.flash("Continued from \(Self.name(r.from))")
         case .movedTo(let d):
             guard !Live.shared.isGuest else { return }
-            if player.isPlaying { player.toggle() }
+            player.pause()
             Chrome.shared.flash("Playing on \(Self.name(d))")
         }
     }

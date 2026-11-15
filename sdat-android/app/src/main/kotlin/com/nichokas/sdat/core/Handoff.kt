@@ -103,13 +103,14 @@ object Handoff {
 
     fun continueHere() {
         val h = link ?: return
-        if (continuing) return
+        if (continuing || Live.isGuest) return
         continuing = true
         val gen = generation
         scope.launch {
             try {
                 val r = h.continueHere()
-                if (gen == generation) play(r)
+                // Joined Listen Together meanwhile: the host drives playback now.
+                if (gen == generation && !Live.isGuest) play(r)
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
@@ -130,7 +131,7 @@ object Handoff {
                 h.sendTo(device.id)
                 // Sent: the other device plays now, even if this one stopped following meanwhile,
                 // but not what the user started while the send ran.
-                if (player.track?.id == sent) player.pause()
+                if (player.track?.id == sent && !Live.isGuest) player.pause()
                 Chrome.flash("Playing on ${device.label}")
             } catch (e: CancellationException) {
                 throw e

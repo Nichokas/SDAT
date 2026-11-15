@@ -954,7 +954,8 @@ pub struct StartGate {
 impl StartGate {
     pub fn step(&mut self, ps: &PlaybackState, on_track: bool) -> StartAt {
         if ps.loading {
-            self.loading_seen = true;
+            // A load still running for another track ends first; only the started one counts.
+            self.loading_seen |= on_track;
             return StartAt::Wait;
         }
         // Until the load starts, the state is still the previous track's.
@@ -1032,6 +1033,15 @@ mod start_tests {
         // The previous track's state, before the new load starts.
         assert_eq!(g.step(&ps(PlaybackStatus::Paused, false), true), StartAt::Wait);
         assert_eq!(g.step(&ps(PlaybackStatus::Stopped, false), false), StartAt::Wait);
+        assert_eq!(g.step(&ps(PlaybackStatus::Stopped, true), true), StartAt::Wait);
+        assert_eq!(g.step(&ps(PlaybackStatus::Paused, false), true), StartAt::Seek);
+    }
+
+    #[test]
+    fn an_earlier_load_of_another_track_is_not_the_start() {
+        let mut g = StartGate::default();
+        assert_eq!(g.step(&ps(PlaybackStatus::Stopped, true), false), StartAt::Wait);
+        assert_eq!(g.step(&ps(PlaybackStatus::Stopped, false), true), StartAt::Wait);
         assert_eq!(g.step(&ps(PlaybackStatus::Stopped, true), true), StartAt::Wait);
         assert_eq!(g.step(&ps(PlaybackStatus::Paused, false), true), StartAt::Seek);
     }

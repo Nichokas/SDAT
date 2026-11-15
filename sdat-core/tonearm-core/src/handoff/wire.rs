@@ -242,10 +242,16 @@ fn future(queue: &str, cap: usize, with_tracks: bool) -> Result<(Vec<Entry>, Vec
     let (mut entries, mut out) = (Vec::new(), Vec::new());
     loop {
         let v = call(Method::GET, &path, None)?;
-        let data = v.get("data").cloned().unwrap_or(Value::Null);
-        entries.extend(data.as_array().into_iter().flatten().filter_map(entry));
-        if with_tracks {
-            out.extend(tracks(&v, &data));
+        for rel in v.get("data").and_then(Value::as_array).into_iter().flatten() {
+            let Some(e) = entry(rel) else { continue };
+            if with_tracks {
+                // Entries and tracks stay aligned: a track whose metadata is
+                // missing is looked up, and left out of both if that fails too.
+                let found = tracks(&v, &Value::Array(vec![rel.clone()])).into_iter().next().or_else(|| crate::service::get_track(&e.track_id).ok());
+                let Some(t) = found else { continue };
+                out.push(t);
+            }
+            entries.push(e);
         }
         match str_at(&v, "/links/next") {
             Some(next) if entries.len() < cap => path = format!("/v2{next}"),

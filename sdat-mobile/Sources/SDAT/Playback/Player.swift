@@ -265,6 +265,12 @@ final class Player {
         updateNowPlaying()
     }
 
+    /// Pauses, also a start still loading: it then ends paused.
+    func pause() {
+        if loading { holdAutoplay = true }
+        if isPlaying { toggle() }
+    }
+
     func next() { advance(auto: false) }
 
     func previous() {
@@ -645,6 +651,7 @@ final class Player {
 
     private func start(_ track: Track, resumeAt: Double = 0, autoplay: Bool = true) {
         needsStart = false
+        holdAutoplay = false
         adopt(track, stream: nil)
         loading = true
         position = resumeAt
@@ -683,7 +690,7 @@ final class Player {
                                         toleranceBefore: tol, toleranceAfter: tol)
                 }
                 try? AVAudioSession.sharedInstance().setActive(true)
-                if autoplay {
+                if autoplay, !holdAutoplay {
                     avPlayer.play()
                     isPlaying = true
                 } else {
@@ -839,6 +846,8 @@ final class Player {
 
     /// Restored state not loaded into AVPlayer yet (first play fetches the stream).
     @ObservationIgnored private var needsStart = false
+    /// `pause()` came while a start was loading.
+    @ObservationIgnored private var holdAutoplay = false
     @ObservationIgnored private var restoredInfinite = false
     @ObservationIgnored private var lastSave = Date.distantPast
     @ObservationIgnored private var restoring = true
