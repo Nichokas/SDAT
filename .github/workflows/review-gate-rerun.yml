@@ -28,4 +28,7 @@ jobs:
       - env:
           GH_TOKEN: ${{ github.token }}
           TITLE: ${{ github.event.workflow_run.display_title }}
-        run: python3 scripts/review_bot.py rerun-builds --pr "${TITLE##*#}"
+        # A PR branch from before the run name existed titles the run after the PR instead.
+        run: |
+          [[ $TITLE =~ ^Review\ bot\ \#([0-9]+)$ ]] || { echo "No PR number in '$TITLE'"; exit 0; }
+          python3 scripts/review_bot.py rerun-builds --pr "${BASH_REMATCH[1]}"
