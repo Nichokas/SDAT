@@ -231,6 +231,7 @@ impl Handoff {
             dirty: Some(Instant::now()),
             awaiting: None,
             held: None,
+            before_takeover: None,
             arrival: None,
             sent: None,
             quarantined: None,
@@ -342,6 +343,8 @@ struct Worker {
     awaiting: Option<(LocalPlayback, Instant)>,
     /// The last report held back by `awaiting`, written once it ends.
     held: Option<(LocalPlayback, Instant)>,
+    /// The track that played here when a takeover began.
+    before_takeover: Option<String>,
     /// A failed pull or send to undo once the account can be read: the player it took over from.
     rollback: Option<String>,
     /// With `rollback` after a send: that player's queue, selected again first.
@@ -406,7 +409,9 @@ impl Worker {
             let now = Instant::now();
             if self.awaiting.as_ref().is_some_and(|a| a.1 <= now) {
                 self.awaiting = None;
-                if let Some((l, at)) = self.held.take() {
+                let before = self.before_takeover.take();
+                // Only a track started here since then counts: the old playback is dropped.
+                if let Some((l, at)) = self.held.take().filter(|(l, _)| l.current.is_some() && l.current != before) {
                     self.reported(l, at);
                 }
             }
@@ -469,6 +474,7 @@ impl Worker {
             }
             self.awaiting = None;
             self.held = None;
+            self.before_takeover = None;
         }
         // A pause and a play within one throttle window must both be seen:
         // starting to play is what claims the active player.
@@ -700,7 +706,8 @@ impl Worker {
         self.mirror.adopt(entries, &head, position_ms, now);
         // A report from before this would overwrite the queue just taken over.
         self.pending = None;
-        self.last_local = None;
+        // What played here before: if it still is when the wait ends, it is old playback, not a choice.
+        self.before_takeover = self.last_local.take().and_then(|l| l.current);
         self.held = None;
         self.awaiting = Some((resumed, Instant::now() + TAKEOVER));
         let from = from
