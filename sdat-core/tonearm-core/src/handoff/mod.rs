@@ -487,31 +487,40 @@ impl Worker {
     /// Reads the queue for playing it here, from the device that wrote it.
     /// `claim` makes this device active once the queue proved readable.
     fn resume(&mut self, claim: Option<Instant>, from: Option<Device>) -> Result<Resume> {
-        let queue = self.mirror.queue_id().ok_or_else(|| CoreError::Other("nothing to continue".into()))?.to_string();
-        // The source may move on between the reads: read again until they agree.
-        let mut read = None;
-        for _ in 0..3 {
-            let head = wire::head_with_track(&queue)?;
-            let (entries, future) = wire::future_tracks(&queue, MAX_FUTURE)?;
-            if wire::head(&queue)?.revision == head.revision {
-                read = Some((head, entries, future));
-                break;
+        let mut queue = self.mirror.queue_id().ok_or_else(|| CoreError::Other("nothing to continue".into()))?.to_string();
+        let before = self.mirror.state().active.clone().filter(|a| a != self.mirror.me());
+        let mut claimed = false;
+        // Read the selected queue until a snapshot agrees with itself and is
+        // still the selection, before the claim and once more after it (the
+        // source may switch queues in between).
+        let mut rounds = 0;
+        let (head, mut entries, future, current, track) = loop {
+            rounds += 1;
+            let read = Self::snapshot(&queue).and_then(|r| Ok((r, wire::state()?.queue_id)));
+            let ((head, entries, future), selected) = match read {
+                Ok(r) => r,
+                Err(e) => return Err(self.undo_claim(claimed, before.as_deref(), e)),
+            };
+            if selected.as_deref() != Some(queue.as_str()) {
+                let Some(next) = selected.filter(|_| rounds < 4) else {
+                    return Err(self.undo_claim(claimed, before.as_deref(), CoreError::Network("the queue changed while it was read".into())));
+                };
+                self.mirror.queue_created(next.clone());
+                queue = next;
+                continue;
             }
-        }
-        let (head, mut entries, future) = read.ok_or_else(|| CoreError::Network("the queue kept changing while it was read".into()))?;
-        let (Some(current), Some(track)) = (head.current.clone(), head.track.clone()) else {
-            return Err(CoreError::Other("nothing to continue".into()));
+            let (Some(current), Some(track)) = (head.current.clone(), head.track.clone()) else {
+                return Err(self.undo_claim(claimed, before.as_deref(), CoreError::Other("nothing to continue".into())));
+            };
+            match claim {
+                Some(deadline) if !claimed => {
+                    past(deadline)?;
+                    self.claim()?;
+                    claimed = true;
+                }
+                _ => break (head, entries, future, current, track),
+            }
         };
-        // Another device may have selected another queue meanwhile. Checked
-        // before the claim, which is the last step that can fail: a failed
-        // pull never takes playback away from the other device.
-        if wire::state()?.queue_id.as_deref() != Some(queue.as_str()) {
-            return Err(CoreError::Network("the queue changed while it was read".into()));
-        }
-        if let Some(deadline) = claim {
-            past(deadline)?;
-            self.claim()?;
-        }
         let duration = i64::try_from(track.duration().as_millis()).unwrap_or(i64::MAX);
         // A pull takes over a player that may still be playing; a push wrote its exact position.
         let playing = claim.is_some() && self.mirror.state().status == wire::Status::Playing;
@@ -534,6 +543,29 @@ impl Worker {
             .or_else(|| head.updated_by.as_deref().and_then(|id| self.mirror.device(id)))
             .unwrap_or_else(|| Device { id: head.updated_by.clone().unwrap_or_default(), name: String::new() });
         Ok(Resume { from, current: track, future, position_ms, repeat: head.repeat })
+    }
+
+    /// Head, entries and tracks of `queue` from reads that agree on its revision.
+    fn snapshot(queue: &str) -> Result<(wire::Head, Vec<wire::Entry>, Vec<Track>)> {
+        for _ in 0..3 {
+            let head = wire::head_with_track(queue)?;
+            let (entries, future) = wire::future_tracks(queue, MAX_FUTURE)?;
+            if wire::head(queue)?.revision == head.revision {
+                return Ok((head, entries, future));
+            }
+        }
+        Err(CoreError::Network("the queue kept changing while it was read".into()))
+    }
+
+    /// A pull that claimed and then failed hands playback back to where it was.
+    fn undo_claim(&mut self, claimed: bool, before: Option<&str>, e: CoreError) -> CoreError {
+        if claimed && let Some(b) = before {
+            match wire::set_active(b) {
+                Ok(active) => self.mirror.claimed(active),
+                Err(e) => log::warn!("handoff: could not hand playback back error={e}"),
+            }
+        }
+        e
     }
 
     fn continue_here(&mut self, deadline: Instant) -> Result<Resume> {
