@@ -282,6 +282,7 @@ class GateTests(unittest.TestCase):
         pulls = [{"number": 7, "head": {"sha": "abc"}}, {"number": 8, "head": {"sha": "def"}}]
         comments = {7: self.comment("abc", "pass"), 8: self.comment("def", "block")}
         jobs = {1: [{"name": f"{review_bot.GATE_JOB} / wait", "conclusion": "failure"}],
+                3: [{"name": f"{review_bot.GATE_JOB} / wait", "conclusion": "timed_out"}],
                 2: [{"name": f"{review_bot.GATE_JOB} / wait", "conclusion": "success"}, {"name": "build", "conclusion": "failure"}]}
 
         def fake(*args, body=None):
@@ -292,7 +293,12 @@ class GateTests(unittest.TestCase):
             if "/comments" in path:
                 return json.dumps([[comments[int(path.split("/")[-2])]]])
             if "/runs?" in path:
-                return json.dumps({"workflow_runs": [{"id": 1, "name": "Android"}, {"id": 2, "name": "iOS"}]})
+                return json.dumps({"workflow_runs": [
+                    {"id": 1, "name": "Android", "conclusion": "failure"},
+                    {"id": 2, "name": "iOS", "conclusion": "failure"},
+                    {"id": 3, "name": "Rust", "conclusion": "timed_out"},
+                    {"id": 4, "name": "Docs", "conclusion": "success"},
+                ]})
             if path.endswith("?filter=latest"):
                 return json.dumps({"jobs": jobs[int(path.split("/")[-2])]})
             return ""
@@ -300,7 +306,9 @@ class GateTests(unittest.TestCase):
         with mock.patch.object(review_bot, "gh_api", fake):
             review_bot.rerun_builds()
         reruns = [c for c in calls if "POST" in c]
-        self.assertEqual(reruns, [("-X", "POST", f"repos/{review_bot.REPO}/actions/runs/1/rerun-failed-jobs")])
+        self.assertEqual(reruns, [
+            ("-X", "POST", f"repos/{review_bot.REPO}/actions/runs/{run}/rerun-failed-jobs") for run in (1, 3)
+        ])
         self.assertFalse(any("head_sha=def" in c[-1] for c in calls))
 
 

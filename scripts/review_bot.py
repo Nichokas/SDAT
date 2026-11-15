@@ -36,6 +36,8 @@ MARKER = "<!-- review-bot -->"
 VERDICT = re.compile(r"<!-- review-bot-verdict:([0-9a-f]+):(pass|block) -->")
 GATE_JOB = "Review gate"
 GATE_POLL_SECONDS = 30
+# A gate that waited longer than its timeout fails as timed_out, and a passing review should restart it too.
+GATE_FAILURES = {"failure", "timed_out"}
 BOT_LOGIN = "github-actions[bot]"
 # GitHub rejects comments over 65536 characters; the margin holds the table and footer.
 MAX_FINDINGS_CHARS = 60000
@@ -435,13 +437,14 @@ def rerun_builds() -> None:
         if verdict(pr["number"], sha) != "pass":
             continue
         runs = json.loads(
-            gh_api(f"repos/{REPO}/actions/runs?head_sha={sha}&event=pull_request&status=failure&per_page=100")
+            gh_api(f"repos/{REPO}/actions/runs?head_sha={sha}&event=pull_request&per_page=100")
         )["workflow_runs"]
-        for run in runs:
+        for run in (run for run in runs if run["conclusion"] in GATE_FAILURES):
             jobs = json.loads(gh_api(f"repos/{REPO}/actions/runs/{run['id']}/jobs?filter=latest"))["jobs"]
             # The gate is a called workflow, so its job is listed as "Review gate / wait".
             gate_failed = any(
-                job["name"].split(" / ")[0] == GATE_JOB and job["conclusion"] == "failure" for job in jobs
+                job["name"].split(" / ")[0] == GATE_JOB and job["conclusion"] in GATE_FAILURES
+                for job in jobs
             )
             if gate_failed:
                 print(f"#{pr['number']}: rerunning {run['name']}")
