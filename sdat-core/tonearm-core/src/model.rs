@@ -553,7 +553,72 @@ pub fn artist_page_from_v2(p: &legacy::ArtistPage) -> Artist {
         legacy::ItemData::Artist(a) => artist_from_v2(a),
         _ => ArtistInfo::default(),
     };
-    Artist { info, description: p.header.biography.text.clone(), follower_count: p.header.followers_amount }
+    Artist { info, description: plain_bio(&p.header.biography.text), follower_count: p.header.followers_amount }
+}
+
+/// TIDAL biographies carry `[wimpLink ...]text[/wimpLink]` and `<br/>`; returns plain text.
+fn plain_bio(s: &str) -> String {
+    let mut out = String::with_capacity(s.len());
+    let mut rest = s;
+    while let Some(i) = rest.find(['[', '<']) {
+        out.push_str(&rest[..i]);
+        let close = if rest[i..].starts_with('[') { ']' } else { '>' };
+        let tag = tag_end(&rest[i..], close).map(|j| (j, rest[i + 1..i + j].to_ascii_lowercase()));
+        if let Some((j, t)) = tag.filter(|(_, t)| is_markup(close, t)) {
+            if t.starts_with("br") || t.starts_with("/p") {
+                out.push('\n');
+            }
+            rest = &rest[i + j + 1..];
+        } else {
+            out.push_str(&rest[i..=i]);
+            rest = &rest[i + 1..];
+        }
+    }
+    out.push_str(rest);
+    decode_entities(&out).trim().to_string()
+}
+
+/// Byte offset of `close`, skipping quoted attribute values such as `title="A > B"`.
+fn tag_end(s: &str, close: char) -> Option<usize> {
+    let mut quote = None;
+    for (i, c) in s.char_indices() {
+        match (quote, c) {
+            (Some(q), _) if c == q => quote = None,
+            (None, '"' | '\'') => quote = Some(c),
+            (None, _) if c == close => return Some(i),
+            _ => {}
+        }
+    }
+    None
+}
+
+/// `[...]` is markup only as `wimpLink`; `<...>` is markup when it reads as an HTML tag, so prose like `<3` survives.
+fn is_markup(close: char, t: &str) -> bool {
+    let name = t.strip_prefix('/').unwrap_or(t);
+    let name = &name[..name.find(|c: char| c == '/' || c.is_ascii_whitespace()).unwrap_or(name.len())];
+    match close {
+        ']' => name == "wimplink",
+        _ => name.starts_with(|c: char| c.is_ascii_alphabetic()) && name.chars().all(|c| c.is_ascii_alphanumeric()),
+    }
+}
+
+fn decode_entities(s: &str) -> String {
+    const ENTITIES: [(&str, char); 5] = [("&amp;", '&'), ("&quot;", '"'), ("&#39;", '\''), ("&lt;", '<'), ("&gt;", '>')];
+    let mut out = String::with_capacity(s.len());
+    let mut rest = s;
+    while let Some(i) = rest.find('&') {
+        out.push_str(&rest[..i]);
+        rest = &rest[i..];
+        if let Some((e, c)) = ENTITIES.iter().find(|(e, _)| rest.starts_with(e)) {
+            out.push(*c);
+            rest = &rest[e.len()..];
+        } else {
+            out.push('&');
+            rest = &rest[1..];
+        }
+    }
+    out.push_str(rest);
+    out
 }
 
 #[cfg(test)]
@@ -574,6 +639,28 @@ mod tests {
         assert_eq!(queue_start(&l, "b", 3), 1);
         assert_eq!(queue_start(&l, "zz", 1), 0);
         assert_eq!(queue_start(&[], "a", 0), 0);
+    }
+    #[test]
+    fn bio_markup_becomes_plain_text() {
+        let b = "Daft Punk is [wimpLink artistId=\"1\"]an organism[/wimpLink].<br/><br/>Masked &amp; robotic.";
+        assert_eq!(plain_bio(b), "Daft Punk is an organism.\n\nMasked & robotic.");
+    }
+    #[test]
+    fn bio_keeps_text_that_is_not_markup() {
+        assert_eq!(plain_bio("Known as [the Boss], Rock <3 Pop > Jazz."), "Known as [the Boss], Rock <3 Pop > Jazz.");
+        assert_eq!(plain_bio("<p>Shows &amp;lt; literally</p>A<br\n/>B"), "Shows &lt; literally\nA\nB");
+        assert_eq!(plain_bio("A<BR/>B</P>C"), "A\nB\nC");
+        assert_eq!(plain_bio("Led by <em>Stipe</em>, <a href=\"x\">more</a>"), "Led by Stipe, more");
+        assert_eq!(plain_bio("<a title=\"A > B\">Artist</a>'s band"), "Artist's band");
+    }
+
+    #[test]
+    fn artist_page_bio_is_plain_text() {
+        let page: legacy::ArtistPage = serde_json::from_str(
+            r#"{"header":{"biography":{"text":"[wimpLink artistId=\"50073624\"]R.E.M.[/wimpLink] marked a turn.<br/>Garage &amp; rock."}}}"#,
+        )
+        .expect("artist page json");
+        assert_eq!(artist_page_from_v2(&page).description, "R.E.M. marked a turn.\nGarage & rock.");
     }
     #[test]
     fn durations() {

@@ -179,28 +179,6 @@ pub fn get_explore_page(path: &str) -> Result<ExplorePage> {
     Ok(explore_page(&api::page_v1(path)?))
 }
 
-/// TIDAL biographies carry `[wimpLink ...]text[/wimpLink]` and `<br/>`; returns plain text.
-pub fn plain_bio(s: &str) -> String {
-    let mut out = String::with_capacity(s.len());
-    let mut rest = s;
-    while let Some(i) = rest.find(['[', '<']) {
-        out.push_str(&rest[..i]);
-        let close = if rest[i..].starts_with('[') { ']' } else { '>' };
-        if let Some(j) = rest[i..].find(close) {
-            let tag = &rest[i + 1..i + j].to_ascii_lowercase();
-            if tag.starts_with("br") || tag.starts_with("/p") {
-                out.push('\n');
-            }
-            rest = &rest[i + j + 1..];
-        } else {
-            out.push_str(&rest[i..]);
-            rest = "";
-        }
-    }
-    out.push_str(rest);
-    out.replace("&amp;", "&").replace("&quot;", "\"").replace("&#39;", "'").replace("&lt;", "<").replace("&gt;", ">").trim().to_string()
-}
-
 /// Top tracks and albums found in the legacy artist page modules (deduped, page order).
 pub fn artist_overview(p: &legacy::ArtistPage) -> (Vec<Track>, Vec<Album>) {
     let mut tracks = Vec::new();
@@ -238,12 +216,6 @@ pub fn get_artist_overview(id: &str) -> Result<(model::Artist, Vec<Track>, Vec<A
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn bio_markup_becomes_plain_text() {
-        let b = "Daft Punk is [wimpLink artistId=\"1\"]an organism[/wimpLink].<br/><br/>Masked &amp; robotic.";
-        assert_eq!(plain_bio(b), "Daft Punk is an organism.\n\nMasked & robotic.");
-    }
 
     #[test]
     fn explore_links_and_recents_parse() {
