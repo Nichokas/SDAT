@@ -173,7 +173,7 @@ final class PlaneScrollView: UIScrollView, UIScrollViewDelegate, UIContextMenuIn
         let onScreen = convert(p, to: window)
         let h = window?.bounds.height ?? bounds.height
         guard onScreen.y > (window?.safeAreaInsets.top ?? 0) + 64,
-              onScreen.y < h - (window?.safeAreaInsets.bottom ?? 0) - 90,
+              onScreen.y < h - (window?.safeAreaInsets.bottom ?? 0) - bottomChromeHeight,
               let c = cell(at: p), let t = track(c) else { return nil }
         menuCell = c
         return UIContextMenuConfiguration(identifier: nil, previewProvider: nil) { _ in Self.menu(for: t) }
@@ -351,11 +351,11 @@ final class PlaneScrollView: UIScrollView, UIScrollViewDelegate, UIContextMenuIn
 
     @objc private func tapped(_ g: UITapGestureRecognizer) {
         let p = g.location(in: self)
-        // Ignore taps under the header (title + glass buttons) and the tab bar.
+        // Ignore taps under the header (title + glass buttons), the tab bar and the Handoff banner.
         let onScreen = g.location(in: window)
         let h = window?.bounds.height ?? bounds.height
         let top = (window?.safeAreaInsets.top ?? 0) + 64
-        let bottom = (window?.safeAreaInsets.bottom ?? 0) + 90
+        let bottom = (window?.safeAreaInsets.bottom ?? 0) + bottomChromeHeight
         guard onScreen.y > top, onScreen.y < h - bottom else { return }
         guard let (cell, _) = visible.first(where: { $0.value.frame.contains(p) }), let t = track(cell) else { return }
         UIImpactFeedbackGenerator(style: .light).impactOccurred()

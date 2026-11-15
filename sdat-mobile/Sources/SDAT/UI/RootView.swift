@@ -409,10 +409,17 @@ private struct ChromeState: Equatable { var detail, mini: Bool }
 /// Bottom inset under the bar, plus the Handoff banner while it shows.
 private struct BottomSpace: View {
     var body: some View {
-        let banner = HandoffHub.shared.showsBanner && !Chrome.shared.inSettings
-        Color.clear.frame(height: 78 + (banner ? HandoffBanner.height + BottomChrome.bannerGap : 0))
+        Color.clear.frame(height: 78 + BottomSpace.banner)
+    }
+
+    /// Height the Handoff banner adds above the bar, 0 while hidden.
+    @MainActor static var banner: CGFloat {
+        HandoffHub.shared.showsBanner && !Chrome.shared.inSettings ? HandoffBanner.height + BottomChrome.bannerGap : 0
     }
 }
+
+/// Height of the bottom chrome above the safe area: the bar plus the Handoff banner while it shows.
+@MainActor var bottomChromeHeight: CGFloat { 90 + BottomSpace.banner }
 
 /// Bottom-bar motion: native ease-in/ease-out springs, a little slower through the middle.
 enum Motion {
