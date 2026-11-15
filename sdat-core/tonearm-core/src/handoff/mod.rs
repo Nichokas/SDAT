@@ -808,6 +808,8 @@ impl Worker {
         }
         // Only before the first write: once started, the send runs to an answer.
         past(deadline)?;
+        // Who owns playback and which queue is selected, as of now, not as last seen.
+        self.refresh()?;
         // Playback just taken over is not loaded here yet: what reports would send is the old one.
         if self.awaiting.is_some() {
             return Err(CoreError::Other("still taking over playback".into()));
