@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Run cubic, CodeRabbit and Macroscope on a pull request and publish their findings.
+"""Run cubic and Macroscope on a pull request and publish their findings.
 
   review_bot.py run <reviewer> --base main --out result.json
   review_bot.py publish --pr 12 --sha abc --base main --results dir --run-url url
@@ -113,32 +113,6 @@ def parse_cubic(reviewer: str, output: Output) -> Result:
     )
 
 
-def parse_coderabbit(reviewer: str, output: Output) -> Result:
-    findings = []
-    completed = False
-    for line in [*output.stdout.splitlines(), *output.stderr.splitlines()]:
-        event = json_object(line) or {}
-        if event.get("type") == "error" and event.get("errorType") == "rate_limit":
-            wait = (event.get("metadata") or {}).get("waitTime")
-            note = f"Out of included reviews; the next one is in {wait}." if wait else "Out of included reviews."
-            return Result(reviewer, Status.SKIPPED, note=note)
-        if event.get("type") == "finding":
-            title = event.get("title", "")
-            findings.append(
-                Finding(
-                    severity=severity(event.get("severity")),
-                    file=event.get("fileName", ""),
-                    line=event.get("startLine"),
-                    title=title,
-                    body=event.get("comment", "").removeprefix(f"**{title}**").strip(),
-                )
-            )
-        elif event.get("type") == "complete":
-            completed = event.get("status") in ("review_completed", "review_skipped")
-    status = Status.COMPLETED if completed and output.exit_code == 0 else Status.FAILED
-    return Result(reviewer, status, findings=findings)
-
-
 def parse_macroscope(reviewer: str, output: Output) -> Result:
     findings = []
     status = ""
@@ -167,13 +141,6 @@ def parse_macroscope(reviewer: str, output: Output) -> Result:
         Status.COMPLETED if status == "completed" and output.exit_code == 0 else Status.FAILED,
         findings=findings,
         note=note,
-    )
-
-
-def login_coderabbit() -> None:
-    subprocess.run(
-        ["coderabbit", "auth", "login", "--api-key", os.environ["CODERABBIT_API_KEY"]],
-        check=True,
     )
 
 
@@ -207,17 +174,6 @@ REVIEWERS = {
         install='curl -fsSL https://cubic.dev/install | CUBIC_INSTALL_DIR="$HOME/.local/bin" bash',
         command=lambda base: ["cubic", "review", "--base", base, "--json"],
         parse=parse_cubic,
-    ),
-    "coderabbit": Reviewer(
-        label="CodeRabbit",
-        secret="CODERABBIT_API_KEY",
-        secret_help="https://app.coderabbit.ai/settings/api-keys (Agentic API key)",
-        install="curl -fsSL https://cli.coderabbit.ai/install.sh | sh",
-        command=lambda base: [
-            "coderabbit", "review", "--agent", "--committed", "--base", base, "--deep",
-        ],
-        parse=parse_coderabbit,
-        authenticate=login_coderabbit,
     ),
     "macroscope": Reviewer(
         label="Macroscope",

@@ -29,7 +29,7 @@ Notes for coding agents working on SDAT, a TIDAL player for Fedora (GTK), iPhone
 - `feather-source.yml` – after an iOS release, commits the `feather/source.json` update straight to main.
 - `desktop-fedora.yml` / `desktop-copr.yml` – vendor archive for `desktop-v*` releases and the COPR rebuild.
 - `release.yml` – manual release: pick a bump (`patch`, `minor`, `major` or `none`) per platform; it bumps from that platform's newest tag via `scripts/release-bump.sh`, commits to main, creates the releases with GitHub-generated notes, then calls the desktop (vendor archive, COPR), iOS build, Feather and Android release workflows.
-- `review-bot.yml` – runs the three reviewers on a PR and keeps one comment with the findings, and approves the PR when they are clean; `review-bot-test.yml` tests its script.
+- `review-bot.yml` – runs the reviewers on a PR and keeps one comment with the findings, and approves the PR when they are clean; `review-bot-test.yml` tests its script.
 - CI must use caches (`Swatinem/rust-cache`, `actions/cache`); PRs restore main's cache without saving their own.
 
 ## Releases
@@ -62,9 +62,9 @@ Notes for coding agents working on SDAT, a TIDAL player for Fedora (GTK), iPhone
 
 ## Pull requests
 
-- The review bot runs on non-draft PRs and on every push to them; each run spends reviewer quota, so push finished batches. Comment `/review` to rerun it without a push. Fix the findings. It approves when every reviewer that ran is clean, and withdraws that approval on a later run that is not; a rate-limited CodeRabbit is skipped and does not block it.
-- For a fork PR, or to review before pushing, run the CLIs: Macroscope (`--mode precise`), CodeRabbit (`coderabbit review --agent --committed --base main --deep`) and cubic (`cubic review --base main`).
-- Bot accounts are repository secrets of this repo only. Change one with `python3 scripts/review_bot.py set-account <cubic|coderabbit|macroscope>`.
+- The review bot runs on non-draft PRs and on every push to them; each run spends reviewer quota, so push finished batches. Comment `/review` to rerun it without a push. Fix the findings. It approves when every reviewer that ran is clean, and withdraws that approval on a later run that is not.
+- For a fork PR, or to review before pushing, run the CLIs: Macroscope (`--mode precise`) and cubic (`cubic review --base main`).
+- Bot accounts are repository secrets of this repo only. Change one with `python3 scripts/review_bot.py set-account <cubic|macroscope>`.
 - Squash-merge when reviewers are clean, CI is green and review threads are resolved.
 - Agents watch every PR they open or push to until it merges or is closed: fix CI and the findings, answer the rest on their threads, and squash-merge as soon as the conditions above hold, without asking: the owner gave that standing OK.
 - The CodeRabbit GitHub app is removed: never post `@coderabbitai review`.
