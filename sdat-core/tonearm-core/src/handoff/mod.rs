@@ -179,6 +179,7 @@ impl Handoff {
             tx: tx.clone(),
             streams: Vec::new(),
             last_local: None,
+            last_local_at: Instant::now(),
             pending: None,
             backoff: RETRY,
             dirty: Some(Instant::now()),
@@ -266,6 +267,8 @@ struct Worker {
     tx: Sender<Cmd>,
     streams: Vec<Follower>,
     last_local: Option<LocalPlayback>,
+    /// When `last_local` was reported.
+    last_local_at: Instant,
     /// When the last report is due to be written.
     pending: Option<Instant>,
     /// Wait before writing again after a failed write.
@@ -308,6 +311,7 @@ impl Worker {
                     if let Some(l) = self.held.take() {
                         self.awaiting = None;
                         self.last_local = Some(l);
+                        self.last_local_at = Instant::now();
                     }
                     self.pending = None;
                     let _ = reply.send(self.send_to(&id, deadline));
@@ -396,6 +400,7 @@ impl Worker {
             self.write_local(false);
         }
         self.last_local = Some(l);
+        self.last_local_at = Instant::now();
         self.pending.get_or_insert_with(|| Instant::now() + THROTTLE);
     }
 
@@ -552,6 +557,12 @@ impl Worker {
                 _ => break (head, entries, future, current, track),
             }
         };
+        // The caller gave up during the reads after the claim: give it back.
+        if let Some(deadline) = claim
+            && Instant::now() > deadline
+        {
+            return Err(self.undo_claim(claimed, before.as_deref(), CoreError::Network("handoff: timed out".into())));
+        }
         let duration = i64::try_from(track.duration().as_millis()).unwrap_or(i64::MAX);
         // A pull takes over a player that may still be playing; a push wrote its exact position.
         let playing = claim.is_some() && status == wire::Status::Playing;
@@ -666,6 +677,11 @@ impl Worker {
         }
         if exact {
             self.mirror.force_position();
+        }
+        // Written later than reported (throttle, retries): where it plays now.
+        let mut local = local;
+        if local.playing {
+            local.position_ms += i64::try_from(self.last_local_at.elapsed().as_millis()).unwrap_or(0);
         }
         let writes = self.mirror.plan(&local, now_ms());
         match self.apply(writes, &local) {
@@ -802,7 +818,9 @@ mod tests {
         b.send_to(&a_id).expect("send to a");
         wait(&la, "arrived");
         let got = la.0.lock().unwrap_or_else(PoisonError::into_inner).iter().find(|l| l.starts_with("arrived")).cloned().unwrap_or_default();
-        assert!(got.ends_with("+3 at 12345"), "{got}");
+        // Reported playing at 12 345 ms about 2 s before the send: written where it plays then.
+        let at: i64 = got.rsplit(' ').next().and_then(|n| n.parse().ok()).unwrap_or(0);
+        assert!(got.contains("+3 at ") && (12_345..16_000).contains(&at), "{got}");
         a.stop();
         b.stop();
         assert!(wait_detached(Duration::from_secs(10)), "not detached");
