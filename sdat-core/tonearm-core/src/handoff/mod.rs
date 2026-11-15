@@ -339,7 +339,7 @@ struct Worker {
     /// playback, and would overwrite the queue.
     awaiting: Option<(LocalPlayback, Instant)>,
     /// The last report held back by `awaiting`, written once it ends.
-    held: Option<LocalPlayback>,
+    held: Option<(LocalPlayback, Instant)>,
     /// A failed pull or send to undo once the account can be read: the player it took over from.
     rollback: Option<String>,
     /// With `rollback` after a send: that player's queue, selected again first.
@@ -368,7 +368,7 @@ impl Worker {
                 .min()
                 .unwrap_or(next_poll);
             match rx.recv_timeout(wake.saturating_duration_since(Instant::now())) {
-                Ok(Cmd::Report(l)) => self.reported(l),
+                Ok(Cmd::Report(l)) => self.reported(l, Instant::now()),
                 Ok(Cmd::Changed) => {
                     self.dirty.get_or_insert_with(|| Instant::now() + SETTLE);
                 }
@@ -402,8 +402,8 @@ impl Worker {
             let now = Instant::now();
             if self.awaiting.as_ref().is_some_and(|a| a.1 <= now) {
                 self.awaiting = None;
-                if let Some(l) = self.held.take() {
-                    self.reported(l);
+                if let Some((l, at)) = self.held.take() {
+                    self.reported(l, at);
                 }
             }
             if self.pending.is_some_and(|p| p <= now) {
@@ -437,9 +437,14 @@ impl Worker {
         }
     }
 
-    fn reported(&mut self, l: LocalPlayback) {
-        // A newer report replaces one held back after an unknown send outcome.
-        self.quarantined = None;
+    /// `at`: when `l` was reported, which a playing position counts from.
+    fn reported(&mut self, l: LocalPlayback, at: Instant) {
+        // While an unknown send outcome is unresolved, a newer report replaces the
+        // held-back one and waits with it: nothing claims before ownership is read.
+        if self.quarantined.is_some() {
+            self.quarantined = Some((l, at));
+            return;
+        }
         // After a send: another track playing here is a new start, which claims back.
         if let Some(sent) = &self.sent {
             if !l.playing {
@@ -452,9 +457,10 @@ impl Worker {
         if let Some((resumed, since)) = &self.awaiting {
             // The resumed playback, at about the resumed position (playing on from it).
             let elapsed = i64::try_from(TAKEOVER.saturating_sub(since.saturating_duration_since(Instant::now())).as_millis()).unwrap_or(0);
-            let near = l.position_ms >= resumed.position_ms - ACK_MS && l.position_ms <= resumed.position_ms + elapsed + ACK_MS;
+            let near = l.position_ms >= resumed.position_ms.saturating_sub(ACK_MS)
+                && l.position_ms <= resumed.position_ms.saturating_add(elapsed).saturating_add(ACK_MS);
             if l.current != resumed.current || l.future != resumed.future || !near {
-                self.held = Some(l);
+                self.held = Some((l, at));
                 return;
             }
             self.awaiting = None;
@@ -467,7 +473,7 @@ impl Worker {
             self.write_local(false);
         }
         self.last_local = Some(l);
-        self.last_local_at = Instant::now();
+        self.last_local_at = at;
         self.pending.get_or_insert_with(|| Instant::now() + THROTTLE);
     }
 
@@ -734,7 +740,12 @@ impl Worker {
     fn undo_claim(&mut self, claimed: bool, before: Option<&str>, e: CoreError) -> CoreError {
         let (true, Some(b)) = (claimed, before) else {
             self.rollback_queue = None;
-            self.rollback_playing = false;
+            // Nobody to hand back to: this device keeps playback, and its own playing
+            // status (paused by a failed send) is written again.
+            if self.restore_playing().is_err() {
+                self.rollback_playing = false;
+                self.pending.get_or_insert_with(|| Instant::now() + RETRY);
+            }
             return e;
         };
         // Only while this device still holds it: a newer claim by a third device
@@ -791,8 +802,13 @@ impl Worker {
         let claimed = self.mirror.state().active.as_deref() != Some(self.mirror.me());
         // Its queue stays as it was: this device writes into a queue of its own.
         let their_queue = self.mirror.queue_id().map(str::to_string).filter(|_| before.is_some());
-        // And its status: restored with it if the send fails.
-        self.rollback_playing = before.is_some() && self.mirror.state().status == wire::Status::Playing;
+        // And the playing status, restored if the send fails: that player's, or this
+        // device's own when it was already the active player.
+        self.rollback_playing = if before.is_some() {
+            self.mirror.state().status == wire::Status::Playing
+        } else {
+            self.last_local.as_ref().is_some_and(|l| l.playing)
+        };
         // A failed claim may still have reached TIDAL: undo it if it did.
         if claimed && let Err(e) = self.claim() {
             return Err(self.undo_send(claimed, before.as_deref(), None, e));
@@ -860,6 +876,8 @@ impl Worker {
             }
         }
         self.mirror.released_to(id);
+        self.rollback_playing = false;
+        self.rollback_queue = None;
         self.sent = self.last_local.as_ref().and_then(|l| l.current.clone());
         Ok(())
     }
