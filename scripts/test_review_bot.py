@@ -67,8 +67,10 @@ class ParseTests(unittest.TestCase):
 
     def test_macroscope_skips_when_every_file_is_ignored(self):
         stdout = '{"error": "nothing to review", "error_code": "all_files_ignored"}'
-        result = parse_macroscope("macroscope", Output(stdout, "review_session_id=x", 1))
+        result = parse_macroscope("macroscope", Output(stdout, "review_session_id=x", 0))
         self.assertIs(result.status, Status.SKIPPED)
+        failed = parse_macroscope("macroscope", Output(stdout, "review_session_id=x", 1))
+        self.assertIs(failed.status, Status.FAILED)
 
     def test_macroscope_flags_partial_coverage(self):
         stderr = 'review_coverage={"status":"partial"}\nissue_status=completed'
