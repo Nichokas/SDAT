@@ -241,8 +241,9 @@ pub fn start_paused(track_id: Option<&str>) {
 }
 
 pub async fn on_play_track(playbin: &dyn Playbin, track: Track, skip_history: bool) -> Result<()> {
-    // Taken by whichever start comes next, so a failed one leaves nothing behind.
-    let paused = START_PAUSED.with(|s| s.borrow_mut().take()).is_some_and(|id| id == track.id());
+    // Only the start it was asked for takes it, before its fetch, so a failed
+    // fetch leaves nothing behind. A start that never comes is cleared by `play_at`.
+    let paused = START_PAUSED.with(|s| s.borrow_mut().take_if(|id| id == track.id()).is_some());
     let manifest = fetch_and_enqueue_track(playbin, track.id()).await?;
     playbin.set_state(if paused { gst::State::Paused } else { gst::State::Playing })?;
     let duration = track.duration();

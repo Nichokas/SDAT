@@ -1020,6 +1020,7 @@ pub fn play_at(source: Option<PlaybackSource>, tracks: Vec<Track>, position: Dur
     let gate = std::cell::RefCell::new(StartGate::default());
     playback_state_changed().on_lazy(move |ps| {
         if LIST_GENERATION.with(Cell::get) != generation {
+            statemachine::start_paused(None);
             return crate::signals::UNSUBSCRIBE;
         }
         match gate.borrow_mut().step(ps, current_track_id().as_deref() == Some(started.id())) {
@@ -1052,7 +1053,11 @@ pub fn play_at(source: Option<PlaybackSource>, tracks: Vec<Track>, position: Dur
                 });
                 crate::signals::UNSUBSCRIBE
             }
-            StartAt::GiveUp => crate::signals::UNSUBSCRIBE,
+            StartAt::GiveUp => {
+                // The handed-off start failed or was replaced: no later start of it loads paused.
+                statemachine::start_paused(None);
+                crate::signals::UNSUBSCRIBE
+            }
         }
     });
     // After the gate is installed, so it sees every state change the pause causes;
