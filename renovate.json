@@ -4,7 +4,7 @@
   "timezone": "Europe/Madrid",
   "schedule": ["before 6am on monday"],
   "labels": ["dependencies"],
-  "enabledManagers": ["cargo", "gradle", "gradle-wrapper", "github-actions"],
+  "enabledManagers": ["cargo", "gradle", "gradle-wrapper", "github-actions", "swift"],
   "automerge": false,
   "packageRules": [
     {
