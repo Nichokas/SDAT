@@ -1,8 +1,8 @@
 name: Rebuild after review
 
-# A `/review` run that passes comes after the builds' gates already failed, so it reruns them on
-# that PR. Its payload names no PR, so the number comes from the review bot's run name.
-# Runs from push events have their gates still waiting and need nothing.
+# A review that passes after the builds' gates already failed (a `/review`, a reopened PR whose
+# gates read the old verdict) reruns them on that PR. The payload of a `/review` run names no PR,
+# so the number comes from the review bot's run name.
 on:
   workflow_run:
     workflows: [Review bot]
@@ -12,8 +12,8 @@ permissions: {}
 
 jobs:
   rerun:
-    # Other comments skip the review bot's jobs, which ends its run as skipped.
-    if: github.event.workflow_run.event == 'issue_comment' && github.event.workflow_run.conclusion == 'success'
+    # Comments other than `/review` skip the review bot's jobs, which ends its run as skipped.
+    if: github.event.workflow_run.conclusion == 'success'
     runs-on: ubuntu-latest
     permissions:
       actions: write
