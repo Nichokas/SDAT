@@ -6726,6 +6726,23 @@ public func artistOverview(id: String)async throws  -> ArtistOverview  {
             errorHandler: FfiConverterTypeFfiError_lift
         )
 }
+/**
+ * `limit` top tracks from `offset`, for "Show more" under the overview's few; fewer than `limit` means the end.
+ */
+public func artistTopTracks(id: String, offset: UInt32, limit: UInt32)async throws  -> [Track]  {
+    return
+        try  await uniffiRustCallAsync(
+            rustFutureFunc: {
+                uniffi_tonearm_ffi_fn_func_artist_top_tracks(FfiConverterString.lower(id),FfiConverterUInt32.lower(offset),FfiConverterUInt32.lower(limit)
+                )
+            },
+            pollFunc: ffi_tonearm_ffi_rust_future_poll_rust_buffer,
+            completeFunc: ffi_tonearm_ffi_rust_future_complete_rust_buffer,
+            freeFunc: ffi_tonearm_ffi_rust_future_free_rust_buffer,
+            liftFunc: FfiConverterSequenceTypeTrack.lift,
+            errorHandler: FfiConverterTypeFfiError_lift
+        )
+}
 public func collectionAlbums() -> AlbumPager  {
     return try!  FfiConverterTypeAlbumPager_lift(try! rustCall() {
         uniffiCallStatus in
@@ -7201,6 +7218,9 @@ private let initializationResult: InitializationResult = {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_tonearm_ffi_checksum_func_artist_overview() != 63615) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_tonearm_ffi_checksum_func_artist_top_tracks() != 2500) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_tonearm_ffi_checksum_func_collection_albums() != 15587) {

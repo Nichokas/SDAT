@@ -248,6 +248,9 @@ msgstr "Copy Track URL"
 msgid "Copy URL"
 msgstr "Copy URL"
 
+msgid "Could not load more tracks"
+msgstr "Could not load more tracks"
+
 msgid "Default Page"
 msgstr "Default Page"
 
@@ -577,6 +580,9 @@ msgstr "Set current page as default"
 
 msgid "Set the same volume for all tracks"
 msgstr "Set the same volume for all tracks"
+
+msgid "Show More"
+msgstr "Show More"
 
 msgid "Shuffle Album"
 msgstr "Shuffle Album"

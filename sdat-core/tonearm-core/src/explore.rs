@@ -235,6 +235,23 @@ pub fn get_artist_overview(id: &str) -> Result<(model::Artist, Vec<Track>, Vec<A
     Ok((model::artist_page_from_v2(&page), t, a))
 }
 
+/// `limit` of an artist's top tracks from `offset`: the "view all" list behind the page's few.
+/// Fewer than `limit` means the end.
+pub fn get_artist_top_tracks(id: &str, offset: usize, limit: usize) -> Result<Vec<Track>> {
+    get_view_all_tracks(&format!("artist/ARTIST_TOP_TRACKS/view-all?artistId={id}"), offset, limit)
+}
+
+/// `limit` tracks from `offset` of a track module's `view_all` path.
+pub fn get_view_all_tracks(path: &str, offset: usize, limit: usize) -> Result<Vec<Track>> {
+    Ok(api::view_all_items(path, offset, limit)?
+        .iter()
+        .filter_map(|it| match &it.data {
+            legacy::ItemData::Track(t) => Some(model::track_from_v2(t)),
+            _ => None,
+        })
+        .collect())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

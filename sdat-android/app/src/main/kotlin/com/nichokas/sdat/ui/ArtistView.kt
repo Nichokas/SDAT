@@ -20,6 +20,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -41,9 +42,13 @@ import io.github.neoruaa.glasmio.glass.GlassEmphasis
 import io.github.neoruaa.glasmio.ui.GlasmioButton
 import io.github.neoruaa.glasmio.ui.GlasmioButtonSize
 import kotlin.coroutines.cancellation.CancellationException
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.launch
 import uniffi.tonearm_ffi.ArtistOverview
 import uniffi.tonearm_ffi.FavouriteKind
+import uniffi.tonearm_ffi.Track
 import uniffi.tonearm_ffi.artistOverview
+import uniffi.tonearm_ffi.artistTopTracks
 
 // A follow tapped just before going back still goes through.
 
@@ -52,6 +57,8 @@ import uniffi.tonearm_ffi.artistOverview
 fun ArtistView(id: String) {
     var state by remember(id) { mutableStateOf<PageLoad<ArtistOverview>>(ArtistCache.overviews[id]?.let { PageLoad.Ready(it) } ?: PageLoad.Loading) }
     var attempt by remember { mutableIntStateOf(0) }
+    val scope = rememberCoroutineScope()
+    val more = remember(id) { MoreTopTracks(id, scope) }
     LaunchedEffect(id, attempt) {
         try {
             val o = artistOverview(id)
@@ -85,7 +92,7 @@ fun ArtistView(id: String) {
             }
         }
         when (val s = state) {
-            is PageLoad.Ready -> sections(s.value)
+            is PageLoad.Ready -> sections(s.value, more)
             is PageLoad.Failed -> item(key = "error") {
                 Column(Modifier.fillMaxWidth().padding(horizontal = ListGutter, vertical = 16.dp), horizontalAlignment = Alignment.CenterHorizontally) {
                     ErrorBanner(s.message)
@@ -97,26 +104,67 @@ fun ArtistView(id: String) {
     }
 }
 
-private fun LazyListScope.sections(o: ArtistOverview) {
-    if (o.topTracks.isNotEmpty()) {
+/** Top tracks past the overview's few, a page per "Show More"; a short page marks the end. */
+private class MoreTopTracks(private val artistId: String, private val scope: CoroutineScope) {
+    var tracks by mutableStateOf(emptyList<Track>())
+        private set
+    var canLoad by mutableStateOf(true)
+        private set
+    var loading by mutableStateOf(false)
+        private set
+
+    fun load(shown: List<Track>) {
+        if (loading) return
+        loading = true
+        scope.launch {
+            try {
+                val page = artistTopTracks(artistId, shown.size.toUInt(), PAGE)
+                val have = shown.mapTo(HashSet()) { it.id }
+                tracks = tracks + page.filter { it.id !in have }
+                canLoad = page.size == PAGE.toInt()
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                Chrome.flash(friendlyMessage(e))
+            } finally {
+                loading = false
+            }
+        }
+    }
+
+    private companion object {
+        const val PAGE = 10u
+    }
+}
+
+private fun LazyListScope.sections(o: ArtistOverview, more: MoreTopTracks) {
+    val top = o.topTracks + more.tracks
+    if (top.isNotEmpty()) {
         item(key = "top-title") { SectionTitle("Top Tracks") }
         item(key = "top-buttons") {
             val player = LocalTrackPlayer.current
             PlayShuffleButtons(
-                play = { player.playInOrder(o.topTracks, o.artist.name) },
-                shuffle = { player.playShuffled(o.topTracks, o.artist.name) },
+                play = { player.playInOrder(top, o.artist.name) },
+                shuffle = { player.playShuffled(top, o.artist.name) },
                 compact = true,
                 modifier = Modifier.padding(start = ListGutter, end = ListGutter, bottom = 8.dp),
             )
         }
-        itemsIndexed(o.topTracks, key = { i, t -> "top:${t.id}#$i" }) { i, t ->
+        itemsIndexed(top, key = { i, t -> "top:${t.id}#$i" }) { i, t ->
             val player = LocalTrackPlayer.current
             Column(Modifier.padding(horizontal = ListGutter)) {
-                TrackMenuRow(t, onClick = { player.play(o.topTracks, i, o.artist.name) }) {
+                TrackMenuRow(t, onClick = { player.play(top, i, o.artist.name) }) {
                     TrackRow(t, Modifier.heightIn(min = 72.dp), coverSize = 56.dp)
                 }
-                if (i < o.topTracks.lastIndex) {
+                if (i < top.lastIndex) {
                     Box(Modifier.padding(start = 68.dp).fillMaxWidth().height(0.5.dp).background(Color.White.copy(alpha = 0.15f)))
+                }
+            }
+        }
+        if (more.canLoad) {
+            item(key = "top-more") {
+                Box(Modifier.fillMaxWidth().padding(top = 8.dp), contentAlignment = Alignment.Center) {
+                    GlasmioButton({ more.load(top) }, enabled = !more.loading, size = GlasmioButtonSize.Medium) { Text("Show More") }
                 }
             }
         }

@@ -774,6 +774,11 @@ uint64_t uniffi_tonearm_ffi_fn_func_artist(RustBuffer id
 uint64_t uniffi_tonearm_ffi_fn_func_artist_overview(RustBuffer id
 );
 #endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_TONEARM_FFI_FN_FUNC_ARTIST_TOP_TRACKS
+#define UNIFFI_FFIDEF_UNIFFI_TONEARM_FFI_FN_FUNC_ARTIST_TOP_TRACKS
+uint64_t uniffi_tonearm_ffi_fn_func_artist_top_tracks(RustBuffer id, uint32_t offset, uint32_t limit
+);
+#endif
 #ifndef UNIFFI_FFIDEF_UNIFFI_TONEARM_FFI_FN_FUNC_COLLECTION_ALBUMS
 #define UNIFFI_FFIDEF_UNIFFI_TONEARM_FFI_FN_FUNC_COLLECTION_ALBUMS
 uint64_t uniffi_tonearm_ffi_fn_func_collection_albums(RustCallStatus *_Nonnull out_status
@@ -1248,6 +1253,12 @@ uint16_t uniffi_tonearm_ffi_checksum_func_artist(void
 #ifndef UNIFFI_FFIDEF_UNIFFI_TONEARM_FFI_CHECKSUM_FUNC_ARTIST_OVERVIEW
 #define UNIFFI_FFIDEF_UNIFFI_TONEARM_FFI_CHECKSUM_FUNC_ARTIST_OVERVIEW
 uint16_t uniffi_tonearm_ffi_checksum_func_artist_overview(void
+    
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_TONEARM_FFI_CHECKSUM_FUNC_ARTIST_TOP_TRACKS
+#define UNIFFI_FFIDEF_UNIFFI_TONEARM_FFI_CHECKSUM_FUNC_ARTIST_TOP_TRACKS
+uint16_t uniffi_tonearm_ffi_checksum_func_artist_top_tracks(void
     
 );
 #endif

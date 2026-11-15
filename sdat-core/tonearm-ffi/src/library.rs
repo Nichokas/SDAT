@@ -164,6 +164,12 @@ pub async fn artist_overview(id: String) -> Result<ArtistOverview, FfiError> {
     Ok(ArtistOverview { artist: Artist::from(&a), top_tracks: t.iter().map(Track::from).collect(), albums: al.iter().map(Album::from).collect() })
 }
 
+/// `limit` top tracks from `offset`, for "Show more" under the overview's few; fewer than `limit` means the end.
+#[uniffi::export]
+pub async fn artist_top_tracks(id: String, offset: u32, limit: u32) -> Result<Vec<Track>, FfiError> {
+    Ok(tracks(&run(move || explore::get_artist_top_tracks(&id, offset as usize, limit as usize)).await?))
+}
+
 // ---- Favourites and playlists
 
 #[derive(Debug, Clone, Copy, uniffi::Enum)]

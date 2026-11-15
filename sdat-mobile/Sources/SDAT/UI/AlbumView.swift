@@ -357,6 +357,11 @@ struct ArtistView: View {
     @Environment(Player.self) private var player
     @State private var overview: ArtistOverview?
     @State private var error: String?
+    @State private var moreTracks: [Track] = []
+    @State private var canShowMore = true
+    @State private var loadingMore = false
+
+    private static let morePage: UInt32 = 10
 
     var body: some View {
         let a = overview?.artist
@@ -376,25 +381,35 @@ struct ArtistView: View {
                     ErrorBanner(text: error).padding(16)
                     Button("Retry") { self.error = nil; Task { await load() } }.buttonStyle(.glass).frame(maxWidth: .infinity)
                 } else if let o = overview {
-                    if !o.topTracks.isEmpty {
+                    let top = o.topTracks + moreTracks
+                    if !top.isEmpty {
                         header("Top Tracks")
                         PlayShuffleButtons(
-                            play: { player.play(o.topTracks, from: o.artist.name) },
-                            shuffle: { player.playShuffled(o.topTracks, from: o.artist.name) },
+                            play: { player.play(top, from: o.artist.name) },
+                            shuffle: { player.playShuffled(top, from: o.artist.name) },
                             compact: true
                         )
                         .padding(.horizontal, 16).padding(.bottom, 8)
-                        ForEach(o.topTracks.indices, id: \.self) { i in
-                            let t = o.topTracks[i]
+                        ForEach(top.indices, id: \.self) { i in
+                            let t = top[i]
                             VStack(spacing: 0) {
-                                Button { player.play(o.topTracks, startAt: i, from: o.artist.name) } label: {
+                                Button { player.play(top, startAt: i, from: o.artist.name) } label: {
                                     TrackRow(track: t, coverSize: 56).frame(minHeight: 72)
                                 }
                                 .buttonStyle(.plain)
                                 .trackMenu(t, ownPlaylistId: nil, onRemoved: {})
-                                if i < o.topTracks.count - 1 { Divider().padding(.leading, 68) }
+                                if i < top.count - 1 { Divider().padding(.leading, 68) }
                             }
                             .padding(.horizontal, 16)
+                        }
+                        if canShowMore {
+                            Button { Task { await showMore(after: top) } } label: {
+                                if loadingMore { ProgressView() } else { Text("Show More") }
+                            }
+                            .buttonStyle(.glass)
+                            .disabled(loadingMore)
+                            .frame(maxWidth: .infinity)
+                            .padding(.top, 8)
                         }
                     }
                     if !o.albums.isEmpty {
@@ -427,6 +442,20 @@ struct ArtistView: View {
             overview = o
         } catch {
             if overview == nil { self.error = friendlyMessage(error) }
+        }
+    }
+
+    /// Appends the next page of top tracks; hides the button at the end.
+    private func showMore(after shown: [Track]) async {
+        loadingMore = true
+        defer { loadingMore = false }
+        do {
+            let page = try await artistTopTracks(id: id, offset: UInt32(shown.count), limit: Self.morePage)
+            let have = Set(shown.map(\.id))
+            moreTracks += page.filter { !have.contains($0.id) }
+            canShowMore = page.count == Int(Self.morePage)
+        } catch {
+            Chrome.shared.flash(friendlyMessage(error))
         }
     }
 }
