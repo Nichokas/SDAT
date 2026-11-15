@@ -49,9 +49,12 @@ struct Written {
 impl Written {
     /// Index of the written entry the local list starts at, the current one first.
     fn find(&self, tracks: &[String]) -> Option<usize> {
+        // Only a capped write may lag behind a still capped local list; it
+        // is topped up once half of it is played.
+        let capped = self.wrote.len() == MAX_FUTURE + 1 && tracks.len() == MAX_FUTURE + 1;
         let matches = |k: usize| {
             let rest = &self.wrote[k..];
-            rest == tracks || (rest.len() < tracks.len() && 2 * rest.len() >= tracks.len() && tracks.starts_with(rest))
+            rest == tracks || (capped && 2 * rest.len() >= tracks.len() && tracks.starts_with(rest))
         };
         (self.cur..self.wrote.len()).chain(0..self.cur.min(self.wrote.len())).find(|&k| matches(k))
     }
@@ -220,9 +223,13 @@ impl Mirror {
         self.state.status = if playing { Status::Playing } else { Status::Paused };
     }
 
-    /// A write failed: the queue on TIDAL is unknown now.
+    /// A write failed: the queue on TIDAL is unknown now, and a failed
+    /// claim is tried again on the next report.
     pub(super) fn write_failed(&mut self) {
         self.written = None;
+        if !self.is_active() {
+            self.local_playing = false;
+        }
     }
 
     /// Takes over the queue as read for a resume, so the first report after
@@ -245,6 +252,12 @@ impl Mirror {
         if state.active.is_some() {
             self.last_active.clone_from(&state.active);
         }
+        // Another device wrote the queue while this one stayed active: a push
+        // that this device never saw itself lose the active player for.
+        let pushed = match (&self.head, &head) {
+            (Some(old), Some(new)) => new.revision != old.revision && new.updated_by.as_deref().is_some_and(|u| u != self.me),
+            _ => false,
+        };
         self.state = state;
         self.head = head;
         let first = !std::mem::replace(&mut self.fetched, true);
@@ -255,7 +268,7 @@ impl Mirror {
                     let d = self.device(a).unwrap_or_else(|| Device { id: a.to_string(), name: String::new() });
                     out.push(Out::Event(Box::new(HandoffEvent::MovedTo(d))));
                 }
-                Some(a) if !was_me && a == self.me => out.push(Out::Arrive),
+                Some(a) if a == self.me && (!was_me || pushed) => out.push(Out::Arrive),
                 _ => {}
             }
         }
@@ -419,6 +432,34 @@ mod tests {
         m.current_written(0, 0, true, 0, "r".into());
         assert_eq!(m.plan(&l(10), 0), vec![Write::Current { index: 10, position_ms: 0 }]);
         assert!(matches!(m.plan(&l(80), 0).first(), Some(Write::Queue(_))));
+    }
+
+    #[test]
+    fn tracks_added_to_a_short_queue_are_written() {
+        let mut m = active_with(&["1", "2", "3"]);
+        assert!(matches!(m.plan(&local("1", &["2", "3", "4"], 0, true), 0).first(), Some(Write::Queue(_))));
+        m.current_written(1, 0, true, 0, "r".into());
+        assert!(matches!(m.plan(&local("2", &["3", "4"], 0, true), 0).first(), Some(Write::Queue(_))));
+    }
+
+    #[test]
+    fn a_failed_claim_is_retried() {
+        let mut m = Mirror::new(ME.into());
+        m.fetched(state(Some("phone"), Status::Playing), None, None);
+        assert_eq!(m.plan(&local("1", &[], 0, true), 0).first(), Some(&Write::Claim));
+        m.write_failed();
+        assert_eq!(m.plan(&local("1", &[], 0, true), 500).first(), Some(&Write::Claim));
+    }
+
+    #[test]
+    fn a_push_to_the_active_device_arrives() {
+        let mut m = Mirror::new(ME.into());
+        m.fetched(state(Some(ME), Status::Playing), Some(head("r1", "1", ME)), None);
+        // The sender claimed and handed back between two reads.
+        let out = m.fetched(state(Some(ME), Status::Paused), Some(head("r2", "5", "phone")), None);
+        assert!(out.iter().any(|o| matches!(o, Out::Arrive)));
+        // A read of the same queue again is no new push.
+        assert!(!m.fetched(state(Some(ME), Status::Paused), Some(head("r2", "5", "phone")), None).iter().any(|o| matches!(o, Out::Arrive)));
     }
 
     #[test]

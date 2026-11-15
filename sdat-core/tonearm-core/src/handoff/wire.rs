@@ -197,8 +197,14 @@ pub(super) fn attach(id: &str) -> Result<()> {
     call(Method::POST, "/v2/userPlaybackStates/me/relationships/availablePlayers", Some(&players_body(id))).map(drop)
 }
 
-pub(super) fn detach(id: &str) -> Result<()> {
-    call(Method::DELETE, "/v2/userPlaybackStates/me/relationships/availablePlayers", Some(&players_body(id))).map(drop)
+/// `token`: taken while still signed in, as a sign-out removes the credentials right away.
+pub(super) fn detach(id: &str, token: Option<&str>) -> Result<()> {
+    let (path, body) = ("/v2/userPlaybackStates/me/relationships/availablePlayers", players_body(id));
+    match token {
+        Some(t) => api::openapi_call_as(t, Method::DELETE, path, Some(&body)),
+        None => call(Method::DELETE, path, Some(&body)),
+    }
+    .map(drop)
 }
 
 pub(super) fn state() -> Result<State> {

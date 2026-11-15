@@ -243,6 +243,7 @@ pub fn send_to(device_id: String) {
     let target = devices().with(|d| d.iter().find(|d| d.id == device_id).map(name)).unwrap_or_else(|| tr("another device"));
     h.report(local_now(None));
     let generation = current_generation();
+    let sent = player::current_track_id();
     glib::spawn_future_local(async move {
         let r = crate::api::run(move || h.send_to(&device_id)).await;
         if generation != current_generation() {
@@ -250,7 +251,10 @@ pub fn send_to(device_id: String) {
         }
         match r {
             Ok(()) => {
-                player::pause();
+                // Not what the user started while the send ran.
+                if player::current_track_id() == sent {
+                    player::pause();
+                }
                 player::toasts().notify(&trf("Playing on %s", &[&target]));
             }
             Err(e) => {

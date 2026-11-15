@@ -143,10 +143,12 @@ final class HandoffHub {
     func send(to device: HandoffDevice) {
         guard let h = handoff else { return }
         report(force: true)
+        let sent = player.current?.id
         Task {
             do {
                 try await h.sendTo(deviceId: device.id)
-                if player.isPlaying { player.toggle() }
+                // Not what the user started while the send ran.
+                if player.isPlaying, player.current?.id == sent { player.toggle() }
                 Chrome.shared.flash("Playing on \(Self.name(device))")
             } catch {
                 Chrome.shared.flash("Couldn't send to \(Self.name(device))")

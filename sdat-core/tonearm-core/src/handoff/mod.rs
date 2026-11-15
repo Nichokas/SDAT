@@ -13,7 +13,7 @@ mod wire;
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::{self, Receiver, RecvTimeoutError, Sender};
-use std::sync::{Arc, Mutex, PoisonError};
+use std::sync::{Arc, Condvar, Mutex, PoisonError};
 use std::time::{Duration, Instant};
 
 use crate::error::{CoreError, CoreResult as Result};
@@ -109,13 +109,31 @@ enum Cmd {
     Changed,
     SendTo(String, Sender<Result<()>>),
     ContinueHere(Sender<Result<Resume>>),
-    Stop,
+    /// With the access token at the time of the stop, for the detach.
+    Stop(Option<String>),
+}
+
+/// Workers told to stop that have not detached yet.
+static STOPPING: (Mutex<usize>, Condvar) = (Mutex::new(0), Condvar::new());
+
+fn stopping_done() {
+    *STOPPING.0.lock().unwrap_or_else(PoisonError::into_inner) -= 1;
+    STOPPING.1.notify_all();
+}
+
+/// Waits up to `timeout` until every stopped [`Handoff`] has detached
+/// (before quitting); `false` on timeout.
+pub fn wait_detached(timeout: Duration) -> bool {
+    let n = STOPPING.0.lock().unwrap_or_else(PoisonError::into_inner);
+    let (n, _) = STOPPING.1.wait_timeout_while(n, timeout, |n| *n > 0).unwrap_or_else(PoisonError::into_inner);
+    *n == 0
 }
 
 /// This device as a player of the account. Dropping it detaches.
 pub struct Handoff {
     tx: Sender<Cmd>,
     devices: Arc<Mutex<Vec<Device>>>,
+    stopped: AtomicBool,
 }
 
 impl std::fmt::Debug for Handoff {
@@ -129,6 +147,8 @@ impl Handoff {
     /// account's state. Blocking. `installation_key` comes from
     /// [`new_installation_key`], kept by the app.
     pub fn start(installation_key: &str, device_name: &str, listener: Arc<dyn HandoffListener>) -> Result<Self> {
+        // A previous instance's late detach would undo this attach.
+        wait_detached(Duration::from_secs(5));
         let me = wire::register(installation_key, device_name)?;
         wire::attach(&me)?;
         let (tx, rx) = mpsc::channel();
@@ -138,13 +158,12 @@ impl Handoff {
             listener,
             devices: Arc::clone(&devices),
             tx: tx.clone(),
-            down: Arc::new(AtomicBool::new(false)),
             streams: Vec::new(),
             last_local: None,
             names: HashMap::new(),
         };
         std::thread::Builder::new().name("handoff".into()).spawn(move || w.run(&rx)).map_err(|e| CoreError::Other(e.to_string()))?;
-        Ok(Self { tx, devices })
+        Ok(Self { tx, devices, stopped: AtomicBool::new(false) })
     }
 
     /// Every local change (track, queue, play, pause, seek). Cheap: only
@@ -167,9 +186,16 @@ impl Handoff {
         self.call(Cmd::ContinueHere)
     }
 
-    /// Detach (backgrounded, quit, sign-out). Drop does the same.
+    /// Detach (backgrounded, quit, sign-out). Drop does the same. Returns
+    /// at once; call it before removing the credentials.
     pub fn stop(&self) {
-        let _ = self.tx.send(Cmd::Stop);
+        if self.stopped.swap(true, Ordering::Relaxed) {
+            return;
+        }
+        *STOPPING.0.lock().unwrap_or_else(PoisonError::into_inner) += 1;
+        if self.tx.send(Cmd::Stop(crate::api::cached_user_token())).is_err() {
+            stopping_done();
+        }
     }
 
     fn call<T>(&self, cmd: impl FnOnce(Sender<Result<T>>) -> Cmd) -> Result<T> {
@@ -194,7 +220,6 @@ struct Worker {
     listener: Arc<dyn HandoffListener>,
     devices: Arc<Mutex<Vec<Device>>>,
     tx: Sender<Cmd>,
-    down: Arc<AtomicBool>,
     streams: Vec<Follower>,
     last_local: Option<LocalPlayback>,
     /// Installation names, for devices that are no longer attached.
@@ -225,12 +250,18 @@ impl Worker {
                     pending = None;
                     let _ = reply.send(self.continue_here());
                 }
-                Ok(Cmd::Stop) | Err(RecvTimeoutError::Disconnected) => {
+                Ok(Cmd::Stop(token)) => {
                     if pending.is_some() {
                         self.write_local(false);
                     }
-                    break;
+                    self.streams.clear();
+                    if let Err(e) = wire::detach(self.mirror.me(), token.as_deref()) {
+                        log::info!("handoff: detach failed error={e}");
+                    }
+                    stopping_done();
+                    return;
                 }
+                Err(RecvTimeoutError::Disconnected) => return,
                 Err(RecvTimeoutError::Timeout) => {}
             }
             let now = Instant::now();
@@ -250,14 +281,10 @@ impl Worker {
             }
             if next_poll <= now {
                 next_poll = now + POLL_EVERY;
-                if self.down.load(Ordering::Relaxed) || self.streams.is_empty() {
+                if self.streams.is_empty() || self.streams.iter().any(Follower::is_down) {
                     self.refresh();
                 }
             }
-        }
-        self.streams.clear();
-        if let Err(e) = wire::detach(self.mirror.me()) {
-            log::info!("handoff: detach failed error={e}");
         }
     }
 
@@ -273,7 +300,7 @@ impl Worker {
         self.streams.retain(|s| urls.contains(&s.url));
         for u in urls {
             if !self.streams.iter().any(|s| s.url == u) {
-                self.streams.push(Follower::spawn(u, self.tx.clone(), Arc::clone(&self.down)));
+                self.streams.push(Follower::spawn(u, self.tx.clone()));
             }
         }
     }
@@ -500,6 +527,6 @@ mod tests {
         assert!(got.ends_with("+3 at 12345"), "{got}");
         a.stop();
         b.stop();
-        std::thread::sleep(Duration::from_secs(1));
+        assert!(wait_detached(Duration::from_secs(10)), "not detached");
     }
 }

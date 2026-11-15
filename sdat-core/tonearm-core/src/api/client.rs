@@ -276,16 +276,39 @@ pub(crate) fn user_bearer() -> Result<String> {
     user_access_token()?.ok_or(CoreError::NotSignedIn)
 }
 
+/// The user access token if one is cached and valid; never a network call.
+pub(crate) fn cached_user_token() -> Option<String> {
+    USER_TOKEN.lock().unwrap_or_else(std::sync::PoisonError::into_inner).valid()
+}
+
 /// JSON:API call to openapi.tidal.com (`path` starts with `/v2/`) with the
 /// user's token. `Value::Null` for an empty answer.
 pub(crate) fn openapi_call(method: Method, path: &str, body: Option<&serde_json::Value>) -> Result<serde_json::Value> {
-    // The user token goes to the OpenAPI host only.
+    openapi_path(path)?;
+    user_bearer()?;
+    let label = method.to_string();
+    jsonapi(request(method, &openapi(path), &[])?, &label, path, body)
+}
+
+/// [`openapi_call`] with a token taken earlier, for work that outlives the
+/// credentials (detaching after a sign-out).
+pub(crate) fn openapi_call_as(token: &str, method: Method, path: &str, body: Option<&serde_json::Value>) -> Result<serde_json::Value> {
+    openapi_path(path)?;
+    let label = method.to_string();
+    let rb = http().request(method, openapi(path)).bearer_auth(token).header("x-tidal-token", client_id()).header("x-tidal-client-version", CLIENT_VERSION);
+    jsonapi(rb, &label, path, body)
+}
+
+/// The user token goes to the `OpenAPI` host only.
+fn openapi_path(path: &str) -> Result<()> {
     if !path.starts_with("/v2/") {
         bail!("not an OpenAPI path: {path}");
     }
-    user_bearer()?;
-    let label = method.to_string();
-    let mut rb = request(method, &openapi(path), &[])?.header("Accept", "application/vnd.api+json");
+    Ok(())
+}
+
+fn jsonapi(rb: RequestBuilder, label: &str, path: &str, body: Option<&serde_json::Value>) -> Result<serde_json::Value> {
+    let mut rb = rb.header("Accept", "application/vnd.api+json");
     if let Some(b) = body {
         rb = rb.header("Content-Type", "application/vnd.api+json").body(b.to_string());
     }

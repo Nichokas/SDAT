@@ -101,7 +101,11 @@ fn main() -> glib::ExitCode {
         scrobbling::init();
         handoff::init();
     });
-    app.connect_shutdown(|_| handoff::stop());
+    app.connect_shutdown(|_| {
+        handoff::stop();
+        // Detach before the process ends, or other devices list this one for 90 s.
+        tonearm_core::handoff::wait_detached(std::time::Duration::from_secs(2));
+    });
     app.connect_activate(on_activate);
     app.connect_command_line(|app, cmd| {
         let args = cmd.arguments();

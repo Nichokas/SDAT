@@ -163,6 +163,9 @@ final class Player {
         userQueue = []
         sourceTitle = device.isEmpty ? nil : device
         repeatMode = r
+        // `start` swaps the item only once the new stream is fetched; the old song must not keep playing meanwhile.
+        avPlayer.pause()
+        avPlayer.removeAllItems()
         load(0, resumeAt: max(secs, 0))
     }
 

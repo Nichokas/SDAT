@@ -21,18 +21,25 @@ const MAX_BACKOFF: Duration = Duration::from_mins(1);
 pub(super) struct Follower {
     pub url: String,
     stop: Arc<AtomicBool>,
+    /// Not connected (also before the first connection, and for good when
+    /// the thread could not start), so the worker polls instead.
+    down: Arc<AtomicBool>,
 }
 
 impl Follower {
-    /// `down` is set while the stream is not connected.
-    pub(super) fn spawn(url: String, tx: Sender<Cmd>, down: Arc<AtomicBool>) -> Self {
+    pub(super) fn spawn(url: String, tx: Sender<Cmd>) -> Self {
         let stop = Arc::new(AtomicBool::new(false));
-        let (u, s) = (url.clone(), Arc::clone(&stop));
-        let spawned = std::thread::Builder::new().name("handoff-follow".into()).spawn(move || run(&u, &tx, &s, &down));
+        let down = Arc::new(AtomicBool::new(true));
+        let (u, s, d) = (url.clone(), Arc::clone(&stop), Arc::clone(&down));
+        let spawned = std::thread::Builder::new().name("handoff-follow".into()).spawn(move || run(&u, &tx, &s, &d));
         if let Err(e) = spawned {
             log::warn!("handoff: no stream thread error={e}");
         }
-        Self { url, stop }
+        Self { url, stop, down }
+    }
+
+    pub(super) fn is_down(&self) -> bool {
+        self.down.load(Ordering::Relaxed)
     }
 }
 

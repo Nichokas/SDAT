@@ -986,12 +986,18 @@ pub fn play_at(source: Option<PlaybackSource>, tracks: Vec<Track>, position: Dur
             StartAt::Seek => {
                 // The pipeline may still be prerolling and refuse the seek.
                 let mut tries = 0;
+                let id = started.id().to_string();
                 glib::timeout_add_local(Duration::from_millis(100), move || {
                     tries += 1;
-                    if LIST_GENERATION.with(Cell::get) != generation {
+                    if LIST_GENERATION.with(Cell::get) != generation || current_track_id().as_deref() != Some(id.as_str()) {
                         return glib::ControlFlow::Break;
                     }
-                    if try_seek(position, true) || tries >= 20 {
+                    let seeked = try_seek(position, true);
+                    if seeked || tries >= 20 {
+                        // Unseekable: playing from the start beats not playing.
+                        if !seeked {
+                            log::warn!("handoff: could not seek to the handed-off position");
+                        }
                         play();
                         return glib::ControlFlow::Break;
                     }
