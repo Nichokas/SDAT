@@ -205,8 +205,12 @@ REVIEWERS = {
 }
 
 
-INSTALL_ATTEMPTS = 3
+INSTALL_ATTEMPTS = 5
 INSTALL_RETRY_SECONDS = 20
+
+
+def cli_cache() -> Path:
+    return Path(os.environ.get("REVIEW_BOT_CLI_CACHE", Path.home() / ".cache/review-bot-cli"))
 
 
 def install(script: str) -> None:
@@ -222,13 +226,35 @@ def install(script: str) -> None:
             time.sleep(INSTALL_RETRY_SECONDS * attempt)
 
 
+def install_cli(binary: str, script: str) -> None:
+    bin_dir = Path.home() / ".local/bin"
+    bin_dir.mkdir(parents=True, exist_ok=True)
+    cached = cli_cache() / binary
+    try:
+        install(script)
+    except subprocess.CalledProcessError:
+        # Last resort: the binary from an earlier successful install, restored by the workflow cache.
+        if not cached.exists():
+            raise
+        print(f"Install failed, using the cached {binary}", file=sys.stderr)
+        shutil.copy2(cached, bin_dir / binary)
+        return
+    installed = bin_dir / binary
+    if installed.exists():
+        cached.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(installed, cached)
+        # The workflow saves the cache only after a fresh install.
+        if output := os.environ.get("GITHUB_OUTPUT"):
+            with open(output, "a") as handle:
+                handle.write("cli_installed=true\n")
+
+
 def run_review(name: str, base: str) -> Result:
     reviewer = REVIEWERS[name]
     command = reviewer.command(base)
     os.environ["PATH"] += f":{Path.home() / '.local/bin'}"
     if not shutil.which(command[0]):
-        (Path.home() / ".local/bin").mkdir(parents=True, exist_ok=True)
-        install(reviewer.install)
+        install_cli(command[0], reviewer.install)
     # Without a secret the local CLI session is used, which lets this run on a laptop.
     if os.environ.get(reviewer.secret):
         reviewer.authenticate()

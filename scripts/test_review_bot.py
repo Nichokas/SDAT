@@ -367,5 +367,42 @@ class InstallTests(unittest.TestCase):
         self.assertEqual(run.call_count, review_bot.INSTALL_ATTEMPTS)
 
 
+class InstallCliTests(unittest.TestCase):
+    def setUp(self):
+        self.home = tempfile.TemporaryDirectory()
+        self.addCleanup(self.home.cleanup)
+        env = {"HOME": self.home.name, "REVIEW_BOT_CLI_CACHE": f"{self.home.name}/cache"}
+        patcher = mock.patch.dict(os.environ, env)
+        patcher.start()
+        self.addCleanup(patcher.stop)
+        self.bin = Path(self.home.name) / ".local/bin"
+
+    def test_falls_back_to_the_cached_binary(self):
+        cache = Path(self.home.name) / "cache"
+        cache.mkdir()
+        (cache / "tool").write_text("cached")
+        failure = subprocess.CalledProcessError(1, "bash")
+        with mock.patch.object(review_bot, "install", side_effect=failure):
+            review_bot.install_cli("tool", "script")
+        self.assertEqual((self.bin / "tool").read_text(), "cached")
+
+    def test_fails_without_a_cached_binary(self):
+        failure = subprocess.CalledProcessError(1, "bash")
+        with mock.patch.object(review_bot, "install", side_effect=failure), \
+                self.assertRaises(subprocess.CalledProcessError):
+            review_bot.install_cli("tool", "script")
+
+    def test_caches_a_fresh_install(self):
+        def fake_install(script):
+            (self.bin / "tool").write_text("fresh")
+
+        output = Path(self.home.name) / "output"
+        with mock.patch.object(review_bot, "install", side_effect=fake_install), \
+                mock.patch.dict(os.environ, {"GITHUB_OUTPUT": str(output)}):
+            review_bot.install_cli("tool", "script")
+        self.assertEqual((Path(self.home.name) / "cache/tool").read_text(), "fresh")
+        self.assertIn("cli_installed=true", output.read_text())
+
+
 if __name__ == "__main__":
     unittest.main()
