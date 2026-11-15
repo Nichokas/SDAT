@@ -48,6 +48,8 @@ if ! command -v swiftly >/dev/null; then
   # swiftly only knows LTS releases; a toolchain built for 24.04 needs the oldest glibc, so it runs on every release this script supports.
   "$tmp/swiftly" init --assume-yes --skip-install --quiet-shell-followup --platform ubuntu24.04
   rm -rf "$tmp"
+fi
+if [ -f "$HOME/.local/share/swiftly/env.sh" ]; then
   # shellcheck disable=SC1091
   . "$HOME/.local/share/swiftly/env.sh"
 fi
