@@ -30,6 +30,9 @@ const ATTACH_EVERY: Duration = Duration::from_secs(30);
 /// State reads while an event stream is down.
 const POLL_EVERY: Duration = Duration::from_secs(15);
 const CALL_TIMEOUT: Duration = Duration::from_secs(30);
+/// First wait before a failed write or arrival is tried again, and the longest.
+const RETRY: Duration = Duration::from_secs(5);
+const MAX_RETRY: Duration = Duration::from_mins(1);
 /// How long after taking over a queue the app has to load it.
 const TAKEOVER: Duration = Duration::from_secs(10);
 
@@ -151,7 +154,9 @@ impl Handoff {
     /// [`new_installation_key`], kept by the app.
     pub fn start(installation_key: &str, device_name: &str, listener: Arc<dyn HandoffListener>) -> Result<Self> {
         // A previous instance's late detach would undo this attach.
-        wait_detached(Duration::from_secs(5));
+        if !wait_detached(Duration::from_secs(5)) {
+            return Err(CoreError::Network("an earlier handoff is still detaching".into()));
+        }
         let account = crate::auth::tokens().user_id();
         let me = wire::register(installation_key, device_name)?;
         wire::attach(&me)?;
@@ -170,8 +175,11 @@ impl Handoff {
             streams: Vec::new(),
             last_local: None,
             pending: None,
+            backoff: RETRY,
+            dirty: Some(Instant::now()),
             awaiting: None,
             held: None,
+            arrival: None,
             names: HashMap::new(),
         };
         std::thread::Builder::new().name("handoff".into()).spawn(move || w.run(&rx)).map_err(|e| CoreError::Other(e.to_string()))?;
@@ -237,6 +245,10 @@ fn now_ms() -> i64 {
     chrono::Utc::now().timestamp_millis()
 }
 
+/// Who sent playback here, while it waits to be read.
+#[derive(Clone)]
+struct Arrival(Option<Device>);
+
 struct Worker {
     mirror: Mirror,
     /// The signed-in user at start: after an account switch nothing more is
@@ -249,29 +261,43 @@ struct Worker {
     last_local: Option<LocalPlayback>,
     /// When the last report is due to be written.
     pending: Option<Instant>,
-    /// After taking over a queue: its current track, until the app reports
-    /// it or the deadline passes. Other reports meanwhile are the old local
+    /// Wait before writing again after a failed write.
+    backoff: Duration,
+    /// When TIDAL's state is read next.
+    dirty: Option<Instant>,
+    /// After taking over a queue: what it holds, until the app reports it
+    /// or the deadline passes. Other reports meanwhile are the old local
     /// playback, and would overwrite the queue.
-    awaiting: Option<(String, Instant)>,
+    awaiting: Option<(LocalPlayback, Instant)>,
     /// The last report held back by `awaiting`, written once it ends.
     held: Option<LocalPlayback>,
+    /// This device was made active but its queue could not be read yet.
+    arrival: Option<Arrival>,
     /// Installation names, for devices that are no longer attached.
     names: HashMap<String, String>,
 }
 
 impl Worker {
     fn run(&mut self, rx: &Receiver<Cmd>) {
-        let mut dirty: Option<Instant> = Some(Instant::now());
         let mut next_attach = Instant::now() + ATTACH_EVERY;
         let mut next_poll = Instant::now() + POLL_EVERY;
         loop {
-            let wake = [self.pending, self.awaiting.as_ref().map(|a| a.1), dirty, Some(next_attach), Some(next_poll)].into_iter().flatten().min().unwrap_or(next_poll);
+            let wake = [self.pending, self.awaiting.as_ref().map(|a| a.1), self.dirty, Some(next_attach), Some(next_poll)]
+                .into_iter()
+                .flatten()
+                .min()
+                .unwrap_or(next_poll);
             match rx.recv_timeout(wake.saturating_duration_since(Instant::now())) {
                 Ok(Cmd::Report(l)) => self.reported(l),
                 Ok(Cmd::Changed) => {
-                    dirty.get_or_insert_with(|| Instant::now() + SETTLE);
+                    self.dirty.get_or_insert_with(|| Instant::now() + SETTLE);
                 }
                 Ok(Cmd::SendTo(id, deadline, reply)) => {
+                    // The user acts on what plays now, held back or not.
+                    if let Some(l) = self.held.take() {
+                        self.awaiting = None;
+                        self.last_local = Some(l);
+                    }
                     self.pending = None;
                     let _ = reply.send(self.send_to(&id, deadline));
                 }
@@ -304,9 +330,11 @@ impl Worker {
                 self.pending = None;
                 self.write_local(false);
             }
-            if dirty.is_some_and(|d| d <= now) {
-                dirty = None;
-                self.refresh();
+            if self.dirty.is_some_and(|d| d <= now) {
+                self.dirty = None;
+                if let Err(e) = self.refresh() {
+                    log::info!("handoff: state read failed error={e}");
+                }
             }
             if next_attach <= now {
                 next_attach = now + ATTACH_EVERY;
@@ -318,21 +346,29 @@ impl Worker {
             }
             if next_poll <= now {
                 next_poll = now + POLL_EVERY;
-                if self.streams.is_empty() || self.streams.iter().any(Follower::is_down) {
-                    self.refresh();
+                if (self.streams.is_empty() || self.streams.iter().any(Follower::is_down))
+                    && let Err(e) = self.refresh()
+                {
+                    log::info!("handoff: state read failed error={e}");
                 }
             }
         }
     }
 
     fn reported(&mut self, l: LocalPlayback) {
-        if let Some((track, _)) = &self.awaiting {
-            if l.current.as_ref() != Some(track) {
+        if let Some((resumed, _)) = &self.awaiting {
+            if l.current != resumed.current || l.future != resumed.future {
                 self.held = Some(l);
                 return;
             }
             self.awaiting = None;
             self.held = None;
+        }
+        // A pause and a play within one throttle window must both be seen:
+        // starting to play is what claims the active player.
+        if self.pending.is_some() && self.last_local.as_ref().is_some_and(|p| p.playing != l.playing) {
+            self.pending = None;
+            self.write_local(false);
         }
         self.last_local = Some(l);
         self.pending.get_or_insert_with(|| Instant::now() + THROTTLE);
@@ -355,27 +391,17 @@ impl Worker {
         }
     }
 
-    /// Reads TIDAL's state and tells the app what changed.
     fn same_account(&self) -> bool {
         crate::auth::tokens().user_id() == self.account
     }
 
-    fn refresh(&mut self) {
+    /// Reads TIDAL's state and tells the app what changed.
+    fn refresh(&mut self) -> Result<()> {
         if !self.same_account() {
-            return;
+            return Err(CoreError::NotSignedIn);
         }
-        let read = || -> Result<_> {
-            let state = wire::state()?;
-            let head = state.queue_id.as_deref().map(wire::head_with_track).transpose()?;
-            Ok((state, head))
-        };
-        let (state, head) = match read() {
-            Ok(r) => r,
-            Err(e) => {
-                log::info!("handoff: state read failed error={e}");
-                return;
-            }
-        };
+        let state = wire::state()?;
+        let head = state.queue_id.as_deref().map(wire::head_with_track).transpose()?;
         self.follow(&[state.stream.clone(), head.as_ref().and_then(|h| h.stream.clone())]);
         for p in &state.players {
             self.names.insert(p.id.clone(), p.name.clone());
@@ -387,40 +413,75 @@ impl Worker {
         for o in self.mirror.fetched(state, head, by.clone()) {
             match o {
                 Out::Event(ev) => self.emit(*ev),
-                Out::Arrive => match self.resume(None, by.clone()) {
-                    Ok(r) => self.emit(HandoffEvent::Arrived(r)),
-                    Err(e) => log::warn!("handoff: arrived queue unreadable error={e}"),
-                },
+                Out::Arrive => self.arrival = Some(Arrival(by.clone())),
             }
         }
+        if !self.mirror.is_active() {
+            self.arrival = None;
+        }
+        if let Some(Arrival(from)) = self.arrival.clone() {
+            match self.resume(None, from) {
+                Ok(r) => {
+                    self.arrival = None;
+                    self.emit(HandoffEvent::Arrived(r));
+                }
+                Err(e) => {
+                    log::warn!("handoff: arrived queue unreadable, retrying error={e}");
+                    self.dirty.get_or_insert_with(|| Instant::now() + RETRY);
+                }
+            }
+        }
+        Ok(())
+    }
+
+    /// Makes this device the active player; an error if TIDAL picked another.
+    fn claim(&mut self) -> Result<()> {
+        let active = wire::set_active(self.mirror.me())?;
+        if active.as_deref() != Some(self.mirror.me()) {
+            return Err(CoreError::Other("TIDAL did not make this device active".into()));
+        }
+        self.mirror.claimed(active);
+        Ok(())
     }
 
     /// Reads the queue for playing it here, from the device that wrote it.
     /// `claim` makes this device active once the queue proved readable.
     fn resume(&mut self, claim: Option<Instant>, from: Option<Device>) -> Result<Resume> {
         let queue = self.mirror.queue_id().ok_or_else(|| CoreError::Other("nothing to continue".into()))?.to_string();
-        let head = wire::head_with_track(&queue)?;
+        // The source may move on between the reads: read again until they agree.
+        let mut tries = 0;
+        let (head, mut entries, future) = loop {
+            let head = wire::head_with_track(&queue)?;
+            let (entries, future) = wire::future_tracks(&queue, MAX_FUTURE)?;
+            tries += 1;
+            if tries == 3 || wire::head(&queue)?.revision == head.revision {
+                break (head, entries, future);
+            }
+        };
         let (Some(current), Some(track)) = (head.current.clone(), head.track.clone()) else {
             return Err(CoreError::Other("nothing to continue".into()));
         };
-        let (mut entries, future) = wire::future_tracks(&queue, MAX_FUTURE)?;
         if let Some(deadline) = claim {
             past(deadline)?;
-            let active = wire::set_active(self.mirror.me())?;
-            self.mirror.claimed(active);
+            self.claim()?;
         }
         let duration = i64::try_from(track.duration().as_millis()).unwrap_or(i64::MAX);
         // A pull takes over a player that may still be playing; a push wrote its exact position.
         let playing = claim.is_some() && self.mirror.state().status == wire::Status::Playing;
         let now = now_ms();
         let position_ms = mirror::position_now(head.position_ms.unwrap_or(0), head.position_at_ms.unwrap_or(now), now, playing, duration);
+        let resumed = LocalPlayback {
+            current: Some(track.id().to_string()),
+            future: future.iter().map(|t| t.id().to_string()).collect(),
+            ..LocalPlayback::default()
+        };
         entries.insert(0, current);
         self.mirror.adopt(entries, &head, position_ms, now);
         // A report from before this would overwrite the queue just taken over.
         self.pending = None;
         self.last_local = None;
         self.held = None;
-        self.awaiting = Some((track.id().to_string(), Instant::now() + TAKEOVER));
+        self.awaiting = Some((resumed, Instant::now() + TAKEOVER));
         let from = from
             .or_else(|| head.updated_by.as_deref().and_then(|id| self.mirror.device(id)))
             .unwrap_or_else(|| Device { id: head.updated_by.clone().unwrap_or_default(), name: String::new() });
@@ -431,8 +492,10 @@ impl Worker {
         if !self.same_account() {
             return Err(CoreError::NotSignedIn);
         }
-        self.refresh();
+        // Never continue from a remembered queue: it may be gone.
+        self.refresh()?;
         let from = self.mirror.state().active.as_deref().filter(|a| *a != self.mirror.me()).and_then(|a| self.mirror.device(a));
+        self.arrival = None;
         self.resume(Some(deadline), from)
     }
 
@@ -445,9 +508,8 @@ impl Worker {
         if self.last_local.as_ref().is_none_or(|l| l.current.is_none()) {
             return Err(CoreError::Other("nothing playing".into()));
         }
-        if !self.mirror.is_active() {
-            let active = wire::set_active(self.mirror.me())?;
-            self.mirror.claimed(active);
+        if self.mirror.state().active.as_deref() != Some(self.mirror.me()) {
+            self.claim()?;
         }
         if !self.write_local(true) {
             return Err(CoreError::Other("could not write the queue".into()));
@@ -457,8 +519,7 @@ impl Worker {
         self.mirror.status_written(false);
         if wire::set_active(id)?.as_deref() != Some(id) {
             // An unattached target leaves no active player: take it back.
-            let active = wire::set_active(self.mirror.me())?;
-            self.mirror.claimed(active);
+            self.claim()?;
             if self.last_local.as_ref().is_some_and(|l| l.playing) {
                 wire::set_status(true)?;
                 self.mirror.status_written(true);
@@ -469,7 +530,8 @@ impl Worker {
         Ok(())
     }
 
-    /// Writes the last report; `exact` also writes its position. `false` on failure.
+    /// Writes the last report; `exact` also writes its position. `false` on
+    /// failure, and then it is tried again later.
     fn write_local(&mut self, exact: bool) -> bool {
         let Some(local) = self.last_local.clone() else { return true };
         if !self.same_account() {
@@ -480,10 +542,15 @@ impl Worker {
         }
         let writes = self.mirror.plan(&local, now_ms());
         match self.apply(writes, &local) {
-            Ok(()) => true,
+            Ok(()) => {
+                self.backoff = RETRY;
+                true
+            }
             Err(e) => {
-                log::warn!("handoff: write failed error={e}");
+                log::warn!("handoff: write failed, retrying in {}s error={e}", self.backoff.as_secs());
                 self.mirror.write_failed();
+                self.pending.get_or_insert_with(|| Instant::now() + self.backoff);
+                self.backoff = (self.backoff * 2).min(MAX_RETRY);
                 false
             }
         }
@@ -492,11 +559,12 @@ impl Worker {
     fn apply(&mut self, writes: Vec<Write>, local: &LocalPlayback) -> Result<()> {
         let me = self.mirror.me().to_string();
         for w in writes {
+            // A sign-in to another account during the batch ends it.
+            if !self.same_account() {
+                return Err(CoreError::NotSignedIn);
+            }
             match w {
-                Write::Claim => {
-                    let active = wire::set_active(&me)?;
-                    self.mirror.claimed(active);
-                }
+                Write::Claim => self.claim()?,
                 Write::NewQueue => self.mirror.queue_created(wire::create_queue()?),
                 Write::Queue(tracks) => {
                     let q = self.queue()?;

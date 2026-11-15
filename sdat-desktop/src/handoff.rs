@@ -28,6 +28,9 @@ thread_local! {
     static CONTINUING: Cell<bool> = const { Cell::new(false) };
     static LAST_TRACK: RefCell<Option<String>> = const { RefCell::new(None) };
     static LAST_STATUS: Cell<Option<(PlaybackStatus, bool)>> = const { Cell::new(None) };
+    /// Bumped on every track start, repeats included: a send or continue
+    /// that finishes after a newer start leaves that playback alone.
+    static STARTS: Cell<u64> = const { Cell::new(0) };
 }
 
 const RETRY: Duration = Duration::from_mins(1);
@@ -222,14 +225,16 @@ pub fn continue_here() {
     let generation = current_generation();
     CONTINUING.with(|c| c.set(true));
     banner().set(None);
+    let started = starts();
     glib::spawn_future_local(async move {
         let r = crate::api::run(move || h.continue_here()).await;
         if generation != current_generation() {
             return;
         }
         CONTINUING.with(|c| c.set(false));
-        // Joined Listen Together meanwhile: the host drives playback now.
-        if crate::live::is_guest() {
+        // Joined Listen Together meanwhile (the host drives playback now), or
+        // the user started something else: that wins.
+        if crate::live::is_guest() || starts() != started {
             return;
         }
         let r = r.and_then(play);
@@ -250,7 +255,7 @@ pub fn send_to(device_id: String) {
     let target = devices().with(|d| d.iter().find(|d| d.id == device_id).map(name)).unwrap_or_else(|| tr("another device"));
     h.report(local_now(None));
     let generation = current_generation();
-    let sent = player::current_track_id();
+    let sent = starts();
     glib::spawn_future_local(async move {
         let r = crate::api::run(move || h.send_to(&device_id)).await;
         if generation != current_generation() {
@@ -259,7 +264,7 @@ pub fn send_to(device_id: String) {
         match r {
             Ok(()) => {
                 // Not what the user (or a joined Listen Together host) started while the send ran.
-                if player::current_track_id() == sent && !crate::live::is_guest() {
+                if starts() == sent && !crate::live::is_guest() {
                     player::pause();
                 }
                 player::toasts().notify(&trf("Playing on %s", &[&target]));
@@ -341,8 +346,19 @@ fn report() {
 }
 
 /// Player subscriptions, installed once; they only act while started.
+fn starts() -> u64 {
+    STARTS.with(Cell::get)
+}
+
 fn install_hooks() {
     player::track_changed().on_lazy(|_| {
+        STARTS.with(|s| s.set(s.get() + 1));
+        report();
+        CONTINUE
+    });
+    // A repeat-one restart moves the position back to 0 without a track change.
+    player::track_repeated().on(|_| {
+        STARTS.with(|s| s.set(s.get() + 1));
         report();
         CONTINUE
     });

@@ -166,6 +166,8 @@ final class Player {
         // `start` swaps the item only once the new stream is fetched; the old song must not keep playing meanwhile.
         avPlayer.pause()
         avPlayer.removeAllItems()
+        // Where the other device was, not the nearest segment start.
+        exactResume = true
         load(0, resumeAt: max(secs, 0))
     }
 
@@ -268,6 +270,7 @@ final class Player {
     /// Pauses, also a start still loading: it then ends paused.
     func pause() {
         if loading { holdAutoplay = true }
+        resumeAfterInterruption = false
         if isPlaying { toggle() }
     }
 
@@ -602,7 +605,11 @@ final class Player {
                     let more = await fetchMore(from: source)
                     guard infinite === source else { return }
                     loading = false
-                    if more { advance(auto: auto) } else { stopAtEnd() }
+                    guard more else { stopAtEnd(); return }
+                    // A pause while the refill loaded holds for the track it starts.
+                    let held = holdAutoplay
+                    advance(auto: auto)
+                    if held { holdAutoplay = true }
                 }
                 return
             }
@@ -652,6 +659,9 @@ final class Player {
     private func start(_ track: Track, resumeAt: Double = 0, autoplay: Bool = true) {
         needsStart = false
         holdAutoplay = false
+        starts += 1
+        let exact = exactResume
+        exactResume = false
         adopt(track, stream: nil)
         loading = true
         position = resumeAt
@@ -685,7 +695,7 @@ final class Player {
                     return
                 }
                 if resumeAt > 0 {
-                    let tol: CMTime = liveFollowing ? .zero : .positiveInfinity
+                    let tol: CMTime = liveFollowing || exact ? .zero : .positiveInfinity
                     await avPlayer.seek(to: CMTime(seconds: resumeAt, preferredTimescale: 600),
                                         toleranceBefore: tol, toleranceAfter: tol)
                 }
@@ -848,6 +858,10 @@ final class Player {
     @ObservationIgnored private var needsStart = false
     /// `pause()` came while a start was loading.
     @ObservationIgnored private var holdAutoplay = false
+    /// The next start seeks to its position exactly (a handoff).
+    @ObservationIgnored private var exactResume = false
+    /// Bumped on every start: tells one playback from a later one of the same track.
+    @ObservationIgnored private(set) var starts = 0
     @ObservationIgnored private var restoredInfinite = false
     @ObservationIgnored private var lastSave = Date.distantPast
     @ObservationIgnored private var restoring = true

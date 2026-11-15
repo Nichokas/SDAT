@@ -137,11 +137,13 @@ impl Mirror {
         let started = local.playing && !self.local_playing;
         self.local_playing = local.playing;
         let mut out = Vec::new();
-        if !self.is_active() {
-            if !started || local.current.is_none() {
+        if self.state.active.as_deref() != Some(self.me.as_str()) {
+            // Also after this device's own attachment lapsed: claiming is harmless then.
+            if started && local.current.is_some() {
+                out.push(Write::Claim);
+            } else if !self.is_active() {
                 return out;
             }
-            out.push(Write::Claim);
         }
         let Some(cur) = &local.current else {
             if self.state.status == Status::Playing {
@@ -440,6 +442,14 @@ mod tests {
         assert!(matches!(m.plan(&local("1", &["2", "3", "4"], 0, true), 0).first(), Some(Write::Queue(_))));
         m.current_written(1, 0, true, 0, "r".into());
         assert!(matches!(m.plan(&local("2", &["3", "4"], 0, true), 0).first(), Some(Write::Queue(_))));
+    }
+
+    #[test]
+    fn starting_after_a_lapsed_attachment_claims_again() {
+        let mut m = active_with(&["1"]);
+        m.fetched(state(None, Status::Paused), None, None);
+        m.local_playing = false;
+        assert_eq!(m.plan(&local("1", &[], 0, true), 0).first(), Some(&Write::Claim));
     }
 
     #[test]

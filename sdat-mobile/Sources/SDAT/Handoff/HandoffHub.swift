@@ -131,11 +131,13 @@ final class HandoffHub {
         guard let h = handoff, !continuing, !Live.shared.isGuest else { return }
         continuing = true
         let gen = generation
+        let started = player.starts
         Task {
             do {
                 let r = try await h.continueHere()
-                // Joined Listen Together meanwhile: the host drives playback now.
-                if gen == generation, !Live.shared.isGuest { play(r) }
+                // Joined Listen Together meanwhile (the host drives playback now), or
+                // the user started something else: that wins.
+                if gen == generation, !Live.shared.isGuest, player.starts == started { play(r) }
             } catch {
                 Chrome.shared.flash("Couldn't continue here")
             }
@@ -146,12 +148,13 @@ final class HandoffHub {
     func send(to device: HandoffDevice) {
         guard let h = handoff else { return }
         report(force: true)
-        let sent = player.current?.id
+        let sent = player.starts
+        let gen = generation
         Task {
             do {
                 try await h.sendTo(deviceId: device.id)
                 // Not what the user started while the send ran.
-                if player.current?.id == sent, !Live.shared.isGuest { player.pause() }
+                if player.starts == sent, gen == generation, !Live.shared.isGuest { player.pause() }
                 Chrome.shared.flash("Playing on \(Self.name(device))")
             } catch {
                 Chrome.shared.flash("Couldn't send to \(Self.name(device))")

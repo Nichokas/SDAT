@@ -563,6 +563,7 @@ fn next_now() {
 }
 
 pub fn pause() {
+    PAUSES.with(|p| p.set(p.get() + 1));
     fire(Trigger::Pause);
 }
 
@@ -760,6 +761,8 @@ thread_local! {
     /// Bumped whenever the base queue is replaced, so background fetches for
     /// an older list can tell they are stale.
     static LIST_GENERATION: std::cell::Cell<u64> = const { std::cell::Cell::new(0) };
+    /// Bumped by every pause, so a delayed start knows a later one came.
+    static PAUSES: std::cell::Cell<u64> = const { std::cell::Cell::new(0) };
 }
 
 /// Plays `tracks` as the queue starting at the clicked row; earlier rows go to
@@ -977,6 +980,7 @@ pub fn play_at(source: Option<PlaybackSource>, tracks: Vec<Track>, position: Dur
     }
     pause();
     let generation = LIST_GENERATION.with(Cell::get);
+    let paused = PAUSES.with(Cell::get);
     let gate = std::cell::RefCell::new(StartGate::default());
     playback_state_changed().on_lazy(move |ps| {
         if LIST_GENERATION.with(Cell::get) != generation {
@@ -990,7 +994,11 @@ pub fn play_at(source: Option<PlaybackSource>, tracks: Vec<Track>, position: Dur
                 let id = started.id().to_string();
                 glib::timeout_add_local(Duration::from_millis(100), move || {
                     tries += 1;
-                    if LIST_GENERATION.with(Cell::get) != generation || current_track_id().as_deref() != Some(id.as_str()) {
+                    // Another list or track, or a pause (a send elsewhere, say) came since.
+                    if LIST_GENERATION.with(Cell::get) != generation
+                        || current_track_id().as_deref() != Some(id.as_str())
+                        || PAUSES.with(Cell::get) != paused
+                    {
                         return glib::ControlFlow::Break;
                     }
                     let seeked = try_seek(position, true);
