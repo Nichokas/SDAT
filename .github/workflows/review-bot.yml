@@ -102,7 +102,14 @@ jobs:
           merge_base=$(git merge-base HEAD "origin/$BASE")
           git branch -f "$BASE" "$merge_base"
           git update-ref "refs/remotes/origin/$BASE" "$merge_base"
+      - name: Restore the reviewer CLI cache
+        uses: actions/cache/restore@v4
+        with:
+          path: ~/.cache/review-bot-cli
+          key: review-cli-${{ matrix.reviewer }}-${{ github.run_id }}
+          restore-keys: review-cli-${{ matrix.reviewer }}-
       - name: Run ${{ matrix.reviewer }}
+        id: run
         working-directory: pr
         env:
           BASE: ${{ needs.resolve.outputs.base }}
@@ -111,6 +118,12 @@ jobs:
           CUBIC_API_KEY: ${{ matrix.reviewer == 'cubic' && secrets.CUBIC_API_KEY || '' }}
           MACROSCOPE_AUTH: ${{ matrix.reviewer == 'macroscope' && secrets.MACROSCOPE_AUTH || '' }}
         run: python3 ../bot/scripts/review_bot.py run "$REVIEWER" --base "$BASE" --out "../$REVIEWER.json"
+      - name: Save the reviewer CLI cache
+        if: steps.run.outputs.cli_installed == 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: ~/.cache/review-bot-cli
+          key: review-cli-${{ matrix.reviewer }}-${{ github.run_id }}
       - name: Upload the result
         uses: actions/upload-artifact@v4
         with:
