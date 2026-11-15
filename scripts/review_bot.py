@@ -123,6 +123,9 @@ def parse_cubic(reviewer: str, output: Output) -> Result:
 
 
 def parse_macroscope(reviewer: str, output: Output) -> Result:
+    ignored = (json_object(output.stdout) or {}).get("error_code") == "all_files_ignored"
+    if ignored and output.exit_code == 0:
+        return Result(reviewer, Status.SKIPPED, note="Every changed file is ignored by Macroscope.")
     findings = []
     status = ""
     note = ""
