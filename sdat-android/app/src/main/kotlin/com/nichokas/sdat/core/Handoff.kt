@@ -138,18 +138,20 @@ object Handoff {
         val h = link ?: return
         report()
         val sent = player.entry to player.controls
+        val gen = generation
         scope.launch {
             try {
                 h.sendTo(device.id)
-                // Sent: the other device plays now, even if this one stopped following meanwhile,
-                // but not what the user started while the send ran.
+                // Signed out or into another account meanwhile: nothing of this send applies here.
+                if (gen != generation) return@launch
+                // Not what the user started while the send ran.
                 if ((player.entry to player.controls) == sent && !Live.isGuest) player.pause()
                 Chrome.flash("Playing on ${device.label}")
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
                 Log.i(TAG, "send to failed: $e")
-                Chrome.flash("Couldn't send to ${device.label}")
+                if (gen == generation) Chrome.flash("Couldn't send to ${device.label}")
             }
         }
     }

@@ -555,7 +555,18 @@ impl Worker {
                 self.last_local_at = at;
                 self.mirror.force_position();
                 self.pending.get_or_insert_with(Instant::now);
-            } else if !(l.playing && l.current.is_some() && l.current != sent) {
+            } else if state.active.is_none() {
+                // Nobody took it: the send failed, and playback stays here. Playing claims
+                // again (and writes its status); a paused report writes nothing.
+                if l.playing {
+                    self.mirror.reset_start();
+                }
+                self.last_local = Some(l);
+                self.last_local_at = at;
+                self.pending.get_or_insert_with(Instant::now);
+            } else if !l.playing {
+                // Paused here since the send: nothing to hold back, and a later play is a start.
+            } else if !(l.current.is_some() && l.current != sent) {
                 // The send went through: the old playback here stops once the move
                 // arrives, and its reports until then claim nothing.
                 self.sent = sent;
