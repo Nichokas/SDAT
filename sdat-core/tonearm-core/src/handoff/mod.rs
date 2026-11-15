@@ -356,12 +356,6 @@ impl Worker {
                     self.dirty.get_or_insert_with(|| Instant::now() + SETTLE);
                 }
                 Ok(Cmd::SendTo(id, deadline, reply)) => {
-                    // The user acts on what plays now, held back or not.
-                    if let Some(l) = self.held.take() {
-                        self.awaiting = None;
-                        self.last_local = Some(l);
-                        self.last_local_at = Instant::now();
-                    }
                     // The pending report stays scheduled: a send that fails early must not drop it.
                     let _ = reply.send(self.send_to(&id, deadline));
                 }
@@ -523,7 +517,7 @@ impl Worker {
         let fresh_push = !self.mirror.has_fetched()
             && state.active.as_deref() == Some(me)
             && head.as_ref().is_some_and(|h| {
-                h.updated_by.as_deref().is_some_and(|u| u != me) && h.position_at_ms.is_some_and(|at| now_ms() - at < FRESH_PUSH_MS)
+                h.updated_by.as_deref().is_some_and(|u| u != me) && h.position_at_ms.is_some_and(|at| (0..FRESH_PUSH_MS).contains(&(now_ms() - at)))
             });
         if fresh_push {
             self.arrival = Some(Arrival(by.clone()));
@@ -663,6 +657,18 @@ impl Worker {
         Err(CoreError::Network("the queue kept changing while it was read".into()))
     }
 
+    /// A send that took playback from another device and then failed: that
+    /// device gets its queue selected again and playback back.
+    fn undo_send(&mut self, claimed: bool, before: Option<&str>, their_queue: Option<&str>, e: CoreError) -> CoreError {
+        if let Some(q) = their_queue {
+            match self.checked(|| wire::select_queue(q)) {
+                Ok(()) => self.mirror.queue_created(q.to_string()),
+                Err(e) => log::warn!("handoff: could not select the other device's queue again error={e}"),
+            }
+        }
+        self.undo_claim(claimed, before, e)
+    }
+
     /// A pull that claimed and then failed hands playback back to where it was.
     fn undo_claim(&mut self, claimed: bool, before: Option<&str>, e: CoreError) -> CoreError {
         let (true, Some(b)) = (claimed, before) else { return e };
@@ -702,21 +708,34 @@ impl Worker {
         }
         // Only before the first write: once started, the send runs to an answer.
         past(deadline)?;
+        // Playback just taken over is not loaded here yet: what reports would send is the old one.
+        if self.awaiting.is_some() {
+            return Err(CoreError::Other("still taking over playback".into()));
+        }
         if self.last_local.as_ref().is_none_or(|l| l.current.is_none()) {
             return Err(CoreError::Other("nothing playing".into()));
         }
         // The player this claim displaces, handed back if the send fails before the hand-over.
         let before = self.mirror.state().active.clone().filter(|a| a != self.mirror.me());
         let claimed = self.mirror.state().active.as_deref() != Some(self.mirror.me());
+        // Its queue stays as it was: this device writes into a queue of its own.
+        let their_queue = self.mirror.queue_id().map(str::to_string).filter(|_| before.is_some());
         if claimed {
             self.claim()?;
         }
+        if their_queue.is_some() {
+            match self.checked(wire::create_queue) {
+                Ok(q) => self.mirror.queue_created(q),
+                Err(e) => return Err(self.undo_send(claimed, before.as_deref(), their_queue.as_deref(), e)),
+            }
+        }
         if !self.write_local(true) {
-            return Err(self.undo_claim(claimed, before.as_deref(), CoreError::Other("could not write the queue".into())));
+            let e = CoreError::Other("could not write the queue".into());
+            return Err(self.undo_send(claimed, before.as_deref(), their_queue.as_deref(), e));
         }
         // Paused before the target owns the state, so this write cannot land after its own.
         if let Err(e) = self.checked(|| wire::set_status(false)) {
-            return Err(self.undo_claim(claimed, before.as_deref(), e));
+            return Err(self.undo_send(claimed, before.as_deref(), their_queue.as_deref(), e));
         }
         self.mirror.status_written(false);
         // A failed call leaves the outcome unknown: read who is active now.
@@ -727,7 +746,13 @@ impl Worker {
         let me = self.mirror.me().to_string();
         match active {
             Ok(Some(a)) if a == id => {}
-            // An unattached target leaves no active player: take it back and undo the pause.
+            // An unattached target leaves no active player: hand playback back to
+            // the device this send took it from, if any.
+            Ok(a) if before.is_some() && (a.is_none() || a.as_deref() == Some(me.as_str())) => {
+                let e = CoreError::Other("the device is not available".into());
+                return Err(self.undo_send(claimed, before.as_deref(), their_queue.as_deref(), e));
+            }
+            // Otherwise take it back here and undo the pause.
             Ok(a) if a.is_none() || a.as_deref() == Some(me.as_str()) => {
                 let playing = self.last_local.as_ref().is_some_and(|l| l.playing);
                 let restored = self.claim().is_ok() && (!playing || wire::set_status(true).is_ok());

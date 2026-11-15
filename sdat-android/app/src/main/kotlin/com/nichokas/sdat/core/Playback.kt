@@ -654,6 +654,8 @@ class Playback(context: Context, private val prefs: Preferences, secrets: Secret
 
     /** Another device's playback (Handoff), loaded like the queue saved at launch and played from [atMs]. */
     fun resume(current: Track, future: List<Track>, atMs: Long, repeat: Repeat) {
+        // An arrival that plays here is newer than a Continue here still on its way.
+        controls++
         val (saved, state) = resumed(current, future, maxOf(atMs, 0) / 1000.0, repeat)
         queue.restore(saved, state)
         replaceInfinite(null)

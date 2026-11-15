@@ -137,13 +137,13 @@ object Handoff {
     fun sendTo(device: HandoffDevice) {
         val h = link ?: return
         report()
-        val sent = player.entry
+        val sent = player.entry to player.controls
         scope.launch {
             try {
                 h.sendTo(device.id)
                 // Sent: the other device plays now, even if this one stopped following meanwhile,
                 // but not what the user started while the send ran.
-                if (player.entry == sent && !Live.isGuest) player.pause()
+                if ((player.entry to player.controls) == sent && !Live.isGuest) player.pause()
                 Chrome.flash("Playing on ${device.label}")
             } catch (e: CancellationException) {
                 throw e

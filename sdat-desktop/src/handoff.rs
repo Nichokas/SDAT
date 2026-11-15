@@ -260,7 +260,7 @@ pub fn send_to(device_id: String) {
     let target = devices().with(|d| d.iter().find(|d| d.id == device_id).map(name)).unwrap_or_else(|| tr("another device"));
     h.report(local_now(None));
     let generation = current_generation();
-    let sent = (starts(), player::play_requests());
+    let sent = (starts(), player::play_requests(), player::plays());
     glib::spawn_future_local(async move {
         let r = crate::api::run(move || h.send_to(&device_id)).await;
         if generation != current_generation() {
@@ -269,7 +269,7 @@ pub fn send_to(device_id: String) {
         match r {
             Ok(()) => {
                 // Not what the user (or a joined Listen Together host) started while the send ran.
-                if (starts(), player::play_requests()) == sent && !crate::live::is_guest() {
+                if (starts(), player::play_requests(), player::plays()) == sent && !crate::live::is_guest() {
                     player::pause();
                 }
                 player::toasts().notify(&trf("Playing on %s", &[&target]));

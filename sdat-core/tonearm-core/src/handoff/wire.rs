@@ -288,6 +288,11 @@ pub(super) fn create_queue() -> Result<String> {
     Ok(id)
 }
 
+/// Selects an existing queue for the account.
+pub(super) fn select_queue(id: &str) -> Result<()> {
+    call(Method::PATCH, "/v2/userPlaybackStates/me/relationships/playQueue", Some(&json!({"data": {"type": "playQueues", "id": id}}))).map(drop)
+}
+
 /// Makes `id` the active player; returns who TIDAL says is active now.
 pub(super) fn set_active(id: &str) -> Result<Option<String>> {
     let v = call(Method::PATCH, "/v2/userPlaybackStates/me/relationships/activePlayer", Some(&json!({"data": {"type": "installations", "id": id}})))?;
