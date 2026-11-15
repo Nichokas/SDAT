@@ -440,6 +440,11 @@ fn sign_in(window: &adw::ApplicationWindow) {
             }
             Ok(resp) => {
                 let token = resp.refresh_token.clone();
+                // Over a session: the old one detaches with its own credentials first.
+                let replacing = state::signed_in_changed().get();
+                if replacing {
+                    crate::handoff::stop();
+                }
                 if let Err(e) = api::run(move || secrets::set_refresh_token(&token)).await {
                     log::error!("failed to store refresh token error={e:#}");
                     toast(&tr("Sign in failed: the keyring could not store the session"));
@@ -447,6 +452,9 @@ fn sign_in(window: &adw::ApplicationWindow) {
                 }
                 session_changed().await;
                 state::notify_signed_in_changed();
+                if replacing {
+                    crate::handoff::start();
+                }
                 toast(&trf("Signed in as %s", &[&resp.user.email]));
                 router::refresh();
             }

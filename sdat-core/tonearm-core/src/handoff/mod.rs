@@ -156,6 +156,7 @@ impl Handoff {
         let devices = Arc::new(Mutex::new(Vec::new()));
         let mut w = Worker {
             mirror: Mirror::new(me),
+            account: crate::auth::tokens().user_id(),
             listener,
             devices: Arc::clone(&devices),
             tx: tx.clone(),
@@ -229,6 +230,9 @@ fn now_ms() -> i64 {
 
 struct Worker {
     mirror: Mirror,
+    /// The signed-in user at start: after an account switch nothing more is
+    /// read or written with the new account's credentials.
+    account: String,
     listener: Arc<dyn HandoffListener>,
     devices: Arc<Mutex<Vec<Device>>>,
     tx: Sender<Cmd>,
@@ -288,7 +292,9 @@ impl Worker {
             }
             if next_attach <= now {
                 next_attach = now + ATTACH_EVERY;
-                if let Err(e) = wire::attach(self.mirror.me()) {
+                if self.same_account()
+                    && let Err(e) = wire::attach(self.mirror.me())
+                {
                     log::info!("handoff: attach failed error={e}");
                 }
             }
@@ -319,7 +325,14 @@ impl Worker {
     }
 
     /// Reads TIDAL's state and tells the app what changed.
+    fn same_account(&self) -> bool {
+        crate::auth::tokens().user_id() == self.account
+    }
+
     fn refresh(&mut self) {
+        if !self.same_account() {
+            return;
+        }
         let read = || -> Result<_> {
             let state = wire::state()?;
             let head = state.queue_id.as_deref().map(wire::head_with_track).transpose()?;
@@ -382,12 +395,18 @@ impl Worker {
     }
 
     fn continue_here(&mut self, deadline: Instant) -> Result<Resume> {
+        if !self.same_account() {
+            return Err(CoreError::NotSignedIn);
+        }
         self.refresh();
         let from = self.mirror.state().active.as_deref().filter(|a| *a != self.mirror.me()).and_then(|a| self.mirror.device(a));
         self.resume(Some(deadline), from)
     }
 
     fn send_to(&mut self, id: &str, deadline: Instant) -> Result<()> {
+        if !self.same_account() {
+            return Err(CoreError::NotSignedIn);
+        }
         if self.last_local.as_ref().is_none_or(|l| l.current.is_none()) {
             return Err(CoreError::Other("nothing playing".into()));
         }
@@ -419,6 +438,9 @@ impl Worker {
     /// Writes the last report; `exact` also writes its position. `false` on failure.
     fn write_local(&mut self, exact: bool) -> bool {
         let Some(local) = self.last_local.clone() else { return true };
+        if !self.same_account() {
+            return false;
+        }
         if exact {
             self.mirror.force_position();
         }

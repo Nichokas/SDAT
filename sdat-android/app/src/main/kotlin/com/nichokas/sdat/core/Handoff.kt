@@ -41,6 +41,8 @@ object Handoff {
     private lateinit var prefs: Preferences
     private lateinit var deviceName: () -> String
     private var link: HandoffLink? = null
+    /** Signed in, and in the foreground or playing. */
+    private var wanted = false
     /** Bumped on every start and stop; core callbacks carry the value they began with. */
     private var generation = 0
 
@@ -50,7 +52,7 @@ object Handoff {
         this.deviceName = deviceName
         player.onChange = ::report
         scope.launch {
-            snapshotFlow { session.signedIn && (foreground || player.playing) }.collect { if (it) start() else stop() }
+            snapshotFlow { session.signedIn && (foreground || player.playing) }.collect { wanted = it; if (it) start() else stop() }
         }
         // Also a pause tapped while a stream loads, which the queue saver is not told about.
         scope.launch { snapshotFlow { player.playing }.collect { report() } }
@@ -79,6 +81,13 @@ object Handoff {
                 }
             }
         }
+    }
+
+    /** Signing in over a session: the old one detaches with its own credentials, then the new one starts. */
+    fun accountChanging() = stop()
+
+    fun accountChanged() {
+        if (wanted) start()
     }
 
     /** Backgrounded while not playing, and sign-out (before the session is gone, so the detach can still go out). */

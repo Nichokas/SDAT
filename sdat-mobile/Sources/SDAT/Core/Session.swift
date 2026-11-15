@@ -26,6 +26,8 @@ final class Session {
             let login = try await startDeviceLogin()
             pending = login
             let result = try await login.wait()
+            // Over a session: the old one detaches with its own credentials; the hub then starts the new one.
+            if signedIn { HandoffHub.shared.stop() }
             tokens.save(result)
             sessionChanged()
             Boot.shared.start()   // first-time warm-up, only after a fresh sign-in
