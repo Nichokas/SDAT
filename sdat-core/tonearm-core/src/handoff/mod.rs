@@ -30,6 +30,7 @@ const ATTACH_EVERY: Duration = Duration::from_secs(30);
 /// State reads while an event stream is down.
 const POLL_EVERY: Duration = Duration::from_secs(15);
 const CALL_TIMEOUT: Duration = Duration::from_secs(30);
+const WORKER_THREAD: &str = "handoff";
 /// First wait before a failed write or arrival is tried again, and the longest.
 const RETRY: Duration = Duration::from_secs(5);
 const MAX_RETRY: Duration = Duration::from_mins(1);
@@ -102,7 +103,8 @@ pub enum HandoffEvent {
     MovedTo(Device),
 }
 
-/// Called on a background thread.
+/// Called on the handoff's own thread: hand events on, don't block on them.
+/// [`Handoff::send_to`] and [`Handoff::continue_here`] fail when called from it.
 pub trait HandoffListener: Send + Sync {
     fn on_event(&self, ev: HandoffEvent);
 }
@@ -227,7 +229,7 @@ impl Handoff {
             names: HashMap::new(),
         };
         let me = w.mirror.me().to_string();
-        if let Err(e) = std::thread::Builder::new().name("handoff".into()).spawn(move || w.run(&rx)) {
+        if let Err(e) = std::thread::Builder::new().name(WORKER_THREAD.into()).spawn(move || w.run(&rx)) {
             // No worker will ever detach it.
             if released(&me) {
                 drop(wire::detach(&me, None));
@@ -272,6 +274,10 @@ impl Handoff {
     /// Waits for the worker's answer, which always comes: every request has
     /// its own timeout, and past the deadline it refuses to change hands.
     fn call<T>(&self, cmd: impl FnOnce(Instant, Sender<Result<T>>) -> Cmd) -> Result<T> {
+        // From the listener, on the worker thread: waiting for the worker would never end.
+        if std::thread::current().name() == Some(WORKER_THREAD) {
+            return Err(CoreError::Other("handoff: called from its own listener".into()));
+        }
         let (tx, rx) = mpsc::channel();
         self.tx.send(cmd(Instant::now() + CALL_TIMEOUT, tx)).map_err(|_stopped| CoreError::Other("handoff stopped".into()))?;
         rx.recv().map_err(|_stopped| CoreError::Other("handoff stopped".into()))?
