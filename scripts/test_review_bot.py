@@ -3,6 +3,7 @@ import dataclasses
 import io
 import json
 import os
+import subprocess
 import tarfile
 import tempfile
 import unittest
@@ -256,6 +257,22 @@ class MacroscopeRestoreTests(unittest.TestCase):
             restored = Path(home) / ".macroscope" / "credentials"
             self.assertEqual(restored.stat().st_mode & 0o777, 0o700)
             self.assertEqual((restored / "session").read_text(), "token")
+
+
+class InstallTests(unittest.TestCase):
+    def test_retries_until_the_installer_succeeds(self):
+        failure = subprocess.CalledProcessError(1, "bash")
+        with mock.patch("subprocess.run", side_effect=[failure, failure, None]) as run, \
+                mock.patch("time.sleep"):
+            review_bot.install("script")
+        self.assertEqual(run.call_count, 3)
+
+    def test_raises_after_the_last_attempt(self):
+        failure = subprocess.CalledProcessError(1, "bash")
+        with mock.patch("subprocess.run", side_effect=failure) as run, mock.patch("time.sleep"):
+            with self.assertRaises(subprocess.CalledProcessError):
+                review_bot.install("script")
+        self.assertEqual(run.call_count, review_bot.INSTALL_ATTEMPTS)
 
 
 if __name__ == "__main__":
