@@ -26,6 +26,9 @@ struct PlayerSheet: View {
         // the root-level sheet can't present over this one, so present it from here.
         .sheet(isPresented: Binding(get: { showLive },
                                     set: { if !$0 { Live.shared.showSheet = false } })) { LiveSheet() }
+        .sheet(item: Binding(get: { Chrome.shared.showPlayer ? Chrome.shared.playlistPickerTrack : nil },
+                             set: { Chrome.shared.playlistPickerTrack = $0 })) { t in PlaylistPicker(track: t) }
+        .toastOverlay(Chrome.shared.toast)
         .presentationDragIndicator(.visible)
         .presentationBackground(.black)
         .preferredColorScheme(.dark)
