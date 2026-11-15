@@ -9,7 +9,7 @@ set -euo pipefail
 
 ANDROID_HOME="${ANDROID_HOME:-$HOME/Android/Sdk}"
 NDK_VERSION="27.1.12297006"
-PLATFORM="android-37"
+PLATFORM="android-37.0"
 BUILD_TOOLS="37.0.0"
 CMDLINE_TOOLS_ZIP="commandlinetools-linux-11076708_latest.zip"
 
