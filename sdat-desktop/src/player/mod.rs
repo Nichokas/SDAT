@@ -170,6 +170,9 @@ fn with<R>(f: impl FnOnce(&Player) -> R) -> Option<R> {
 }
 
 fn fire(t: Trigger) {
+    if matches!(t, Trigger::PlayTrack(..) | Trigger::Deferred(_)) {
+        PLAY_REQUESTS.with(|r| r.set(r.get() + 1));
+    }
     if with(|p| p.machine.fire(t)).is_none() {
         log::warn!("player not initialised, dropping trigger");
     }
@@ -562,6 +565,12 @@ fn next_now() {
     }
 }
 
+/// Changes as soon as a track start is asked for, unlike `track_changed`,
+/// which fires once its stream has loaded.
+pub fn play_requests() -> u64 {
+    PLAY_REQUESTS.with(std::cell::Cell::get)
+}
+
 pub fn pause() {
     PAUSES.with(|p| p.set(p.get() + 1));
     fire(Trigger::Pause);
@@ -761,6 +770,8 @@ thread_local! {
     /// Bumped whenever the base queue is replaced, so background fetches for
     /// an older list can tell they are stale.
     static LIST_GENERATION: std::cell::Cell<u64> = const { std::cell::Cell::new(0) };
+    /// Bumped when a track start is asked for, before its stream loads.
+    static PLAY_REQUESTS: std::cell::Cell<u64> = const { std::cell::Cell::new(0) };
     /// Bumped by every pause, so a delayed start knows a later one came.
     static PAUSES: std::cell::Cell<u64> = const { std::cell::Cell::new(0) };
 }

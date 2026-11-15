@@ -698,6 +698,8 @@ final class Player {
                     let tol: CMTime = liveFollowing || exact ? .zero : .positiveInfinity
                     await avPlayer.seek(to: CMTime(seconds: resumeAt, preferredTimescale: 600),
                                         toleranceBefore: tol, toleranceAfter: tol)
+                    // A newer start replaced this one during the seek: its item is not ours to play.
+                    guard !Task.isCancelled, avPlayer.currentItem === item else { return }
                 }
                 try? AVAudioSession.sharedInstance().setActive(true)
                 if autoplay, !holdAutoplay {
