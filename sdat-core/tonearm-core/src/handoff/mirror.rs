@@ -249,6 +249,12 @@ impl Mirror {
         self.written = None;
     }
 
+    /// Local playback still runs from before (a send that went elsewhere): a
+    /// playing report of it is no new start, so it claims nothing.
+    pub(super) fn still_playing(&mut self) {
+        self.local_playing = true;
+    }
+
     /// The next playing report counts as a start, and claims the active player.
     pub(super) fn reset_start(&mut self) {
         self.local_playing = false;

@@ -117,7 +117,8 @@ pub fn new_installation_key() -> String {
 }
 
 enum Cmd {
-    Report(LocalPlayback),
+    /// With the time it was reported, which a playing position counts from.
+    Report(LocalPlayback, Instant),
     Changed,
     /// The caller gives up at the deadline: nothing changes hands after it.
     SendTo(String, Instant, Sender<Result<()>>),
@@ -253,7 +254,7 @@ impl Handoff {
     /// Every local change (track, queue, play, pause, seek). Cheap: only
     /// differences are written, and only while this device is active.
     pub fn report(&self, local: LocalPlayback) {
-        let _ = self.tx.send(Cmd::Report(local));
+        let _ = self.tx.send(Cmd::Report(local, Instant::now()));
     }
 
     pub fn devices(&self) -> Vec<Device> {
@@ -371,7 +372,7 @@ impl Worker {
                 .min()
                 .unwrap_or(next_poll);
             match rx.recv_timeout(wake.saturating_duration_since(Instant::now())) {
-                Ok(Cmd::Report(l)) => self.reported(l, Instant::now()),
+                Ok(Cmd::Report(l, at)) => self.reported(l, at),
                 Ok(Cmd::Changed) => {
                     self.dirty.get_or_insert_with(|| Instant::now() + SETTLE);
                 }
@@ -548,7 +549,12 @@ impl Worker {
                 self.last_local_at = at;
                 self.mirror.force_position();
                 self.pending.get_or_insert_with(Instant::now);
-            } else if l.playing && l.current.is_some() && l.current != sent {
+            } else if !(l.playing && l.current.is_some() && l.current != sent) {
+                // The send went through: the old playback here stops once the move
+                // arrives, and its reports until then claim nothing.
+                self.sent = sent;
+                self.mirror.still_playing();
+            } else {
                 // The send went through, but the user started another track here since:
                 // that start claims playback, and isn't paused by the move.
                 if let Some(a) = state.active.as_deref() {
@@ -890,7 +896,9 @@ impl Worker {
                 // report from before the send must not claim playback back.
                 self.ownership_unknown();
                 self.pending = None;
-                self.last_local = None;
+                // Reports of this playback until the move pauses it claim nothing.
+                self.sent = self.last_local.take().and_then(|l| l.current);
+                self.mirror.still_playing();
                 self.rollback_playing = false;
                 self.rollback_queue = None;
                 return Err(CoreError::Other("another device took over playback".into()));
