@@ -495,6 +495,11 @@ impl Machine {
         if matches!(to, State::Preparing | State::Stopped | State::PlayingRetrying) {
             self.reload_on_resume.set(false);
         }
+        // The deferred next / previous started a track: the failure it
+        // waited on is superseded.
+        if to == State::Preparing {
+            self.queue.borrow_mut().retain(|t| !matches!(t, Trigger::ReportError(..)));
+        }
         if matches!(to, State::Preparing | State::Stopped) {
             self.pause_on_start.set(false);
             self.buffering.set(false);
@@ -1275,6 +1280,25 @@ pub mod tests {
             assert_eq!(m.state.get(), State::Stopped);
             assert!(track_changed().get().is_none());
             assert_eq!(ERRORS.with(|v| v.borrow().len()), 1);
+        })
+        .unwrap();
+    }
+
+    /// A start accepted after a deferred report drops it: when that start
+    /// fails too, only its own failure is reported.
+    #[test]
+    fn accepted_start_drops_a_deferred_report() {
+        let ctx = glib::MainContext::new();
+        ctx.with_thread_default(|| {
+            ERRORS.with(|v| v.borrow_mut().clear());
+            let pb = Rc::new(Testbin { state_should_error: true, ..Default::default() });
+            let m = test_machine(&pb);
+            m.fire(Trigger::PlayTrack(Track::default(), false));
+            m.queue.borrow_mut().push_back(Trigger::ReportError(Some("a".into()), "old".into()));
+            while ctx.iteration(false) {}
+            assert_eq!(m.state.get(), State::Stopped);
+            assert_eq!(ERRORS.with(|v| v.borrow().len()), 1);
+            assert_ne!(ERRORS.with(|v| v.borrow()[0].clone()), "old");
         })
         .unwrap();
     }
