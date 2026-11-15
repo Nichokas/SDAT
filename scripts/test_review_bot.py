@@ -267,6 +267,11 @@ class InstallTests(unittest.TestCase):
             review_bot.install("script")
         self.assertEqual(run.call_count, 3)
 
+    def test_a_failed_download_in_a_pipe_fails_the_install(self):
+        with mock.patch("time.sleep"), self.assertRaises(subprocess.CalledProcessError), \
+                mock.patch.object(review_bot, "INSTALL_ATTEMPTS", 1):
+            review_bot.install("false | true")
+
     def test_raises_after_the_last_attempt(self):
         failure = subprocess.CalledProcessError(1, "bash")
         with mock.patch("subprocess.run", side_effect=failure) as run, mock.patch("time.sleep"):

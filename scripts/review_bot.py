@@ -181,7 +181,7 @@ REVIEWERS = {
         secret="MACROSCOPE_AUTH",
         secret_help="created by `set-account macroscope`",
         install=(
-            "curl -sSL https://raw.githubusercontent.com/prassoai/macroscope-local/main/install.sh"
+            "curl -fsSL https://raw.githubusercontent.com/prassoai/macroscope-local/main/install.sh"
             " | bash -s -- --yes --no-wizard"
         ),
         command=lambda base: [
@@ -202,7 +202,7 @@ def install(script: str) -> None:
     # Installers fail on transient network or GitHub API errors, which a rerun fixes.
     for attempt in range(1, INSTALL_ATTEMPTS + 1):
         try:
-            subprocess.run(["bash", "-c", script], check=True)
+            subprocess.run(["bash", "-o", "pipefail", "-c", script], check=True)
             return
         except subprocess.CalledProcessError:
             if attempt == INSTALL_ATTEMPTS:
