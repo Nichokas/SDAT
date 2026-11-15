@@ -25,7 +25,7 @@ Notes for coding agents working on SDAT, a TIDAL player for Fedora (GTK), iPhone
 - `ios-build.yml` – builds the unsigned `.ipa` on macOS; on `v*` tags attaches it to the release.
 - `android-build.yml` – Gradle build, lint and unit tests.
 - `android-release.yml` – signed per-ABI release APKs for an `android-v*` release, called by `release.yml`.
-- `feather-source.yml` – after an iOS release, opens a PR updating `feather/source.json`.
+- `feather-source.yml` – after an iOS release, commits the `feather/source.json` update straight to main.
 - `desktop-fedora.yml` / `desktop-copr.yml` – vendor archive for `desktop-v*` releases and the COPR rebuild.
 - `release.yml` – manual release: pick a bump (`patch`, `minor`, `major` or `none`) per platform; it bumps from that platform's newest tag via `scripts/release-bump.sh`, commits to main, creates the releases with GitHub-generated notes, then calls the desktop (vendor archive, COPR), iOS build, Feather and Android release workflows.
 - `review-bot.yml` – runs the three reviewers on a PR and keeps one comment with the findings, and approves the PR when they are clean; `review-bot-test.yml` tests its script.

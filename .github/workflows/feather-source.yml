@@ -22,7 +22,6 @@ on:
 
 permissions:
   contents: write
-  pull-requests: write
 
 concurrency:
   group: feather-source
@@ -71,22 +70,12 @@ jobs:
       - name: Validate JSON
         run: jq -e '.apps[0].versions | length > 0' feather/source.json
 
-      # Opens a PR instead of committing to main. To commit directly instead, replace
-      # this step with: git commit -am "..." && git push origin HEAD:main
-      - name: Open PR if changed
+      - name: Commit if changed
         env:
           TAG: ${{ steps.tag.outputs.tag }}
         run: |
           if git diff --quiet -- feather/source.json; then echo "No changes"; exit 0; fi
-          tag="$TAG"
-          branch="feather-source-$tag"
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git checkout -B "$branch"
-          git commit -am "Feather source: add $tag"
-          git push -f origin "$branch"
-          state="$(gh pr view "$branch" -R "$GITHUB_REPOSITORY" --json state -q .state 2>/dev/null || true)"
-          [ "$state" = "OPEN" ] || \
-            gh pr create -R "$GITHUB_REPOSITORY" --base main --head "$branch" \
-              --title "Feather source: add $tag" \
-              --body "Automated update of feather/source.json for release $tag."
+          git commit -am "Feather source: add $TAG"
+          git push origin HEAD:main
