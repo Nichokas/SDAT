@@ -16,6 +16,11 @@
     <uses-feature android:name="android.hardware.camera" android:required="false" />
     <uses-feature android:name="android.hardware.camera.autofocus" android:required="false" />
 
+    <!-- Android 13's output switcher: the player checks that System UI receives its broadcast. -->
+    <queries>
+        <package android:name="com.android.systemui" />
+    </queries>
+
     <application
         android:name=".SdatApp"
         android:label="SDAT"

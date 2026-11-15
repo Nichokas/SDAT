@@ -1,6 +1,11 @@
 package com.nichokas.sdat.ui
 
+import android.content.Context
 import android.content.Intent
+import android.content.pm.ApplicationInfo
+import android.content.pm.PackageManager
+import android.media.MediaRouter2
+import android.os.Build
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.ContentTransform
 import androidx.compose.animation.core.animateFloatAsState
@@ -33,7 +38,6 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.rememberPagerState
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Text
@@ -63,6 +67,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import coil3.compose.AsyncImage
+import com.nichokas.sdat.core.Chrome
 import com.nichokas.sdat.core.Favs
 import com.nichokas.sdat.core.Fmt
 import com.nichokas.sdat.core.Live
@@ -76,18 +81,19 @@ import io.github.neoruaa.glasmio.core.GlasmioTheme
 import io.github.neoruaa.glasmio.core.IosTypography
 import io.github.neoruaa.glasmio.core.glasmioTypography
 import io.github.neoruaa.glasmio.glass.GlasmioBackdropHost
-import io.github.neoruaa.glasmio.glass.GlassSurface
 import io.github.neoruaa.glasmio.ui.GlasmioBottomSheet
 import io.github.neoruaa.glasmio.ui.GlasmioCascadingMenu
+import io.github.neoruaa.glasmio.ui.GlasmioCascadingMenuItem
 import io.github.neoruaa.glasmio.ui.GlasmioSlider
 import kotlinx.coroutines.launch
 import uniffi.tonearm_ffi.Track
 
 private val dimmed = Color.White.copy(alpha = 0.65f)
-private val favouriteYellow = Color(0xFFFFD60A)
+private val quiet = Color.White.copy(alpha = 0.85f)
+private val inactive = Color.White.copy(alpha = 0.45f)
 private val removeRed = Color(0xFFFF453A)
 
-/** The full player, dark like iOS's; swipe left, or tap the queue hint, for the queue. */
+/** The full player, dark like iOS's; swipe left, or tap the queue button, for the queue. */
 @Composable
 fun PlayerSheet(playback: Playback, onDismiss: () -> Unit) {
     GlasmioTheme(isDark = true, typography = glasmioTypography(inter)) {
@@ -140,11 +146,9 @@ private fun NowPlayingPage(playback: Playback, track: Track, showQueue: () -> Un
     val compact = maxHeight < 560.dp
     Column(
         Modifier.fillMaxSize().then(if (compact) Modifier.verticalScroll(rememberScrollState()) else Modifier)
-            .padding(horizontal = 24.dp).padding(bottom = 12.dp),
-        verticalArrangement = Arrangement.spacedBy(18.dp),
+            .padding(horizontal = 24.dp).padding(top = 24.dp, bottom = 12.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {
-        TopRow(track)
         BoxWithConstraints(if (compact) Modifier.fillMaxWidth().height(200.dp) else Modifier.weight(1f).fillMaxWidth(), contentAlignment = Alignment.Center) {
             val side = minOf(maxWidth, maxHeight)
             AnimatedContent(track, transitionSpec = { slide() }, contentKey = { it.id }, label = "cover") { t ->
@@ -157,18 +161,10 @@ private fun NowPlayingPage(playback: Playback, track: Track, showQueue: () -> Un
                 )
             }
         }
-        AnimatedContent(track, Modifier.fillMaxWidth(), transitionSpec = { slide() }, contentKey = { it.id }, label = "title") { t ->
-            Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                Text(t.displayTitle, style = IosTypography.title3, fontWeight = FontWeight.Bold, color = Color.White, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                Row(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically) {
-                    if (playback.offline && playback.track?.id == t.id) SdatIcon("arrow.down.circle.fill", "Playing downloaded copy", size = 15.dp, tint = dimmed)
-                    Text(t.artistLine, style = IosTypography.body, color = dimmed, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                }
-            }
-        }
+        TitleRow(playback, track, slide, Modifier.padding(top = 24.dp))
         // A new queue entry, even of the same track, drops the slider and any drag on it, so a release can't seek it to the old one's place.
         key(playback.entry) {
-            Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+            Column(Modifier.padding(top = 14.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                 var scrub by remember { mutableStateOf<Double?>(null) }
                 val end = maxOf(playback.duration, 1.0)
                 val shown = scrub ?: playback.position
@@ -190,11 +186,8 @@ private fun NowPlayingPage(playback: Playback, track: Track, showQueue: () -> Un
                 }
             }
         }
-        QualityBadge(playback)
-        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
-            IconTap("shuffle", if (playback.shuffle) "Shuffle: On" else "Shuffle: Off", 22.dp, tint = if (playback.shuffle) GlasmioTheme.colors.accent else Color.White.copy(alpha = 0.8f)) {
-                playback.setShuffle(!playback.shuffle)
-            }
+        QualityBadge(playback, Modifier.padding(top = 2.dp))
+        Row(Modifier.padding(top = 20.dp), horizontalArrangement = Arrangement.spacedBy(46.dp), verticalAlignment = Alignment.CenterVertically) {
             IconTap("backward.fill", "Previous", 30.dp, Modifier.alpha(if (Live.isGuest) 0.4f else 1f)) {
                 forward = false
                 if (!Live.guestRefuses()) playback.previous()
@@ -211,55 +204,47 @@ private fun NowPlayingPage(playback: Playback, track: Track, showQueue: () -> Un
                 }
             }
             IconTap("forward.fill", "Next", 30.dp, Modifier.alpha(if (Live.playbackLocked) 0.4f else 1f)) { forward = true; Live.userNext() }
-            val repeat = playback.repeat
-            IconTap(if (repeat == Repeat.One) "repeat.1" else "repeat", "Repeat: " + when (repeat) { Repeat.Off -> "Off"; Repeat.All -> "All"; Repeat.One -> "One" }, 22.dp, tint = if (repeat == Repeat.Off) Color.White.copy(alpha = 0.8f) else GlasmioTheme.colors.accent) {
-                playback.cycleRepeat()
-            }
         }
-        Row(Modifier.fillMaxWidth()) {
-            Spacer(Modifier.weight(1f))
-            GlassSurface(shape = capsule) {
-                Row(
-                    Modifier.clickable(onClickLabel = "Show queue", role = Role.Button, onClick = showQueue).padding(horizontal = 14.dp, vertical = 9.dp),
-                    horizontalArrangement = Arrangement.spacedBy(4.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    SdatIcon("list.bullet", "Queue", size = 20.dp, tint = Color.White.copy(alpha = 0.85f))
-                    SdatIcon("chevron.right", null, size = 14.dp, tint = Color.White.copy(alpha = 0.85f))
-                }
+        Row(Modifier.fillMaxWidth().padding(top = 16.dp)) {
+            val context = LocalContext.current
+            IconTap("airplayaudio", "Audio output", 22.dp, tint = quiet) {
+                if (!showOutputSwitcher(context)) Chrome.flash("Couldn't open the audio output picker")
             }
+            Spacer(Modifier.weight(1f))
+            IconTap("list.bullet", "Queue", 22.dp, tint = quiet, onClick = showQueue)
         }
     }
     }
 }
 
 @Composable
-private fun TopRow(track: Track) {
+private fun TitleRow(playback: Playback, track: Track, slide: () -> ContentTransform, modifier: Modifier = Modifier) {
     val context = LocalContext.current
     val fav = Favs.known(track.id) ?: false
     var menuBounds by remember { mutableStateOf<Rect?>(null) }
     var menuOpen by remember { mutableStateOf(false) }
-    Row(Modifier.fillMaxWidth().padding(top = 14.dp), verticalAlignment = Alignment.CenterVertically) {
-        GlassSurface(shape = capsule) {
-            Row {
-                IconTap("square.and.arrow.up", "Share", 20.dp) {
-                    val send = Intent(Intent.ACTION_SEND).setType("text/plain").putExtra(Intent.EXTRA_TEXT, "https://tidal.com/track/${track.id}")
-                    context.startActivity(Intent.createChooser(send, null))
-                }
-                IconTap(if (fav) "star.fill" else "star", if (fav) "Remove from Favourites" else "Add to Favourites", 20.dp, tint = if (fav) favouriteYellow else Color.White) {
-                    Favs.set(track.id, !fav)
+    Row(modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+        AnimatedContent(track, Modifier.weight(1f), transitionSpec = { slide() }, contentKey = { it.id }, label = "title") { t ->
+            Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                Text(t.displayTitle, style = IosTypography.title3, fontWeight = FontWeight.Bold, color = Color.White, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                Row(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically) {
+                    if (playback.offline && playback.track?.id == t.id) SdatIcon("arrow.down.circle.fill", "Playing downloaded copy", size = 15.dp, tint = dimmed)
+                    Text(t.artistLine, style = IosTypography.body, color = dimmed, maxLines = 1, overflow = TextOverflow.Ellipsis)
                 }
             }
         }
-        Spacer(Modifier.weight(1f))
-        GlassSurface(Modifier.onGloballyPositioned { menuBounds = it.boundsInRoot() }, shape = CircleShape) {
-            IconTap("ellipsis", "More", 20.dp) { menuOpen = true }
-        }
+        IconTap(if (fav) "star.fill" else "star", if (fav) "Unfavourite" else "Favourite", 22.dp) { Favs.set(track.id, !fav) }
+        IconTap("ellipsis", "More", 22.dp, Modifier.onGloballyPositioned { menuBounds = it.boundsInRoot() }) { menuOpen = true }
     }
     if (menuOpen) {
+        val share = GlasmioCascadingMenuItem("Share", "square.and.arrow.up", onClick = {
+            val send = Intent(Intent.ACTION_SEND).setType("text/plain").putExtra(Intent.EXTRA_TEXT, "https://tidal.com/track/${track.id}")
+            context.startActivity(Intent.createChooser(send, null))
+        })
+        val items = trackMenuItems(track)
         GlasmioCascadingMenu(
             anchorBounds = menuBounds,
-            items = trackMenuItems(track),
+            items = listOf(share) + items.mapIndexed { i, item -> if (i == 0) item.copy(separatorBefore = true) else item },
             title = track.displayTitle,
             expandedDescription = "Expanded",
             collapsedDescription = "Collapsed",
@@ -268,21 +253,30 @@ private fun TopRow(track: Track) {
     }
 }
 
+/** Opens the system's picker for where this app's audio plays, Android's counterpart of AirPlay. */
+private fun showOutputSwitcher(context: Context): Boolean {
+    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) return MediaRouter2.getInstance(context).showSystemOutputSwitcher()
+    // Android 13 has no API for it; System UI listens for this broadcast, as androidx.mediarouter sends it.
+    val intent = Intent("com.android.systemui.action.LAUNCH_MEDIA_OUTPUT_DIALOG").setPackage("com.android.systemui").putExtra("package_name", context.packageName)
+    val receivers = context.packageManager.queryBroadcastReceivers(intent, PackageManager.ResolveInfoFlags.of(0))
+    if (receivers.none { (it.activityInfo?.applicationInfo?.flags ?: 0) and ApplicationInfo.FLAG_SYSTEM != 0 }) return false
+    context.sendBroadcast(intent)
+    return true
+}
+
 /** The quality playing now; tapping it picks the streaming quality, which applies at once. */
 @Composable
-private fun QualityBadge(playback: Playback) {
+private fun QualityBadge(playback: Playback, modifier: Modifier = Modifier) {
     val q = playback.badgeQuality
     QualityMenu(playback.streamingQuality, playback::setStreamingQuality) { toggle ->
-        GlassSurface(shape = capsule) {
-            Row(
-                Modifier.clickable(onClickLabel = "Maximum quality", role = Role.Button, onClick = toggle).heightIn(min = 44.dp).padding(horizontal = 18.dp),
-                horizontalArrangement = Arrangement.spacedBy(10.dp),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                QualityLogo(q, 22.dp)
-                Text(q.badgeText, style = IosTypography.subheadline, fontWeight = FontWeight.SemiBold, color = Color.White.copy(alpha = 0.9f), maxLines = 1)
-                SdatIcon("chevron.up.chevron.down", null, size = 12.dp, tint = Color.White.copy(alpha = 0.6f))
-            }
+        Row(
+            modifier.clickable(onClickLabel = "Maximum quality", role = Role.Button, onClick = toggle).heightIn(min = 44.dp),
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            QualityLogo(q, 16.dp)
+            Text(q.badgeText, style = IosTypography.caption1, fontWeight = FontWeight.SemiBold, color = Color.White.copy(alpha = 0.7f), maxLines = 1)
+            SdatIcon("chevron.up.chevron.down", null, size = 11.dp, tint = Color.White.copy(alpha = 0.5f))
         }
     }
 }
@@ -293,12 +287,18 @@ private fun QueuePage(playback: Playback) {
     LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(start = 20.dp, end = 12.dp, bottom = 24.dp)) {
         item(key = "title") {
             Box(Modifier.fillMaxWidth().heightIn(min = 44.dp), contentAlignment = Alignment.Center) {
-                IconTap("dot.radiowaves.left.and.right", "Listen Together", 20.dp, Modifier.align(Alignment.CenterStart), tint = if (Live.active) colors.accent else colors.content) {
+                IconTap("dot.radiowaves.left.and.right", "Listen Together", 20.dp, Modifier.align(Alignment.CenterStart), tint = if (Live.active) Color.White else inactive) {
                     Live.showSheet = true
                 }
                 Text("Queue", style = IosTypography.headline, color = colors.content)
-                IconTap("shuffle", if (playback.shuffle) "Shuffle: On" else "Shuffle: Off", 20.dp, Modifier.align(Alignment.CenterEnd), tint = if (playback.shuffle) colors.accent else colors.content) {
-                    playback.setShuffle(!playback.shuffle)
+                Row(Modifier.align(Alignment.CenterEnd)) {
+                    IconTap("shuffle", if (playback.shuffle) "Shuffle: On" else "Shuffle: Off", 20.dp, tint = if (playback.shuffle) Color.White else inactive) {
+                        playback.setShuffle(!playback.shuffle)
+                    }
+                    val repeat = playback.repeat
+                    IconTap(if (repeat == Repeat.One) "repeat.1" else "repeat", "Repeat: " + when (repeat) { Repeat.Off -> "Off"; Repeat.All -> "All"; Repeat.One -> "One" }, 20.dp, tint = if (repeat == Repeat.Off) inactive else Color.White) {
+                        playback.cycleRepeat()
+                    }
                 }
             }
         }
@@ -314,10 +314,11 @@ private fun QueuePage(playback: Playback) {
                     horizontalArrangement = Arrangement.spacedBy(8.dp),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
-                    SdatIcon("dot.radiowaves.left.and.right", null, size = 18.dp, tint = colors.accent)
-                    Text("Playing from Listen Together", style = IosTypography.headline, color = colors.accent)
+                    SdatIcon("dot.radiowaves.left.and.right", null, size = 18.dp, tint = Color.White)
+                    Text("Playing from Listen Together", style = IosTypography.headline, color = Color.White)
                 }
             }
+
             items(Live.upNext, key = { "live ${it.id}" }) { row ->
                 TrackMenuRow(row.track, onClick = {}, Modifier.animateItem()) { TrackRow(row.track, Modifier.padding(vertical = 6.dp).padding(end = 8.dp)) }
             }
