@@ -303,9 +303,13 @@ async fn on_eos_stopped() {
     // queued: carry on with them instead of stopping or starting a radio,
     // unless a Stop or another start is already queued.
     if next_track(true).0.is_some() {
+        // A pending start (maybe a new list behind its own Stop) runs as queued.
+        if with(|p| p.machine.start_pending()).unwrap_or(true) {
+            return;
+        }
         if with(|p| p.machine.has_queued_stop()).unwrap_or(false) {
             stop();
-        } else if !with(|p| p.machine.start_pending()).unwrap_or(true) {
+        } else {
             next_now();
         }
         return;
