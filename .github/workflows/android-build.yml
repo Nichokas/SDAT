@@ -22,6 +22,7 @@ concurrency:
 
 jobs:
   # Builds wait for the reviewers: their findings usually mean another push, which would cancel the build.
+  # Fork PRs get no review and skip the gate, so their code never runs with this token.
   review-gate:
     name: Review gate
     runs-on: ubuntu-latest
@@ -31,13 +32,13 @@ jobs:
       pull-requests: read
     steps:
       - uses: actions/checkout@v4
-        if: github.event_name == 'pull_request'
+        if: github.event.pull_request.head.repo.full_name == github.repository
         with:
           sparse-checkout: scripts/review_bot.py
           sparse-checkout-cone-mode: false
           persist-credentials: false
       - name: Wait for the review bot
-        if: github.event_name == 'pull_request'
+        if: github.event.pull_request.head.repo.full_name == github.repository
         env:
           GH_TOKEN: ${{ github.token }}
           PR: ${{ github.event.pull_request.number }}
