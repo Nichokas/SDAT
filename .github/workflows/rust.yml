@@ -20,10 +20,11 @@ on:
 permissions:
   contents: read
 
-# A new push to a PR supersedes its running build; main builds always finish so they save the cache.
+# A new push to a PR supersedes its running build. Each main build gets its own group, so none is
+# cancelled or replaced while queued and every one saves the cache.
 concurrency:
-  group: rust-${{ github.ref }}
-  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+  group: rust-${{ github.event_name == 'pull_request' && github.ref || github.run_id }}
+  cancel-in-progress: true
 
 jobs:
   core:
