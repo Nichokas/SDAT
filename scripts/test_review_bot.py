@@ -238,6 +238,86 @@ class ApprovalTests(unittest.TestCase):
         self.assertFalse(is_clean(results))
 
 
+class GateTests(unittest.TestCase):
+    def comment(self, sha, verdict):
+        return {"id": 1, "user": {"login": review_bot.BOT_LOGIN},
+                "body": f"{review_bot.MARKER}\n<!-- review-bot-verdict:{sha}:{verdict} -->"}
+
+    def pr(self, sha="abc", draft=False, repo=review_bot.REPO):
+        return {"head": {"sha": sha, "repo": {"full_name": repo}}, "draft": draft}
+
+    def gate(self, prs, comments):
+        prs, comments = iter(prs), iter(comments)
+
+        def fake(*args, body=None):
+            return json.dumps([next(comments)]) if "--paginate" in args else json.dumps(next(prs))
+
+        with mock.patch.object(review_bot, "gh_api", fake), mock.patch.object(review_bot.time, "sleep"):
+            return review_bot.gate(7, "abc")
+
+    def test_findings_or_failures_block_and_skips_do_not(self):
+        self.assertTrue(review_bot.builds_may_run([Result("cubic", Status.SKIPPED)]))
+        self.assertFalse(review_bot.builds_may_run([Result("cubic", Status.COMPLETED, [finding()])]))
+        self.assertFalse(review_bot.builds_may_run([Result("cubic", Status.FAILED)]))
+
+    def test_comment_carries_the_verdict_for_its_sha(self):
+        comment = render([Result("cubic", Status.COMPLETED, [finding()])], "abc", "main", "url")
+        self.assertIn("<!-- review-bot-verdict:abc:block -->", comment)
+
+    def test_waits_for_the_verdict_on_its_own_sha(self):
+        self.assertTrue(self.gate([self.pr()] * 3, [[], [self.comment("old", "pass")], [self.comment("abc", "pass")]]))
+
+    def test_block_verdict_fails(self):
+        self.assertFalse(self.gate([self.pr()], [[self.comment("abc", "block")]]))
+
+    def test_superseded_commit_fails(self):
+        self.assertFalse(self.gate([self.pr("newer")], []))
+
+    def test_drafts_and_forks_build_without_review(self):
+        self.assertTrue(self.gate([self.pr(draft=True)], []))
+        self.assertTrue(self.gate([self.pr(repo="someone/fork")], []))
+
+    def rerun(self, verdict, runs, jobs):
+        calls = []
+
+        def fake(*args, body=None):
+            calls.append(args)
+            path = args[-1]
+            if path.endswith("/pulls/7"):
+                return json.dumps({"head": {"sha": "abc"}})
+            if "/comments" in path:
+                return json.dumps([[self.comment("abc", verdict)]])
+            if "/runs?" in path:
+                return json.dumps({"workflow_runs": runs})
+            if path.endswith("?filter=latest"):
+                return json.dumps({"jobs": jobs[int(path.split("/")[-2])]})
+            return ""
+
+        with mock.patch.object(review_bot, "gh_api", fake):
+            review_bot.rerun_builds(7)
+        return [c[-1].split("/")[-2] for c in calls if "POST" in c]
+
+    def test_rerun_only_the_newest_gate_failures_on_a_passing_head(self):
+        gate = f"{review_bot.GATE_JOB} / wait"
+        runs = [
+            {"id": 1, "workflow_id": 10, "name": "Android", "conclusion": "failure"},
+            {"id": 2, "workflow_id": 20, "name": "iOS", "conclusion": "failure"},
+            {"id": 3, "workflow_id": 30, "name": "Rust", "conclusion": "timed_out"},
+            {"id": 4, "workflow_id": 40, "name": "Docs", "conclusion": "success"},
+            {"id": 5, "workflow_id": 40, "name": "Docs", "conclusion": "failure"},
+        ]
+        jobs = {
+            1: [{"name": gate, "conclusion": "failure"}],
+            2: [{"name": gate, "conclusion": "success"}, {"name": "build", "conclusion": "failure"}],
+            3: [{"name": gate, "conclusion": "timed_out"}],
+            5: [{"name": gate, "conclusion": "failure"}],
+        }
+        self.assertEqual(self.rerun("pass", runs, jobs), ["1", "3"])
+
+    def test_blocked_head_reruns_nothing(self):
+        self.assertEqual(self.rerun("block", [], {}), [])
+
+
 class MacroscopeRestoreTests(unittest.TestCase):
     def test_credentials_directory_keeps_owner_only_mode(self):
         with tempfile.TemporaryDirectory() as login, tempfile.TemporaryDirectory() as home:

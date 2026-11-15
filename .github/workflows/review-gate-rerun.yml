@@ -1,0 +1,31 @@
+name: Rebuild after review
+
+# A review that passes after the builds' gates already failed (a `/review`, a reopened PR whose
+# gates read the old verdict) reruns them on that PR. The payload of a `/review` run names no PR,
+# so the number comes from the review bot's run name.
+on:
+  workflow_run:
+    workflows: [Review bot]
+    types: [completed]
+
+permissions: {}
+
+jobs:
+  rerun:
+    # Comments other than `/review` skip the review bot's jobs, which ends its run as skipped.
+    if: github.event.workflow_run.conclusion == 'success'
+    runs-on: ubuntu-latest
+    permissions:
+      actions: write
+      contents: read
+      pull-requests: read
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          sparse-checkout: scripts/review_bot.py
+          sparse-checkout-cone-mode: false
+          persist-credentials: false
+      - env:
+          GH_TOKEN: ${{ github.token }}
+          TITLE: ${{ github.event.workflow_run.display_title }}
+        run: python3 scripts/review_bot.py rerun-builds --pr "${TITLE##*#}"

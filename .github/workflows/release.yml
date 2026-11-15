@@ -143,6 +143,7 @@ jobs:
     if: needs.bump.outputs.ios != ''
     permissions:
       contents: write
+      pull-requests: read
     uses: ./.github/workflows/ios-build.yml
     with:
       tag: ${{ needs.bump.outputs.ios }}

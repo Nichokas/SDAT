@@ -1,4 +1,6 @@
 name: Review bot
+# review-gate-rerun.yml reads the PR number from this title.
+run-name: "Review bot #${{ github.event.pull_request.number || github.event.issue.number }}"
 
 on:
   pull_request:

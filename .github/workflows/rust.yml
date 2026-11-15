@@ -10,7 +10,10 @@ on:
       - "Cargo.lock"
       - ".github/workflows/rust.yml"
   pull_request:
+    # A draft builds without review, so it builds again behind the gate once it is ready.
+    types: [opened, synchronize, reopened, ready_for_review]
     paths:
+      - ".github/workflows/review-gate.yml"
       - "sdat-core/**"
       - "sdat-desktop/**"
       - "Cargo.toml"
@@ -27,7 +30,15 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  review-gate:
+    name: Review gate
+    permissions:
+      contents: read
+      pull-requests: read
+    uses: ./.github/workflows/review-gate.yml
+
   core:
+    needs: review-gate
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -41,6 +52,7 @@ jobs:
       - name: Test core and FFI
         run: cargo test -p tonearm-core -p tonearm-ffi --locked
   desktop:
+    needs: review-gate
     runs-on: ubuntu-latest
     container: fedora:latest
     steps:

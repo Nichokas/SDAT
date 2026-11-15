@@ -3,6 +3,8 @@
 
   review_bot.py run <reviewer> --base main --out result.json
   review_bot.py publish --pr 12 --sha abc --base main --results dir --run-url url
+  review_bot.py gate --pr 12 --sha abc
+  review_bot.py rerun-builds --pr 12
   review_bot.py set-account <reviewer>
 """
 
@@ -30,6 +32,12 @@ from pathlib import Path
 # Set by Actions, so the bot works in any repository that calls the workflow.
 REPO = os.environ.get("GITHUB_REPOSITORY", "Nichokas/SDAT")
 MARKER = "<!-- review-bot -->"
+# Build workflows wait for this line in the comment before they start.
+VERDICT = re.compile(r"<!-- review-bot-verdict:([0-9a-f]+):(pass|block) -->")
+GATE_JOB = "Review gate"
+GATE_POLL_SECONDS = 30
+# A gate that waited longer than its timeout fails as timed_out, and a passing review should restart it too.
+GATE_FAILURES = {"failure", "timed_out"}
 BOT_LOGIN = "github-actions[bot]"
 # GitHub rejects comments over 65536 characters; the margin holds the table and footer.
 MAX_FINDINGS_CHARS = 60000
@@ -280,9 +288,11 @@ def render(results: list[Result], sha: str, base: str, run_url: str) -> str:
             findings = "\n".join(kept)
             sections.append(f"<details><summary>{label} ({count})</summary>\n\n{findings}\n</details>")
 
+    verdict = "pass" if builds_may_run(results) else "block"
     return "\n\n".join(
         [
             MARKER,
+            f"<!-- review-bot-verdict:{sha}:{verdict} -->",
             f"### Review bot: `{sha[:7]}` against `{base}`",
             "\n".join(["| Reviewer | Result | Note |", "| --- | --- | --- |", *rows]),
             *sections,
@@ -306,17 +316,23 @@ def gh_api(*args: str, body: dict | None = None) -> str:
     return process.stdout
 
 
-def upsert_comment(pr: int, body: str) -> None:
+def find_comment(pr: int) -> dict | None:
     pages = json.loads(
         gh_api("--paginate", "--slurp", f"repos/{REPO}/issues/{pr}/comments?per_page=100")
     )
     for comment in (comment for page in pages for comment in page):
         if comment["user"]["login"] == BOT_LOGIN and MARKER in comment["body"]:
-            gh_api(
-                "-X", "PATCH", f"repos/{REPO}/issues/comments/{comment['id']}",
-                "--input", "-", body={"body": body},
-            )
-            return
+            return comment
+    return None
+
+
+def upsert_comment(pr: int, body: str) -> None:
+    if comment := find_comment(pr):
+        gh_api(
+            "-X", "PATCH", f"repos/{REPO}/issues/comments/{comment['id']}",
+            "--input", "-", body={"body": body},
+        )
+        return
     gh_api("-X", "POST", f"repos/{REPO}/issues/{pr}/comments", "--input", "-", body={"body": body})
 
 
@@ -385,6 +401,57 @@ def post_inline(pr: int, sha: str, results: list[Result]) -> None:
 def is_clean(results: list[Result]) -> bool:
     ran = [result for result in results if result.status is not Status.SKIPPED]
     return bool(ran) and all(r.status is Status.COMPLETED and not r.findings for r in ran)
+
+
+def builds_may_run(results: list[Result]) -> bool:
+    # A skipped reviewer has nothing to fix, so it must not hold the builds back forever.
+    return all(r.status is not Status.FAILED and not r.findings for r in results)
+
+
+def verdict(pr: int, sha: str) -> str | None:
+    comment = find_comment(pr)
+    match = VERDICT.search(comment["body"]) if comment else None
+    return match.group(2) if match and match.group(1) == sha else None
+
+
+def gate(pr: int, sha: str) -> bool:
+    """Wait until the reviewers have finished on sha; True if the builds may run."""
+    while True:
+        data = json.loads(gh_api(f"repos/{REPO}/pulls/{pr}"))
+        if data["head"]["sha"] != sha:
+            print(f"{sha[:7]} is no longer the head of #{pr}.")
+            return False
+        if data["draft"] or (data["head"]["repo"] or {}).get("full_name") != REPO:
+            print("The review bot does not run on drafts or forks.")
+            return True
+        if result := verdict(pr, sha):
+            return result == "pass"
+        time.sleep(GATE_POLL_SECONDS)
+
+
+def rerun_builds(pr: int) -> None:
+    """Rerun the builds whose gate failed on the head of pr, once the reviewers pass it."""
+    sha = json.loads(gh_api(f"repos/{REPO}/pulls/{pr}"))["head"]["sha"]
+    if verdict(pr, sha) != "pass":
+        return
+    runs = json.loads(
+        gh_api(f"repos/{REPO}/actions/runs?head_sha={sha}&event=pull_request&per_page=100")
+    )["workflow_runs"]
+    # Runs come newest first; an older run of a workflow is superseded by its newest one.
+    latest = {}
+    for run in runs:
+        latest.setdefault(run["workflow_id"], run)
+    for run in latest.values():
+        if run["conclusion"] not in GATE_FAILURES:
+            continue
+        jobs = json.loads(gh_api(f"repos/{REPO}/actions/runs/{run['id']}/jobs?filter=latest"))["jobs"]
+        # The gate is a called workflow, so its job is listed as "Review gate / wait".
+        if any(
+            job["name"].split(" / ")[0] == GATE_JOB and job["conclusion"] in GATE_FAILURES
+            for job in jobs
+        ):
+            print(f"#{pr}: rerunning {run['name']}")
+            gh_api("-X", "POST", f"repos/{REPO}/actions/runs/{run['id']}/rerun-failed-jobs")
 
 
 def update_approval(pr: int, sha: str, clean: bool) -> None:
@@ -461,6 +528,13 @@ def main() -> None:
     publish_cmd.add_argument("--results", type=Path, required=True)
     publish_cmd.add_argument("--run-url", required=True)
 
+    gate_cmd = commands.add_parser("gate")
+    gate_cmd.add_argument("--pr", type=int, required=True)
+    gate_cmd.add_argument("--sha", required=True)
+
+    rerun_cmd = commands.add_parser("rerun-builds")
+    rerun_cmd.add_argument("--pr", type=int, required=True)
+
     account_cmd = commands.add_parser("set-account")
     account_cmd.add_argument("reviewer", choices=REVIEWERS)
 
@@ -470,6 +544,14 @@ def main() -> None:
         args.out.write_text(json.dumps(dataclasses.asdict(result)))
     elif args.command == "publish":
         publish(args.pr, args.sha, args.base, load_results(args.results), args.run_url)
+    elif args.command == "gate":
+        if not gate(args.pr, args.sha):
+            sys.exit(
+                "The reviewers did not pass this commit. Fix the findings and push, "
+                "or answer them and comment /review: a clean run starts the builds."
+            )
+    elif args.command == "rerun-builds":
+        rerun_builds(args.pr)
     else:
         set_account(args.reviewer)
 

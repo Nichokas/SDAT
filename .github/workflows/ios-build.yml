@@ -12,7 +12,10 @@ on:
       - "Cargo.lock"
       - ".github/workflows/ios-build.yml"
   pull_request:
+    # A draft builds without review, so it builds again behind the gate once it is ready.
+    types: [opened, synchronize, reopened, ready_for_review]
     paths:
+      - ".github/workflows/review-gate.yml"
       - "sdat-mobile/**"
       - "sdat-core/**"
       - "Cargo.toml"
@@ -41,7 +44,15 @@ env:
   RELEASE_TAG: ${{ inputs.tag || (startsWith(github.ref, 'refs/tags/v') && github.ref_name) || '' }}
 
 jobs:
+  review-gate:
+    name: Review gate
+    permissions:
+      contents: read
+      pull-requests: read
+    uses: ./.github/workflows/review-gate.yml
+
   build:
+    needs: review-gate
     runs-on: macos-26
     timeout-minutes: 60
     steps:
