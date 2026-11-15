@@ -989,7 +989,6 @@ pub fn play_at(source: Option<PlaybackSource>, tracks: Vec<Track>, position: Dur
     if position.is_zero() || first.as_deref() != Some(started.id()) {
         return Ok(());
     }
-    pause();
     let generation = LIST_GENERATION.with(Cell::get);
     let paused = PAUSES.with(Cell::get);
     let requested = play_requests();
@@ -1031,6 +1030,9 @@ pub fn play_at(source: Option<PlaybackSource>, tracks: Vec<Track>, position: Dur
             StartAt::GiveUp => crate::signals::UNSUBSCRIBE,
         }
     });
+    // After the gate is installed, so it sees every state change the pause causes;
+    // not `pause()`, which would count as a later pause and cancel this start.
+    fire(Trigger::Pause);
     Ok(())
 }
 

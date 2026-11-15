@@ -653,6 +653,12 @@ impl Worker {
         if !self.same_account() {
             return false;
         }
+        // A failed pull still holds playback it is about to hand back: nothing
+        // from here is written over the source's queue until that is settled.
+        if self.rollback.is_some() {
+            self.pending.get_or_insert_with(|| Instant::now() + RETRY);
+            return false;
+        }
         if exact {
             self.mirror.force_position();
         }

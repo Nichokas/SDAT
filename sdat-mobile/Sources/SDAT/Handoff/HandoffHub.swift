@@ -158,11 +158,13 @@ final class HandoffHub {
         Task {
             do {
                 try await h.sendTo(deviceId: device.id)
+                // Signed out or into another account meanwhile: nothing of this send applies.
+                guard gen == generation else { return }
                 // Not what the user started while the send ran.
-                if player.starts == sent, gen == generation, !Live.shared.isGuest { player.pause() }
+                if player.starts == sent, !Live.shared.isGuest { player.pause() }
                 Chrome.shared.flash("Playing on \(Self.name(device))")
             } catch {
-                Chrome.shared.flash("Couldn't send to \(Self.name(device))")
+                if gen == generation { Chrome.shared.flash("Couldn't send to \(Self.name(device))") }
             }
         }
     }
