@@ -57,6 +57,9 @@ thread_local! {
     /// Id of the gapless-prepared track moved from the base queue to the head
     /// of the user queue by "play next", until that entry is consumed.
     static GAPLESS_MOVED: std::cell::RefCell<Option<String>> = const { std::cell::RefCell::new(None) };
+    /// Bumped when the queues are replaced, so a deferred next / previous
+    /// meant for the old queue is dropped.
+    static QUEUE_GENERATION: Cell<u64> = const { Cell::new(0) };
     /// Set while end-of-queue autoplay is fetching a radio mix.
     static AUTOPLAY_PENDING: Cell<bool> = const { Cell::new(false) };
 }
@@ -112,7 +115,7 @@ pub fn complete_play_next(ticket: PlayNextTicket, tracks: Vec<Track>, guest: Opt
 
 /// Starts the next queued track if the player is stopped and nothing is about
 /// to start it (a queued/in-flight start or a loading autoplay mix). `next()`
-/// only queues the start, so a second call would pop (and lose) a track.
+/// only queues the start, so a second call would skip a track.
 fn start_if_idle() {
     if !AUTOPLAY_PENDING.with(Cell::get) && with(|p| p.machine.stopped_without_pending_start()).unwrap_or(false) {
         next();
@@ -296,6 +299,21 @@ async fn on_eos_stopped() {
         source_changed().set(None);
         statemachine::on_stopped_stop();
     };
+    // A failed gapless prefetch ends the current track with tracks still
+    // queued: carry on with them instead of stopping or starting a radio,
+    // unless a Stop or another start is already queued.
+    if next_track(true).0.is_some() {
+        // A pending start (maybe a new list behind its own Stop) runs as queued.
+        if with(|p| p.machine.start_pending()).unwrap_or(true) {
+            return;
+        }
+        if with(|p| p.machine.has_queued_stop()).unwrap_or(false) {
+            stop();
+        } else {
+            next_now();
+        }
+        return;
+    }
     if !settings::allow_autoplay() {
         stop();
         return;
@@ -358,6 +376,7 @@ pub fn current_track_id() -> Option<String> {
 // ---------------------------------------------------------------- queue.go
 
 fn clear_queues() {
+    QUEUE_GENERATION.with(|g| g.set(g.get() + 1));
     user_queue().clear();
     update_pinned(|_| 0);
     // A guest's pending "play next" requests belong to the session and go to
@@ -396,7 +415,7 @@ fn get_next_track_from_queue(peek: bool) -> Option<Track> {
     }
     if repeat_mode_changed().get() == RepeatMode::Queue {
         log::debug!("queue repeat mode is enabled, replaying base queue");
-        base_queue().restore("");
+        base_queue().rewind();
         if shuffle_state_changed().get() {
             base_queue().shuffle("");
         }
@@ -434,10 +453,7 @@ pub async fn add_track_to_user_queue(track_id: &str) -> Result<()> {
     let id = track_id.to_string();
     let track = api::run(move || service::get_track(&id)).await?;
     user_queue().append(track);
-    if playback_state_changed().get().status == PlaybackStatus::Stopped {
-        log::info!("no track is currently playing, immediately playing track {track_id}");
-        next();
-    }
+    start_if_idle();
     Ok(())
 }
 
@@ -471,8 +487,8 @@ pub fn add_tracklist_to_user_queue(tracks: Vec<Track>) {
     for t in tracks {
         user_queue().append(t);
     }
-    if any && playback_state_changed().get().status == PlaybackStatus::Stopped {
-        next();
+    if any {
+        start_if_idle();
     }
 }
 
@@ -519,7 +535,27 @@ pub fn cycle_repeat_mode() {
     });
 }
 
+/// Plays the next track. While a start is still loading, waits for it, so a
+/// quick second press skips that track instead of dropping the next one.
 pub fn next() {
+    defer_while_starting(next_now);
+}
+
+/// Runs `action` now, or after the track starts that are queued or loading.
+fn defer_while_starting(action: fn()) {
+    if with(|p| p.machine.start_pending()).unwrap_or(false) {
+        let generation = QUEUE_GENERATION.with(Cell::get);
+        fire(Trigger::Deferred(Box::new(move || {
+            if QUEUE_GENERATION.with(Cell::get) == generation {
+                action();
+            }
+        })));
+    } else {
+        action();
+    }
+}
+
+fn next_now() {
     match next_track(false).0 {
         Some(t) => fire(Trigger::PlayTrack(t, false)),
         None => log::error!("failed to get next track: queue is empty"),
@@ -541,7 +577,12 @@ pub fn play_pause() {
     }
 }
 
+/// Goes back a track (or to the start of this one); deferred like [`next`].
 pub fn previous() {
+    defer_while_starting(previous_now);
+}
+
+fn previous_now() {
     let pos = playbin().and_then(|p| statemachine::Playbin::query_position(&p));
     if pos.is_some_and(|p| p > Duration::from_secs(5)) || history().peek().is_none() {
         seek_to_position(Duration::ZERO, false);
@@ -603,16 +644,20 @@ pub fn set_shuffle(shuffle: bool, current_track_id: &str) {
     if shuffle {
         base_queue().shuffle(current_track_id);
     } else {
-        base_queue().restore(current_track_id);
+        // Continues after the last list track that played, which may not be
+        // the current one (a "play next" track).
+        base_queue().restore();
     }
-    // Rebuilding from the source brings back a gapless-prepared track that
+    // Shuffling the source brings back a gapless-prepared track that
     // "play next" moved to the user queue; drop the base copy so it plays once.
+    // Restoring continues after it, since moving it popped it.
     // The marker is only valid while its entry is still in the user queue
     // (a skip may have drained it); otherwise forget it.
     let moved = GAPLESS_MOVED.with(|m| m.borrow_mut().take())
         .filter(|id| user_queue().entries().with(|e| e.iter().any(|t| t.id() == id.as_str())));
     GAPLESS_MOVED.with(|m| m.borrow_mut().clone_from(&moved));
-    if let Some(id) = moved
+    if shuffle
+        && let Some(id) = moved
         && let Some(i) = base_queue().entries().with(|e| e.iter().position(|t| t.id() == id))
     {
         // Only the upcoming copy: `remove_at` would also drop it from the
