@@ -277,39 +277,45 @@ class GateTests(unittest.TestCase):
         self.assertTrue(self.gate([self.pr(draft=True)], []))
         self.assertTrue(self.gate([self.pr(repo="someone/fork")], []))
 
-    def test_rerun_only_gate_failures_on_passing_heads(self):
+    def rerun(self, verdict, runs, jobs):
         calls = []
-        pulls = [{"number": 7, "head": {"sha": "abc"}}, {"number": 8, "head": {"sha": "def"}}]
-        comments = {7: self.comment("abc", "pass"), 8: self.comment("def", "block")}
-        jobs = {1: [{"name": f"{review_bot.GATE_JOB} / wait", "conclusion": "failure"}],
-                3: [{"name": f"{review_bot.GATE_JOB} / wait", "conclusion": "timed_out"}],
-                2: [{"name": f"{review_bot.GATE_JOB} / wait", "conclusion": "success"}, {"name": "build", "conclusion": "failure"}]}
 
         def fake(*args, body=None):
             calls.append(args)
             path = args[-1]
-            if "/pulls?" in path:
-                return json.dumps([pulls])
+            if path.endswith("/pulls/7"):
+                return json.dumps({"head": {"sha": "abc"}})
             if "/comments" in path:
-                return json.dumps([[comments[int(path.split("/")[-2])]]])
+                return json.dumps([[self.comment("abc", verdict)]])
             if "/runs?" in path:
-                return json.dumps({"workflow_runs": [
-                    {"id": 1, "name": "Android", "conclusion": "failure"},
-                    {"id": 2, "name": "iOS", "conclusion": "failure"},
-                    {"id": 3, "name": "Rust", "conclusion": "timed_out"},
-                    {"id": 4, "name": "Docs", "conclusion": "success"},
-                ]})
+                return json.dumps({"workflow_runs": runs})
             if path.endswith("?filter=latest"):
                 return json.dumps({"jobs": jobs[int(path.split("/")[-2])]})
             return ""
 
         with mock.patch.object(review_bot, "gh_api", fake):
-            review_bot.rerun_builds()
-        reruns = [c for c in calls if "POST" in c]
-        self.assertEqual(reruns, [
-            ("-X", "POST", f"repos/{review_bot.REPO}/actions/runs/{run}/rerun-failed-jobs") for run in (1, 3)
-        ])
-        self.assertFalse(any("head_sha=def" in c[-1] for c in calls))
+            review_bot.rerun_builds(7)
+        return [c[-1].split("/")[-2] for c in calls if "POST" in c]
+
+    def test_rerun_only_the_newest_gate_failures_on_a_passing_head(self):
+        gate = f"{review_bot.GATE_JOB} / wait"
+        runs = [
+            {"id": 1, "workflow_id": 10, "name": "Android", "conclusion": "failure"},
+            {"id": 2, "workflow_id": 20, "name": "iOS", "conclusion": "failure"},
+            {"id": 3, "workflow_id": 30, "name": "Rust", "conclusion": "timed_out"},
+            {"id": 4, "workflow_id": 40, "name": "Docs", "conclusion": "success"},
+            {"id": 5, "workflow_id": 40, "name": "Docs", "conclusion": "failure"},
+        ]
+        jobs = {
+            1: [{"name": gate, "conclusion": "failure"}],
+            2: [{"name": gate, "conclusion": "success"}, {"name": "build", "conclusion": "failure"}],
+            3: [{"name": gate, "conclusion": "timed_out"}],
+            5: [{"name": gate, "conclusion": "failure"}],
+        }
+        self.assertEqual(self.rerun("pass", runs, jobs), ["1", "3"])
+
+    def test_blocked_head_reruns_nothing(self):
+        self.assertEqual(self.rerun("block", [], {}), [])
 
 
 class MacroscopeRestoreTests(unittest.TestCase):

@@ -1,6 +1,7 @@
 name: Rebuild after review
 
-# A `/review` run that passes comes after the builds' gates already failed, so it reruns them.
+# A `/review` run that passes comes after the builds' gates already failed, so it reruns them on
+# that PR. Its payload names no PR, so the number comes from the review bot's run name.
 # Runs from push events have their gates still waiting and need nothing.
 on:
   workflow_run:
@@ -25,4 +26,5 @@ jobs:
           persist-credentials: false
       - env:
           GH_TOKEN: ${{ github.token }}
-        run: python3 scripts/review_bot.py rerun-builds
+          TITLE: ${{ github.event.workflow_run.display_title }}
+        run: python3 scripts/review_bot.py rerun-builds --pr "${TITLE##*#}"

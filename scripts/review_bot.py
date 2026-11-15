@@ -4,7 +4,7 @@
   review_bot.py run <reviewer> --base main --out result.json
   review_bot.py publish --pr 12 --sha abc --base main --results dir --run-url url
   review_bot.py gate --pr 12 --sha abc
-  review_bot.py rerun-builds
+  review_bot.py rerun-builds --pr 12
   review_bot.py set-account <reviewer>
 """
 
@@ -429,26 +429,29 @@ def gate(pr: int, sha: str) -> bool:
         time.sleep(GATE_POLL_SECONDS)
 
 
-def rerun_builds() -> None:
-    """Rerun the builds whose gate failed, on every open PR whose head the reviewers now pass."""
-    pages = json.loads(gh_api("--paginate", "--slurp", f"repos/{REPO}/pulls?state=open&per_page=100"))
-    for pr in (pr for page in pages for pr in page):
-        sha = pr["head"]["sha"]
-        if verdict(pr["number"], sha) != "pass":
+def rerun_builds(pr: int) -> None:
+    """Rerun the builds whose gate failed on the head of pr, once the reviewers pass it."""
+    sha = json.loads(gh_api(f"repos/{REPO}/pulls/{pr}"))["head"]["sha"]
+    if verdict(pr, sha) != "pass":
+        return
+    runs = json.loads(
+        gh_api(f"repos/{REPO}/actions/runs?head_sha={sha}&event=pull_request&per_page=100")
+    )["workflow_runs"]
+    # Runs come newest first; an older run of a workflow is superseded by its newest one.
+    latest = {}
+    for run in runs:
+        latest.setdefault(run["workflow_id"], run)
+    for run in latest.values():
+        if run["conclusion"] not in GATE_FAILURES:
             continue
-        runs = json.loads(
-            gh_api(f"repos/{REPO}/actions/runs?head_sha={sha}&event=pull_request&per_page=100")
-        )["workflow_runs"]
-        for run in (run for run in runs if run["conclusion"] in GATE_FAILURES):
-            jobs = json.loads(gh_api(f"repos/{REPO}/actions/runs/{run['id']}/jobs?filter=latest"))["jobs"]
-            # The gate is a called workflow, so its job is listed as "Review gate / wait".
-            gate_failed = any(
-                job["name"].split(" / ")[0] == GATE_JOB and job["conclusion"] in GATE_FAILURES
-                for job in jobs
-            )
-            if gate_failed:
-                print(f"#{pr['number']}: rerunning {run['name']}")
-                gh_api("-X", "POST", f"repos/{REPO}/actions/runs/{run['id']}/rerun-failed-jobs")
+        jobs = json.loads(gh_api(f"repos/{REPO}/actions/runs/{run['id']}/jobs?filter=latest"))["jobs"]
+        # The gate is a called workflow, so its job is listed as "Review gate / wait".
+        if any(
+            job["name"].split(" / ")[0] == GATE_JOB and job["conclusion"] in GATE_FAILURES
+            for job in jobs
+        ):
+            print(f"#{pr}: rerunning {run['name']}")
+            gh_api("-X", "POST", f"repos/{REPO}/actions/runs/{run['id']}/rerun-failed-jobs")
 
 
 def update_approval(pr: int, sha: str, clean: bool) -> None:
@@ -529,7 +532,8 @@ def main() -> None:
     gate_cmd.add_argument("--pr", type=int, required=True)
     gate_cmd.add_argument("--sha", required=True)
 
-    commands.add_parser("rerun-builds")
+    rerun_cmd = commands.add_parser("rerun-builds")
+    rerun_cmd.add_argument("--pr", type=int, required=True)
 
     account_cmd = commands.add_parser("set-account")
     account_cmd.add_argument("reviewer", choices=REVIEWERS)
@@ -547,7 +551,7 @@ def main() -> None:
                 "or answer them and comment /review: a clean run starts the builds."
             )
     elif args.command == "rerun-builds":
-        rerun_builds()
+        rerun_builds(args.pr)
     else:
         set_account(args.reviewer)
 
