@@ -8,6 +8,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.MainScope
 import kotlinx.coroutines.launch
 import uniffi.tonearm_ffi.Quality
+import uniffi.tonearm_ffi.handoffNewInstallationKey
 
 /** Picker order, keys and copy as on iOS. */
 val qualities = listOf(Quality.HI_FI, Quality.CD, Quality.AAC)
@@ -66,6 +67,11 @@ class Preferences(context: Context) {
     var liveExtraLatencyMs: Int
         get() = liveDelay.intValue
         set(ms) { liveDelay.intValue = ms; d.edit { putInt("liveExtraLatencyMsV2", ms) } }
+
+    /** This install as a player of the TIDAL account (Handoff), made once. */
+    val handoffInstallationKey: String
+        get() = d.getString("handoffInstallationKey", null)
+            ?: handoffNewInstallationKey().also { d.edit { putString("handoffInstallationKey", it) } }
 
     init { load() }
 

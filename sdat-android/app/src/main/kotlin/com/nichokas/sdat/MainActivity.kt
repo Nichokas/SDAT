@@ -18,6 +18,7 @@ import com.google.common.util.concurrent.ListenableFuture
 import com.nichokas.sdat.core.Chrome
 import com.nichokas.sdat.core.NavState
 import com.nichokas.sdat.core.Downloads
+import com.nichokas.sdat.core.Handoff
 import com.nichokas.sdat.core.Live
 import com.nichokas.sdat.ui.LocalTrackPlayer
 import com.nichokas.sdat.ui.RootView
@@ -64,7 +65,14 @@ class MainActivity : ComponentActivity() {
 
     override fun onStart() {
         super.onStart()
+        Handoff.foreground = true
         Downloads.resumePending()
+    }
+
+    // A rotation stops and starts the Activity; the device stays attached through it.
+    override fun onStop() {
+        super.onStop()
+        if (!isChangingConfigurations) Handoff.foreground = false
     }
 
     override fun onNewIntent(intent: Intent) {

@@ -636,7 +636,21 @@ class Playback(context: Context, private val prefs: Preferences, secrets: Secret
     private val endless get() = infinite != null || awaitingMixes
 
     private fun persist() {
-        if (!restoring) saver.save(queue, endless, position)
+        if (restoring) return
+        saver.save(queue, endless, position)
+        onChange?.invoke()
+    }
+
+    /** Called with every save: track, queue, repeat, play, pause and seek changes, and every few seconds while
+     * playing. */
+    var onChange: (() -> Unit)? = null
+
+    /** Another device's playback (Handoff), loaded like the queue saved at launch and played from [atMs]. */
+    fun resume(current: Track, future: List<Track>, atMs: Long, repeat: Repeat) {
+        val (saved, state) = resumed(current, future, maxOf(atMs, 0) / 1000.0, repeat)
+        queue.restore(saved, state)
+        replaceInfinite(null)
+        start(current, resumeAt = state.position)
     }
 
     /** After a failure or a controller's stop there is nothing prepared, so this starts the track again where it was;

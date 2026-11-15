@@ -3,6 +3,7 @@ package com.nichokas.sdat
 import android.app.Application
 import android.os.Build
 import com.nichokas.sdat.core.Downloads
+import com.nichokas.sdat.core.Handoff
 import com.nichokas.sdat.core.Live
 import com.nichokas.sdat.core.Playback
 import com.nichokas.sdat.core.Preferences
@@ -33,8 +34,10 @@ class SdatApp : Application() {
         val settings = Settings(filesDir.path, prefs)
         initialize(session, settings)
         playback = Playback(this, prefs, secrets)
-        Live.attach(playback, prefs) {
-            android.provider.Settings.Global.getString(contentResolver, android.provider.Settings.Global.DEVICE_NAME) ?: Build.MODEL
-        }
+        Live.attach(playback, prefs, ::deviceName)
+        Handoff.attach(playback, prefs, session, ::deviceName)
     }
+
+    private fun deviceName() =
+        android.provider.Settings.Global.getString(contentResolver, android.provider.Settings.Global.DEVICE_NAME) ?: Build.MODEL
 }
