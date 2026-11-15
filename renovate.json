@@ -1,0 +1,34 @@
+{
+  "$schema": "https://docs.renovatebot.com/renovate-schema.json",
+  "extends": ["config:recommended"],
+  "timezone": "Europe/Madrid",
+  "schedule": ["before 6am on monday"],
+  "labels": ["dependencies"],
+  "enabledManagers": ["cargo", "gradle", "gradle-wrapper", "github-actions"],
+  "automerge": false,
+  "packageRules": [
+    {
+      "description": "Group Rust minor and patch updates",
+      "matchManagers": ["cargo"],
+      "matchUpdateTypes": ["minor", "patch"],
+      "groupName": "Rust minor and patch updates"
+    },
+    {
+      "description": "Group Android minor and patch updates",
+      "matchManagers": ["gradle", "gradle-wrapper"],
+      "matchUpdateTypes": ["minor", "patch"],
+      "groupName": "Android minor and patch updates"
+    },
+    {
+      "description": "Group GitHub Actions minor and patch updates",
+      "matchManagers": ["github-actions"],
+      "matchUpdateTypes": ["minor", "patch"],
+      "groupName": "GitHub Actions minor and patch updates"
+    },
+    {
+      "description": "Keep GitHub Actions pinned to major tags (no digests)",
+      "matchManagers": ["github-actions"],
+      "pinDigests": false
+    }
+  ]
+}
