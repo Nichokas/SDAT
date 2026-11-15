@@ -616,6 +616,9 @@ impl Worker {
             Err(_) => self.rollback = Some(b.to_string()),
         }
         if self.rollback.is_some() {
+            // Playback from before the pull is not a reason to keep it; a report after this one is.
+            self.last_local = None;
+            self.pending = None;
             self.dirty.get_or_insert_with(|| Instant::now() + RETRY);
         }
         e
@@ -671,9 +674,10 @@ impl Worker {
                 }
                 return Err(CoreError::Other("the device is not available".into()));
             }
-            // A third device claimed meanwhile: it keeps playback.
-            Ok(other) => {
-                self.mirror.claimed(other);
+            // A third device claimed meanwhile: it keeps playback, and the next
+            // read reports the move so this device pauses.
+            Ok(_) => {
+                self.dirty.get_or_insert_with(Instant::now);
                 return Err(CoreError::Other("another device took over playback".into()));
             }
             // The target may have it or not: the next read tells, and a move pauses here.
@@ -703,7 +707,9 @@ impl Worker {
         }
         // A failed pull still holds playback it is about to hand back: nothing
         // from here is written over the source's queue until that is settled.
-        if self.rollback.is_some() {
+        // The same while playback sent here is still being read: the old local
+        // playback must not overwrite the queue that arrived.
+        if self.rollback.is_some() || self.arrival.is_some() {
             self.pending.get_or_insert_with(|| Instant::now() + RETRY);
             return false;
         }

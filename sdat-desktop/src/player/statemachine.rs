@@ -210,10 +210,21 @@ async fn fetch_and_enqueue_track(playbin: &dyn Playbin, track_id: &str) -> Resul
     Ok(manifest)
 }
 
+thread_local! {
+    /// A track whose next start loads paused (a handoff seeks it first).
+    static START_PAUSED: RefCell<Option<String>> = const { RefCell::new(None) };
+}
+
+/// The next start of `track_id` loads paused instead of playing.
+pub fn start_paused(track_id: &str) {
+    START_PAUSED.with(|s| *s.borrow_mut() = Some(track_id.to_string()));
+}
+
 pub async fn on_play_track(playbin: &dyn Playbin, track: Track, skip_history: bool) -> Result<()> {
     playbin.set_state(gst::State::Ready)?;
     let manifest = fetch_and_enqueue_track(playbin, track.id()).await?;
-    playbin.set_state(gst::State::Playing)?;
+    let paused = START_PAUSED.with(|s| s.borrow_mut().take_if(|id| id == track.id()).is_some());
+    playbin.set_state(if paused { gst::State::Paused } else { gst::State::Playing })?;
     let duration = track.duration();
     track_changed().set(Some(TrackChangedEvent { track, skip_history }));
     playback_state_changed().notify(|mut s| {

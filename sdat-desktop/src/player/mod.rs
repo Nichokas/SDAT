@@ -565,6 +565,11 @@ fn next_now() {
     }
 }
 
+/// Changes with every pause.
+pub fn pauses() -> u64 {
+    PAUSES.with(std::cell::Cell::get)
+}
+
 /// Changes as soon as a track start is asked for, unlike `track_changed`,
 /// which fires once its stream has loaded.
 pub fn play_requests() -> u64 {
@@ -984,6 +989,10 @@ impl StartGate {
 /// seeks before playing, so the start of the track is never heard.
 pub fn play_at(source: Option<PlaybackSource>, tracks: Vec<Track>, position: Duration) -> Result<()> {
     let first = tracks.first().map(|t| t.id().to_string());
+    // Loads paused, so the start of the track is never heard before the seek.
+    if let Some(id) = first.as_deref().filter(|_| !position.is_zero()) {
+        statemachine::start_paused(id);
+    }
     let started = play_tracks(tracks, false, 0)?;
     source_changed().set(source);
     if position.is_zero() || first.as_deref() != Some(started.id()) {
