@@ -45,8 +45,8 @@ if ! command -v swiftly >/dev/null; then
   tmp="$(mktemp -d)"
   curl -fsSL -o "$tmp/swiftly.tar.gz" "https://download.swift.org/swiftly/linux/swiftly-$(uname -m).tar.gz"
   tar -xzf "$tmp/swiftly.tar.gz" -C "$tmp"
-  # swiftly only knows LTS releases; the Ubuntu 26.04 toolchain also runs on newer ones.
-  "$tmp/swiftly" init --assume-yes --skip-install --quiet-shell-followup --platform ubuntu26.04
+  # swiftly only knows LTS releases; a toolchain built for 24.04 needs the oldest glibc, so it runs on every release this script supports.
+  "$tmp/swiftly" init --assume-yes --skip-install --quiet-shell-followup --platform ubuntu24.04
   rm -rf "$tmp"
   # shellcheck disable=SC1091
   . "$HOME/.local/share/swiftly/env.sh"
