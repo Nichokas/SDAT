@@ -798,8 +798,14 @@ impl Worker {
         // Never continue from a remembered queue: it may be gone.
         self.refresh()?;
         let from = self.mirror.state().active.as_deref().filter(|a| *a != self.mirror.me()).and_then(|a| self.mirror.device(a));
-        self.arrival = None;
-        self.resume(Some(deadline), from)
+        // A pending arrival is what this pull takes over; kept if the pull fails, so it is retried.
+        let arrival = self.arrival.take();
+        let r = self.resume(Some(deadline), from);
+        if r.is_err() && arrival.is_some() && self.mirror.is_active() {
+            self.arrival = arrival;
+            self.dirty.get_or_insert_with(|| Instant::now() + RETRY);
+        }
+        r
     }
 
     fn send_to(&mut self, id: &str, deadline: Instant) -> Result<()> {
@@ -810,6 +816,8 @@ impl Worker {
         past(deadline)?;
         // Who owns playback and which queue is selected, as of now, not as last seen.
         self.refresh()?;
+        // That read may have used up the time the caller waits: change nothing after it.
+        past(deadline)?;
         // Playback just taken over is not loaded here yet: what reports would send is the old one.
         if self.awaiting.is_some() {
             return Err(CoreError::Other("still taking over playback".into()));
