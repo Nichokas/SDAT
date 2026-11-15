@@ -669,6 +669,16 @@ pub fn stop() {
     fire(Trigger::Stop);
 }
 
+/// Call on quit. The player lives in a thread-local, dropped while the process
+/// exits; disposing a playbin that is not in NULL there can hang forever.
+pub fn shutdown() {
+    if let Some(p) = playbin()
+        && let Err(e) = p.set_state(gst::State::Null)
+    {
+        log::warn!("failed to stop the player on quit error={e}");
+    }
+}
+
 pub fn set_repeat_mode(m: RepeatMode) {
     if m != repeat_mode_changed().get() {
         repeat_mode_changed().set(m);

@@ -102,6 +102,7 @@ fn main() -> glib::ExitCode {
         handoff::init();
     });
     app.connect_shutdown(|_| {
+        player::shutdown();
         handoff::stop();
         // Detach before the process ends, or other devices list this one for 90 s.
         tonearm_core::handoff::wait_detached(std::time::Duration::from_secs(2));
