@@ -7,11 +7,13 @@ struct DiscoverView: View {
     @Environment(Player.self) private var player
     @State private var mixes: [Mix] = []
     @State private var tracks: [Track] = []
+    /// The pool saved for the next launch, whose first screen of covers is fetched now.
+    @State private var upcoming: [Track] = []
     @State private var error: String?
 
     var body: some View {
         ZStack(alignment: .top) {
-            CoverPlane(tracks: tracks) { t in player.playDiscover(t, pool: tracks, mixes: mixes) }
+            CoverPlane(tracks: tracks, upcoming: upcoming) { t in player.playDiscover(t, pool: tracks, mixes: mixes) }
                 .ignoresSafeArea()
             // Smooth scrims so the title, buttons and bottom bar stay legible over bright covers.
             LinearGradient(stops: [
@@ -67,7 +69,8 @@ struct DiscoverView: View {
 
     private func load() async {
         if tracks.isEmpty { tracks = DiscoverCache.load() }
-        let hadCache = !tracks.isEmpty
+        // A cached pool too small to fill the plane without repeats gives way to the fresh one.
+        let hadCache = tracks.count >= Boot.targetCovers
         do {
             mixes = try await homeMixes()
             player.resumeInfinite(mixes: mixes)
@@ -81,14 +84,18 @@ struct DiscoverView: View {
                 }
                 // First launch: show covers as soon as the first batch arrives.
                 if !hadCache, tracks.isEmpty, !pool.isEmpty { tracks = pool }
-                // First launch: show covers as soon as the first batch arrives.
-                if !hadCache, tracks.isEmpty, !pool.isEmpty { tracks = pool }
                 if pool.count >= 320 { break }
             }
-            DiscoverCache.save(pool)
+            // Sources that fail are skipped, not thrown: a refresh cut short by the network
+            // ends with few or no covers, and saving it would open the next launch on a few
+            // covers repeated.
+            if pool.count >= Boot.targetCovers {
+                DiscoverCache.save(pool)
+                upcoming = pool
+            }
             // Keep the cached plane on screen this session; the fresh pool shows next launch,
-            // unless there was nothing to show.
-            if !hadCache { tracks = pool }
+            // unless the cache could not fill the plane.
+            if !hadCache, pool.count > tracks.count { tracks = pool }
         } catch {
             if !hadCache { self.error = friendlyMessage(error) }
         }
@@ -97,6 +104,7 @@ struct DiscoverView: View {
 
 struct CoverPlane: UIViewRepresentable {
     let tracks: [Track]
+    let upcoming: [Track]
     let onTap: (Track) -> Void
 
     func makeUIView(context: Context) -> PlaneScrollView {
@@ -108,16 +116,32 @@ struct CoverPlane: UIViewRepresentable {
     func updateUIView(_ v: PlaneScrollView, context: Context) {
         v.onTap = onTap
         if v.tracks.map(\.id) != tracks.map(\.id) { v.tracks = tracks }
+        if v.upcoming.map(\.id) != upcoming.map(\.id) { v.upcoming = upcoming }
     }
 }
 
 final class PlaneScrollView: UIScrollView, UIScrollViewDelegate, UIContextMenuInteractionDelegate {
     var onTap: ((Track) -> Void)?
     var tracks: [Track] = [] { didSet { visible.values.forEach { $0.removeFromSuperview() }; visible = [:]; setNeedsLayout() } }
+    /// The next launch opens on this pool at the same offset: its first screen goes to the
+    /// disk cache now, so that screen fills at once even on a slow connection.
+    var upcoming: [Track] = [] {
+        didSet {
+            guard !upcoming.isEmpty, bounds.width > 0 else { return }
+            // Already on screen from the start offset: layout loads that first screen itself.
+            if bounds.origin == start, upcoming.map(\.id) == tracks.map(\.id) { return }
+            let first = CGRect(origin: start, size: bounds.size)
+            ImageStore.shared.warm(tiles(for: first).compactMap { cell in
+                Self.track(cell, in: upcoming)?.album?.coverUrl.map { CoverURL.sized($0, points: rowSize(cell.r)) }
+            })
+        }
+    }
 
     private let gap: CGFloat = 12
     private let step: CGFloat = 150
     private let span: CGFloat = 4_000_000
+    /// Every launch opens here.
+    private var start: CGPoint { CGPoint(x: span / 2, y: span / 2) }
     private struct Cell: Hashable { let c: Int, r: Int }
     private var visible: [Cell: UIImageView] = [:]
     private var pool: [UIImageView] = []
@@ -131,7 +155,7 @@ final class PlaneScrollView: UIScrollView, UIScrollViewDelegate, UIContextMenuIn
         decelerationRate = .normal
         backgroundColor = .black
         contentSize = CGSize(width: span, height: span)
-        contentOffset = CGPoint(x: span / 2, y: span / 2)
+        contentOffset = start
         delaysContentTouches = false
         addGestureRecognizer(UITapGestureRecognizer(target: self, action: #selector(tapped(_:))))
         addInteraction(UIContextMenuInteraction(delegate: self))
@@ -220,17 +244,18 @@ final class PlaneScrollView: UIScrollView, UIScrollViewDelegate, UIContextMenuIn
 
     required init?(coder: NSCoder) { fatalError() }
 
-    private var block: (Int, Int) {
-        let n = tracks.count
+    private static func block(_ n: Int) -> (Int, Int) {
         let rows = max(12, Int((Double(n) / 1.4).squareRoot()))
         return (max(1, n / rows), rows)
     }
 
-    private func track(_ cell: Cell) -> Track? {
+    private func track(_ cell: Cell) -> Track? { Self.track(cell, in: tracks) }
+
+    private static func track(_ cell: Cell, in tracks: [Track]) -> Track? {
         guard !tracks.isEmpty else { return nil }
         // The pool is laid out as one C×R block that tiles the plane: every cell in a block is a
         // different cover, and a repeat is C columns or R rows away (both larger than the screen).
-        let (cols, rows) = block
+        let (cols, rows) = block(tracks.count)
         let c = ((cell.c % cols) + cols) % cols, r = ((cell.r % rows) + rows) % rows
         return tracks[min(r * cols + c, tracks.count - 1)]
     }
@@ -276,11 +301,16 @@ final class PlaneScrollView: UIScrollView, UIScrollViewDelegate, UIContextMenuIn
         return out
     }
 
+    /// The tiles laid out for a viewport: what is on screen plus a half-tile margin.
+    private func tiles(for viewport: CGRect) -> [Cell] {
+        let vis = viewport.insetBy(dx: -step * 0.5, dy: -step * 0.5)
+        return cells(in: vis).filter { frame(for: $0).intersects(vis) }
+    }
+
     override func layoutSubviews() {
         super.layoutSubviews()
         guard !tracks.isEmpty else { return }
-        let vis = bounds.insetBy(dx: -step * 0.5, dy: -step * 0.5)
-        let needed = Set(cells(in: vis).filter { frame(for: $0).intersects(vis) })
+        let needed = Set(tiles(for: bounds))
         for (cell, v) in visible where !needed.contains(cell) {
             v.removeFromSuperview(); v.image = nil; pool.append(v); visible[cell] = nil
         }

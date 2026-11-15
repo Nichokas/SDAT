@@ -188,6 +188,13 @@ final class ImageStore: @unchecked Sendable {
         guard cached(url) == nil else { return }
         Task { _ = await image(url) }
     }
+
+    /// Downloads into the disk cache only, without decoding: covers for a later launch.
+    func warm(_ urls: [String]) {
+        for u in urls.compactMap(URL.init(string:)) {
+            Task.detached(priority: .utility) { [session] in _ = try? await session.data(from: u) }
+        }
+    }
 }
 
 /// Profile photo, or a default avatar in the TIDAL style (a looped squiggle on a dark circle).
