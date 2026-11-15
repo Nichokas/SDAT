@@ -18,6 +18,15 @@
       "category": "entertainment",
       "versions": [
         {
+          "version": "1.4.0",
+          "buildVersion": "8",
+          "date": "2026-11-14T14:47:11Z",
+          "localizedDescription": "## What's Changed\n* feat(android): background playback with a Media3 session, notification and headset controls by @Nichokas in https://github.com/Nichokas/SDAT/pull/73\n* Report the Listen Together guest list once per change by @Nichokas in https://github.com/Nichokas/SDAT/pull/87\n* Smooth the iOS bottom-bar morph and cut per-frame work by @Nichokas in https://github.com/Nichokas/SDAT/pull/88\n* Keep Android per-frame animation out of composition by @Nichokas in https://github.com/Nichokas/SDAT/pull/93\n* fix(live): remove standing offsets and wrong-position playback in Listen Together by @Nichokas in https://github.com/Nichokas/SDAT/pull/92\n* feat(android): per-tab back stacks, large-title pages, the bottom-chrome morph and toasts by @Nichokas in https://github.com/Nichokas/SDAT/pull/91\n* Add a manual Release workflow for desktop and iOS by @Nichokas in https://github.com/Nichokas/SDAT/pull/97\n* Port the iOS player sheet, queue and playback persistence to Android by @Nichokas in https://github.com/Nichokas/SDAT/pull/95\n* Port the iOS boot loader and Discover pool cache to Android by @Nichokas in https://github.com/Nichokas/SDAT/pull/102\n* Let Release bump each platform's version on its own by @Nichokas in https://github.com/Nichokas/SDAT/pull/101\n\n\n**Full Changelog**: https://github.com/Nichokas/SDAT/compare/v1.3.0...v1.4.0",
+          "downloadURL": "https://github.com/Nichokas/SDAT/releases/download/v1.4.0/SDAT-v1.4.0-unsigned.ipa",
+          "size": 28381267,
+          "minOSVersion": "26.0"
+        },
+        {
           "version": "1.2.3",
           "buildVersion": "6",
           "date": "2026-11-02T22:03:18Z",
@@ -54,11 +63,11 @@
           "minOSVersion": "26.0"
         }
       ],
-      "version": "1.2.3",
-      "versionDate": "2026-11-02T22:03:18Z",
-      "versionDescription": "Changes since 1.2.2:\n- Listen Together sync fixes (#32): guests no longer start a new track at the previous track's position, guest start is aligned with the host's position, and host seeks reach guests faster\n\nUnsigned build: sideload with your own signing tool.",
-      "downloadURL": "https://github.com/Nichokas/SDAT/releases/download/v1.2.3/SDAT-v1.2.3-unsigned.ipa",
-      "size": 28306251
+      "version": "1.4.0",
+      "versionDate": "2026-11-14T14:47:11Z",
+      "versionDescription": "## What's Changed\n* feat(android): background playback with a Media3 session, notification and headset controls by @Nichokas in https://github.com/Nichokas/SDAT/pull/73\n* Report the Listen Together guest list once per change by @Nichokas in https://github.com/Nichokas/SDAT/pull/87\n* Smooth the iOS bottom-bar morph and cut per-frame work by @Nichokas in https://github.com/Nichokas/SDAT/pull/88\n* Keep Android per-frame animation out of composition by @Nichokas in https://github.com/Nichokas/SDAT/pull/93\n* fix(live): remove standing offsets and wrong-position playback in Listen Together by @Nichokas in https://github.com/Nichokas/SDAT/pull/92\n* feat(android): per-tab back stacks, large-title pages, the bottom-chrome morph and toasts by @Nichokas in https://github.com/Nichokas/SDAT/pull/91\n* Add a manual Release workflow for desktop and iOS by @Nichokas in https://github.com/Nichokas/SDAT/pull/97\n* Port the iOS player sheet, queue and playback persistence to Android by @Nichokas in https://github.com/Nichokas/SDAT/pull/95\n* Port the iOS boot loader and Discover pool cache to Android by @Nichokas in https://github.com/Nichokas/SDAT/pull/102\n* Let Release bump each platform's version on its own by @Nichokas in https://github.com/Nichokas/SDAT/pull/101\n\n\n**Full Changelog**: https://github.com/Nichokas/SDAT/compare/v1.3.0...v1.4.0",
+      "downloadURL": "https://github.com/Nichokas/SDAT/releases/download/v1.4.0/SDAT-v1.4.0-unsigned.ipa",
+      "size": 28381267
     }
   ],
   "news": []
