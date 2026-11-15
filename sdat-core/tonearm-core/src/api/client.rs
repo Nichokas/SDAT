@@ -271,6 +271,33 @@ fn get_json<T: DeserializeOwned>(path: &str, query: &[(&str, String)]) -> Result
     openapi::from_slice_lenient(&bytes).with_context(|| format!("decoding {path}"))
 }
 
+/// The signed-in user's access token; never the app-only one.
+pub(crate) fn user_bearer() -> Result<String> {
+    user_access_token()?.ok_or(CoreError::NotSignedIn)
+}
+
+/// JSON:API call to openapi.tidal.com (`path` starts with `/v2/`) with the
+/// user's token. `Value::Null` for an empty answer.
+pub(crate) fn openapi_call(method: Method, path: &str, body: Option<&serde_json::Value>) -> Result<serde_json::Value> {
+    user_bearer()?;
+    let label = method.to_string();
+    let mut rb = request(method, &openapi(path), &[])?.header("Accept", "application/vnd.api+json");
+    if let Some(b) = body {
+        rb = rb.header("Content-Type", "application/vnd.api+json").body(b.to_string());
+    }
+    let resp = rb.send()?;
+    let status = resp.status();
+    let bytes = resp.bytes()?;
+    if !status.is_success() {
+        let detail = String::from_utf8_lossy(&bytes);
+        bail_http!(status.as_u16(), "{label} {path}: {status}: {}", detail.chars().take(300).collect::<String>());
+    }
+    if bytes.is_empty() {
+        return Ok(serde_json::Value::Null);
+    }
+    serde_json::from_slice(&bytes).with_context(|| format!("decoding {path}"))
+}
+
 fn include_q(include: &[&str]) -> Vec<(&'static str, String)> {
     if include.is_empty() {
         vec![]
