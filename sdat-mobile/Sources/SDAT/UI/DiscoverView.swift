@@ -91,7 +91,7 @@ struct DiscoverView: View {
             // covers repeated.
             if pool.count >= Boot.targetCovers {
                 DiscoverCache.save(pool)
-                if hadCache { upcoming = pool }
+                upcoming = pool
             }
             // Keep the cached plane on screen this session; the fresh pool shows next launch,
             // unless the cache could not fill the plane.
@@ -128,6 +128,8 @@ final class PlaneScrollView: UIScrollView, UIScrollViewDelegate, UIContextMenuIn
     var upcoming: [Track] = [] {
         didSet {
             guard !upcoming.isEmpty, bounds.width > 0 else { return }
+            // Already on screen from the start offset: layout loads that first screen itself.
+            if bounds.origin == start, upcoming.map(\.id) == tracks.map(\.id) { return }
             let first = CGRect(origin: start, size: bounds.size)
             ImageStore.shared.warm(tiles(for: first).compactMap { cell in
                 Self.track(cell, in: upcoming)?.album?.coverUrl.map { CoverURL.sized($0, points: rowSize(cell.r)) }
