@@ -134,7 +134,11 @@ class Playback(context: Context, private val prefs: Preferences, secrets: Secret
         }
 
         override fun handleSetPlayWhenReady(playWhenReady: Boolean): ListenableFuture<*> {
-            if (!Live.isGuest) return super.handleSetPlayWhenReady(playWhenReady)
+            if (!Live.isGuest) {
+                // Notification and headset play/pause count as user commands too.
+                controls++
+                return super.handleSetPlayWhenReady(playWhenReady)
+            }
             if (playWhenReady) Live.userPlay() else Live.userPause()
             return Futures.immediateVoidFuture()
         }

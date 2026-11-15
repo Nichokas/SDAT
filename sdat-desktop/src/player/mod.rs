@@ -996,7 +996,14 @@ impl StartGate {
         if !self.loading_seen {
             return StartAt::Wait;
         }
-        if on_track && ps.status != PlaybackStatus::Stopped { StartAt::Seek } else { StartAt::GiveUp }
+        // Stopped after a load: an earlier load of the same track ended (the
+        // stop before this start), or this one failed. Wait for the next load;
+        // a new list ends the wait.
+        if ps.status == PlaybackStatus::Stopped {
+            self.loading_seen = false;
+            return StartAt::Wait;
+        }
+        if on_track { StartAt::Seek } else { StartAt::GiveUp }
     }
 }
 
@@ -1104,10 +1111,17 @@ mod start_tests {
     }
 
     #[test]
-    fn gives_up_when_the_load_fails_or_another_track_plays() {
+    fn an_earlier_load_of_the_same_track_ending_waits_for_the_next() {
         let mut g = StartGate::default();
         g.step(&ps(PlaybackStatus::Stopped, true), true);
-        assert_eq!(g.step(&ps(PlaybackStatus::Stopped, false), true), StartAt::GiveUp);
+        assert_eq!(g.step(&ps(PlaybackStatus::Stopped, false), true), StartAt::Wait);
+        assert_eq!(g.step(&ps(PlaybackStatus::Paused, false), true), StartAt::Wait);
+        assert_eq!(g.step(&ps(PlaybackStatus::Stopped, true), true), StartAt::Wait);
+        assert_eq!(g.step(&ps(PlaybackStatus::Paused, false), true), StartAt::Seek);
+    }
+
+    #[test]
+    fn gives_up_when_another_track_plays() {
         let mut g = StartGate::default();
         g.step(&ps(PlaybackStatus::Stopped, true), true);
         assert_eq!(g.step(&ps(PlaybackStatus::Playing, false), false), StartAt::GiveUp);

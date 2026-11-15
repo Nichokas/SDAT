@@ -261,6 +261,8 @@ final class Player {
         systemPaused = false
         if isPlaying {
             plays += 1
+            // A start still loading would otherwise autoplay over this pause.
+            if loading { holdAutoplay = true }
             avPlayer.pause()
         } else {
             // A play after a pause during a start: the start ends playing after all.

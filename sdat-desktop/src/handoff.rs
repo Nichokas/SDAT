@@ -233,6 +233,8 @@ pub fn continue_here() {
         // Joined Listen Together meanwhile (the host drives playback now), or
         // the user played, started or paused something: that wins.
         if crate::live::is_guest() || (starts(), player::play_requests(), player::pauses(), player::plays()) != started {
+            // The banner hid for this request; the other device's playback is still there.
+            banner().set(ELSEWHERE.with(|s| s.borrow().clone()));
             return;
         }
         let r = r.and_then(play);
