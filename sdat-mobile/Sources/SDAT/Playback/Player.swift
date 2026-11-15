@@ -254,10 +254,22 @@ final class Player {
     }
 
     func seek(to secs: Double) {
-        avPlayer.seek(to: CMTime(seconds: secs, preferredTimescale: 600))
+        seekGeneration += 1
+        let generation = seekGeneration
+        seeking = true
+        avPlayer.seek(to: CMTime(seconds: secs, preferredTimescale: 600)) { [weak self] _ in
+            Task { @MainActor in
+                if self?.seekGeneration == generation { self?.seeking = false }
+            }
+        }
         position = secs
         updateNowPlaying()
     }
+
+    /// True while a `seek(to:)` is in flight: the time observer still reports
+    /// the old time then, which would snap the slider back for a moment.
+    @ObservationIgnored private var seeking = false
+    @ObservationIgnored private var seekGeneration = 0
 
     // MARK: Listen Together (guest side; the host just plays normally)
 
@@ -763,7 +775,7 @@ final class Player {
     }
 
     private func tick(_ t: Double) {
-        guard t.isFinite, !needsStart else { return }
+        guard t.isFinite, !needsStart, !seeking else { return }
         if isPlaying, Date().timeIntervalSince(lastSave) > 5 { persist() }
         if isPlaying, t > position, t - position < 2 { listened += t - position }
         position = t
