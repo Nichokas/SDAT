@@ -29,6 +29,7 @@ final class Session {
             // Over a session: the old one detaches with its own credentials; the hub then starts the new one.
             if signedIn { HandoffHub.shared.stop() }
             tokens.save(result)
+            HandoffHub.shared.signedIn()
             sessionChanged()
             Boot.shared.start()   // first-time warm-up, only after a fresh sign-in
             signedIn = true

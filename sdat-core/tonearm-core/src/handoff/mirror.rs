@@ -115,6 +115,10 @@ impl Mirror {
         &self.me
     }
 
+    pub(super) fn has_fetched(&self) -> bool {
+        self.fetched
+    }
+
     pub(super) fn is_active(&self) -> bool {
         self.last_active.as_deref() == Some(self.me.as_str())
     }

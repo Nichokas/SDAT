@@ -33,6 +33,9 @@ const CALL_TIMEOUT: Duration = Duration::from_secs(30);
 /// First wait before a failed write or arrival is tried again, and the longest.
 const RETRY: Duration = Duration::from_secs(5);
 const MAX_RETRY: Duration = Duration::from_mins(1);
+/// A position written this recently by another device, found at the first
+/// read with this device active, was a push to it.
+const FRESH_PUSH_MS: i64 = 60_000;
 /// How long after taking over a queue the app has to load it.
 const TAKEOVER: Duration = Duration::from_secs(10);
 
@@ -302,7 +305,7 @@ impl Worker {
                     let _ = reply.send(self.send_to(&id, deadline));
                 }
                 Ok(Cmd::ContinueHere(deadline, reply)) => {
-                    self.pending = None;
+                    // A successful continue drops the pending report; a failed one keeps it.
                     let _ = reply.send(self.continue_here(deadline));
                 }
                 Ok(Cmd::Stop(token)) => {
@@ -410,6 +413,18 @@ impl Worker {
             let name = self.names.entry(id.clone()).or_insert_with(|| wire::installation_name(&id).unwrap_or_default()).clone();
             Device { id, name }
         });
+        // Sent here between this start's attach and its first read: that read
+        // has no earlier state to tell the change from. A recent position
+        // written by another device is a push; an old one is a stale selection.
+        let me = self.mirror.me();
+        let fresh_push = !self.mirror.has_fetched()
+            && state.active.as_deref() == Some(me)
+            && head.as_ref().is_some_and(|h| {
+                h.updated_by.as_deref().is_some_and(|u| u != me) && h.position_at_ms.is_some_and(|at| now_ms() - at < FRESH_PUSH_MS)
+            });
+        if fresh_push {
+            self.arrival = Some(Arrival(by.clone()));
+        }
         for o in self.mirror.fetched(state, head, by.clone()) {
             match o {
                 Out::Event(ev) => self.emit(*ev),
@@ -420,6 +435,11 @@ impl Worker {
             self.arrival = None;
         }
         if let Some(Arrival(from)) = self.arrival.clone() {
+            // The reads above may span another claim: only a device still active plays.
+            if wire::state()?.active.as_deref() != Some(self.mirror.me()) {
+                self.arrival = None;
+                return Ok(());
+            }
             match self.resume(None, from) {
                 Ok(r) => {
                     self.arrival = None;
@@ -449,15 +469,16 @@ impl Worker {
     fn resume(&mut self, claim: Option<Instant>, from: Option<Device>) -> Result<Resume> {
         let queue = self.mirror.queue_id().ok_or_else(|| CoreError::Other("nothing to continue".into()))?.to_string();
         // The source may move on between the reads: read again until they agree.
-        let mut tries = 0;
-        let (head, mut entries, future) = loop {
+        let mut read = None;
+        for _ in 0..3 {
             let head = wire::head_with_track(&queue)?;
             let (entries, future) = wire::future_tracks(&queue, MAX_FUTURE)?;
-            tries += 1;
-            if tries == 3 || wire::head(&queue)?.revision == head.revision {
-                break (head, entries, future);
+            if wire::head(&queue)?.revision == head.revision {
+                read = Some((head, entries, future));
+                break;
             }
-        };
+        }
+        let (head, mut entries, future) = read.ok_or_else(|| CoreError::Network("the queue kept changing while it was read".into()))?;
         let (Some(current), Some(track)) = (head.current.clone(), head.track.clone()) else {
             return Err(CoreError::Other("nothing to continue".into()));
         };

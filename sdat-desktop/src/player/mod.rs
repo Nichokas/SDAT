@@ -992,6 +992,7 @@ pub fn play_at(source: Option<PlaybackSource>, tracks: Vec<Track>, position: Dur
     pause();
     let generation = LIST_GENERATION.with(Cell::get);
     let paused = PAUSES.with(Cell::get);
+    let requested = play_requests();
     let gate = std::cell::RefCell::new(StartGate::default());
     playback_state_changed().on_lazy(move |ps| {
         if LIST_GENERATION.with(Cell::get) != generation {
@@ -1005,10 +1006,12 @@ pub fn play_at(source: Option<PlaybackSource>, tracks: Vec<Track>, position: Dur
                 let id = started.id().to_string();
                 glib::timeout_add_local(Duration::from_millis(100), move || {
                     tries += 1;
-                    // Another list or track, or a pause (a send elsewhere, say) came since.
+                    // Another list, track or start (a repeat-one restart too), or a pause
+                    // (a send elsewhere, say) came since.
                     if LIST_GENERATION.with(Cell::get) != generation
                         || current_track_id().as_deref() != Some(id.as_str())
                         || PAUSES.with(Cell::get) != paused
+                        || play_requests() != requested
                     {
                         return glib::ControlFlow::Break;
                     }

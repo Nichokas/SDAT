@@ -49,6 +49,11 @@ final class HandoffHub {
         stop()
     }
 
+    /// A sign-in ends the sign-out, even one that came before `update()` saw the signed-out state.
+    func signedIn() {
+        signingOut = false
+    }
+
     // MARK: lifecycle
 
     private func update() {
