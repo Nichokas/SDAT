@@ -27,7 +27,7 @@ thread_local! {
     static ELSEWHERE: RefCell<Option<Elsewhere>> = const { RefCell::new(None) };
     static CONTINUING: Cell<bool> = const { Cell::new(false) };
     static LAST_TRACK: RefCell<Option<String>> = const { RefCell::new(None) };
-    static LAST_STATUS: Cell<Option<(PlaybackStatus, bool)>> = const { Cell::new(None) };
+    static LAST_STATUS: Cell<Option<(PlaybackStatus, bool, bool)>> = const { Cell::new(None) };
     /// Bumped on every track start, repeats included: a send or continue
     /// that finishes after a newer start leaves that playback alone.
     static STARTS: Cell<u64> = const { Cell::new(0) };
@@ -309,7 +309,7 @@ pub fn repeat_mode(r: Repeat) -> RepeatMode {
 /// position before it.
 fn local_now(seek_target: Option<Duration>) -> LocalPlayback {
     let ps = player::playback_state_changed().get();
-    LAST_STATUS.with(|l| l.set(Some((ps.status, ps.loading))));
+    LAST_STATUS.with(|l| l.set(Some((ps.status, ps.loading, ps.buffering))));
     let current = player::current_track_id();
     let changed = LAST_TRACK.with(|l| {
         let changed = crate::live::track_change_position_is_stale(l.borrow().as_deref(), current.as_deref());
@@ -324,7 +324,8 @@ fn local_now(seek_target: Option<Duration>) -> LocalPlayback {
         player::user_queue().entries().with(|t| ids(t)),
         player::base_queue().entries().with(|t| ids(t)),
         position,
-        ps.status == PlaybackStatus::Playing && !ps.loading,
+        // Not while buffering: the position stands still then.
+        ps.status == PlaybackStatus::Playing && !ps.loading && !ps.buffering,
         player::repeat_mode_changed().get(),
     )
 }
@@ -374,7 +375,7 @@ fn install_hooks() {
     });
     player::playback_state_changed().on_lazy(|ps| {
         // Position updates fire often; only status changes are reported.
-        if LAST_STATUS.with(Cell::get) != Some((ps.status, ps.loading)) {
+        if LAST_STATUS.with(Cell::get) != Some((ps.status, ps.loading, ps.buffering)) {
             report();
         }
         CONTINUE

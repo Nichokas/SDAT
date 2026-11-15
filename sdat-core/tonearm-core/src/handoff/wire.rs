@@ -247,7 +247,15 @@ fn future(queue: &str, cap: usize, with_tracks: bool) -> Result<(Vec<Entry>, Vec
             if with_tracks {
                 // Entries and tracks stay aligned: a track whose metadata is
                 // missing is looked up, and left out of both if that fails too.
-                let found = tracks(&v, &Value::Array(vec![rel.clone()])).into_iter().next().or_else(|| crate::service::get_track(&e.track_id).ok());
+                let found = match tracks(&v, &Value::Array(vec![rel.clone()])).into_iter().next() {
+                    Some(t) => Some(t),
+                    // Gone from the catalogue: left out. Any other failure fails the read, which is retried.
+                    None => match crate::service::get_track(&e.track_id) {
+                        Ok(t) => Some(t),
+                        Err(CoreError::Http { status: 404, .. }) => None,
+                        Err(e) => return Err(e),
+                    },
+                };
                 let Some(t) = found else { continue };
                 out.push(t);
             }

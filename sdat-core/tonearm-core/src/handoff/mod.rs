@@ -421,6 +421,14 @@ impl Worker {
         }
     }
 
+    /// A write made only while the account is still the one this worker started with.
+    fn checked<T>(&self, write: impl FnOnce() -> Result<T>) -> Result<T> {
+        if !self.same_account() {
+            return Err(CoreError::NotSignedIn);
+        }
+        write()
+    }
+
     fn same_account(&self) -> bool {
         crate::auth::tokens().user_id() == self.account
     }
@@ -500,7 +508,8 @@ impl Worker {
 
     /// Makes this device the active player; an error if TIDAL picked another.
     fn claim(&mut self) -> Result<()> {
-        let active = wire::set_active(self.mirror.me())?;
+        let me = self.mirror.me().to_string();
+        let active = self.checked(|| wire::set_active(&me))?;
         if active.as_deref() != Some(self.mirror.me()) {
             return Err(CoreError::Other("TIDAL did not make this device active".into()));
         }
@@ -608,7 +617,7 @@ impl Worker {
         // Only while this device still holds it: a newer claim by a third device stays.
         // Unknown (a failed read): the next state read decides.
         match wire::state() {
-            Ok(s) if s.active.as_deref() == Some(self.mirror.me()) => match wire::set_active(b) {
+            Ok(s) if s.active.as_deref() == Some(self.mirror.me()) => match self.checked(|| wire::set_active(b)) {
                 Ok(active) => self.mirror.claimed(active),
                 Err(_) => self.rollback = Some(b.to_string()),
             },
@@ -644,17 +653,22 @@ impl Worker {
         if self.last_local.as_ref().is_none_or(|l| l.current.is_none()) {
             return Err(CoreError::Other("nothing playing".into()));
         }
-        if self.mirror.state().active.as_deref() != Some(self.mirror.me()) {
+        // The player this claim displaces, handed back if the send fails before the hand-over.
+        let before = self.mirror.state().active.clone().filter(|a| a != self.mirror.me());
+        let claimed = self.mirror.state().active.as_deref() != Some(self.mirror.me());
+        if claimed {
             self.claim()?;
         }
         if !self.write_local(true) {
-            return Err(CoreError::Other("could not write the queue".into()));
+            return Err(self.undo_claim(claimed, before.as_deref(), CoreError::Other("could not write the queue".into())));
         }
         // Paused before the target owns the state, so this write cannot land after its own.
-        wire::set_status(false)?;
+        if let Err(e) = self.checked(|| wire::set_status(false)) {
+            return Err(self.undo_claim(claimed, before.as_deref(), e));
+        }
         self.mirror.status_written(false);
         // A failed call leaves the outcome unknown: read who is active now.
-        let active = match wire::set_active(id) {
+        let active = match self.checked(|| wire::set_active(id)) {
             Ok(a) => Ok(a),
             Err(e) => wire::state().map(|s| s.active).map_err(|_unread| e),
         };

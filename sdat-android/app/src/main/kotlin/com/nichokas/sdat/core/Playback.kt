@@ -74,6 +74,9 @@ class Playback(context: Context, private val prefs: Preferences, secrets: Secret
      * took over, and the player sheet drops a drag meant for the previous entry. */
     var entry by mutableIntStateOf(0)
         private set
+    /** Bumped by every play or pause command, so a late handoff result knows the user acted. */
+    var controls = 0
+        private set
 
     val track get() = queue.current
     override val current get() = track
@@ -657,6 +660,7 @@ class Playback(context: Context, private val prefs: Preferences, secrets: Secret
      * a restored queue starts this way too. */
     fun toggle() {
         val t = track ?: return
+        controls++
         if (dropLiveStart()) return
         systemPaused = false
         val unprepared = error != null || !fetching && player.playbackState == Player.STATE_IDLE
@@ -745,6 +749,7 @@ class Playback(context: Context, private val prefs: Preferences, secrets: Secret
     }
 
     override fun pause() {
+        controls++
         if (!dropLiveStart()) player.pause()
     }
 

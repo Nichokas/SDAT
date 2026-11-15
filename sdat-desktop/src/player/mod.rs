@@ -1005,19 +1005,16 @@ impl StartGate {
 pub fn play_at(source: Option<PlaybackSource>, tracks: Vec<Track>, position: Duration) -> Result<()> {
     let first = tracks.first().map(|t| t.id().to_string());
     // Loads paused, so the start of the track is never heard before the seek.
-    if let Some(id) = first.as_deref().filter(|_| !position.is_zero()) {
-        statemachine::start_paused(id);
-    }
-    let started = play_tracks(tracks, false, 0).inspect_err(|_| {
-        if let Some(id) = first.as_deref() {
-            statemachine::drop_start_paused(id);
+    let token = first.as_deref().filter(|_| !position.is_zero()).map(statemachine::start_paused);
+    let drop_request = move || {
+        if let Some(t) = token {
+            statemachine::drop_start_paused(t);
         }
-    })?;
+    };
+    let started = play_tracks(tracks, false, 0).inspect_err(|_| drop_request())?;
     source_changed().set(source);
     if position.is_zero() || first.as_deref() != Some(started.id()) {
-        if let Some(id) = first.as_deref() {
-            statemachine::drop_start_paused(id);
-        }
+        drop_request();
         return Ok(());
     }
     let generation = LIST_GENERATION.with(Cell::get);
@@ -1026,7 +1023,7 @@ pub fn play_at(source: Option<PlaybackSource>, tracks: Vec<Track>, position: Dur
     let gate = std::cell::RefCell::new(StartGate::default());
     playback_state_changed().on_lazy(move |ps| {
         if LIST_GENERATION.with(Cell::get) != generation {
-            statemachine::drop_start_paused(started.id());
+            drop_request();
             return crate::signals::UNSUBSCRIBE;
         }
         match gate.borrow_mut().step(ps, current_track_id().as_deref() == Some(started.id())) {
@@ -1061,7 +1058,7 @@ pub fn play_at(source: Option<PlaybackSource>, tracks: Vec<Track>, position: Dur
             }
             StartAt::GiveUp => {
                 // The handed-off start failed or was replaced: no later start of it loads paused.
-                statemachine::drop_start_paused(started.id());
+                drop_request();
                 crate::signals::UNSUBSCRIBE
             }
         }

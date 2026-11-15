@@ -259,7 +259,10 @@ final class Player {
         }
         resumeAfterInterruption = false
         systemPaused = false
-        if isPlaying { avPlayer.pause() } else {
+        if isPlaying {
+            plays += 1
+            avPlayer.pause()
+        } else {
             // A play after a pause during a start: the start ends playing after all.
             holdAutoplay = false
             // Playing here is a newer choice than a handoff still on its way.
@@ -273,6 +276,7 @@ final class Player {
 
     /// Pauses, also a start still loading: it then ends paused.
     func pause() {
+        plays += 1
         if loading { holdAutoplay = true }
         resumeAfterInterruption = false
         if isPlaying { toggle() }
@@ -875,7 +879,7 @@ final class Player {
     @ObservationIgnored private var exactResume = false
     /// Bumped on every start: tells one playback from a later one of the same track.
     @ObservationIgnored private(set) var starts = 0
-    /// Bumped by every play command, a resume of the same track too.
+    /// Bumped by every play or pause command, a resume of the same track too.
     @ObservationIgnored private(set) var plays = 0
     @ObservationIgnored private var restoredInfinite = false
     @ObservationIgnored private var lastSave = Date.distantPast

@@ -231,23 +231,30 @@ async fn fetch_and_enqueue_track(playbin: &dyn Playbin, track_id: &str) -> Resul
 
 thread_local! {
     /// A track whose next start loads paused (a handoff seeks it first).
-    static START_PAUSED: RefCell<Option<String>> = const { RefCell::new(None) };
+    static START_PAUSED: RefCell<Option<(String, u64)>> = const { RefCell::new(None) };
+    static START_PAUSED_TOKEN: Cell<u64> = const { Cell::new(0) };
 }
 
 /// The next start loads paused instead of playing, if it is `track_id`.
-pub fn start_paused(track_id: &str) {
-    START_PAUSED.with(|s| *s.borrow_mut() = Some(track_id.to_string()));
+/// Returns the request's token for [`drop_start_paused`].
+pub fn start_paused(track_id: &str) -> u64 {
+    let token = START_PAUSED_TOKEN.with(|t| {
+        t.set(t.get() + 1);
+        t.get()
+    });
+    START_PAUSED.with(|s| *s.borrow_mut() = Some((track_id.to_string(), token)));
+    token
 }
 
-/// Drops a paused-start request for `track_id` that no start took (a newer one stays).
-pub fn drop_start_paused(track_id: &str) {
-    START_PAUSED.with(|s| drop(s.borrow_mut().take_if(|id| id == track_id)));
+/// Drops the request `token` if no start took it; a newer request stays.
+pub fn drop_start_paused(token: u64) {
+    START_PAUSED.with(|s| drop(s.borrow_mut().take_if(|(_, t)| *t == token)));
 }
 
 pub async fn on_play_track(playbin: &dyn Playbin, track: Track, skip_history: bool) -> Result<()> {
     // Only the start it was asked for takes it, before its fetch, so a failed
     // fetch leaves nothing behind. A start that never comes is cleared by `play_at`.
-    let paused = START_PAUSED.with(|s| s.borrow_mut().take_if(|id| id == track.id()).is_some());
+    let paused = START_PAUSED.with(|s| s.borrow_mut().take_if(|(id, _)| id == track.id()).is_some());
     let manifest = fetch_and_enqueue_track(playbin, track.id()).await?;
     playbin.set_state(if paused { gst::State::Paused } else { gst::State::Playing })?;
     let duration = track.duration();

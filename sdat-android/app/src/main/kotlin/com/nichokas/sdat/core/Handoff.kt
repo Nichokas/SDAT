@@ -116,13 +116,13 @@ object Handoff {
         continuing = true
         val gen = generation
         val entry = player.entry
-        val playing = player.playing
+        val controls = player.controls
         scope.launch {
             try {
                 val r = h.continueHere()
                 // Joined Listen Together meanwhile (the host drives playback now), or
                 // the user started, paused or resumed something: that wins.
-                if (gen == generation && !Live.isGuest && player.entry == entry && player.playing == playing) play(r)
+                if (gen == generation && !Live.isGuest && player.entry == entry && player.controls == controls) play(r)
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {

@@ -277,7 +277,9 @@ impl Mirror {
         // that this device never saw itself lose the active player for.
         let pushed = match (&self.head, &head) {
             (Some(old), Some(new)) => new.revision != old.revision && new.updated_by.as_deref().is_some_and(|u| u != self.me),
-            _ => false,
+            // A queue that appeared, written by another device.
+            (None, Some(new)) => self.fetched && new.updated_by.as_deref().is_some_and(|u| u != self.me),
+            (_, None) => false,
         };
         self.state = state;
         self.head = head;
