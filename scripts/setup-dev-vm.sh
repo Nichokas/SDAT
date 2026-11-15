@@ -46,7 +46,7 @@ if ! command -v swiftly >/dev/null; then
   curl -fsSL -o "$tmp/swiftly.tar.gz" "https://download.swift.org/swiftly/linux/swiftly-$(uname -m).tar.gz"
   tar -xzf "$tmp/swiftly.tar.gz" -C "$tmp"
   # swiftly only knows LTS releases; the Ubuntu 26.04 toolchain also runs on newer ones.
-  "$tmp/swiftly" init --assume-yes --skip-install --quiet-shell-followup --platform ubuntu2604
+  "$tmp/swiftly" init --assume-yes --skip-install --quiet-shell-followup --platform ubuntu26.04
   rm -rf "$tmp"
   # shellcheck disable=SC1091
   . "$HOME/.local/share/swiftly/env.sh"
@@ -72,7 +72,7 @@ if [ ! -x "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" ]; then
 fi
 sdkmanager="$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager"
 yes | "$sdkmanager" --licenses >/dev/null || true
-"$sdkmanager" "platform-tools" "platforms;$PLATFORM" "build-tools;$BUILD_TOOLS" "ndk;$NDK_VERSION"
+"$sdkmanager" "platform-tools" "platforms;$PLATFORM" "build-tools;$BUILD_TOOLS" "ndk;$NDK_VERSION" < <(yes)
 
 marker="# >>> sdat dev vm >>>"
 touch "$HOME/.bashrc"
