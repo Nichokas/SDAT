@@ -223,7 +223,7 @@ pub fn continue_here() {
     let generation = current_generation();
     CONTINUING.with(|c| c.set(true));
     banner().set(None);
-    let started = (starts(), player::play_requests(), player::pauses());
+    let started = (starts(), player::play_requests(), player::pauses(), player::plays());
     glib::spawn_future_local(async move {
         let r = crate::api::run(move || h.continue_here()).await;
         if generation != current_generation() {
@@ -231,8 +231,8 @@ pub fn continue_here() {
         }
         CONTINUING.with(|c| c.set(false));
         // Joined Listen Together meanwhile (the host drives playback now), or
-        // the user started or paused something: that wins.
-        if crate::live::is_guest() || (starts(), player::play_requests(), player::pauses()) != started {
+        // the user played, started or paused something: that wins.
+        if crate::live::is_guest() || (starts(), player::play_requests(), player::pauses(), player::plays()) != started {
             return;
         }
         let r = r.and_then(play);

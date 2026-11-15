@@ -215,15 +215,17 @@ thread_local! {
     static START_PAUSED: RefCell<Option<String>> = const { RefCell::new(None) };
 }
 
-/// The next start of `track_id` loads paused instead of playing.
-pub fn start_paused(track_id: &str) {
-    START_PAUSED.with(|s| *s.borrow_mut() = Some(track_id.to_string()));
+/// The next start loads paused instead of playing, if it is `track_id`;
+/// `None` drops a request no start took.
+pub fn start_paused(track_id: Option<&str>) {
+    START_PAUSED.with(|s| *s.borrow_mut() = track_id.map(str::to_string));
 }
 
 pub async fn on_play_track(playbin: &dyn Playbin, track: Track, skip_history: bool) -> Result<()> {
+    // Taken by whichever start comes next, so a failed one leaves nothing behind.
+    let paused = START_PAUSED.with(|s| s.borrow_mut().take()).is_some_and(|id| id == track.id());
     playbin.set_state(gst::State::Ready)?;
     let manifest = fetch_and_enqueue_track(playbin, track.id()).await?;
-    let paused = START_PAUSED.with(|s| s.borrow_mut().take_if(|id| id == track.id()).is_some());
     playbin.set_state(if paused { gst::State::Paused } else { gst::State::Playing })?;
     let duration = track.duration();
     track_changed().set(Some(TrackChangedEvent { track, skip_history }));

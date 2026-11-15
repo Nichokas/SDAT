@@ -582,7 +582,13 @@ pub fn pause() {
 }
 
 pub fn play() {
+    PLAYS.with(|p| p.set(p.get() + 1));
     fire(Trigger::Resume);
+}
+
+/// Changes with every play command (a resume of the paused track too).
+pub fn plays() -> u64 {
+    PLAYS.with(std::cell::Cell::get)
 }
 
 pub fn play_pause() {
@@ -777,6 +783,8 @@ thread_local! {
     static LIST_GENERATION: std::cell::Cell<u64> = const { std::cell::Cell::new(0) };
     /// Bumped when a track start is asked for, before its stream loads.
     static PLAY_REQUESTS: std::cell::Cell<u64> = const { std::cell::Cell::new(0) };
+    /// Bumped by every play command.
+    static PLAYS: std::cell::Cell<u64> = const { std::cell::Cell::new(0) };
     /// Bumped by every pause, so a delayed start knows a later one came.
     static PAUSES: std::cell::Cell<u64> = const { std::cell::Cell::new(0) };
 }
@@ -991,11 +999,12 @@ pub fn play_at(source: Option<PlaybackSource>, tracks: Vec<Track>, position: Dur
     let first = tracks.first().map(|t| t.id().to_string());
     // Loads paused, so the start of the track is never heard before the seek.
     if let Some(id) = first.as_deref().filter(|_| !position.is_zero()) {
-        statemachine::start_paused(id);
+        statemachine::start_paused(Some(id));
     }
-    let started = play_tracks(tracks, false, 0)?;
+    let started = play_tracks(tracks, false, 0).inspect_err(|_| statemachine::start_paused(None))?;
     source_changed().set(source);
     if position.is_zero() || first.as_deref() != Some(started.id()) {
+        statemachine::start_paused(None);
         return Ok(());
     }
     let generation = LIST_GENERATION.with(Cell::get);
