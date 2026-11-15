@@ -18,6 +18,15 @@
       "category": "entertainment",
       "versions": [
         {
+          "version": "1.5.0",
+          "buildVersion": "9",
+          "date": "2026-11-15T14:34:42Z",
+          "localizedDescription": "## What's Changed\n* Make the iOS and Android Rust caches actually reused by @Nichokas in https://github.com/Nichokas/SDAT/pull/107\n* Port Search, Explore and the album, playlist and artist pages to Android by @Nichokas in https://github.com/Nichokas/SDAT/pull/104\n* Port the Collection tab, Recents and Add to Playlist to Android by @Nichokas in https://github.com/Nichokas/SDAT/pull/108\n* Port Downloads and offline playback to Android by @Nichokas in https://github.com/Nichokas/SDAT/pull/109\n* Port Listen Together to Android by @Nichokas in https://github.com/Nichokas/SDAT/pull/110\n* Add signed Android releases to the Release workflow by @Nichokas in https://github.com/Nichokas/SDAT/pull/113\n* Feather source: add v1.4.0 by @github-actions[bot] in https://github.com/Nichokas/SDAT/pull/106\n* Commit Feather source updates directly to main by @Nichokas in https://github.com/Nichokas/SDAT/pull/114\n* Strip TIDAL markup from artist bios in the core by @Nichokas in https://github.com/Nichokas/SDAT/pull/115\n* Prune superseded Gradle caches so Rust caches stay in the quota by @Nichokas in https://github.com/Nichokas/SDAT/pull/117\n* iOS: keep the Discover cache when a refresh comes back short, and prefetch the next launch's first covers by @Nichokas in https://github.com/Nichokas/SDAT/pull/118\n* Add Show More to an artist's top tracks by @Nichokas in https://github.com/Nichokas/SDAT/pull/116\n* Desktop: keep queued tracks on quick skips, failed prefetches and shuffle off by @Nichokas in https://github.com/Nichokas/SDAT/pull/119\n* Tidy the iOS and Android player: fewer glass shapes, white-only state, output picker by @Nichokas in https://github.com/Nichokas/SDAT/pull/121\n* Desktop: stop on playback errors, hold playback while buffering, reset MPRIS position on track change by @Nichokas in https://github.com/Nichokas/SDAT/pull/120\n\n\n**Full Changelog**: https://github.com/Nichokas/SDAT/compare/v1.4.0...v1.5.0",
+          "downloadURL": "https://github.com/Nichokas/SDAT/releases/download/v1.5.0/SDAT-v1.5.0-unsigned.ipa",
+          "size": 28481395,
+          "minOSVersion": "26.0"
+        },
+        {
           "version": "1.4.0",
           "buildVersion": "8",
           "date": "2026-11-14T14:47:11Z",
@@ -63,11 +72,11 @@
           "minOSVersion": "26.0"
         }
       ],
-      "version": "1.4.0",
-      "versionDate": "2026-11-14T14:47:11Z",
-      "versionDescription": "## What's Changed\n* feat(android): background playback with a Media3 session, notification and headset controls by @Nichokas in https://github.com/Nichokas/SDAT/pull/73\n* Report the Listen Together guest list once per change by @Nichokas in https://github.com/Nichokas/SDAT/pull/87\n* Smooth the iOS bottom-bar morph and cut per-frame work by @Nichokas in https://github.com/Nichokas/SDAT/pull/88\n* Keep Android per-frame animation out of composition by @Nichokas in https://github.com/Nichokas/SDAT/pull/93\n* fix(live): remove standing offsets and wrong-position playback in Listen Together by @Nichokas in https://github.com/Nichokas/SDAT/pull/92\n* feat(android): per-tab back stacks, large-title pages, the bottom-chrome morph and toasts by @Nichokas in https://github.com/Nichokas/SDAT/pull/91\n* Add a manual Release workflow for desktop and iOS by @Nichokas in https://github.com/Nichokas/SDAT/pull/97\n* Port the iOS player sheet, queue and playback persistence to Android by @Nichokas in https://github.com/Nichokas/SDAT/pull/95\n* Port the iOS boot loader and Discover pool cache to Android by @Nichokas in https://github.com/Nichokas/SDAT/pull/102\n* Let Release bump each platform's version on its own by @Nichokas in https://github.com/Nichokas/SDAT/pull/101\n\n\n**Full Changelog**: https://github.com/Nichokas/SDAT/compare/v1.3.0...v1.4.0",
-      "downloadURL": "https://github.com/Nichokas/SDAT/releases/download/v1.4.0/SDAT-v1.4.0-unsigned.ipa",
-      "size": 28381267
+      "version": "1.5.0",
+      "versionDate": "2026-11-15T14:34:42Z",
+      "versionDescription": "## What's Changed\n* Make the iOS and Android Rust caches actually reused by @Nichokas in https://github.com/Nichokas/SDAT/pull/107\n* Port Search, Explore and the album, playlist and artist pages to Android by @Nichokas in https://github.com/Nichokas/SDAT/pull/104\n* Port the Collection tab, Recents and Add to Playlist to Android by @Nichokas in https://github.com/Nichokas/SDAT/pull/108\n* Port Downloads and offline playback to Android by @Nichokas in https://github.com/Nichokas/SDAT/pull/109\n* Port Listen Together to Android by @Nichokas in https://github.com/Nichokas/SDAT/pull/110\n* Add signed Android releases to the Release workflow by @Nichokas in https://github.com/Nichokas/SDAT/pull/113\n* Feather source: add v1.4.0 by @github-actions[bot] in https://github.com/Nichokas/SDAT/pull/106\n* Commit Feather source updates directly to main by @Nichokas in https://github.com/Nichokas/SDAT/pull/114\n* Strip TIDAL markup from artist bios in the core by @Nichokas in https://github.com/Nichokas/SDAT/pull/115\n* Prune superseded Gradle caches so Rust caches stay in the quota by @Nichokas in https://github.com/Nichokas/SDAT/pull/117\n* iOS: keep the Discover cache when a refresh comes back short, and prefetch the next launch's first covers by @Nichokas in https://github.com/Nichokas/SDAT/pull/118\n* Add Show More to an artist's top tracks by @Nichokas in https://github.com/Nichokas/SDAT/pull/116\n* Desktop: keep queued tracks on quick skips, failed prefetches and shuffle off by @Nichokas in https://github.com/Nichokas/SDAT/pull/119\n* Tidy the iOS and Android player: fewer glass shapes, white-only state, output picker by @Nichokas in https://github.com/Nichokas/SDAT/pull/121\n* Desktop: stop on playback errors, hold playback while buffering, reset MPRIS position on track change by @Nichokas in https://github.com/Nichokas/SDAT/pull/120\n\n\n**Full Changelog**: https://github.com/Nichokas/SDAT/compare/v1.4.0...v1.5.0",
+      "downloadURL": "https://github.com/Nichokas/SDAT/releases/download/v1.5.0/SDAT-v1.5.0-unsigned.ipa",
+      "size": 28481395
     }
   ],
   "news": []
