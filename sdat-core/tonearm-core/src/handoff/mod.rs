@@ -551,7 +551,10 @@ impl Worker {
                     past(deadline)?;
                     // The owner this claim displaces, as read right before it.
                     before = now.active.filter(|a| a != self.mirror.me());
-                    self.claim()?;
+                    // A failed claim may still have reached TIDAL: undo it if it did.
+                    if let Err(e) = self.claim() {
+                        return Err(self.undo_claim(true, before.as_deref(), e));
+                    }
                     claimed = true;
                 }
                 _ => break (head, entries, future, current, track),

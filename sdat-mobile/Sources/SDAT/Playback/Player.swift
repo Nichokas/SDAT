@@ -262,6 +262,8 @@ final class Player {
         if isPlaying { avPlayer.pause() } else {
             // A play after a pause during a start: the start ends playing after all.
             holdAutoplay = false
+            // Playing here is a newer choice than a handoff still on its way.
+            plays += 1
             try? AVAudioSession.sharedInstance().setActive(true)
             avPlayer.play()
         }
@@ -873,6 +875,8 @@ final class Player {
     @ObservationIgnored private var exactResume = false
     /// Bumped on every start: tells one playback from a later one of the same track.
     @ObservationIgnored private(set) var starts = 0
+    /// Bumped by every play command, a resume of the same track too.
+    @ObservationIgnored private(set) var plays = 0
     @ObservationIgnored private var restoredInfinite = false
     @ObservationIgnored private var lastSave = Date.distantPast
     @ObservationIgnored private var restoring = true

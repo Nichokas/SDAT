@@ -136,13 +136,13 @@ final class HandoffHub {
         guard let h = handoff, !continuing, !Live.shared.isGuest else { return }
         continuing = true
         let gen = generation
-        let started = player.starts
+        let started = (player.starts, player.plays)
         Task {
             do {
                 let r = try await h.continueHere()
                 // Joined Listen Together meanwhile (the host drives playback now), or
                 // the user started something else: that wins.
-                if gen == generation, !Live.shared.isGuest, player.starts == started { play(r) }
+                if gen == generation, !Live.shared.isGuest, (player.starts, player.plays) == started { play(r) }
             } catch {
                 Chrome.shared.flash("Couldn't continue here")
             }
