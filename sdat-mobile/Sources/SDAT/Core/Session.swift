@@ -44,6 +44,7 @@ final class Session {
     /// Stops playback (nothing restores on next login), cancels and deletes all
     /// downloads, then clears the credentials.
     func logOut() {
+        HandoffHub.shared.signOut()
         Player.shared.stopAndClear()
         Task {
             await Downloads.shared.removeAll()
@@ -55,6 +56,7 @@ final class Session {
 
     /// Dev: wipes Keychain, defaults, caches and files, stops playback, back to login.
     func eraseAll() {
+        HandoffHub.shared.signOut()
         Player.shared.stopAndClear()
         Task { await eraseRest() }
     }

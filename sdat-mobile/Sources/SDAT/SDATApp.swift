@@ -6,6 +6,7 @@ struct SDATApp: App {
     @State private var prefs = Preferences.shared
     @State private var boot = Boot.shared
     @State private var live = Live.shared
+    @State private var handoff = HandoffHub.shared
     @Environment(\.scenePhase) private var phase
 
     var body: some Scene {
@@ -41,6 +42,7 @@ struct SDATApp: App {
             .tint(.blue)
         }
         .onChange(of: phase) { _, p in
+            handoff.foreground = p != .background
             if p != .active { Player.shared.persist() }
             else if session.signedIn { Downloads.shared.resumePending() }
         }

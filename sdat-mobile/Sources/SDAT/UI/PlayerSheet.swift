@@ -91,6 +91,7 @@ private struct NowPlayingPage: View {
                         Divider()
                         TrackMenu(track: t)
                     }
+                    SendToMenu()
                 } label: {
                     Image(systemName: "ellipsis").font(.title3)
                         .frame(width: 44, height: 44).contentShape(.rect)

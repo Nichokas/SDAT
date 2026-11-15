@@ -271,6 +271,13 @@ typedef void (*UniffiCallbackInterfaceTokenStoreMethod1)(uint64_t, RustBuffer* _
     );
 
 #endif
+#ifndef UNIFFI_FFIDEF_CALLBACK_INTERFACE_HANDOFF_OBSERVER_METHOD0
+#define UNIFFI_FFIDEF_CALLBACK_INTERFACE_HANDOFF_OBSERVER_METHOD0
+typedef void (*UniffiCallbackInterfaceHandoffObserverMethod0)(uint64_t, RustBuffer, void* _Nonnull, 
+        RustCallStatus *_Nonnull uniffiCallStatus
+    );
+
+#endif
 #ifndef UNIFFI_FFIDEF_CALLBACK_INTERFACE_LIVE_CONTROL_OBSERVER_METHOD0
 #define UNIFFI_FFIDEF_CALLBACK_INTERFACE_LIVE_CONTROL_OBSERVER_METHOD0
 typedef void (*UniffiCallbackInterfaceLiveControlObserverMethod0)(uint64_t, int8_t, void* _Nonnull, 
@@ -317,6 +324,15 @@ typedef struct UniffiVTableCallbackInterfaceTokenStore {
     UniffiCallbackInterfaceTokenStoreMethod0 _Nonnull refreshToken;
     UniffiCallbackInterfaceTokenStoreMethod1 _Nonnull userId;
 } UniffiVTableCallbackInterfaceTokenStore;
+
+#endif
+#ifndef UNIFFI_FFIDEF_V_TABLE_CALLBACK_INTERFACE_HANDOFF_OBSERVER
+#define UNIFFI_FFIDEF_V_TABLE_CALLBACK_INTERFACE_HANDOFF_OBSERVER
+typedef struct UniffiVTableCallbackInterfaceHandoffObserver {
+    UniffiCallbackInterfaceFree _Nonnull uniffiFree;
+    UniffiCallbackInterfaceClone _Nonnull uniffiClone;
+    UniffiCallbackInterfaceHandoffObserverMethod0 _Nonnull onEvent;
+} UniffiVTableCallbackInterfaceHandoffObserver;
 
 #endif
 #ifndef UNIFFI_FFIDEF_V_TABLE_CALLBACK_INTERFACE_LIVE_CONTROL_OBSERVER
@@ -430,6 +446,66 @@ RustBuffer uniffi_tonearm_ffi_fn_method_tokenstore_refresh_token(uint64_t ptr, R
 #ifndef UNIFFI_FFIDEF_UNIFFI_TONEARM_FFI_FN_METHOD_TOKENSTORE_USER_ID
 #define UNIFFI_FFIDEF_UNIFFI_TONEARM_FFI_FN_METHOD_TOKENSTORE_USER_ID
 RustBuffer uniffi_tonearm_ffi_fn_method_tokenstore_user_id(uint64_t ptr, RustCallStatus *_Nonnull out_status
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_TONEARM_FFI_FN_CLONE_HANDOFF
+#define UNIFFI_FFIDEF_UNIFFI_TONEARM_FFI_FN_CLONE_HANDOFF
+uint64_t uniffi_tonearm_ffi_fn_clone_handoff(uint64_t handle, RustCallStatus *_Nonnull out_status
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_TONEARM_FFI_FN_FREE_HANDOFF
+#define UNIFFI_FFIDEF_UNIFFI_TONEARM_FFI_FN_FREE_HANDOFF
+void uniffi_tonearm_ffi_fn_free_handoff(uint64_t handle, RustCallStatus *_Nonnull out_status
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_TONEARM_FFI_FN_CONSTRUCTOR_HANDOFF_START
+#define UNIFFI_FFIDEF_UNIFFI_TONEARM_FFI_FN_CONSTRUCTOR_HANDOFF_START
+uint64_t uniffi_tonearm_ffi_fn_constructor_handoff_start(RustBuffer installation_key, RustBuffer device_name, uint64_t observer
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_TONEARM_FFI_FN_METHOD_HANDOFF_CONTINUE_HERE
+#define UNIFFI_FFIDEF_UNIFFI_TONEARM_FFI_FN_METHOD_HANDOFF_CONTINUE_HERE
+uint64_t uniffi_tonearm_ffi_fn_method_handoff_continue_here(uint64_t ptr
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_TONEARM_FFI_FN_METHOD_HANDOFF_DEVICES
+#define UNIFFI_FFIDEF_UNIFFI_TONEARM_FFI_FN_METHOD_HANDOFF_DEVICES
+RustBuffer uniffi_tonearm_ffi_fn_method_handoff_devices(uint64_t ptr, RustCallStatus *_Nonnull out_status
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_TONEARM_FFI_FN_METHOD_HANDOFF_REPORT
+#define UNIFFI_FFIDEF_UNIFFI_TONEARM_FFI_FN_METHOD_HANDOFF_REPORT
+void uniffi_tonearm_ffi_fn_method_handoff_report(uint64_t ptr, RustBuffer local, RustCallStatus *_Nonnull out_status
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_TONEARM_FFI_FN_METHOD_HANDOFF_SEND_TO
+#define UNIFFI_FFIDEF_UNIFFI_TONEARM_FFI_FN_METHOD_HANDOFF_SEND_TO
+uint64_t uniffi_tonearm_ffi_fn_method_handoff_send_to(uint64_t ptr, RustBuffer device_id
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_TONEARM_FFI_FN_METHOD_HANDOFF_STOP
+#define UNIFFI_FFIDEF_UNIFFI_TONEARM_FFI_FN_METHOD_HANDOFF_STOP
+void uniffi_tonearm_ffi_fn_method_handoff_stop(uint64_t ptr, RustCallStatus *_Nonnull out_status
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_TONEARM_FFI_FN_CLONE_HANDOFFOBSERVER
+#define UNIFFI_FFIDEF_UNIFFI_TONEARM_FFI_FN_CLONE_HANDOFFOBSERVER
+uint64_t uniffi_tonearm_ffi_fn_clone_handoffobserver(uint64_t handle, RustCallStatus *_Nonnull out_status
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_TONEARM_FFI_FN_FREE_HANDOFFOBSERVER
+#define UNIFFI_FFIDEF_UNIFFI_TONEARM_FFI_FN_FREE_HANDOFFOBSERVER
+void uniffi_tonearm_ffi_fn_free_handoffobserver(uint64_t handle, RustCallStatus *_Nonnull out_status
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_TONEARM_FFI_FN_INIT_CALLBACK_VTABLE_HANDOFFOBSERVER
+#define UNIFFI_FFIDEF_UNIFFI_TONEARM_FFI_FN_INIT_CALLBACK_VTABLE_HANDOFFOBSERVER
+void uniffi_tonearm_ffi_fn_init_callback_vtable_handoffobserver(const UniffiVTableCallbackInterfaceHandoffObserver* _Nonnull vtable
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_TONEARM_FFI_FN_METHOD_HANDOFFOBSERVER_ON_EVENT
+#define UNIFFI_FFIDEF_UNIFFI_TONEARM_FFI_FN_METHOD_HANDOFFOBSERVER_ON_EVENT
+void uniffi_tonearm_ffi_fn_method_handoffobserver_on_event(uint64_t ptr, RustBuffer event, RustCallStatus *_Nonnull out_status
 );
 #endif
 #ifndef UNIFFI_FFIDEF_UNIFFI_TONEARM_FFI_FN_CLONE_ALBUMPAGER
@@ -771,6 +847,12 @@ void uniffi_tonearm_ffi_fn_func_session_changed(RustCallStatus *_Nonnull out_sta
 #ifndef UNIFFI_FFIDEF_UNIFFI_TONEARM_FFI_FN_FUNC_START_DEVICE_LOGIN
 #define UNIFFI_FFIDEF_UNIFFI_TONEARM_FFI_FN_FUNC_START_DEVICE_LOGIN
 uint64_t uniffi_tonearm_ffi_fn_func_start_device_login(void
+    
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_TONEARM_FFI_FN_FUNC_HANDOFF_NEW_INSTALLATION_KEY
+#define UNIFFI_FFIDEF_UNIFFI_TONEARM_FFI_FN_FUNC_HANDOFF_NEW_INSTALLATION_KEY
+RustBuffer uniffi_tonearm_ffi_fn_func_handoff_new_installation_key(RustCallStatus *_Nonnull out_status
     
 );
 #endif
@@ -1252,6 +1334,12 @@ uint16_t uniffi_tonearm_ffi_checksum_func_start_device_login(void
     
 );
 #endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_TONEARM_FFI_CHECKSUM_FUNC_HANDOFF_NEW_INSTALLATION_KEY
+#define UNIFFI_FFIDEF_UNIFFI_TONEARM_FFI_CHECKSUM_FUNC_HANDOFF_NEW_INSTALLATION_KEY
+uint16_t uniffi_tonearm_ffi_checksum_func_handoff_new_installation_key(void
+    
+);
+#endif
 #ifndef UNIFFI_FFIDEF_UNIFFI_TONEARM_FFI_CHECKSUM_FUNC_ADD_TO_PLAYLIST
 #define UNIFFI_FFIDEF_UNIFFI_TONEARM_FFI_CHECKSUM_FUNC_ADD_TO_PLAYLIST
 uint16_t uniffi_tonearm_ffi_checksum_func_add_to_playlist(void
@@ -1528,6 +1616,42 @@ uint16_t uniffi_tonearm_ffi_checksum_method_tokenstore_user_id(void
     
 );
 #endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_TONEARM_FFI_CHECKSUM_METHOD_HANDOFF_CONTINUE_HERE
+#define UNIFFI_FFIDEF_UNIFFI_TONEARM_FFI_CHECKSUM_METHOD_HANDOFF_CONTINUE_HERE
+uint16_t uniffi_tonearm_ffi_checksum_method_handoff_continue_here(void
+    
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_TONEARM_FFI_CHECKSUM_METHOD_HANDOFF_DEVICES
+#define UNIFFI_FFIDEF_UNIFFI_TONEARM_FFI_CHECKSUM_METHOD_HANDOFF_DEVICES
+uint16_t uniffi_tonearm_ffi_checksum_method_handoff_devices(void
+    
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_TONEARM_FFI_CHECKSUM_METHOD_HANDOFF_REPORT
+#define UNIFFI_FFIDEF_UNIFFI_TONEARM_FFI_CHECKSUM_METHOD_HANDOFF_REPORT
+uint16_t uniffi_tonearm_ffi_checksum_method_handoff_report(void
+    
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_TONEARM_FFI_CHECKSUM_METHOD_HANDOFF_SEND_TO
+#define UNIFFI_FFIDEF_UNIFFI_TONEARM_FFI_CHECKSUM_METHOD_HANDOFF_SEND_TO
+uint16_t uniffi_tonearm_ffi_checksum_method_handoff_send_to(void
+    
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_TONEARM_FFI_CHECKSUM_METHOD_HANDOFF_STOP
+#define UNIFFI_FFIDEF_UNIFFI_TONEARM_FFI_CHECKSUM_METHOD_HANDOFF_STOP
+uint16_t uniffi_tonearm_ffi_checksum_method_handoff_stop(void
+    
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_TONEARM_FFI_CHECKSUM_METHOD_HANDOFFOBSERVER_ON_EVENT
+#define UNIFFI_FFIDEF_UNIFFI_TONEARM_FFI_CHECKSUM_METHOD_HANDOFFOBSERVER_ON_EVENT
+uint16_t uniffi_tonearm_ffi_checksum_method_handoffobserver_on_event(void
+    
+);
+#endif
 #ifndef UNIFFI_FFIDEF_UNIFFI_TONEARM_FFI_CHECKSUM_METHOD_ALBUMPAGER_NEXT_PAGE
 #define UNIFFI_FFIDEF_UNIFFI_TONEARM_FFI_CHECKSUM_METHOD_ALBUMPAGER_NEXT_PAGE
 uint16_t uniffi_tonearm_ffi_checksum_method_albumpager_next_page(void
@@ -1741,6 +1865,12 @@ uint16_t uniffi_tonearm_ffi_checksum_method_liveplaynextobserver_on_guest_play_n
 #ifndef UNIFFI_FFIDEF_UNIFFI_TONEARM_FFI_CHECKSUM_METHOD_SHUFFLE_NEXT_BATCH
 #define UNIFFI_FFIDEF_UNIFFI_TONEARM_FFI_CHECKSUM_METHOD_SHUFFLE_NEXT_BATCH
 uint16_t uniffi_tonearm_ffi_checksum_method_shuffle_next_batch(void
+    
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_TONEARM_FFI_CHECKSUM_CONSTRUCTOR_HANDOFF_START
+#define UNIFFI_FFIDEF_UNIFFI_TONEARM_FFI_CHECKSUM_CONSTRUCTOR_HANDOFF_START
+uint16_t uniffi_tonearm_ffi_checksum_constructor_handoff_start(void
     
 );
 #endif

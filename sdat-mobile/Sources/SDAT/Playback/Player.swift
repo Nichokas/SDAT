@@ -150,6 +150,22 @@ final class Player {
         load(0)
     }
 
+    /// Playback taken over from another device (Handoff): `tracks` already are in
+    /// play order, so shuffle is off and the personal queue is replaced too.
+    func resume(_ tracks: [Track], at secs: Double, repeat r: Repeat, from device: String) {
+        guard !tracks.isEmpty else { return }
+        recentIDs = []; recentOrder = []
+        restoredInfinite = false
+        infinite = nil
+        shuffle = false
+        original = tracks
+        queue = tracks
+        userQueue = []
+        sourceTitle = device.isEmpty ? nil : device
+        repeatMode = r
+        load(0, resumeAt: max(secs, 0))
+    }
+
     func setShuffle(_ on: Bool) {
         guard on != shuffle else { return }
         shuffle = on
