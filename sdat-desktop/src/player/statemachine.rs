@@ -650,8 +650,13 @@ impl Machine {
             return;
         }
         log::debug!("buffering={buffering} state={state:?}");
-        // Paused, or held paused for a paused start: the pipeline stays paused.
-        let held = state.is_playing() || (state == State::Preparing && !self.pause_on_start.get());
+        // Only playback that should be audible is held and resumed; a user
+        // pause (or a paused start) keeps the pipeline paused.
+        let held = match state {
+            State::Playing | State::PlayingGapless | State::PlayingRetrying => true,
+            State::Preparing => !self.pause_on_start.get(),
+            State::Paused | State::Stopped => false,
+        };
         if held && let Err(e) = self.playbin.set_state(if buffering { gst::State::Paused } else { gst::State::Playing }) {
             log::error!("failed to change the pipeline state for buffering: {e:#}");
         }
