@@ -660,6 +660,7 @@ final class Player {
         needsStart = false
         holdAutoplay = false
         starts += 1
+        let mine = starts
         let exact = exactResume
         exactResume = false
         adopt(track, stream: nil)
@@ -699,7 +700,8 @@ final class Player {
                     await avPlayer.seek(to: CMTime(seconds: resumeAt, preferredTimescale: 600),
                                         toleranceBefore: tol, toleranceAfter: tol)
                     // A newer start replaced this one during the seek: its item is not ours to play.
-                    guard !Task.isCancelled, avPlayer.currentItem === item else { return }
+                    // (A failed download's online replacement is still this start's, and plays below.)
+                    guard !Task.isCancelled, starts == mine else { return }
                 }
                 try? AVAudioSession.sharedInstance().setActive(true)
                 if autoplay, !holdAutoplay {
