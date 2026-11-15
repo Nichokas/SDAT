@@ -268,6 +268,9 @@ pub enum Trigger {
     /// Runs a queue action (next / previous) once the triggers queued before
     /// it were handled, so it sees the track their start made current.
     Deferred(Box<dyn FnOnce()>),
+    /// Reports a playback error (track id, message) once the deferred
+    /// next / previous queued before it turned out to start nothing.
+    ReportError(Option<String>, String),
     Pause,
     Resume,
     Stop,
@@ -290,6 +293,7 @@ impl std::fmt::Debug for Trigger {
             Trigger::PlayTrackId(..) => "TRIGGER_PLAY_TRACK_ID",
             Trigger::PlayTrack(..) => "TRIGGER_PLAY_TRACK",
             Trigger::Deferred(_) => "deferred",
+            Trigger::ReportError(..) => "report-error",
             Trigger::Pause => "TRIGGER_PAUSE",
             Trigger::Resume => "TRIGGER_RESUME",
             Trigger::Stop => "TRIGGER_STOP",
@@ -444,6 +448,12 @@ impl Machine {
             self.on_buffering(b);
             return;
         }
+        if let Trigger::ReportError(track, e) = t {
+            if from == State::Stopped {
+                self.report_error(track.as_deref(), &e);
+            }
+            return;
+        }
         let Some(mut to) = self.target(&t) else {
             match t {
                 Trigger::Pause if from == State::Preparing => {
@@ -538,11 +548,17 @@ impl Machine {
                         let track = track_changed().with(|t| t.as_ref().map(|e| e.track.id().to_string()));
                         on_stopped_stop();
                         // A queued stop or start has already replaced the
-                        // source and moved on from the failed track.
-                        let superseded = self.queue.borrow().iter().any(|t| matches!(t, Trigger::Stop | Trigger::PlayTrack(..) | Trigger::PlayTrackId(..)));
-                        if !superseded {
-                            (self.hooks.clear_source)();
-                            (self.hooks.on_error)(track.as_deref(), &e);
+                        // source and moved on from the failed track; a queued
+                        // next / previous may, so decide once it has run.
+                        let mut q = self.queue.borrow_mut();
+                        let replaced = q.iter().any(|t| matches!(t, Trigger::Stop | Trigger::PlayTrack(..) | Trigger::PlayTrackId(..)));
+                        match q.iter().rposition(|t| matches!(t, Trigger::Deferred(_))) {
+                            _ if replaced => {}
+                            Some(i) => q.insert(i + 1, Trigger::ReportError(track, e)),
+                            None => {
+                                drop(q);
+                                self.report_error(track.as_deref(), &e);
+                            }
                         }
                     }
                     _ => {}
@@ -639,6 +655,11 @@ impl Machine {
             s.buffering = buffering;
             s
         });
+    }
+
+    fn report_error(&self, track: Option<&str>, e: &str) {
+        (self.hooks.clear_source)();
+        (self.hooks.on_error)(track, e);
     }
 
     /// Called once the old stream is torn down: what it posted (a follow-up
@@ -1183,6 +1204,32 @@ pub mod tests {
             assert_eq!(pb.state.get(), Some(gst::State::Ready));
             assert!(ERRORS.with(|v| v.borrow().is_empty()));
             assert_eq!(m.target(&Trigger::Resume), Some(State::PlayingRetrying));
+        })
+        .unwrap();
+    }
+
+    /// An error with a next / previous queued behind it is reported only
+    /// if that action starts no other track.
+    #[test]
+    fn error_waits_for_a_queued_next() {
+        let ctx = glib::MainContext::new();
+        ctx.with_thread_default(|| {
+            ERRORS.with(|v| v.borrow_mut().clear());
+            let pb = Rc::new(Testbin::default());
+            let m = test_machine(&pb);
+            m.state.set(State::Playing);
+            m.fire(Trigger::Error("Could not read from resource.".into()));
+            m.queue.borrow_mut().push_back(Trigger::Deferred(Box::new(|| {})));
+            while ctx.iteration(false) {}
+            assert_eq!(ERRORS.with(|v| v.borrow().len()), 1, "a next that started nothing hid the error");
+
+            m.state.set(State::Playing);
+            m.fire(Trigger::Error("Could not read from resource.".into()));
+            let started = Rc::clone(&m);
+            // Stands in for the next track starting.
+            m.queue.borrow_mut().push_back(Trigger::Deferred(Box::new(move || started.state.set(State::Preparing))));
+            while ctx.iteration(false) {}
+            assert_eq!(ERRORS.with(|v| v.borrow().len()), 1, "the error was reported over the next track");
         })
         .unwrap();
     }
