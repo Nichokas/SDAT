@@ -18,6 +18,15 @@
       "category": "entertainment",
       "versions": [
         {
+          "version": "2.0.2",
+          "buildVersion": "12",
+          "date": "2026-11-15T20:09:01Z",
+          "localizedDescription": "## What's Changed\n* iOS: Discover ignores taps under the Handoff banner by @Nichokas in https://github.com/Nichokas/SDAT/pull/137\n\n\n**Full Changelog**: https://github.com/Nichokas/SDAT/compare/v2.0.1...v2.0.2",
+          "downloadURL": "https://github.com/Nichokas/SDAT/releases/download/v2.0.2/SDAT-v2.0.2-unsigned.ipa",
+          "size": 29101116,
+          "minOSVersion": "26.0"
+        },
+        {
           "version": "2.0.1",
           "buildVersion": "11",
           "date": "2026-11-15T19:48:24Z",
@@ -90,11 +99,11 @@
           "minOSVersion": "26.0"
         }
       ],
-      "version": "2.0.1",
-      "versionDate": "2026-11-15T19:48:24Z",
-      "versionDescription": "## What's Changed\n* iOS: artist page shows its top tracks instead of stuck loading rows by @Nichokas in https://github.com/Nichokas/SDAT/pull/136\n\n\n**Full Changelog**: https://github.com/Nichokas/SDAT/compare/v2.0.0...v2.0.1",
-      "downloadURL": "https://github.com/Nichokas/SDAT/releases/download/v2.0.1/SDAT-v2.0.1-unsigned.ipa",
-      "size": 29101260
+      "version": "2.0.2",
+      "versionDate": "2026-11-15T20:09:01Z",
+      "versionDescription": "## What's Changed\n* iOS: Discover ignores taps under the Handoff banner by @Nichokas in https://github.com/Nichokas/SDAT/pull/137\n\n\n**Full Changelog**: https://github.com/Nichokas/SDAT/compare/v2.0.1...v2.0.2",
+      "downloadURL": "https://github.com/Nichokas/SDAT/releases/download/v2.0.2/SDAT-v2.0.2-unsigned.ipa",
+      "size": 29101116
     }
   ],
   "news": []
