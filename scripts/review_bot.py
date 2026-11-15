@@ -21,6 +21,7 @@ import subprocess
 import sys
 import tarfile
 import tempfile
+import time
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from enum import StrEnum
@@ -180,7 +181,7 @@ REVIEWERS = {
         secret="MACROSCOPE_AUTH",
         secret_help="created by `set-account macroscope`",
         install=(
-            "curl -sSL https://raw.githubusercontent.com/prassoai/macroscope-local/main/install.sh"
+            "curl -fsSL https://raw.githubusercontent.com/prassoai/macroscope-local/main/install.sh"
             " | bash -s -- --yes --no-wizard"
         ),
         command=lambda base: [
@@ -193,13 +194,30 @@ REVIEWERS = {
 }
 
 
+INSTALL_ATTEMPTS = 3
+INSTALL_RETRY_SECONDS = 20
+
+
+def install(script: str) -> None:
+    # Installers fail on transient network or GitHub API errors, which a rerun fixes.
+    for attempt in range(1, INSTALL_ATTEMPTS + 1):
+        try:
+            subprocess.run(["bash", "-o", "pipefail", "-c", script], check=True)
+            return
+        except subprocess.CalledProcessError:
+            if attempt == INSTALL_ATTEMPTS:
+                raise
+            print(f"Install failed (attempt {attempt}), retrying", file=sys.stderr)
+            time.sleep(INSTALL_RETRY_SECONDS * attempt)
+
+
 def run_review(name: str, base: str) -> Result:
     reviewer = REVIEWERS[name]
     command = reviewer.command(base)
     os.environ["PATH"] += f":{Path.home() / '.local/bin'}"
     if not shutil.which(command[0]):
         (Path.home() / ".local/bin").mkdir(parents=True, exist_ok=True)
-        subprocess.run(["bash", "-c", reviewer.install], check=True)
+        install(reviewer.install)
     # Without a secret the local CLI session is used, which lets this run on a laptop.
     if os.environ.get(reviewer.secret):
         reviewer.authenticate()
