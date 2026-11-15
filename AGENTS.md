@@ -14,6 +14,7 @@ Notes for coding agents working on SDAT, a TIDAL player for Fedora (GTK), iPhone
 
 ## Build and test
 
+- Run `scripts/setup-sccache.sh` once per machine so worktrees share compiled dependencies.
 - Core: `cargo test -p tonearm-core -p tonearm-ffi --locked`
 - Desktop: `cargo test -p sdat-desktop --locked` (needs gtk4, libadwaita, gstreamer, libsecret devel packages).
 - iOS: `sdat-mobile/scripts/build-rust.sh` rebuilds `libtonearm_ffi.a` and the Swift bindings; run it after any core change. The owner builds and installs iOS apps himself: never run `xtool dev`.
