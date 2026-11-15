@@ -9,7 +9,6 @@ set -euo pipefail
 
 ANDROID_HOME="${ANDROID_HOME:-$HOME/Android/Sdk}"
 NDK_VERSION="27.1.12297006"
-PLATFORM="android-37.0"
 BUILD_TOOLS="37.0.0"
 CMDLINE_TOOLS_ZIP="commandlinetools-linux-11076708_latest.zip"
 
@@ -74,7 +73,8 @@ if [ ! -x "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" ]; then
 fi
 sdkmanager="$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager"
 yes | "$sdkmanager" --licenses >/dev/null || true
-"$sdkmanager" "platform-tools" "platforms;$PLATFORM" "build-tools;$BUILD_TOOLS" "ndk;$NDK_VERSION" < <(yes)
+# The compileSdk platform is left out on purpose: Gradle downloads the right one on the first build, as in CI.
+"$sdkmanager" "platform-tools" "build-tools;$BUILD_TOOLS" "ndk;$NDK_VERSION" < <(yes)
 
 marker="# >>> sdat dev vm >>>"
 touch "$HOME/.bashrc"
