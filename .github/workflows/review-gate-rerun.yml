@@ -12,7 +12,8 @@ permissions: {}
 
 jobs:
   rerun:
-    if: github.event.workflow_run.event == 'issue_comment'
+    # Other comments skip the review bot's jobs, which ends its run as skipped.
+    if: github.event.workflow_run.event == 'issue_comment' && github.event.workflow_run.conclusion == 'success'
     runs-on: ubuntu-latest
     permissions:
       actions: write
