@@ -10,7 +10,10 @@ on:
       - "Cargo.lock"
       - ".github/workflows/rust.yml"
   pull_request:
+    # A draft builds without review, so it builds again behind the gate once it is ready.
+    types: [opened, synchronize, reopened, ready_for_review]
     paths:
+      - ".github/workflows/review-gate.yml"
       - "sdat-core/**"
       - "sdat-desktop/**"
       - "Cargo.toml"
