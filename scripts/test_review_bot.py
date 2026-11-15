@@ -219,12 +219,20 @@ class ApprovalTests(unittest.TestCase):
         self.assertIn(f"repos/{review_bot.REPO}/pulls/7/reviews/5/dismissals", args)
         self.assertIn("abc", body["message"])
 
-    def test_status_survives_the_result_artifact(self):
+    def load(self, *results):
         with tempfile.TemporaryDirectory() as directory:
-            for result in (self.clean,):
+            for result in results:
                 path = Path(directory) / f"{result.reviewer}.json"
                 path.write_text(json.dumps(dataclasses.asdict(result)))
-            results = review_bot.load_results(Path(directory))
+            return review_bot.load_results(Path(directory))
+
+    def test_status_survives_the_result_artifact(self):
+        results = self.load(self.clean, self.skipped)
+        self.assertEqual([r.status for r in results], [Status.COMPLETED, Status.SKIPPED])
+        self.assertTrue(is_clean(results))
+
+    def test_missing_result_artifact_is_a_failure(self):
+        results = self.load(self.clean)
         self.assertEqual([r.status for r in results], [Status.COMPLETED, Status.FAILED])
         self.assertFalse(is_clean(results))
 
