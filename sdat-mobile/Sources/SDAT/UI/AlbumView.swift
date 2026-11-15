@@ -422,7 +422,9 @@ struct ArtistView: View {
                         BioText(text: o.artist.bio).padding(.horizontal, 16)
                     }
                 } else {
-                    ForEach(0..<6, id: \.self) { _ in RowSkeleton().padding(.horizontal, 16) }
+                    // One lazy item: as separate rows their ids 0..<6 matched the track rows'
+                    // index ids, and LazyVStack kept showing the skeletons in their place.
+                    VStack(spacing: 0) { ForEach(0..<6, id: \.self) { _ in RowSkeleton().padding(.horizontal, 16) } }
                 }
             }
         }
