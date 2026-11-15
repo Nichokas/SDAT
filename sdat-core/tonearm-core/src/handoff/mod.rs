@@ -502,13 +502,15 @@ impl Worker {
         let (Some(current), Some(track)) = (head.current.clone(), head.track.clone()) else {
             return Err(CoreError::Other("nothing to continue".into()));
         };
+        // Another device may have selected another queue meanwhile. Checked
+        // before the claim, which is the last step that can fail: a failed
+        // pull never takes playback away from the other device.
+        if wire::state()?.queue_id.as_deref() != Some(queue.as_str()) {
+            return Err(CoreError::Network("the queue changed while it was read".into()));
+        }
         if let Some(deadline) = claim {
             past(deadline)?;
             self.claim()?;
-        }
-        // Another device may have selected another queue meanwhile.
-        if wire::state()?.queue_id.as_deref() != Some(queue.as_str()) {
-            return Err(CoreError::Network("the queue changed while it was read".into()));
         }
         let duration = i64::try_from(track.duration().as_millis()).unwrap_or(i64::MAX);
         // A pull takes over a player that may still be playing; a push wrote its exact position.
