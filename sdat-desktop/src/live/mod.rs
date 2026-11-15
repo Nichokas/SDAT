@@ -45,7 +45,7 @@ thread_local! {
     static GENERATION: Cell<u64> = const { Cell::new(0) };
     /// Host: entry id of the current track in the shared queue.
     static CURRENT_ITEM: RefCell<Option<String>> = const { RefCell::new(None) };
-    /// Host: last published (status, loading).
+    /// Host: last published (status, loading or buffering).
     static LAST_STATUS: Cell<Option<(PlaybackStatus, bool)>> = const { Cell::new(None) };
     /// Guest: track loads started to follow the host.
     static LOADS: RefCell<LoadGate> = RefCell::new(LoadGate::default());
@@ -642,9 +642,9 @@ fn publish_playback() {
 fn publish_playback_at(seek_target: Option<Duration>) {
     let Some(h) = host() else { return };
     let ps = player::playback_state_changed().get();
-    LAST_STATUS.with(|l| l.set(Some((ps.status, ps.loading))));
+    LAST_STATUS.with(|l| l.set(Some((ps.status, ps.loading || ps.buffering))));
     let pos = seek_target.or_else(player::position).unwrap_or(ps.position);
-    let playing = ps.status == PlaybackStatus::Playing && !ps.loading;
+    let playing = ps.status == PlaybackStatus::Playing && !ps.loading && !ps.buffering;
     let item = CURRENT_ITEM.with(|c| c.borrow().clone());
     let track = if item.is_some() { player::current_track_id() } else { None };
     let changed = LAST_TRACK.with(|l| {
@@ -697,7 +697,7 @@ fn install_hooks() {
     });
     player::playback_state_changed().on(|ps| {
         // Position updates fire often; only status changes are anchors.
-        if host().is_some() && LAST_STATUS.with(Cell::get) != Some((ps.status, ps.loading)) {
+        if host().is_some() && LAST_STATUS.with(Cell::get) != Some((ps.status, ps.loading || ps.buffering)) {
             publish_playback();
         }
         CONTINUE
@@ -986,7 +986,7 @@ fn guest_tick() {
         return;
     }
     LOADS.with(|l| l.borrow_mut().loaded());
-    let step = START.with(|s| s.borrow_mut().step(&track, t.position_ms, t.playing, !ps.loading, Instant::now()));
+    let step = START.with(|s| s.borrow_mut().step(&track, t.position_ms, t.playing, !ps.loading && !ps.buffering, Instant::now()));
     if step != StartStep::Wait {
         cancel_start_timer();
     }
@@ -1013,7 +1013,7 @@ fn guest_tick() {
             return;
         }
     }
-    if ps.loading {
+    if ps.loading || ps.buffering {
         return;
     }
     let actual = player::position().map(ms);

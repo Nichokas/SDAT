@@ -352,7 +352,7 @@ pub fn init() {
     let s = send.clone();
     playback_state_changed().on(move |st| {
         s(Update::Position(us(st.position), false));
-        s(Update::Status(if st.loading {
+        s(Update::Status(if st.loading || st.buffering {
             "Paused"
         } else {
             match st.status {

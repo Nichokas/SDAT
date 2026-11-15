@@ -31,7 +31,10 @@ pub struct PlaybackState {
     pub duration: Duration,
     pub position: Duration,
     pub status: PlaybackStatus,
+    /// A track is being fetched or started; its controls are locked.
     pub loading: bool,
+    /// The playing stream ran dry and waits, paused, for its buffer to fill.
+    pub buffering: bool,
 }
 
 #[derive(Debug, Clone)]
@@ -57,6 +60,8 @@ pub trait Playbin {
     fn seek(&self, position: Duration, flags: gst::SeekFlags) -> bool;
     fn set_uri(&self, uri: &str);
     fn set_volume(&self, volume: f64) -> Result<()>;
+    /// Drops the messages still waiting on the bus.
+    fn flush_bus(&self);
 }
 
 impl Playbin for gst::Element {
@@ -78,6 +83,12 @@ impl Playbin for gst::Element {
     fn set_volume(&self, volume: f64) -> Result<()> {
         self.set_property("volume", volume);
         Ok(())
+    }
+    fn flush_bus(&self) {
+        if let Some(bus) = self.bus() {
+            bus.set_flushing(true);
+            bus.set_flushing(false);
+        }
     }
 }
 
@@ -121,6 +132,7 @@ pub fn on_stopped(playbin: &dyn Playbin) -> Result<()> {
     playback_state_changed().notify(|mut s| {
         s.status = PlaybackStatus::Stopped;
         s.loading = false;
+        s.buffering = false;
         s
     });
     Ok(())
@@ -140,7 +152,7 @@ pub fn on_paused(playbin: &dyn Playbin) -> Result<()> {
     playback_state_changed().notify(|mut s| {
         s.status = PlaybackStatus::Paused;
         // Paused while buffering: there is nothing to wait for any more.
-        s.loading = false;
+        s.buffering = false;
         s
     });
     Ok(())
@@ -161,6 +173,7 @@ pub fn on_paused_started(playbin: &dyn Playbin) -> Result<()> {
 pub fn on_preparing() {
     playback_state_changed().notify(|mut s| {
         s.loading = true;
+        s.buffering = false;
         // Otherwise the old track's position is published (MPRIS, seek bar)
         // until the new stream plays.
         s.position = Duration::ZERO;
@@ -176,7 +189,8 @@ pub fn on_playing(playbin: Rc<dyn Playbin>, buffering: bool) -> Result<()> {
         if let Some(d) = playbin.query_duration() {
             s.duration = d;
         }
-        s.loading = buffering;
+        s.loading = false;
+        s.buffering = buffering;
         s.status = PlaybackStatus::Playing;
         s
     });
@@ -218,7 +232,6 @@ async fn fetch_and_enqueue_track(playbin: &dyn Playbin, track_id: &str) -> Resul
 }
 
 pub async fn on_play_track(playbin: &dyn Playbin, track: Track, skip_history: bool) -> Result<()> {
-    playbin.set_state(gst::State::Ready)?;
     let manifest = fetch_and_enqueue_track(playbin, track.id()).await?;
     playbin.set_state(gst::State::Playing)?;
     let duration = track.duration();
@@ -466,6 +479,7 @@ impl Machine {
         let res: Result<()> = match (to, t) {
             (State::Stopped, t) => {
                 let r = on_stopped(&*self.playbin);
+                self.drop_stream_messages();
                 match t {
                     Trigger::Stop => {
                         // `player::stop` clears the source synchronously. The
@@ -495,7 +509,9 @@ impl Machine {
             (State::Paused, _) => on_paused(&*self.playbin),
             (State::Preparing, t) => {
                 on_preparing();
-                let r = match t {
+                let r = match self.playbin.set_state(gst::State::Ready).map(|()| self.drop_stream_messages()) {
+                    Err(e) => Err(e),
+                    Ok(()) => match t {
                     Trigger::PlayTrackId(id, skip) => {
                         let id2 = id.clone();
                         match api::run(move || service::get_track(&id2)).await {
@@ -505,6 +521,7 @@ impl Machine {
                     }
                     Trigger::PlayTrack(track, skip) => on_play_track(&*self.playbin, track, skip).await,
                     _ => Ok(()),
+                    },
                 };
                 if let Err(e) = &r {
                     // Deviation from Go: don't stay stuck in PREPARING with a spinner.
@@ -570,16 +587,27 @@ impl Machine {
         // Preparing already shows as loading.
         if playing {
             playback_state_changed().notify(|mut s| {
-                s.loading = buffering;
+                s.buffering = buffering;
                 s
             });
         }
+    }
+
+    /// Called once the old stream is torn down: what it posted (a follow-up
+    /// error after an expired token, a late stream start or buffering) must
+    /// not act on the next stream.
+    fn drop_stream_messages(&self) {
+        self.playbin.flush_bus();
+        self.queue.borrow_mut().retain(|t| {
+            !matches!(t, Trigger::Error(_) | Trigger::Buffering(_) | Trigger::TokenExpired | Trigger::StreamStart | Trigger::Eos)
+        });
     }
 
     async fn retry(&self) -> Result<()> {
         let pb = &*self.playbin;
         self.buffering.set(false);
         pb.set_state(gst::State::Ready)?;
+        self.drop_stream_messages();
         let id = track_changed().with(|t| t.as_ref().map(|e| e.track.id().to_string())).unwrap_or_default();
         fetch_and_enqueue_track(pb, &id).await?;
         let pos = pb.query_position().unwrap_or_else(|| playback_state_changed().get().position);
@@ -630,6 +658,7 @@ pub mod tests {
         fn set_uri(&self, uri: &str) {
             *self.uri.borrow_mut() = uri.into();
         }
+        fn flush_bus(&self) {}
         fn set_volume(&self, volume: f64) -> Result<()> {
             if self.volume_should_error {
                 anyhow::bail!("set volume failed");
@@ -680,7 +709,7 @@ pub mod tests {
     fn on_playing_emits_playback_state() {
         let expected = secs(192);
         let pb = Rc::new(Testbin { duration: Cell::new(expected), ..Default::default() });
-        let initial = PlaybackState { duration: secs(30), position: secs(12), status: PlaybackStatus::Paused, loading: true };
+        let initial = PlaybackState { duration: secs(30), position: secs(12), status: PlaybackStatus::Paused, loading: true, buffering: false };
         playback_state_changed().set(initial);
         let seen = capture_next_state();
         on_playing(pb, false).unwrap();
@@ -691,7 +720,7 @@ pub mod tests {
 
     #[test]
     fn on_playing_returns_state_error_without_updating_playback_state() {
-        let initial = PlaybackState { duration: secs(60), position: secs(15), status: PlaybackStatus::Paused, loading: true };
+        let initial = PlaybackState { duration: secs(60), position: secs(15), status: PlaybackStatus::Paused, loading: true, buffering: false };
         playback_state_changed().set(initial);
         let seen = capture_next_state();
         assert!(on_playing(Rc::new(Testbin { state_should_error: true, ..Default::default() }), false).is_err());
@@ -719,7 +748,7 @@ pub mod tests {
 
     #[test]
     fn on_stopped_emits_playback_state() {
-        let initial = PlaybackState { duration: secs(180), position: secs(45), status: PlaybackStatus::Playing, loading: true };
+        let initial = PlaybackState { duration: secs(180), position: secs(45), status: PlaybackStatus::Playing, loading: true, buffering: false };
         playback_state_changed().set(initial);
         let seen = capture_next_state();
         on_stopped(&Testbin::default()).unwrap();
@@ -729,7 +758,7 @@ pub mod tests {
 
     #[test]
     fn on_stopped_returns_state_error_without_updating_playback_state() {
-        let initial = PlaybackState { duration: secs(60), position: secs(15), status: PlaybackStatus::Playing, loading: true };
+        let initial = PlaybackState { duration: secs(60), position: secs(15), status: PlaybackStatus::Playing, loading: true, buffering: false };
         playback_state_changed().set(initial);
         let seen = capture_next_state();
         assert!(on_stopped(&Testbin { state_should_error: true, ..Default::default() }).is_err());
@@ -909,12 +938,13 @@ pub mod tests {
             m.fire(Trigger::Buffering(true));
             while ctx.iteration(false) {}
             assert_eq!(pb.state.get(), Some(gst::State::Paused));
-            assert!(playback_state_changed().get().loading);
+            assert!(playback_state_changed().get().buffering);
+            assert!(!playback_state_changed().get().loading, "buffering locked the controls");
             assert_eq!(playback_state_changed().get().status, PlaybackStatus::Playing);
             m.fire(Trigger::Buffering(false));
             while ctx.iteration(false) {}
             assert_eq!(pb.state.get(), Some(gst::State::Playing));
-            assert!(!playback_state_changed().get().loading);
+            assert!(!playback_state_changed().get().buffering);
 
             // Paused by the user while buffering: buffering ends without
             // resuming, and a resume before it ends keeps waiting.
@@ -922,11 +952,11 @@ pub mod tests {
             m.fire(Trigger::Pause);
             while ctx.iteration(false) {}
             assert_eq!(m.state.get(), State::Paused);
-            assert!(!playback_state_changed().get().loading);
+            assert!(!playback_state_changed().get().buffering);
             m.fire(Trigger::Resume);
             while ctx.iteration(false) {}
             assert_eq!(pb.state.get(), Some(gst::State::Paused));
-            assert!(playback_state_changed().get().loading);
+            assert!(playback_state_changed().get().buffering);
             m.fire(Trigger::Buffering(false));
             while ctx.iteration(false) {}
             assert_eq!(pb.state.get(), Some(gst::State::Playing));
@@ -978,6 +1008,20 @@ pub mod tests {
             assert_eq!(errors, vec!["Could not read from resource."; 4]);
         })
         .unwrap();
+    }
+
+    /// A message the old stream posted before it was torn down (here the
+    /// follow-up error after an expired token) does not reach the next one.
+    #[test]
+    fn teardown_drops_the_old_streams_messages() {
+        let pb = Rc::new(Testbin::default());
+        let m = test_machine(&pb);
+        for t in [Trigger::Error("Internal data stream error.".into()), Trigger::Buffering(true), Trigger::StreamStart, Trigger::Pause, Trigger::Eos, Trigger::Stop] {
+            m.queue.borrow_mut().push_back(t);
+        }
+        m.drop_stream_messages();
+        let left: Vec<String> = m.queue.borrow().iter().map(|t| format!("{t:?}")).collect();
+        assert_eq!(left, ["TRIGGER_PAUSE", "TRIGGER_STOP"]);
     }
 
     /// #99: the old track's position is not published while the next loads.
