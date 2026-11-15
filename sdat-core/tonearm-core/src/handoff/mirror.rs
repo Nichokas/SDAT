@@ -142,12 +142,13 @@ impl Mirror {
         self.local_playing = local.playing;
         let mut out = Vec::new();
         if self.state.active.as_deref() != Some(self.me.as_str()) {
-            // Also after this device's own attachment lapsed: claiming is harmless then.
-            if started && local.current.is_some() {
-                out.push(Write::Claim);
-            } else if !self.is_active() {
+            // Also after this device's own attachment lapsed, or when who is active
+            // is unknown: claiming is harmless then. Without a start, nothing is
+            // written over what another device may own.
+            if !(started && local.current.is_some()) {
                 return out;
             }
+            out.push(Write::Claim);
         }
         let Some(cur) = &local.current else {
             if self.state.status == Status::Playing {
@@ -237,6 +238,14 @@ impl Mirror {
         if self.state.active.as_deref() != Some(self.me.as_str()) {
             self.local_playing = false;
         }
+    }
+
+    /// TIDAL's active player could not be read after a change: the next
+    /// playing report claims before it writes anything.
+    pub(super) fn ownership_unknown(&mut self) {
+        self.state.active = None;
+        self.local_playing = false;
+        self.written = None;
     }
 
     /// The next playing report counts as a start, and claims the active player.
@@ -470,6 +479,13 @@ mod tests {
         assert_eq!(m.plan(&local("1", &[], 0, true), 0).first(), Some(&Write::Claim));
         m.write_failed();
         assert_eq!(m.plan(&local("1", &[], 0, true), 500).first(), Some(&Write::Claim));
+    }
+
+    #[test]
+    fn unknown_ownership_claims_before_writing() {
+        let mut m = active_with(&["1", "2"]);
+        m.ownership_unknown();
+        assert_eq!(m.plan(&local("1", &["2"], 0, true), 0).first(), Some(&Write::Claim));
     }
 
     #[test]

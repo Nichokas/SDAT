@@ -650,35 +650,48 @@ impl Worker {
         // Paused before the target owns the state, so this write cannot land after its own.
         wire::set_status(false)?;
         self.mirror.status_written(false);
-        let handed = wire::set_active(id);
         // A failed call leaves the outcome unknown: read who is active now.
-        let active = match &handed {
-            Ok(a) => a.clone(),
-            Err(_) => wire::state().ok().and_then(|s| s.active),
+        let active = match wire::set_active(id) {
+            Ok(a) => Ok(a),
+            Err(e) => wire::state().map(|s| s.active).map_err(|_unread| e),
         };
-        if active.as_deref() != Some(id) {
-            // An unattached target leaves no active player: take it back and undo
-            // the pause. A third device that claimed meanwhile keeps playback.
-            if active.is_none() || active.as_deref() == Some(self.mirror.me()) {
-                let restored = self.claim().is_ok()
-                    && (self.last_local.as_ref().is_none_or(|l| !l.playing) || wire::set_status(true).is_ok());
+        let me = self.mirror.me().to_string();
+        match active {
+            Ok(Some(a)) if a == id => {}
+            // An unattached target leaves no active player: take it back and undo the pause.
+            Ok(a) if a.is_none() || a.as_deref() == Some(me.as_str()) => {
+                let playing = self.last_local.as_ref().is_some_and(|l| l.playing);
+                let restored = self.claim().is_ok() && (!playing || wire::set_status(true).is_ok());
                 if restored {
-                    if self.last_local.as_ref().is_some_and(|l| l.playing) {
+                    if playing {
                         self.mirror.status_written(true);
                     }
                 } else {
-                    // Written again from the last report, with retries.
-                    self.pending.get_or_insert_with(|| Instant::now() + RETRY);
+                    self.ownership_unknown();
                 }
-            } else {
-                self.mirror.claimed(active);
+                return Err(CoreError::Other("the device is not available".into()));
             }
-            handed?;
-            return Err(CoreError::Other("the device is not available".into()));
+            // A third device claimed meanwhile: it keeps playback.
+            Ok(other) => {
+                self.mirror.claimed(other);
+                return Err(CoreError::Other("another device took over playback".into()));
+            }
+            // The target may have it or not: the next read tells, and a move pauses here.
+            Err(e) => {
+                self.ownership_unknown();
+                return Err(e);
+            }
         }
         self.mirror.released_to(id);
         self.sent = self.last_local.as_ref().and_then(|l| l.current.clone());
         Ok(())
+    }
+
+    /// Who is active is unknown: nothing is written as the active player until
+    /// a read settles it, and playing here claims first.
+    fn ownership_unknown(&mut self) {
+        self.mirror.ownership_unknown();
+        self.dirty.get_or_insert_with(Instant::now);
     }
 
     /// Writes the last report; `exact` also writes its position. `false` on
