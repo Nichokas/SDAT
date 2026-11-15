@@ -9,6 +9,7 @@ Notes for coding agents working on SDAT, a TIDAL player for Fedora (GTK), iPhone
 - `sdat-desktop` – GTK4/libadwaita desktop app (Rust), packaged for Fedora (`packaging/fedora/`, COPR).
 - `sdat-mobile` – iOS app (SwiftUI, built with xtool).
 - `sdat-android` – Android app (Kotlin, Jetpack Compose, Glasmio-style UI).
+- `obtainium/README.md` – how to add the Android app to Obtainium; it reads the `android-v*` GitHub releases directly, so there is no source file to maintain.
 - `feather/source.json` – Feather source for iOS sideloading; updated by CI, not by hand.
 - Root `Cargo.toml` is the workspace (`sdat-desktop`, `tonearm-core`, `tonearm-ffi`) with strict lints.
 
