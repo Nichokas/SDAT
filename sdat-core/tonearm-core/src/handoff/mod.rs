@@ -234,6 +234,7 @@ impl Handoff {
             sent: None,
             rollback: None,
             rollback_queue: None,
+            rollback_playing: false,
             names: HashMap::new(),
         };
         let me = w.mirror.me().to_string();
@@ -342,6 +343,8 @@ struct Worker {
     rollback: Option<String>,
     /// With `rollback` after a send: that player's queue, selected again first.
     rollback_queue: Option<String>,
+    /// With `rollback` after a send: that player was playing.
+    rollback_playing: bool,
     /// The track sent away by the last successful send, until the app pauses.
     sent: Option<String>,
     /// This device was made active but its queue could not be read yet.
@@ -675,7 +678,13 @@ impl Worker {
             self.rollback_queue = None;
         }
         let active = self.checked(|| wire::set_active(to))?;
+        let back = active.as_deref() == Some(to);
         self.mirror.claimed(active);
+        // The send paused the account; the player it took over was playing.
+        if back && std::mem::take(&mut self.rollback_playing) {
+            self.checked(|| wire::set_status(true))?;
+            self.mirror.status_written(true);
+        }
         Ok(())
     }
 
@@ -741,6 +750,8 @@ impl Worker {
         let claimed = self.mirror.state().active.as_deref() != Some(self.mirror.me());
         // Its queue stays as it was: this device writes into a queue of its own.
         let their_queue = self.mirror.queue_id().map(str::to_string).filter(|_| before.is_some());
+        // And its status: restored with it if the send fails.
+        self.rollback_playing = before.is_some() && self.mirror.state().status == wire::Status::Playing;
         // A failed claim may still have reached TIDAL: undo it if it did.
         if claimed && let Err(e) = self.claim() {
             return Err(self.undo_send(claimed, before.as_deref(), None, e));
