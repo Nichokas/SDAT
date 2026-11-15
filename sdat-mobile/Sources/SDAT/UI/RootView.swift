@@ -76,20 +76,29 @@ private struct BottomChrome: View {
         // glassEffectID still morphs each between its states.
         let on = hasMini && !chrome.inDetail
         let m = MorphProbe(t: on ? chrome.morphT : 0, W: W)
-        GlassEffectContainer(spacing: 0) {
-            m.content(hasMini: hasMini, inDetail: chrome.inDetail, ns: ns, pressed: chrome.miniPressed)
-        }
-        // Measure the available width OUTSIDE the content so it can't feed back into itself.
-        .frame(maxWidth: .infinity)
-        .background {
-            Color.clear.onGeometryChange(for: CGFloat.self) { $0.size.width } action: { w in
-                if abs(w - W) > 0.5 { chromeLog.notice("bar width \(Double(w), format: .fixed(precision: 1))"); W = w }
+        let banner = HandoffHub.shared.showsBanner && !chrome.inSettings ? HandoffHub.shared.elsewhere : nil
+        VStack(spacing: Self.bannerGap) {
+            if let banner {
+                HandoffBanner(elsewhere: banner).transition(.move(edge: .bottom).combined(with: .opacity))
+            }
+            GlassEffectContainer(spacing: 0) {
+                m.content(hasMini: hasMini, inDetail: chrome.inDetail, ns: ns, pressed: chrome.miniPressed)
+            }
+            // Measure the available width OUTSIDE the content so it can't feed back into itself.
+            .frame(maxWidth: .infinity)
+            .background {
+                Color.clear.onGeometryChange(for: CGFloat.self) { $0.size.width } action: { w in
+                    if abs(w - W) > 0.5 { chromeLog.notice("bar width \(Double(w), format: .fixed(precision: 1))"); W = w }
+                }
             }
         }
         .padding(.horizontal, 24)
         .padding(.bottom, 12)
         .animation(Motion.bar, value: ChromeState(detail: chrome.inDetail, mini: hasMini))
+        .animation(Motion.bar, value: banner == nil)
     }
+
+    static let bannerGap: CGFloat = 10
 }
 
 /// Animatable wrapper: SwiftUI interpolates `t`, and each frame recomputes the whole
@@ -322,7 +331,7 @@ extension View {
 
     /// Room for the floating bottom chrome.
     func bottomSpace() -> some View {
-        safeAreaInset(edge: .bottom, spacing: 0) { Color.clear.frame(height: 78) }
+        safeAreaInset(edge: .bottom, spacing: 0) { BottomSpace() }
     }
 
     /// Collapses the bottom chrome when a root list scrolls down.
@@ -396,6 +405,14 @@ struct PlaylistPicker: View {
 }
 
 private struct ChromeState: Equatable { var detail, mini: Bool }
+
+/// Bottom inset under the bar, plus the Handoff banner while it shows.
+private struct BottomSpace: View {
+    var body: some View {
+        let banner = HandoffHub.shared.showsBanner && !Chrome.shared.inSettings
+        Color.clear.frame(height: 78 + (banner ? HandoffBanner.height + BottomChrome.bannerGap : 0))
+    }
+}
 
 /// Bottom-bar motion: native ease-in/ease-out springs, a little slower through the middle.
 enum Motion {

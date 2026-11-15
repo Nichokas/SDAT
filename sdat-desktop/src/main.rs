@@ -5,6 +5,7 @@
 
 mod api;
 mod cache;
+mod handoff;
 mod imgutil;
 mod live;
 mod player;
@@ -98,6 +99,12 @@ fn main() -> glib::ExitCode {
         }
         player::mpris::init();
         scrobbling::init();
+        handoff::init();
+    });
+    app.connect_shutdown(|_| {
+        handoff::stop();
+        // Detach before the process ends, or other devices list this one for 90 s.
+        tonearm_core::handoff::wait_detached(std::time::Duration::from_secs(2));
     });
     app.connect_activate(on_activate);
     app.connect_command_line(|app, cmd| {

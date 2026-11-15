@@ -74,6 +74,9 @@ class Playback(context: Context, private val prefs: Preferences, secrets: Secret
      * took over, and the player sheet drops a drag meant for the previous entry. */
     var entry by mutableIntStateOf(0)
         private set
+    /** Bumped by every play or pause command, so a late handoff result knows the user acted. */
+    var controls = 0
+        private set
 
     val track get() = queue.current
     override val current get() = track
@@ -131,7 +134,11 @@ class Playback(context: Context, private val prefs: Preferences, secrets: Secret
         }
 
         override fun handleSetPlayWhenReady(playWhenReady: Boolean): ListenableFuture<*> {
-            if (!Live.isGuest) return super.handleSetPlayWhenReady(playWhenReady)
+            if (!Live.isGuest) {
+                // Notification and headset play/pause count as user commands too.
+                controls++
+                return super.handleSetPlayWhenReady(playWhenReady)
+            }
             if (playWhenReady) Live.userPlay() else Live.userPause()
             return Futures.immediateVoidFuture()
         }
@@ -371,6 +378,7 @@ class Playback(context: Context, private val prefs: Preferences, secrets: Secret
     /** Ignored while the stream URL loads: the new item starts from its beginning. */
     fun seek(secs: Double) {
         if (track == null || fetching) return
+        controls++
         val to = clampSeek(secs, duration)
         player.seekTo((to * 1000).toLong())
         position = to
@@ -636,13 +644,30 @@ class Playback(context: Context, private val prefs: Preferences, secrets: Secret
     private val endless get() = infinite != null || awaitingMixes
 
     private fun persist() {
-        if (!restoring) saver.save(queue, endless, position)
+        if (restoring) return
+        saver.save(queue, endless, position)
+        onChange?.invoke()
+    }
+
+    /** Called with every save: track, queue, repeat, play, pause and seek changes, and every few seconds while
+     * playing. */
+    var onChange: (() -> Unit)? = null
+
+    /** Another device's playback (Handoff), loaded like the queue saved at launch and played from [atMs]. */
+    fun resume(current: Track, future: List<Track>, atMs: Long, repeat: Repeat) {
+        // An arrival that plays here is newer than a Continue here still on its way.
+        controls++
+        val (saved, state) = resumed(current, future, maxOf(atMs, 0) / 1000.0, repeat)
+        queue.restore(saved, state)
+        replaceInfinite(null)
+        start(current, resumeAt = state.position)
     }
 
     /** After a failure or a controller's stop there is nothing prepared, so this starts the track again where it was;
      * a restored queue starts this way too. */
     fun toggle() {
         val t = track ?: return
+        controls++
         if (dropLiveStart()) return
         systemPaused = false
         val unprepared = error != null || !fetching && player.playbackState == Player.STATE_IDLE
@@ -731,6 +756,7 @@ class Playback(context: Context, private val prefs: Preferences, secrets: Secret
     }
 
     override fun pause() {
+        controls++
         if (!dropLiveStart()) player.pause()
     }
 

@@ -16,6 +16,7 @@ pub mod discover;
 pub mod explore;
 mod http;
 pub mod error;
+pub mod handoff;
 pub mod i18n;
 pub mod live;
 pub mod model;

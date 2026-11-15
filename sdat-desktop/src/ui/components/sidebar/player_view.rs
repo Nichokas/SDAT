@@ -318,7 +318,7 @@ fn action_row() -> gtk::Box {
         }
     });
     spacing(
-        hstack(&[volume.upcast_ref(), favourite_button().upcast_ref(), album.upcast_ref(), artist_bin.upcast_ref(), mix.upcast_ref(), share.upcast_ref()]),
+        hstack(&[volume.upcast_ref(), favourite_button().upcast_ref(), album.upcast_ref(), artist_bin.upcast_ref(), mix.upcast_ref(), share.upcast_ref(), super::handoff::send_to_button().upcast_ref()]),
         15,
     )
     .halign(gtk::Align::Center)

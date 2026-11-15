@@ -150,6 +150,27 @@ final class Player {
         load(0)
     }
 
+    /// Playback taken over from another device (Handoff): `tracks` already are in
+    /// play order, so shuffle is off and the personal queue is replaced too.
+    func resume(_ tracks: [Track], at secs: Double, repeat r: Repeat, from device: String) {
+        guard !tracks.isEmpty else { return }
+        recentIDs = []; recentOrder = []
+        restoredInfinite = false
+        infinite = nil
+        shuffle = false
+        original = tracks
+        queue = tracks
+        userQueue = []
+        sourceTitle = device.isEmpty ? nil : device
+        repeatMode = r
+        // `start` swaps the item only once the new stream is fetched; the old song must not keep playing meanwhile.
+        avPlayer.pause()
+        avPlayer.removeAllItems()
+        // Where the other device was, not the nearest segment start.
+        exactResume = true
+        load(0, resumeAt: max(secs, 0))
+    }
+
     func setShuffle(_ on: Bool) {
         guard on != shuffle else { return }
         shuffle = on
@@ -238,12 +259,30 @@ final class Player {
         }
         resumeAfterInterruption = false
         systemPaused = false
-        if isPlaying { avPlayer.pause() } else {
+        if isPlaying {
+            plays += 1
+            // A start still loading would otherwise autoplay over this pause.
+            if loading { holdAutoplay = true }
+            avPlayer.pause()
+        } else {
+            // A play after a pause during a start: the start ends playing after all.
+            holdAutoplay = false
+            // Playing here is a newer choice than a handoff still on its way.
+            plays += 1
             try? AVAudioSession.sharedInstance().setActive(true)
             avPlayer.play()
         }
         isPlaying.toggle()
         updateNowPlaying()
+    }
+
+    /// Pauses, also a start still loading: it then ends paused.
+    func pause() {
+        plays += 1
+        // A start still loading ends paused; an item already going but not yet marked playing stops.
+        if loading { holdAutoplay = true }
+        resumeAfterInterruption = false
+        if isPlaying { toggle() } else { avPlayer.pause() }
     }
 
     func next() { advance(auto: false) }
@@ -589,7 +628,11 @@ final class Player {
                     let more = await fetchMore(from: source)
                     guard infinite === source else { return }
                     loading = false
-                    if more { advance(auto: auto) } else { stopAtEnd() }
+                    guard more else { stopAtEnd(); return }
+                    // A pause while the refill loaded holds for the track it starts.
+                    let held = holdAutoplay
+                    advance(auto: auto)
+                    if held { holdAutoplay = true }
                 }
                 return
             }
@@ -638,6 +681,11 @@ final class Player {
 
     private func start(_ track: Track, resumeAt: Double = 0, autoplay: Bool = true) {
         needsStart = false
+        holdAutoplay = false
+        starts += 1
+        let mine = starts
+        let exact = exactResume
+        exactResume = false
         adopt(track, stream: nil)
         loading = true
         position = resumeAt
@@ -671,12 +719,15 @@ final class Player {
                     return
                 }
                 if resumeAt > 0 {
-                    let tol: CMTime = liveFollowing ? .zero : .positiveInfinity
+                    let tol: CMTime = liveFollowing || exact ? .zero : .positiveInfinity
                     await avPlayer.seek(to: CMTime(seconds: resumeAt, preferredTimescale: 600),
                                         toleranceBefore: tol, toleranceAfter: tol)
+                    // A newer start replaced this one during the seek: its item is not ours to play.
+                    // (A failed download's online replacement is still this start's, and plays below.)
+                    guard !Task.isCancelled, starts == mine else { return }
                 }
                 try? AVAudioSession.sharedInstance().setActive(true)
-                if autoplay {
+                if autoplay, !holdAutoplay {
                     avPlayer.play()
                     isPlaying = true
                 } else {
@@ -689,6 +740,11 @@ final class Player {
             } catch {
                 if !Task.isCancelled { loading = false; loadResumeAt = nil }
                 if !Task.isCancelled { self.error = friendlyMessage(error) }
+                // Nothing left in the engine (a handoff cleared it): paused, and play retries.
+                if !Task.isCancelled, avPlayer.currentItem == nil {
+                    isPlaying = false
+                    needsStart = true
+                }
             }
         }
     }
@@ -832,6 +888,14 @@ final class Player {
 
     /// Restored state not loaded into AVPlayer yet (first play fetches the stream).
     @ObservationIgnored private var needsStart = false
+    /// `pause()` came while a start was loading.
+    @ObservationIgnored private var holdAutoplay = false
+    /// The next start seeks to its position exactly (a handoff).
+    @ObservationIgnored private var exactResume = false
+    /// Bumped on every start: tells one playback from a later one of the same track.
+    @ObservationIgnored private(set) var starts = 0
+    /// Bumped by every play or pause command, a resume of the same track too.
+    @ObservationIgnored private(set) var plays = 0
     @ObservationIgnored private var restoredInfinite = false
     @ObservationIgnored private var lastSave = Date.distantPast
     @ObservationIgnored private var restoring = true

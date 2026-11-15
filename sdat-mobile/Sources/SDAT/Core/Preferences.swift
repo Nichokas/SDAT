@@ -52,6 +52,14 @@ final class Preferences {
     var scrobbleLastFm: Bool { didSet { d.set(scrobbleLastFm, forKey: "scrobbleLastFm") } }
     var scrobbleListenBrainz: Bool { didSet { d.set(scrobbleListenBrainz, forKey: "scrobbleListenBrainz") } }
 
+    /// This install's identity as a TIDAL player (Handoff), created once.
+    var handoffKey: String {
+        if let k = d.string(forKey: "handoffInstallationKey") { return k }
+        let k = handoffNewInstallationKey()
+        d.set(k, forKey: "handoffInstallationKey")
+        return k
+    }
+
     private init() {
         streamingQuality = Quality(key: d.string(forKey: "streamingQuality") ?? "") ?? .hiFi
         downloadQuality = Quality(key: d.string(forKey: "downloadQuality") ?? "") ?? .hiFi

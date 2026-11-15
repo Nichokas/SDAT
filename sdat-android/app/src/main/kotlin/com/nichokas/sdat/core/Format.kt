@@ -44,6 +44,17 @@ object Fmt {
         }
     }
 
+    /** "just now", "5 min ago", "2 h ago", "3 d ago". */
+    fun ago(thenMs: Long, nowMs: Long): String {
+        val mins = (nowMs - thenMs) / 60_000
+        return when {
+            mins < 1 -> "just now"
+            mins < 60 -> "$mins min ago"
+            mins < 24 * 60 -> "${mins / 60} h ago"
+            else -> "${mins / (24 * 60)} d ago"
+        }
+    }
+
     fun updated(ts: Long?, zone: ZoneId = ZoneId.systemDefault(), today: LocalDate = LocalDate.now(zone)): String? {
         if (ts == null) return null
         val date = Instant.ofEpochSecond(ts).atZone(zone).toLocalDate()

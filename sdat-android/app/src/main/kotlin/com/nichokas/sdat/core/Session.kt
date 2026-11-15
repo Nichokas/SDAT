@@ -39,6 +39,8 @@ class Session(context: Context) : TokenStore {
     override fun userId(): String? = prefs.getString(USER, null)
 
     fun signIn(tokens: LoginTokens) {
+        val replacing = signedIn
+        if (replacing) Handoff.accountChanging()
         picture.value = null
         // Before the new session is saved, so a process killed in between can't pair it with the old history.
         Recents.clear()
@@ -53,11 +55,13 @@ class Session(context: Context) : TokenStore {
         sessionChanged()
         Boot.start(app)
         signedIn = true
+        if (replacing) Handoff.accountChanged()
     }
 
     /** Also the way out of a session TIDAL no longer accepts. Downloads never outlive the account, as on iOS. */
     fun signOut() {
         Live.signOut()
+        Handoff.stop()
         Boot.cancel()
         DiscoverCache.of(app).clear()
         Downloads.removeAll()

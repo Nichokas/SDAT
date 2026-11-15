@@ -1328,6 +1328,431 @@ public func FfiConverterTypeDeviceLogin_lower(_ value: DeviceLogin) -> UInt64 {
 
 
 /**
+ * This device as a player of the TIDAL account. Start it when signed in
+ * and in the foreground (or playing); stop it when backgrounded without
+ * playing, on sign-out and on quit.
+ */
+public protocol HandoffProtocol: AnyObject, Sendable {
+    
+    /**
+     * Pull: makes this device active and returns what to play.
+     */
+    func continueHere() async throws  -> HandoffResume
+    
+    func devices()  -> [HandoffDevice]
+    
+    /**
+     * Call on every track, queue, play, pause and seek change. Cheap.
+     */
+    func report(local: HandoffLocal) 
+    
+    /**
+     * Push the playback last reported to `device_id`; pause here after it returns.
+     */
+    func sendTo(deviceId: String) async throws 
+    
+    func stop() 
+    
+}
+/**
+ * This device as a player of the TIDAL account. Start it when signed in
+ * and in the foreground (or playing); stop it when backgrounded without
+ * playing, on sign-out and on quit.
+ */
+open class Handoff: HandoffProtocol, @unchecked Sendable {
+    fileprivate let handle: UInt64
+
+    /// Used to instantiate a [FFIObject] without an actual handle, for fakes in tests, mostly.
+#if swift(>=5.8)
+    @_documentation(visibility: private)
+#endif
+    public struct NoHandle {
+        public init() {}
+    }
+
+    // TODO: We'd like this to be `private` but for Swifty reasons,
+    // we can't implement `FfiConverter` without making this `required` and we can't
+    // make it `required` without making it `public`.
+#if swift(>=5.8)
+    @_documentation(visibility: private)
+#endif
+    required public init(unsafeFromHandle handle: UInt64) {
+        self.handle = handle
+    }
+
+    // This constructor can be used to instantiate a fake object.
+    // - Parameter noHandle: Placeholder value so we can have a constructor separate from the default empty one that may be implemented for classes extending [FFIObject].
+    //
+    // - Warning:
+    //     Any object instantiated with this constructor cannot be passed to an actual Rust-backed object. Since there isn't a backing handle the FFI lower functions will crash.
+#if swift(>=5.8)
+    @_documentation(visibility: private)
+#endif
+    public init(noHandle: NoHandle) {
+        self.handle = 0
+    }
+
+#if swift(>=5.8)
+    @_documentation(visibility: private)
+#endif
+    public func uniffiCloneHandle() -> UInt64 {
+        return try! rustCall { uniffi_tonearm_ffi_fn_clone_handoff(self.handle, $0) }
+    }
+    // No primary constructor declared for this class.
+
+    deinit {
+        if handle == 0 {
+            // Mock objects have handle=0 don't try to free them
+            return
+        }
+
+        try! rustCall { uniffi_tonearm_ffi_fn_free_handoff(handle, $0) }
+    }
+
+    
+    /**
+     * Registers this install and attaches it. `installation_key` comes
+     * from `handoff_new_installation_key`, kept in the app's settings.
+     */
+public static func start(installationKey: String, deviceName: String, observer: HandoffObserver)async throws  -> Handoff  {
+    return
+        try  await uniffiRustCallAsync(
+            rustFutureFunc: {
+                uniffi_tonearm_ffi_fn_constructor_handoff_start(FfiConverterString.lower(installationKey),FfiConverterString.lower(deviceName),FfiConverterTypeHandoffObserver_lower(observer)
+                )
+            },
+            pollFunc: ffi_tonearm_ffi_rust_future_poll_u64,
+            completeFunc: ffi_tonearm_ffi_rust_future_complete_u64,
+            freeFunc: ffi_tonearm_ffi_rust_future_free_u64,
+            liftFunc: FfiConverterTypeHandoff_lift,
+            errorHandler: FfiConverterTypeFfiError_lift
+        )
+}
+    
+
+    
+    /**
+     * Pull: makes this device active and returns what to play.
+     */
+open func continueHere()async throws  -> HandoffResume  {
+    return
+        try  await uniffiRustCallAsync(
+            rustFutureFunc: {
+                uniffi_tonearm_ffi_fn_method_handoff_continue_here(
+                        self.uniffiCloneHandle()
+                )
+            },
+            pollFunc: ffi_tonearm_ffi_rust_future_poll_rust_buffer,
+            completeFunc: ffi_tonearm_ffi_rust_future_complete_rust_buffer,
+            freeFunc: ffi_tonearm_ffi_rust_future_free_rust_buffer,
+            liftFunc: FfiConverterTypeHandoffResume_lift,
+            errorHandler: FfiConverterTypeFfiError_lift
+        )
+}
+    
+open func devices() -> [HandoffDevice]  {
+    return try!  FfiConverterSequenceTypeHandoffDevice.lift(try! rustCall() {
+        uniffiCallStatus in
+    uniffi_tonearm_ffi_fn_method_handoff_devices(
+            self.uniffiCloneHandle(),uniffiCallStatus
+    )
+})
+}
+    
+    /**
+     * Call on every track, queue, play, pause and seek change. Cheap.
+     */
+open func report(local: HandoffLocal)  {try! rustCall() {
+        uniffiCallStatus in
+    uniffi_tonearm_ffi_fn_method_handoff_report(
+            self.uniffiCloneHandle(),
+        FfiConverterTypeHandoffLocal_lower(local),uniffiCallStatus
+    )
+}
+}
+    
+    /**
+     * Push the playback last reported to `device_id`; pause here after it returns.
+     */
+open func sendTo(deviceId: String)async throws   {
+    return
+        try  await uniffiRustCallAsync(
+            rustFutureFunc: {
+                uniffi_tonearm_ffi_fn_method_handoff_send_to(
+                        self.uniffiCloneHandle(),FfiConverterString.lower(deviceId)
+                )
+            },
+            pollFunc: ffi_tonearm_ffi_rust_future_poll_void,
+            completeFunc: ffi_tonearm_ffi_rust_future_complete_void,
+            freeFunc: ffi_tonearm_ffi_rust_future_free_void,
+            liftFunc: { $0 },
+            errorHandler: FfiConverterTypeFfiError_lift
+        )
+}
+    
+open func stop()  {try! rustCall() {
+        uniffiCallStatus in
+    uniffi_tonearm_ffi_fn_method_handoff_stop(
+            self.uniffiCloneHandle(),uniffiCallStatus
+    )
+}
+}
+    
+
+    
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeHandoff: FfiConverter {
+    typealias FfiType = UInt64
+    typealias SwiftType = Handoff
+
+    public static func lift(_ handle: UInt64) throws -> Handoff {
+        return Handoff(unsafeFromHandle: handle)
+    }
+
+    public static func lower(_ value: Handoff) -> UInt64 {
+        return value.uniffiCloneHandle()
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> Handoff {
+        let handle: UInt64 = try readInt(&buf)
+        return try lift(handle)
+    }
+
+    public static func write(_ value: Handoff, into buf: inout [UInt8]) {
+        writeInt(&buf, lower(value))
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeHandoff_lift(_ handle: UInt64) throws -> Handoff {
+    return try FfiConverterTypeHandoff.lift(handle)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeHandoff_lower(_ value: Handoff) -> UInt64 {
+    return FfiConverterTypeHandoff.lower(value)
+}
+
+
+
+
+
+
+/**
+ * Implemented by the app; called on a background thread.
+ */
+public protocol HandoffObserver: AnyObject, Sendable {
+    
+    func onEvent(event: HandoffEvent) 
+    
+}
+/**
+ * Implemented by the app; called on a background thread.
+ */
+open class HandoffObserverImpl: HandoffObserver, @unchecked Sendable {
+    fileprivate let handle: UInt64
+
+    /// Used to instantiate a [FFIObject] without an actual handle, for fakes in tests, mostly.
+#if swift(>=5.8)
+    @_documentation(visibility: private)
+#endif
+    public struct NoHandle {
+        public init() {}
+    }
+
+    // TODO: We'd like this to be `private` but for Swifty reasons,
+    // we can't implement `FfiConverter` without making this `required` and we can't
+    // make it `required` without making it `public`.
+#if swift(>=5.8)
+    @_documentation(visibility: private)
+#endif
+    required public init(unsafeFromHandle handle: UInt64) {
+        self.handle = handle
+    }
+
+    // This constructor can be used to instantiate a fake object.
+    // - Parameter noHandle: Placeholder value so we can have a constructor separate from the default empty one that may be implemented for classes extending [FFIObject].
+    //
+    // - Warning:
+    //     Any object instantiated with this constructor cannot be passed to an actual Rust-backed object. Since there isn't a backing handle the FFI lower functions will crash.
+#if swift(>=5.8)
+    @_documentation(visibility: private)
+#endif
+    public init(noHandle: NoHandle) {
+        self.handle = 0
+    }
+
+#if swift(>=5.8)
+    @_documentation(visibility: private)
+#endif
+    public func uniffiCloneHandle() -> UInt64 {
+        return try! rustCall { uniffi_tonearm_ffi_fn_clone_handoffobserver(self.handle, $0) }
+    }
+    // No primary constructor declared for this class.
+
+    deinit {
+        if handle == 0 {
+            // Mock objects have handle=0 don't try to free them
+            return
+        }
+
+        try! rustCall { uniffi_tonearm_ffi_fn_free_handoffobserver(handle, $0) }
+    }
+
+    
+
+    
+open func onEvent(event: HandoffEvent)  {try! rustCall() {
+        uniffiCallStatus in
+    uniffi_tonearm_ffi_fn_method_handoffobserver_on_event(
+            self.uniffiCloneHandle(),
+        FfiConverterTypeHandoffEvent_lower(event),uniffiCallStatus
+    )
+}
+}
+    
+
+    
+}
+
+
+
+// Put the implementation in a struct so we don't pollute the top-level namespace
+fileprivate struct UniffiCallbackInterfaceHandoffObserver {
+
+    // Create the VTable using a series of closures.
+    // Swift automatically converts these into C callback functions.
+    //
+    // Store the vtable directly.
+    static let vtable: UniffiVTableCallbackInterfaceHandoffObserver = UniffiVTableCallbackInterfaceHandoffObserver(
+        uniffiFree: { (uniffiHandle: UInt64) -> () in
+            do {
+                try FfiConverterTypeHandoffObserver.handleMap.remove(handle: uniffiHandle)
+            } catch {
+                print("Uniffi callback interface HandoffObserver: handle missing in uniffiFree")
+            }
+        },
+        uniffiClone: { (uniffiHandle: UInt64) -> UInt64 in
+            do {
+                return try FfiConverterTypeHandoffObserver.handleMap.clone(handle: uniffiHandle)
+            } catch {
+                fatalError("Uniffi callback interface HandoffObserver: handle missing in uniffiClone")
+            }
+        },
+        onEvent: { (
+            uniffiHandle: UInt64,
+            event: RustBuffer,
+            uniffiOutReturn: UnsafeMutableRawPointer,
+            uniffiCallStatus: UnsafeMutablePointer<RustCallStatus>
+        ) in
+            let makeCall = {
+                () throws -> () in
+                guard let uniffiObj = try? FfiConverterTypeHandoffObserver.handleMap.get(handle: uniffiHandle) else {
+                    throw UniffiInternalError.unexpectedStaleHandle
+                }
+                return uniffiObj.onEvent(
+                     event: try FfiConverterTypeHandoffEvent_lift(event)
+                )
+            }
+
+            
+            let writeReturn = { () }
+            uniffiTraitInterfaceCall(
+                callStatus: uniffiCallStatus,
+                makeCall: makeCall,
+                writeReturn: writeReturn
+            )
+        }
+    )
+
+    // Rust stores this pointer for future callback invocations, so it must live
+    // for the process lifetime (not just for the init function call).
+    //
+    // `nonisolated(unsafe)` is needed under Swift 6 strict concurrency.
+    // This is safe because the pointee is initialized once during static init
+    // and never mutated by either side of the FFI.  Its fields are C function pointers.
+    nonisolated(unsafe) static let vtablePtr: UnsafePointer<UniffiVTableCallbackInterfaceHandoffObserver> = {
+        let ptr = UnsafeMutablePointer<UniffiVTableCallbackInterfaceHandoffObserver>.allocate(capacity: 1)
+        ptr.initialize(to: vtable)
+        return UnsafePointer(ptr)
+    }()
+}
+
+private func uniffiCallbackInitHandoffObserver() {
+    uniffi_tonearm_ffi_fn_init_callback_vtable_handoffobserver(UniffiCallbackInterfaceHandoffObserver.vtablePtr)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeHandoffObserver: FfiConverter {
+    fileprivate static let handleMap = UniffiHandleMap<HandoffObserver>()
+
+    typealias FfiType = UInt64
+    typealias SwiftType = HandoffObserver
+
+    public static func lift(_ handle: UInt64) throws -> HandoffObserver {
+        if ((handle & 1) == 0) {
+            // Rust-generated handle, construct a new class that uses the handle to implement the
+            // interface
+            return HandoffObserverImpl(unsafeFromHandle: handle)
+        } else {
+            // Swift-generated handle, get the object from the handle map
+            return try handleMap.remove(handle: handle)
+        }
+    }
+
+    public static func lower(_ value: HandoffObserver) -> UInt64 {
+         if let rustImpl = value as? HandoffObserverImpl {
+             // Rust-implemented object.  Clone the handle and return it
+            return rustImpl.uniffiCloneHandle()
+         } else {
+            // Swift object, generate a new vtable handle and return that.
+            return handleMap.insert(obj: value)
+         }
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> HandoffObserver {
+        let handle: UInt64 = try readInt(&buf)
+        return try lift(handle)
+    }
+
+    public static func write(_ value: HandoffObserver, into buf: inout [UInt8]) {
+        writeInt(&buf, lower(value))
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeHandoffObserver_lift(_ handle: UInt64) throws -> HandoffObserver {
+    return try FfiConverterTypeHandoffObserver.lift(handle)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeHandoffObserver_lower(_ value: HandoffObserver) -> UInt64 {
+    return FfiConverterTypeHandoffObserver.lower(value)
+}
+
+
+
+
+
+
+/**
  * Guest playback control, kept apart from [`LiveObserver`] so adding it
  * does not change [`LiveUpdate`]. Implemented in Swift; called from a
  * background thread. Install it with `set_control_observer`.
@@ -4070,6 +4495,291 @@ public func FfiConverterTypeGain_lower(_ value: Gain) -> RustBuffer {
 }
 
 
+public struct HandoffDevice: Equatable, Hashable {
+    public var id: String
+    public var name: String
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(id: String, name: String) {
+        self.id = id
+        self.name = name
+    }
+
+    
+
+    
+}
+
+#if compiler(>=6)
+extension HandoffDevice: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeHandoffDevice: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> HandoffDevice {
+        return
+            try HandoffDevice(
+                id: FfiConverterString.read(from: &buf), 
+                name: FfiConverterString.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: HandoffDevice, into buf: inout [UInt8]) {
+        FfiConverterString.write(value.id, into: &buf)
+        FfiConverterString.write(value.name, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeHandoffDevice_lift(_ buf: RustBuffer) throws -> HandoffDevice {
+    return try FfiConverterTypeHandoffDevice.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeHandoffDevice_lower(_ value: HandoffDevice) -> RustBuffer {
+    return FfiConverterTypeHandoffDevice.lower(value)
+}
+
+
+/**
+ * What another device plays, or played last.
+ */
+public struct HandoffElsewhere: Equatable, Hashable {
+    public var device: HandoffDevice
+    public var track: Track
+    /**
+     * Position at `updated_at_ms`.
+     */
+    public var positionMs: Int64
+    public var playing: Bool
+    /**
+     * Unix ms of the last position write ("2 h ago").
+     */
+    public var updatedAtMs: Int64
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(device: HandoffDevice, track: Track, 
+        /**
+         * Position at `updated_at_ms`.
+         */positionMs: Int64, playing: Bool, 
+        /**
+         * Unix ms of the last position write ("2 h ago").
+         */updatedAtMs: Int64) {
+        self.device = device
+        self.track = track
+        self.positionMs = positionMs
+        self.playing = playing
+        self.updatedAtMs = updatedAtMs
+    }
+
+    
+
+    
+}
+
+#if compiler(>=6)
+extension HandoffElsewhere: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeHandoffElsewhere: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> HandoffElsewhere {
+        return
+            try HandoffElsewhere(
+                device: FfiConverterTypeHandoffDevice.read(from: &buf), 
+                track: FfiConverterTypeTrack.read(from: &buf), 
+                positionMs: FfiConverterInt64.read(from: &buf), 
+                playing: FfiConverterBool.read(from: &buf), 
+                updatedAtMs: FfiConverterInt64.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: HandoffElsewhere, into buf: inout [UInt8]) {
+        FfiConverterTypeHandoffDevice.write(value.device, into: &buf)
+        FfiConverterTypeTrack.write(value.track, into: &buf)
+        FfiConverterInt64.write(value.positionMs, into: &buf)
+        FfiConverterBool.write(value.playing, into: &buf)
+        FfiConverterInt64.write(value.updatedAtMs, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeHandoffElsewhere_lift(_ buf: RustBuffer) throws -> HandoffElsewhere {
+    return try FfiConverterTypeHandoffElsewhere.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeHandoffElsewhere_lower(_ value: HandoffElsewhere) -> RustBuffer {
+    return FfiConverterTypeHandoffElsewhere.lower(value)
+}
+
+
+/**
+ * The local player.
+ */
+public struct HandoffLocal: Equatable, Hashable {
+    /**
+     * Track id; `None` when nothing is loaded.
+     */
+    public var current: String?
+    /**
+     * Track ids after the current one, in play order (play-next first).
+     */
+    public var future: [String]
+    public var positionMs: Int64
+    public var playing: Bool
+    public var `repeat`: HandoffRepeat
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(
+        /**
+         * Track id; `None` when nothing is loaded.
+         */current: String?, 
+        /**
+         * Track ids after the current one, in play order (play-next first).
+         */future: [String], positionMs: Int64, playing: Bool, `repeat`: HandoffRepeat) {
+        self.current = current
+        self.future = future
+        self.positionMs = positionMs
+        self.playing = playing
+        self.`repeat` = `repeat`
+    }
+
+    
+
+    
+}
+
+#if compiler(>=6)
+extension HandoffLocal: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeHandoffLocal: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> HandoffLocal {
+        return
+            try HandoffLocal(
+                current: FfiConverterOptionString.read(from: &buf), 
+                future: FfiConverterSequenceString.read(from: &buf), 
+                positionMs: FfiConverterInt64.read(from: &buf), 
+                playing: FfiConverterBool.read(from: &buf), 
+                repeat: FfiConverterTypeHandoffRepeat.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: HandoffLocal, into buf: inout [UInt8]) {
+        FfiConverterOptionString.write(value.current, into: &buf)
+        FfiConverterSequenceString.write(value.future, into: &buf)
+        FfiConverterInt64.write(value.positionMs, into: &buf)
+        FfiConverterBool.write(value.playing, into: &buf)
+        FfiConverterTypeHandoffRepeat.write(value.`repeat`, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeHandoffLocal_lift(_ buf: RustBuffer) throws -> HandoffLocal {
+    return try FfiConverterTypeHandoffLocal.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeHandoffLocal_lower(_ value: HandoffLocal) -> RustBuffer {
+    return FfiConverterTypeHandoffLocal.lower(value)
+}
+
+
+/**
+ * Playback taken over from another device.
+ */
+public struct HandoffResume: Equatable, Hashable {
+    public var from: HandoffDevice
+    public var current: Track
+    public var future: [Track]
+    public var positionMs: Int64
+    public var `repeat`: HandoffRepeat
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(from: HandoffDevice, current: Track, future: [Track], positionMs: Int64, `repeat`: HandoffRepeat) {
+        self.from = from
+        self.current = current
+        self.future = future
+        self.positionMs = positionMs
+        self.`repeat` = `repeat`
+    }
+
+    
+
+    
+}
+
+#if compiler(>=6)
+extension HandoffResume: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeHandoffResume: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> HandoffResume {
+        return
+            try HandoffResume(
+                from: FfiConverterTypeHandoffDevice.read(from: &buf), 
+                current: FfiConverterTypeTrack.read(from: &buf), 
+                future: FfiConverterSequenceTypeTrack.read(from: &buf), 
+                positionMs: FfiConverterInt64.read(from: &buf), 
+                repeat: FfiConverterTypeHandoffRepeat.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: HandoffResume, into buf: inout [UInt8]) {
+        FfiConverterTypeHandoffDevice.write(value.from, into: &buf)
+        FfiConverterTypeTrack.write(value.current, into: &buf)
+        FfiConverterSequenceTypeTrack.write(value.future, into: &buf)
+        FfiConverterInt64.write(value.positionMs, into: &buf)
+        FfiConverterTypeHandoffRepeat.write(value.`repeat`, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeHandoffResume_lift(_ buf: RustBuffer) throws -> HandoffResume {
+    return try FfiConverterTypeHandoffResume.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeHandoffResume_lower(_ value: HandoffResume) -> RustBuffer {
+    return FfiConverterTypeHandoffResume.lower(value)
+}
+
+
 /**
  * Last.fm web authorisation: open `url`, then [`lastfm_finish_auth`] with `token`.
  */
@@ -5416,6 +6126,183 @@ public func FfiConverterTypeFfiError_lower(_ value: FfiError) -> RustBuffer {
 }
 
 
+
+public enum HandoffEvent: Equatable, Hashable {
+    
+    /**
+     * The other players of the account ("Send to" targets).
+     */
+    case devices(devices: [HandoffDevice]
+    )
+    /**
+     * What another device plays or last played; `None` hides the banner.
+     */
+    case elsewhere(elsewhere: HandoffElsewhere?
+    )
+    /**
+     * Another device sent its playback here: load and play it.
+     */
+    case arrived(resume: HandoffResume
+    )
+    /**
+     * Another device became the active player: pause here.
+     */
+    case movedTo(device: HandoffDevice
+    )
+
+
+
+
+
+}
+
+#if compiler(>=6)
+extension HandoffEvent: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeHandoffEvent: FfiConverterRustBuffer {
+    typealias SwiftType = HandoffEvent
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> HandoffEvent {
+        let variant: Int32 = try readInt(&buf)
+        switch variant {
+        
+        case 1: return .devices(devices: try FfiConverterSequenceTypeHandoffDevice.read(from: &buf)
+        )
+        
+        case 2: return .elsewhere(elsewhere: try FfiConverterOptionTypeHandoffElsewhere.read(from: &buf)
+        )
+        
+        case 3: return .arrived(resume: try FfiConverterTypeHandoffResume.read(from: &buf)
+        )
+        
+        case 4: return .movedTo(device: try FfiConverterTypeHandoffDevice.read(from: &buf)
+        )
+        
+        default: throw UniffiInternalError.unexpectedEnumCase
+        }
+    }
+
+    public static func write(_ value: HandoffEvent, into buf: inout [UInt8]) {
+        switch value {
+        
+        
+        case let .devices(devices):
+            writeInt(&buf, Int32(1))
+            FfiConverterSequenceTypeHandoffDevice.write(devices, into: &buf)
+            
+        
+        case let .elsewhere(elsewhere):
+            writeInt(&buf, Int32(2))
+            FfiConverterOptionTypeHandoffElsewhere.write(elsewhere, into: &buf)
+            
+        
+        case let .arrived(resume):
+            writeInt(&buf, Int32(3))
+            FfiConverterTypeHandoffResume.write(resume, into: &buf)
+            
+        
+        case let .movedTo(device):
+            writeInt(&buf, Int32(4))
+            FfiConverterTypeHandoffDevice.write(device, into: &buf)
+            
+        }
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeHandoffEvent_lift(_ buf: RustBuffer) throws -> HandoffEvent {
+    return try FfiConverterTypeHandoffEvent.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeHandoffEvent_lower(_ value: HandoffEvent) -> RustBuffer {
+    return FfiConverterTypeHandoffEvent.lower(value)
+}
+
+
+
+
+public enum HandoffRepeat: Equatable, Hashable {
+    
+    case off
+    case one
+    case all
+
+
+
+
+
+}
+
+#if compiler(>=6)
+extension HandoffRepeat: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeHandoffRepeat: FfiConverterRustBuffer {
+    typealias SwiftType = HandoffRepeat
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> HandoffRepeat {
+        let variant: Int32 = try readInt(&buf)
+        switch variant {
+        
+        case 1: return .off
+        
+        case 2: return .one
+        
+        case 3: return .all
+        
+        default: throw UniffiInternalError.unexpectedEnumCase
+        }
+    }
+
+    public static func write(_ value: HandoffRepeat, into buf: inout [UInt8]) {
+        switch value {
+        
+        
+        case .off:
+            writeInt(&buf, Int32(1))
+        
+        
+        case .one:
+            writeInt(&buf, Int32(2))
+        
+        
+        case .all:
+            writeInt(&buf, Int32(3))
+        
+        }
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeHandoffRepeat_lift(_ buf: RustBuffer) throws -> HandoffRepeat {
+    return try FfiConverterTypeHandoffRepeat.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeHandoffRepeat_lower(_ value: HandoffRepeat) -> RustBuffer {
+    return FfiConverterTypeHandoffRepeat.lower(value)
+}
+
+
+
 /**
  * Playback request from a guest (host side) or to the host (guest side).
  */
@@ -6247,6 +7134,30 @@ fileprivate struct FfiConverterOptionTypeGain: FfiConverterRustBuffer {
 #if swift(>=5.8)
 @_documentation(visibility: private)
 #endif
+fileprivate struct FfiConverterOptionTypeHandoffElsewhere: FfiConverterRustBuffer {
+    typealias SwiftType = HandoffElsewhere?
+
+    public static func write(_ value: SwiftType, into buf: inout [UInt8]) {
+        guard let value = value else {
+            writeInt(&buf, Int8(0))
+            return
+        }
+        writeInt(&buf, Int8(1))
+        FfiConverterTypeHandoffElsewhere.write(value, into: &buf)
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> SwiftType {
+        switch try readInt(&buf) as Int8 {
+        case 0: return nil
+        case 1: return try FfiConverterTypeHandoffElsewhere.read(from: &buf)
+        default: throw UniffiInternalError.unexpectedOptionalTag
+        }
+    }
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
 fileprivate struct FfiConverterOptionTypeLiveRelayConfig: FfiConverterRustBuffer {
     typealias SwiftType = LiveRelayConfig?
 
@@ -6507,6 +7418,31 @@ fileprivate struct FfiConverterSequenceTypeExploreSection: FfiConverterRustBuffe
         seq.reserveCapacity(Int(len))
         for _ in 0 ..< len {
             seq.append(try FfiConverterTypeExploreSection.read(from: &buf))
+        }
+        return seq
+    }
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+fileprivate struct FfiConverterSequenceTypeHandoffDevice: FfiConverterRustBuffer {
+    typealias SwiftType = [HandoffDevice]
+
+    public static func write(_ value: [HandoffDevice], into buf: inout [UInt8]) {
+        let len = Int32(value.count)
+        writeInt(&buf, len)
+        for item in value {
+            FfiConverterTypeHandoffDevice.write(item, into: &buf)
+        }
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> [HandoffDevice] {
+        let len: Int32 = try readInt(&buf)
+        var seq = [HandoffDevice]()
+        seq.reserveCapacity(Int(len))
+        for _ in 0 ..< len {
+            seq.append(try FfiConverterTypeHandoffDevice.read(from: &buf))
         }
         return seq
     }
@@ -6807,6 +7743,16 @@ public func startDeviceLogin()async throws  -> DeviceLogin  {
             liftFunc: FfiConverterTypeDeviceLogin_lift,
             errorHandler: FfiConverterTypeFfiError_lift
         )
+}
+/**
+ * A new random installation key (UUID) to keep in the app's settings.
+ */
+public func handoffNewInstallationKey() -> String  {
+    return try!  FfiConverterString.lift(try! rustCall() {
+        uniffiCallStatus in
+    uniffi_tonearm_ffi_fn_func_handoff_new_installation_key(uniffiCallStatus
+    )
+})
 }
 public func addToPlaylist(playlistId: String, trackId: String)async throws   {
     return
@@ -7344,6 +8290,9 @@ private let initializationResult: InitializationResult = {
     if (uniffi_tonearm_ffi_checksum_func_start_device_login() != 8078) {
         return InitializationResult.apiChecksumMismatch
     }
+    if (uniffi_tonearm_ffi_checksum_func_handoff_new_installation_key() != 5680) {
+        return InitializationResult.apiChecksumMismatch
+    }
     if (uniffi_tonearm_ffi_checksum_func_add_to_playlist() != 46053) {
         return InitializationResult.apiChecksumMismatch
     }
@@ -7482,6 +8431,24 @@ private let initializationResult: InitializationResult = {
     if (uniffi_tonearm_ffi_checksum_method_tokenstore_user_id() != 31558) {
         return InitializationResult.apiChecksumMismatch
     }
+    if (uniffi_tonearm_ffi_checksum_method_handoff_continue_here() != 60981) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_tonearm_ffi_checksum_method_handoff_devices() != 52970) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_tonearm_ffi_checksum_method_handoff_report() != 37271) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_tonearm_ffi_checksum_method_handoff_send_to() != 3351) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_tonearm_ffi_checksum_method_handoff_stop() != 2177) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_tonearm_ffi_checksum_method_handoffobserver_on_event() != 33460) {
+        return InitializationResult.apiChecksumMismatch
+    }
     if (uniffi_tonearm_ffi_checksum_method_albumpager_next_page() != 49338) {
         return InitializationResult.apiChecksumMismatch
     }
@@ -7590,6 +8557,9 @@ private let initializationResult: InitializationResult = {
     if (uniffi_tonearm_ffi_checksum_method_shuffle_next_batch() != 12881) {
         return InitializationResult.apiChecksumMismatch
     }
+    if (uniffi_tonearm_ffi_checksum_constructor_handoff_start() != 12347) {
+        return InitializationResult.apiChecksumMismatch
+    }
     if (uniffi_tonearm_ffi_checksum_constructor_liveguest_join() != 20177) {
         return InitializationResult.apiChecksumMismatch
     }
@@ -7601,6 +8571,7 @@ private let initializationResult: InitializationResult = {
     }
 
     uniffiCallbackInitAppConfig()
+    uniffiCallbackInitHandoffObserver()
     uniffiCallbackInitLiveControlObserver()
     uniffiCallbackInitLiveObserver()
     uniffiCallbackInitLivePlayNextObserver()

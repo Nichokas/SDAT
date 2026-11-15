@@ -12,6 +12,7 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.material3.Text
@@ -34,6 +35,7 @@ import com.nichokas.sdat.core.Chrome
 import com.nichokas.sdat.core.Destination
 import com.nichokas.sdat.core.Downloads
 import com.nichokas.sdat.core.Live
+import com.nichokas.sdat.core.Morph
 import com.nichokas.sdat.core.PageKey
 import com.nichokas.sdat.core.Playback
 import com.nichokas.sdat.core.Preferences
@@ -124,7 +126,10 @@ fun RootView(session: Session, playback: Playback, prefs: Preferences, secrets: 
                     ProfileButton(session, { Chrome.push(Route.Settings) })
                 }
             }
-            if (!nav.inSettings) BottomChrome(playback, nav, Modifier.align(Alignment.BottomCenter))
+            if (!nav.inSettings) {
+                HandoffBanner(Modifier.align(Alignment.BottomCenter).navigationBarsPadding().padding(start = 16.dp, end = 16.dp, bottom = (Morph.CIRCLE + 22).dp))
+                BottomChrome(playback, nav, Modifier.align(Alignment.BottomCenter))
+            }
             // After the bottom chrome, so the picker opens over the player sheet too.
             Chrome.playlistPickerTrack?.let { PlaylistPicker(it) { Chrome.playlistPickerTrack = null } }
             if (Live.showSheet) LiveSheet()

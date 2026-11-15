@@ -244,7 +244,7 @@ private fun TitleRow(playback: Playback, track: Track, slide: () -> ContentTrans
         val items = trackMenuItems(track)
         GlasmioCascadingMenu(
             anchorBounds = menuBounds,
-            items = listOf(share) + items.mapIndexed { i, item -> if (i == 0) item.copy(separatorBefore = true) else item },
+            items = listOf(share) + items.mapIndexed { i, item -> if (i == 0) item.copy(separatorBefore = true) else item } + sendToMenuItems(),
             title = track.displayTitle,
             expandedDescription = "Expanded",
             collapsedDescription = "Collapsed",

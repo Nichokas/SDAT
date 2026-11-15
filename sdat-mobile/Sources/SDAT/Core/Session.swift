@@ -26,7 +26,10 @@ final class Session {
             let login = try await startDeviceLogin()
             pending = login
             let result = try await login.wait()
+            // Over a session: the old one detaches with its own credentials; the hub then starts the new one.
+            if signedIn { HandoffHub.shared.stop() }
             tokens.save(result)
+            HandoffHub.shared.signedIn()
             sessionChanged()
             Boot.shared.start()   // first-time warm-up, only after a fresh sign-in
             signedIn = true
@@ -44,6 +47,7 @@ final class Session {
     /// Stops playback (nothing restores on next login), cancels and deletes all
     /// downloads, then clears the credentials.
     func logOut() {
+        HandoffHub.shared.signOut()
         Player.shared.stopAndClear()
         Task {
             await Downloads.shared.removeAll()
@@ -55,6 +59,7 @@ final class Session {
 
     /// Dev: wipes Keychain, defaults, caches and files, stops playback, back to login.
     func eraseAll() {
+        HandoffHub.shared.signOut()
         Player.shared.stopAndClear()
         Task { await eraseRest() }
     }

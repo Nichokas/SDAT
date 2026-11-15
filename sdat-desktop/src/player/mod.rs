@@ -170,6 +170,9 @@ fn with<R>(f: impl FnOnce(&Player) -> R) -> Option<R> {
 }
 
 fn fire(t: Trigger) {
+    if matches!(t, Trigger::PlayTrack(..) | Trigger::Deferred(_)) {
+        PLAY_REQUESTS.with(|r| r.set(r.get() + 1));
+    }
     if with(|p| p.machine.fire(t)).is_none() {
         log::warn!("player not initialised, dropping trigger");
     }
@@ -569,12 +572,30 @@ fn next_now() {
     }
 }
 
+/// Changes with every pause.
+pub fn pauses() -> u64 {
+    PAUSES.with(std::cell::Cell::get)
+}
+
+/// Changes as soon as a track start is asked for, unlike `track_changed`,
+/// which fires once its stream has loaded.
+pub fn play_requests() -> u64 {
+    PLAY_REQUESTS.with(std::cell::Cell::get)
+}
+
 pub fn pause() {
+    PAUSES.with(|p| p.set(p.get() + 1));
     fire(Trigger::Pause);
 }
 
 pub fn play() {
+    PLAYS.with(|p| p.set(p.get() + 1));
     fire(Trigger::Resume);
+}
+
+/// Changes with every play command (a resume of the paused track too).
+pub fn plays() -> u64 {
+    PLAYS.with(std::cell::Cell::get)
 }
 
 pub fn play_pause() {
@@ -614,6 +635,11 @@ pub fn seek_to_percent(percent: f64) {
 }
 
 pub fn seek_to_position(position: Duration, precise: bool) {
+    try_seek(position, precise);
+}
+
+/// `false` when the pipeline refused the seek.
+fn try_seek(position: Duration, precise: bool) -> bool {
     let flags = if precise {
         gst::SeekFlags::FLUSH | gst::SeekFlags::ACCURATE
     } else {
@@ -621,9 +647,11 @@ pub fn seek_to_position(position: Duration, precise: bool) {
     };
     // Subscribers (MPRIS `Seeked`, the Listen Together host anchor) take
     // `position` as reached, so a seek the pipeline refused must not notify.
-    if playbin().is_some_and(|p| statemachine::Playbin::seek(&p, position, flags)) {
+    let ok = playbin().is_some_and(|p| statemachine::Playbin::seek(&p, position, flags));
+    if ok {
         seeked().notify(&position);
     }
+    ok
 }
 
 pub fn set_volume(volume: f64) {
@@ -760,6 +788,12 @@ thread_local! {
     /// Bumped whenever the base queue is replaced, so background fetches for
     /// an older list can tell they are stale.
     static LIST_GENERATION: std::cell::Cell<u64> = const { std::cell::Cell::new(0) };
+    /// Bumped when a track start is asked for, before its stream loads.
+    static PLAY_REQUESTS: std::cell::Cell<u64> = const { std::cell::Cell::new(0) };
+    /// Bumped by every play command.
+    static PLAYS: std::cell::Cell<u64> = const { std::cell::Cell::new(0) };
+    /// Bumped by every pause, so a delayed start knows a later one came.
+    static PAUSES: std::cell::Cell<u64> = const { std::cell::Cell::new(0) };
 }
 
 /// Plays `tracks` as the queue starting at the clicked row; earlier rows go to
@@ -934,11 +968,164 @@ fn play_tracks(tracks: Vec<Track>, shuffle: bool, starting_position: usize) -> R
     Ok(t)
 }
 
+/// What a start at a position does on a player state change.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum StartAt {
+    Wait,
+    /// Loaded on the track: seek, then play.
+    Seek,
+    /// The load ended elsewhere (failed, or another track).
+    GiveUp,
+}
+
+/// Follows a track loaded paused until it can seek. `on_track`: the player's
+/// current track is the one started.
+#[derive(Debug, Default)]
+pub struct StartGate {
+    loading_seen: bool,
+}
+
+impl StartGate {
+    pub fn step(&mut self, ps: &PlaybackState, on_track: bool) -> StartAt {
+        if ps.loading {
+            // A load still running for another track ends first; only the started one counts.
+            self.loading_seen |= on_track;
+            return StartAt::Wait;
+        }
+        // Until the load starts, the state is still the previous track's.
+        if !self.loading_seen {
+            return StartAt::Wait;
+        }
+        // Stopped after a load: an earlier load of the same track ended (the
+        // stop before this start), or this one failed. Wait for the next load;
+        // a new list ends the wait.
+        if ps.status == PlaybackStatus::Stopped {
+            self.loading_seen = false;
+            return StartAt::Wait;
+        }
+        if on_track { StartAt::Seek } else { StartAt::GiveUp }
+    }
+}
+
+/// Plays `tracks` from `position` into the first one. It loads paused and
+/// seeks before playing, so the start of the track is never heard.
+pub fn play_at(source: Option<PlaybackSource>, tracks: Vec<Track>, position: Duration) -> Result<()> {
+    let first = tracks.first().map(|t| t.id().to_string());
+    // Loads paused, so the start of the track is never heard before the seek.
+    let token = first.as_deref().filter(|_| !position.is_zero()).map(statemachine::start_paused);
+    let drop_request = move || {
+        if let Some(t) = token {
+            statemachine::drop_start_paused(t);
+        }
+    };
+    let started = play_tracks(tracks, false, 0).inspect_err(|_| drop_request())?;
+    source_changed().set(source);
+    if position.is_zero() || first.as_deref() != Some(started.id()) {
+        drop_request();
+        return Ok(());
+    }
+    let generation = LIST_GENERATION.with(Cell::get);
+    let paused = PAUSES.with(Cell::get);
+    let requested = play_requests();
+    let gate = std::cell::RefCell::new(StartGate::default());
+    playback_state_changed().on_lazy(move |ps| {
+        if LIST_GENERATION.with(Cell::get) != generation {
+            drop_request();
+            return crate::signals::UNSUBSCRIBE;
+        }
+        match gate.borrow_mut().step(ps, current_track_id().as_deref() == Some(started.id())) {
+            StartAt::Wait => CONTINUE,
+            StartAt::Seek => {
+                // The pipeline may still be prerolling and refuse the seek.
+                let mut tries = 0;
+                let id = started.id().to_string();
+                glib::timeout_add_local(Duration::from_millis(100), move || {
+                    tries += 1;
+                    // Another list, track or start (a repeat-one restart too), or a pause
+                    // (a send elsewhere, say) came since.
+                    if LIST_GENERATION.with(Cell::get) != generation
+                        || current_track_id().as_deref() != Some(id.as_str())
+                        || PAUSES.with(Cell::get) != paused
+                        || play_requests() != requested
+                    {
+                        return glib::ControlFlow::Break;
+                    }
+                    let seeked = try_seek(position, true);
+                    if seeked || tries >= 20 {
+                        // Unseekable: playing from the start beats not playing.
+                        if !seeked {
+                            log::warn!("handoff: could not seek to the handed-off position");
+                        }
+                        play();
+                        return glib::ControlFlow::Break;
+                    }
+                    glib::ControlFlow::Continue
+                });
+                crate::signals::UNSUBSCRIBE
+            }
+            StartAt::GiveUp => {
+                // The handed-off start failed or was replaced: no later start of it loads paused.
+                drop_request();
+                crate::signals::UNSUBSCRIBE
+            }
+        }
+    });
+    // After the gate is installed, so it sees every state change the pause causes;
+    // not `pause()`, which would count as a later pause and cancel this start.
+    fire(Trigger::Pause);
+    Ok(())
+}
+
 // ---------------------------------------------------------------- listen together
 
 /// Current playback position as reported by `GStreamer`.
 pub fn position() -> Option<Duration> {
     playbin().and_then(|p| statemachine::Playbin::query_position(&p))
+}
+
+#[cfg(test)]
+mod start_tests {
+    use super::{PlaybackState, PlaybackStatus, StartAt, StartGate};
+
+    fn ps(status: PlaybackStatus, loading: bool) -> PlaybackState {
+        PlaybackState { status, loading, ..PlaybackState::default() }
+    }
+
+    #[test]
+    fn seeks_once_the_track_has_loaded_paused() {
+        let mut g = StartGate::default();
+        // The previous track's state, before the new load starts.
+        assert_eq!(g.step(&ps(PlaybackStatus::Paused, false), true), StartAt::Wait);
+        assert_eq!(g.step(&ps(PlaybackStatus::Stopped, false), false), StartAt::Wait);
+        assert_eq!(g.step(&ps(PlaybackStatus::Stopped, true), true), StartAt::Wait);
+        assert_eq!(g.step(&ps(PlaybackStatus::Paused, false), true), StartAt::Seek);
+    }
+
+    #[test]
+    fn an_earlier_load_of_another_track_is_not_the_start() {
+        let mut g = StartGate::default();
+        assert_eq!(g.step(&ps(PlaybackStatus::Stopped, true), false), StartAt::Wait);
+        assert_eq!(g.step(&ps(PlaybackStatus::Stopped, false), true), StartAt::Wait);
+        assert_eq!(g.step(&ps(PlaybackStatus::Stopped, true), true), StartAt::Wait);
+        assert_eq!(g.step(&ps(PlaybackStatus::Paused, false), true), StartAt::Seek);
+    }
+
+    #[test]
+    fn an_earlier_load_of_the_same_track_ending_waits_for_the_next() {
+        let mut g = StartGate::default();
+        g.step(&ps(PlaybackStatus::Stopped, true), true);
+        assert_eq!(g.step(&ps(PlaybackStatus::Stopped, false), true), StartAt::Wait);
+        assert_eq!(g.step(&ps(PlaybackStatus::Paused, false), true), StartAt::Wait);
+        assert_eq!(g.step(&ps(PlaybackStatus::Stopped, true), true), StartAt::Wait);
+        assert_eq!(g.step(&ps(PlaybackStatus::Paused, false), true), StartAt::Seek);
+    }
+
+    #[test]
+    fn gives_up_when_another_track_plays() {
+        let mut g = StartGate::default();
+        g.step(&ps(PlaybackStatus::Stopped, true), true);
+        assert_eq!(g.step(&ps(PlaybackStatus::Playing, false), false), StartAt::GiveUp);
+    }
 }
 
 #[cfg(test)]

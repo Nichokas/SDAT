@@ -271,6 +271,71 @@ fn get_json<T: DeserializeOwned>(path: &str, query: &[(&str, String)]) -> Result
     openapi::from_slice_lenient(&bytes).with_context(|| format!("decoding {path}"))
 }
 
+/// The signed-in user's access token; never the app-only one.
+pub(crate) fn user_bearer() -> Result<String> {
+    user_access_token()?.ok_or(CoreError::NotSignedIn)
+}
+
+/// The user access token if one is cached and valid; never a network call.
+pub(crate) fn cached_user_token() -> Option<String> {
+    USER_TOKEN.lock().unwrap_or_else(std::sync::PoisonError::into_inner).valid()
+}
+
+/// JSON:API call to openapi.tidal.com (`path` starts with `/v2/`) with the
+/// user's token. `Value::Null` for an empty answer.
+pub(crate) fn openapi_call(method: Method, path: &str, body: Option<&serde_json::Value>) -> Result<serde_json::Value> {
+    openapi_path(path)?;
+    // One token for the whole request: the account cannot change under it.
+    openapi_call_with(&user_bearer()?, method, path, body)
+}
+
+/// [`openapi_call`] with a token the caller took (and checked) itself.
+pub(crate) fn openapi_call_with(token: &str, method: Method, path: &str, body: Option<&serde_json::Value>) -> Result<serde_json::Value> {
+    openapi_path(path)?;
+    let label = method.to_string();
+    let sep = if path.contains('?') { '&' } else { '?' };
+    let rb = authed(method, &format!("{path}{sep}countryCode={}", country_code()), token);
+    jsonapi(rb, &label, path, body)
+}
+
+/// [`openapi_call`] with a token taken earlier, for work that outlives the
+/// credentials (detaching after a sign-out).
+pub(crate) fn openapi_call_as(token: &str, method: Method, path: &str, body: Option<&serde_json::Value>) -> Result<serde_json::Value> {
+    openapi_path(path)?;
+    let label = method.to_string();
+    jsonapi(authed(method, path, token), &label, path, body)
+}
+
+fn authed(method: Method, path: &str, token: &str) -> RequestBuilder {
+    http().request(method, openapi(path)).bearer_auth(token).header("x-tidal-token", client_id()).header("x-tidal-client-version", CLIENT_VERSION)
+}
+
+/// The user token goes to the `OpenAPI` host only.
+fn openapi_path(path: &str) -> Result<()> {
+    if !path.starts_with("/v2/") {
+        bail!("not an OpenAPI path: {path}");
+    }
+    Ok(())
+}
+
+fn jsonapi(rb: RequestBuilder, label: &str, path: &str, body: Option<&serde_json::Value>) -> Result<serde_json::Value> {
+    let mut rb = rb.header("Accept", "application/vnd.api+json");
+    if let Some(b) = body {
+        rb = rb.header("Content-Type", "application/vnd.api+json").body(b.to_string());
+    }
+    let resp = rb.send()?;
+    let status = resp.status();
+    let bytes = resp.bytes()?;
+    if !status.is_success() {
+        let detail = String::from_utf8_lossy(&bytes);
+        bail_http!(status.as_u16(), "{label} {path}: {status}: {}", detail.chars().take(300).collect::<String>());
+    }
+    if bytes.is_empty() {
+        return Ok(serde_json::Value::Null);
+    }
+    serde_json::from_slice(&bytes).with_context(|| format!("decoding {path}"))
+}
+
 fn include_q(include: &[&str]) -> Vec<(&'static str, String)> {
     if include.is_empty() {
         vec![]

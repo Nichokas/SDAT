@@ -283,6 +283,14 @@ class PlayQueue<T>(private val random: Random = Random.Default, private val id: 
 private const val ENDLESS_BEHIND = 50
 private const val ENDLESS_AHEAD = 200
 
+/** Playback taken over from another device, as a saved queue for [PlayQueue.restore]: [current] first, then [future]
+ * in order, unshuffled. */
+internal fun <T> resumed(current: T, future: List<T>, position: Double, repeat: Repeat): Pair<SavedQueue<T>, SavedState<T>> {
+    val tracks = listOf(current) + future
+    return SavedQueue(0, 0, tracks, tracks.indices.toList(), emptyList(), endless = false, source = null) to
+        SavedState(0, current, 0, position, repeat, shuffle = false)
+}
+
 /** iOS PlaybackStore.window: the part of a base queue of [count] tracks worth saving around [index]. An endless
  * queue keeps a little history and a few batches ahead; any other queue up to [PlayQueue.MAX_SAVED] tracks. */
 internal fun savedWindow(count: Int, index: Int?, endless: Boolean): IntRange {
