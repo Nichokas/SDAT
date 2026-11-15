@@ -31,7 +31,7 @@ Notes for coding agents working on SDAT, a TIDAL player for Fedora (GTK), iPhone
 - `desktop-fedora.yml` / `desktop-copr.yml` – vendor archive for `desktop-v*` releases and the COPR rebuild.
 - `release.yml` – manual release: pick a bump (`patch`, `minor`, `major` or `none`) per platform; it bumps from that platform's newest tag via `scripts/release-bump.sh`, commits to main, creates the releases with GitHub-generated notes, then calls the desktop (vendor archive, COPR), iOS build, Feather and Android release workflows.
 - `review-bot.yml` – runs the reviewers on a PR and keeps one comment with the findings, and approves the PR when they are clean; `review-bot-test.yml` tests its script.
-- On PRs, `rust.yml`, `ios-build.yml` and `android-build.yml` start with a `Review gate` job that waits for the review bot and fails when it reports findings or a failed reviewer; the builds run only after it passes. `review-gate-rerun.yml` reruns the failed gates after a passing `/review`.
+- On PRs, `rust.yml`, `ios-build.yml` and `android-build.yml` start with `review-gate.yml`, a called workflow that waits for the review bot and fails when it reports findings or a failed reviewer; the builds run only after it passes. `review-gate-rerun.yml` reruns the failed gates after a passing `/review`.
 - CI must use caches (`Swatinem/rust-cache`, `actions/cache`); PRs restore main's cache without saving their own.
 
 ## Releases

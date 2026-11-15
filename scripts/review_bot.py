@@ -439,7 +439,11 @@ def rerun_builds() -> None:
         )["workflow_runs"]
         for run in runs:
             jobs = json.loads(gh_api(f"repos/{REPO}/actions/runs/{run['id']}/jobs?filter=latest"))["jobs"]
-            if any(job["name"] == GATE_JOB and job["conclusion"] == "failure" for job in jobs):
+            # The gate is a called workflow, so its job is listed as "Review gate / wait".
+            gate_failed = any(
+                job["name"].split(" / ")[0] == GATE_JOB and job["conclusion"] == "failure" for job in jobs
+            )
+            if gate_failed:
                 print(f"#{pr['number']}: rerunning {run['name']}")
                 gh_api("-X", "POST", f"repos/{REPO}/actions/runs/{run['id']}/rerun-failed-jobs")
 

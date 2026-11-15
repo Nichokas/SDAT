@@ -281,8 +281,8 @@ class GateTests(unittest.TestCase):
         calls = []
         pulls = [{"number": 7, "head": {"sha": "abc"}}, {"number": 8, "head": {"sha": "def"}}]
         comments = {7: self.comment("abc", "pass"), 8: self.comment("def", "block")}
-        jobs = {1: [{"name": review_bot.GATE_JOB, "conclusion": "failure"}],
-                2: [{"name": review_bot.GATE_JOB, "conclusion": "success"}, {"name": "build", "conclusion": "failure"}]}
+        jobs = {1: [{"name": f"{review_bot.GATE_JOB} / wait", "conclusion": "failure"}],
+                2: [{"name": f"{review_bot.GATE_JOB} / wait", "conclusion": "success"}, {"name": "build", "conclusion": "failure"}]}
 
         def fake(*args, body=None):
             calls.append(args)
