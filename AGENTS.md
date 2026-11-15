@@ -14,7 +14,7 @@ Notes for coding agents working on SDAT, a TIDAL player for Fedora (GTK), iPhone
 
 ## Build and test
 
-- `scripts/setup-dev-vm.sh` provisions a fresh Ubuntu 24.04+ machine with every toolchain below (Rust, Android SDK/NDK, Swift, xtool, GTK dev packages).
+- `scripts/setup-dev-vm.sh` provisions a fresh Ubuntu 25.10+ machine with every toolchain below (Rust, Android SDK/NDK, Swift, xtool, GTK dev packages).
 - Run `scripts/setup-sccache.sh` once per machine so worktrees share compiled dependencies.
 - Core: `cargo test -p tonearm-core -p tonearm-ffi --locked`
 - Desktop: `cargo test -p sdat-desktop --locked` (needs gtk4, libadwaita, gstreamer, libsecret devel packages).
