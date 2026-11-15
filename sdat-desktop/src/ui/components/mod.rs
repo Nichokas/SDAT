@@ -246,11 +246,12 @@ fn page_list_source(title: &str) -> model::PlaybackSource {
 fn show_more_button(list: &TrackList, view_all: String) -> gtk::Button {
     const PAGE: usize = 10;
     let b = gtk::Button::with_label(&tr("Show More")).class("flat").halign(gtk::Align::Center).mtop(6);
+    // Offset by what was fetched, not shown: skipped duplicates must not refetch a page.
+    let fetched = Rc::new(Cell::new(list.len()));
     let list = list.downgrade();
     b.connect_clicked(move |b| {
-        let Some(l) = list.upgrade() else { return };
         b.set_sensitive(false);
-        let (offset, path, b, list) = (l.len(), view_all.clone(), b.downgrade(), list.clone());
+        let (offset, path, b, list, fetched) = (fetched.get(), view_all.clone(), b.downgrade(), list.clone(), Rc::clone(&fetched));
         glib::spawn_future_local(async move {
             let r = crate::api::run(move || tonearm_core::explore::get_view_all_tracks(&path, offset, PAGE)).await;
             let (Some(b), Some(l)) = (b.upgrade(), list.upgrade()) else { return };
@@ -259,6 +260,7 @@ fn show_more_button(list: &TrackList, view_all: String) -> gtk::Button {
                 Ok(tracks) => {
                     let have: std::collections::HashSet<_> = l.tracks().iter().map(|t| t.info.id.clone()).collect();
                     let n = tracks.len();
+                    fetched.set(offset + n);
                     for t in tracks.into_iter().filter(|t| !have.contains(&t.info.id)) {
                         l.add_track(t);
                     }

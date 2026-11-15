@@ -113,12 +113,16 @@ private class MoreTopTracks(private val artistId: String, private val scope: Cor
     var loading by mutableStateOf(false)
         private set
 
-    fun load(shown: List<Track>) {
+    // Offset by what was fetched, not shown: skipped duplicates must not refetch a page.
+    private var fetched = 0
+
+    fun load(base: Int, shown: List<Track>) {
         if (loading) return
         loading = true
         scope.launch {
             try {
-                val page = artistTopTracks(artistId, shown.size.toUInt(), PAGE)
+                val page = artistTopTracks(artistId, (base + fetched).toUInt(), PAGE)
+                fetched += page.size
                 val have = shown.mapTo(HashSet()) { it.id }
                 tracks = tracks + page.filter { it.id !in have }
                 canLoad = page.size == PAGE.toInt()
@@ -164,7 +168,7 @@ private fun LazyListScope.sections(o: ArtistOverview, more: MoreTopTracks) {
         if (more.canLoad) {
             item(key = "top-more") {
                 Box(Modifier.fillMaxWidth().padding(top = 8.dp), contentAlignment = Alignment.Center) {
-                    GlasmioButton({ more.load(top) }, enabled = !more.loading, size = GlasmioButtonSize.Medium) { Text("Show More") }
+                    GlasmioButton({ more.load(o.topTracks.size, top) }, enabled = !more.loading, size = GlasmioButtonSize.Medium) { Text("Show More") }
                 }
             }
         }

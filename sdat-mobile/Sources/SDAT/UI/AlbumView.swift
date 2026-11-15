@@ -358,6 +358,8 @@ struct ArtistView: View {
     @State private var overview: ArtistOverview?
     @State private var error: String?
     @State private var moreTracks: [Track] = []
+    /// Offset by what was fetched, not shown: skipped duplicates must not refetch a page.
+    @State private var fetchedMore = 0
     @State private var canShowMore = true
     @State private var loadingMore = false
 
@@ -403,7 +405,7 @@ struct ArtistView: View {
                             .padding(.horizontal, 16)
                         }
                         if canShowMore {
-                            Button { Task { await showMore(after: top) } } label: {
+                            Button { Task { await showMore(after: top, base: o.topTracks.count) } } label: {
                                 if loadingMore { ProgressView() } else { Text("Show More") }
                             }
                             .buttonStyle(.glass)
@@ -446,11 +448,12 @@ struct ArtistView: View {
     }
 
     /// Appends the next page of top tracks; hides the button at the end.
-    private func showMore(after shown: [Track]) async {
+    private func showMore(after shown: [Track], base: Int) async {
         loadingMore = true
         defer { loadingMore = false }
         do {
-            let page = try await artistTopTracks(id: id, offset: UInt32(shown.count), limit: Self.morePage)
+            let page = try await artistTopTracks(id: id, offset: UInt32(base + fetchedMore), limit: Self.morePage)
+            fetchedMore += page.count
             let have = Set(shown.map(\.id))
             moreTracks += page.filter { !have.contains($0.id) }
             canShowMore = page.count == Int(Self.morePage)
