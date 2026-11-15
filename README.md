@@ -7,6 +7,7 @@ Unofficial TIDAL players sharing one Rust core.
 | `sdat-mobile/` | iPhone app (SwiftUI, iOS 26+, Liquid Glass), sideloaded with xtool / Feather | `.github/workflows/ios-build.yml` |
 | `sdat-desktop/` | Linux desktop app (GTK4 / libadwaita), Rust port of [Tonearm](https://codeberg.org/dergs/Tonearm) | `.github/workflows/rust.yml`, `desktop-fedora.yml`, `desktop-copr.yml` |
 | `sdat-core/` | Shared Rust core (`tonearm-core`) and the Swift FFI (`tonearm-ffi`, UniFFI) | both |
+| `sdat-android/` | Android app (Kotlin, Jetpack Compose), installable and updatable with [Obtainium](obtainium/README.md) | `.github/workflows/android-build.yml`, `android-release.yml` |
 | `feather/` | Feather / AltStore source (`source.json`), kept at the root so existing source URLs keep working | `feather-source.yml` |
 
 The root `Cargo.toml` is a workspace with `sdat-core/tonearm-core`, `sdat-core/tonearm-ffi` and `sdat-desktop`.
@@ -20,6 +21,7 @@ sdat-mobile/scripts/build-rust.sh           # iOS static lib + Swift bindings, t
 ## Releases
 
 - `vX.Y.Z` tags: iOS. The unsigned `.ipa` is attached to the release, and a PR is opened to update `feather/source.json`.
+- `android-vX.Y.Z` tags: Android. Signed per-ABI APKs are attached to the release; Obtainium reads them straight from GitHub (see `obtainium/README.md`).
 - `desktop-vX.Y.Z` tags (from 1.2.0): desktop. Fedora spec bump, vendor archive and COPR rebuild. The spec already ships 1.2.0, so `desktop-v1.2.0` only publishes the release and vendor archive; the first COPR build is triggered by hand and the automatic spec bump starts with the next version.
 
 ## History and licence
