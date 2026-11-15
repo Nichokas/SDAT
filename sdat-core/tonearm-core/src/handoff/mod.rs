@@ -804,9 +804,10 @@ impl Worker {
         };
         // Only while this device still holds it: a newer claim by a third device
         // keeps playback and its queue. Unknown (a failed read): the next state read decides.
-        match wire::state() {
-            // Still this device, or nobody (an attachment lapsed): hand back.
-            Ok(s) if s.active.is_none() || s.active.as_deref() == Some(self.mirror.me()) => {
+        match self.checked(wire::state) {
+            // Still this device, nobody (an attachment lapsed), or the claim never
+            // landed: hand back, which also restores the queue and playing status.
+            Ok(s) if s.active.is_none() || s.active.as_deref() == Some(self.mirror.me()) || s.active.as_deref() == Some(b) => {
                 if self.hand_back(b).is_err() {
                     self.rollback = Some(b.to_string());
                 }
@@ -899,7 +900,7 @@ impl Worker {
         // A failed call leaves the outcome unknown: read who is active now.
         let active = match self.checked(|| wire::set_active(id)) {
             Ok(a) => Ok(a),
-            Err(e) => wire::state().map(|s| s.active).map_err(|_unread| e),
+            Err(e) => self.checked(wire::state).map(|s| s.active).map_err(|_unread| e),
         };
         let me = self.mirror.me().to_string();
         match active {
