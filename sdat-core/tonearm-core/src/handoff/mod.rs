@@ -347,7 +347,7 @@ struct Worker {
     /// With `rollback` after a send: that player was playing.
     rollback_playing: bool,
     /// The report from before a send whose outcome is unknown, until a state read tells.
-    quarantined: Option<LocalPlayback>,
+    quarantined: Option<(LocalPlayback, Instant)>,
     /// The track sent away by the last successful send, until the app pauses.
     sent: Option<String>,
     /// This device was made active but its queue could not be read yet.
@@ -527,13 +527,14 @@ impl Worker {
                 self.rollback_playing = false;
             }
         }
-        if let Some(l) = self.quarantined.take()
+        if let Some((l, at)) = self.quarantined.take()
             && state.active.as_deref() == Some(self.mirror.me())
         {
-            // Still the active player after an unknown send outcome: its playback is written again.
+            // Still the active player after an unknown send outcome: its playback is written
+            // again, with the time it was reported so a playing position moves on from there.
             self.mirror.claimed(state.active.clone());
             self.last_local = Some(l);
-            self.last_local_at = Instant::now();
+            self.last_local_at = at;
             self.mirror.force_position();
             self.pending.get_or_insert_with(Instant::now);
         }
@@ -854,7 +855,7 @@ impl Worker {
             Err(e) => {
                 self.ownership_unknown();
                 self.pending = None;
-                self.quarantined = self.last_local.take();
+                self.quarantined = self.last_local.take().map(|l| (l, self.last_local_at));
                 return Err(e);
             }
         }
