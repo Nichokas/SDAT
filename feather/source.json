@@ -18,6 +18,15 @@
       "category": "entertainment",
       "versions": [
         {
+          "version": "2.0.0",
+          "buildVersion": "10",
+          "date": "2026-11-15T19:01:54Z",
+          "localizedDescription": "## What's Changed\n* Cache the Android Rust core build and run the release build in parallel by @Nichokas in https://github.com/Nichokas/SDAT/pull/123\n* Add a script that sets up sccache for shared worktree builds by @Nichokas in https://github.com/Nichokas/SDAT/pull/125\n* Remove CodeRabbit from the review bot by @Nichokas in https://github.com/Nichokas/SDAT/pull/127\n* Prefer installed search CLIs over built-in web search by @Nichokas in https://github.com/Nichokas/SDAT/pull/128\n* Add Ubuntu dev VM setup script by @Nichokas in https://github.com/Nichokas/SDAT/pull/126\n* Retry the reviewer install on failure by @Nichokas in https://github.com/Nichokas/SDAT/pull/129\n* Run PR builds only after the reviewers pass by @Nichokas in https://github.com/Nichokas/SDAT/pull/130\n* Keep the iOS seek slider from snapping back after a seek by @Nichokas in https://github.com/Nichokas/SDAT/pull/131\n* Skip the build rerun when the review run names no PR by @Nichokas in https://github.com/Nichokas/SDAT/pull/132\n* Document installing SDAT for Android with Obtainium by @Nichokas in https://github.com/Nichokas/SDAT/pull/134\n* Move Renovate config to the repo root and cover Cargo and Gradle by @Nichokas in https://github.com/Nichokas/SDAT/pull/133\n* Keep the iOS player open when adding its track to a playlist by @Nichokas in https://github.com/Nichokas/SDAT/pull/135\n* Continue playback on another device through TIDAL's playback state by @Nichokas in https://github.com/Nichokas/SDAT/pull/122\n\n\n**Full Changelog**: https://github.com/Nichokas/SDAT/compare/v1.5.0...v2.0.0",
+          "downloadURL": "https://github.com/Nichokas/SDAT/releases/download/v2.0.0/SDAT-v2.0.0-unsigned.ipa",
+          "size": 29100516,
+          "minOSVersion": "26.0"
+        },
+        {
           "version": "1.5.0",
           "buildVersion": "9",
           "date": "2026-11-15T14:34:42Z",
@@ -72,11 +81,11 @@
           "minOSVersion": "26.0"
         }
       ],
-      "version": "1.5.0",
-      "versionDate": "2026-11-15T14:34:42Z",
-      "versionDescription": "## What's Changed\n* Make the iOS and Android Rust caches actually reused by @Nichokas in https://github.com/Nichokas/SDAT/pull/107\n* Port Search, Explore and the album, playlist and artist pages to Android by @Nichokas in https://github.com/Nichokas/SDAT/pull/104\n* Port the Collection tab, Recents and Add to Playlist to Android by @Nichokas in https://github.com/Nichokas/SDAT/pull/108\n* Port Downloads and offline playback to Android by @Nichokas in https://github.com/Nichokas/SDAT/pull/109\n* Port Listen Together to Android by @Nichokas in https://github.com/Nichokas/SDAT/pull/110\n* Add signed Android releases to the Release workflow by @Nichokas in https://github.com/Nichokas/SDAT/pull/113\n* Feather source: add v1.4.0 by @github-actions[bot] in https://github.com/Nichokas/SDAT/pull/106\n* Commit Feather source updates directly to main by @Nichokas in https://github.com/Nichokas/SDAT/pull/114\n* Strip TIDAL markup from artist bios in the core by @Nichokas in https://github.com/Nichokas/SDAT/pull/115\n* Prune superseded Gradle caches so Rust caches stay in the quota by @Nichokas in https://github.com/Nichokas/SDAT/pull/117\n* iOS: keep the Discover cache when a refresh comes back short, and prefetch the next launch's first covers by @Nichokas in https://github.com/Nichokas/SDAT/pull/118\n* Add Show More to an artist's top tracks by @Nichokas in https://github.com/Nichokas/SDAT/pull/116\n* Desktop: keep queued tracks on quick skips, failed prefetches and shuffle off by @Nichokas in https://github.com/Nichokas/SDAT/pull/119\n* Tidy the iOS and Android player: fewer glass shapes, white-only state, output picker by @Nichokas in https://github.com/Nichokas/SDAT/pull/121\n* Desktop: stop on playback errors, hold playback while buffering, reset MPRIS position on track change by @Nichokas in https://github.com/Nichokas/SDAT/pull/120\n\n\n**Full Changelog**: https://github.com/Nichokas/SDAT/compare/v1.4.0...v1.5.0",
-      "downloadURL": "https://github.com/Nichokas/SDAT/releases/download/v1.5.0/SDAT-v1.5.0-unsigned.ipa",
-      "size": 28481395
+      "version": "2.0.0",
+      "versionDate": "2026-11-15T19:01:54Z",
+      "versionDescription": "## What's Changed\n* Cache the Android Rust core build and run the release build in parallel by @Nichokas in https://github.com/Nichokas/SDAT/pull/123\n* Add a script that sets up sccache for shared worktree builds by @Nichokas in https://github.com/Nichokas/SDAT/pull/125\n* Remove CodeRabbit from the review bot by @Nichokas in https://github.com/Nichokas/SDAT/pull/127\n* Prefer installed search CLIs over built-in web search by @Nichokas in https://github.com/Nichokas/SDAT/pull/128\n* Add Ubuntu dev VM setup script by @Nichokas in https://github.com/Nichokas/SDAT/pull/126\n* Retry the reviewer install on failure by @Nichokas in https://github.com/Nichokas/SDAT/pull/129\n* Run PR builds only after the reviewers pass by @Nichokas in https://github.com/Nichokas/SDAT/pull/130\n* Keep the iOS seek slider from snapping back after a seek by @Nichokas in https://github.com/Nichokas/SDAT/pull/131\n* Skip the build rerun when the review run names no PR by @Nichokas in https://github.com/Nichokas/SDAT/pull/132\n* Document installing SDAT for Android with Obtainium by @Nichokas in https://github.com/Nichokas/SDAT/pull/134\n* Move Renovate config to the repo root and cover Cargo and Gradle by @Nichokas in https://github.com/Nichokas/SDAT/pull/133\n* Keep the iOS player open when adding its track to a playlist by @Nichokas in https://github.com/Nichokas/SDAT/pull/135\n* Continue playback on another device through TIDAL's playback state by @Nichokas in https://github.com/Nichokas/SDAT/pull/122\n\n\n**Full Changelog**: https://github.com/Nichokas/SDAT/compare/v1.5.0...v2.0.0",
+      "downloadURL": "https://github.com/Nichokas/SDAT/releases/download/v2.0.0/SDAT-v2.0.0-unsigned.ipa",
+      "size": 29100516
     }
   ],
   "news": []
