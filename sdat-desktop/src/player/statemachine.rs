@@ -546,20 +546,7 @@ impl Machine {
                     Trigger::Eos => (self.hooks.on_eos_stopped)().await,
                     Trigger::Error(e) => {
                         let track = track_changed().with(|t| t.as_ref().map(|e| e.track.id().to_string()));
-                        on_stopped_stop();
-                        // A queued stop or start has already replaced the
-                        // source and moved on from the failed track; a queued
-                        // next / previous may, so decide once it has run.
-                        let mut queue = self.queue.borrow_mut();
-                        let replaced = queue.iter().any(|t| matches!(t, Trigger::Stop | Trigger::PlayTrack(..) | Trigger::PlayTrackId(..)));
-                        match queue.iter().rposition(|t| matches!(t, Trigger::Deferred(_))) {
-                            _ if replaced => {}
-                            Some(i) => queue.insert(i + 1, Trigger::ReportError(track, e)),
-                            None => {
-                                drop(queue);
-                                self.report_error(track.as_deref(), &e);
-                            }
-                        }
+                        self.stopped_on_error(track, e);
                     }
                     _ => {}
                 }
@@ -569,6 +556,11 @@ impl Machine {
             (State::Paused, _) => on_paused(&*self.playbin),
             (State::Preparing, t) => {
                 on_preparing();
+                let id = match &t {
+                    Trigger::PlayTrackId(id, _) => Some(id.clone()),
+                    Trigger::PlayTrack(track, _) => Some(track.id().to_string()),
+                    _ => None,
+                };
                 let r = match self.playbin.set_state(gst::State::Ready).map(|()| self.drop_stream_messages()) {
                     Err(e) => Err(e),
                     Ok(()) => match t {
@@ -590,6 +582,7 @@ impl Machine {
                     if let Err(e) = on_stopped(&*self.playbin) {
                         log::error!("failed to reset the pipeline after a playback error: {e:#}");
                     }
+                    self.stopped_on_error(id, e.to_string());
                 }
                 r
             }
@@ -655,6 +648,23 @@ impl Machine {
             s.buffering = buffering;
             s
         });
+    }
+
+    /// Clears a track that stopped on an error and reports it, unless a
+    /// queued stop or start already replaced its source. A queued next /
+    /// previous may replace it, so then the report waits until it has run.
+    fn stopped_on_error(&self, track: Option<String>, e: String) {
+        on_stopped_stop();
+        let mut queue = self.queue.borrow_mut();
+        let replaced = queue.iter().any(|t| matches!(t, Trigger::Stop | Trigger::PlayTrack(..) | Trigger::PlayTrackId(..)));
+        match queue.iter().rposition(|t| matches!(t, Trigger::Deferred(_))) {
+            _ if replaced => {}
+            Some(i) => queue.insert(i + 1, Trigger::ReportError(track, e)),
+            None => {
+                drop(queue);
+                self.report_error(track.as_deref(), &e);
+            }
+        }
     }
 
     fn report_error(&self, track: Option<&str>, e: &str) {
@@ -1230,6 +1240,23 @@ pub mod tests {
             m.queue.borrow_mut().push_back(Trigger::Deferred(Box::new(move || started.state.set(State::Preparing))));
             while ctx.iteration(false) {}
             assert_eq!(ERRORS.with(|v| v.borrow().len()), 1, "the error was reported over the next track");
+        })
+        .unwrap();
+    }
+
+    #[test]
+    fn failed_start_clears_and_reports() {
+        let ctx = glib::MainContext::new();
+        ctx.with_thread_default(|| {
+            ERRORS.with(|v| v.borrow_mut().clear());
+            let pb = Rc::new(Testbin { state_should_error: true, ..Default::default() });
+            let m = test_machine(&pb);
+            track_changed().set(Some(TrackChangedEvent { track: Track::default(), skip_history: false }));
+            m.fire(Trigger::PlayTrack(Track::default(), false));
+            while ctx.iteration(false) {}
+            assert_eq!(m.state.get(), State::Stopped);
+            assert!(track_changed().get().is_none());
+            assert_eq!(ERRORS.with(|v| v.borrow().len()), 1);
         })
         .unwrap();
     }
