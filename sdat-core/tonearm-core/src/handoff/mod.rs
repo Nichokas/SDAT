@@ -225,7 +225,12 @@ impl Worker {
                     pending = None;
                     let _ = reply.send(self.continue_here());
                 }
-                Ok(Cmd::Stop) | Err(RecvTimeoutError::Disconnected) => break,
+                Ok(Cmd::Stop) | Err(RecvTimeoutError::Disconnected) => {
+                    if pending.is_some() {
+                        self.write_local(false);
+                    }
+                    break;
+                }
                 Err(RecvTimeoutError::Timeout) => {}
             }
             let now = Instant::now();
