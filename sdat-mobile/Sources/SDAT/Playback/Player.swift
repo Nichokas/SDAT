@@ -260,6 +260,8 @@ final class Player {
         resumeAfterInterruption = false
         systemPaused = false
         if isPlaying { avPlayer.pause() } else {
+            // A play after a pause during a start: the start ends playing after all.
+            holdAutoplay = false
             try? AVAudioSession.sharedInstance().setActive(true)
             avPlayer.play()
         }
@@ -717,6 +719,11 @@ final class Player {
             } catch {
                 if !Task.isCancelled { loading = false; loadResumeAt = nil }
                 if !Task.isCancelled { self.error = friendlyMessage(error) }
+                // Nothing left in the engine (a handoff cleared it): paused, and play retries.
+                if !Task.isCancelled, avPlayer.currentItem == nil {
+                    isPlaying = false
+                    needsStart = true
+                }
             }
         }
     }

@@ -507,7 +507,8 @@ impl Worker {
     /// `claim` makes this device active once the queue proved readable.
     fn resume(&mut self, claim: Option<Instant>, from: Option<Device>) -> Result<Resume> {
         let mut queue = self.mirror.queue_id().ok_or_else(|| CoreError::Other("nothing to continue".into()))?.to_string();
-        let before = self.mirror.state().active.clone().filter(|a| a != self.mirror.me());
+        let mut before: Option<String> = None;
+        let mut status;
         let mut claimed = false;
         // Read the selected queue until a snapshot agrees with itself and is
         // still the selection, before the claim and once more after it (the
@@ -520,8 +521,9 @@ impl Worker {
                 Ok(r) => r,
                 Err(e) => return Err(self.undo_claim(claimed, before.as_deref(), e)),
             };
-            // Another device claimed after this one: it owns playback now, and is left alone.
-            if claimed && now.active.as_deref() != Some(self.mirror.me()) {
+            // Another device claimed after this one (or, for a push, after the sender
+            // handed over): it owns playback now, and is left alone.
+            if (claimed || claim.is_none()) && now.active.as_deref() != Some(self.mirror.me()) {
                 // The next read reports the move, so a player still going here pauses.
                 self.dirty.get_or_insert_with(Instant::now);
                 return Err(CoreError::Other("another device took over playback".into()));
@@ -538,9 +540,12 @@ impl Worker {
             let (Some(current), Some(track)) = (head.current.clone(), head.track.clone()) else {
                 return Err(self.undo_claim(claimed, before.as_deref(), CoreError::Other("nothing to continue".into())));
             };
+            status = now.status;
             match claim {
                 Some(deadline) if !claimed => {
                     past(deadline)?;
+                    // The owner this claim displaces, as read right before it.
+                    before = now.active.filter(|a| a != self.mirror.me());
                     self.claim()?;
                     claimed = true;
                 }
@@ -549,7 +554,7 @@ impl Worker {
         };
         let duration = i64::try_from(track.duration().as_millis()).unwrap_or(i64::MAX);
         // A pull takes over a player that may still be playing; a push wrote its exact position.
-        let playing = claim.is_some() && self.mirror.state().status == wire::Status::Playing;
+        let playing = claim.is_some() && status == wire::Status::Playing;
         let now = now_ms();
         let position_ms = mirror::position_now(head.position_ms.unwrap_or(0), head.position_at_ms.unwrap_or(now), now, playing, duration);
         let resumed = LocalPlayback {

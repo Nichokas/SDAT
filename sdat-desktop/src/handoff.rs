@@ -190,10 +190,8 @@ fn on_event(ev: HandoffEvent) {
             }
         }
         HandoffEvent::MovedTo(d) => {
-            let ps = player::playback_state_changed().get();
-            if ps.status == PlaybackStatus::Playing || ps.loading {
-                player::pause();
-            }
+            // Also when paused: a pause cancels a resume that would start playing later.
+            player::pause();
             player::toasts().notify(&trf("Playing on %s", &[&name(&d)]));
         }
     }
