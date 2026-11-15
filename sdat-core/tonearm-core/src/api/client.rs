@@ -286,10 +286,15 @@ pub(crate) fn cached_user_token() -> Option<String> {
 pub(crate) fn openapi_call(method: Method, path: &str, body: Option<&serde_json::Value>) -> Result<serde_json::Value> {
     openapi_path(path)?;
     // One token for the whole request: the account cannot change under it.
-    let token = user_bearer()?;
+    openapi_call_with(&user_bearer()?, method, path, body)
+}
+
+/// [`openapi_call`] with a token the caller took (and checked) itself.
+pub(crate) fn openapi_call_with(token: &str, method: Method, path: &str, body: Option<&serde_json::Value>) -> Result<serde_json::Value> {
+    openapi_path(path)?;
     let label = method.to_string();
     let sep = if path.contains('?') { '&' } else { '?' };
-    let rb = authed(method, &format!("{path}{sep}countryCode={}", country_code()), &token);
+    let rb = authed(method, &format!("{path}{sep}countryCode={}", country_code()), token);
     jsonapi(rb, &label, path, body)
 }
 

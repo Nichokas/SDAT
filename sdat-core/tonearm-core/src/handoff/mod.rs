@@ -358,6 +358,7 @@ struct Worker {
 
 impl Worker {
     fn run(&mut self, rx: &Receiver<Cmd>) {
+        wire::bind_to(self.account.clone());
         let mut next_attach = Instant::now() + ATTACH_EVERY;
         let mut next_poll = Instant::now() + POLL_EVERY;
         loop {

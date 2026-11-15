@@ -72,8 +72,27 @@ pub(super) struct Head {
     pub stream: Option<String>,
 }
 
+thread_local! {
+    /// On a worker thread: the user it works for. Every call there takes the
+    /// token first and checks the user after, so a token from another account
+    /// is never used.
+    static BOUND_USER: std::cell::RefCell<Option<String>> = const { std::cell::RefCell::new(None) };
+}
+
+/// Binds this thread's calls to `user`.
+pub(super) fn bind_to(user: String) {
+    BOUND_USER.with(|b| *b.borrow_mut() = Some(user));
+}
+
 fn call(method: Method, path: &str, body: Option<&Value>) -> Result<Value> {
-    api::openapi_call(method, path, body)
+    let Some(user) = BOUND_USER.with(|b| b.borrow().clone()) else {
+        return api::openapi_call(method, path, body);
+    };
+    let token = api::user_bearer()?;
+    if crate::auth::tokens().user_id() != user {
+        return Err(CoreError::NotSignedIn);
+    }
+    api::openapi_call_with(&token, method, path, body)
 }
 
 fn str_at(v: &Value, ptr: &str) -> Option<String> {
@@ -223,7 +242,12 @@ pub(super) fn head_with_track(queue: &str) -> Result<Head> {
     if h.track.is_none()
         && let Some(c) = &h.current
     {
-        h.track = crate::service::get_track(&c.track_id).ok();
+        // Gone from the catalogue: shown without it. Any other failure fails the read, which is retried.
+        h.track = match crate::service::get_track(&c.track_id) {
+            Ok(t) => Some(t),
+            Err(CoreError::Http { status: 404, .. }) => None,
+            Err(e) => return Err(e),
+        };
     }
     Ok(h)
 }
