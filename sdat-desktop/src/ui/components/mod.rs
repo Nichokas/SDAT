@@ -246,25 +246,23 @@ fn page_list_source(title: &str) -> model::PlaybackSource {
 fn show_more_button(list: &TrackList, view_all: String) -> gtk::Button {
     const PAGE: usize = 10;
     let b = gtk::Button::with_label(&tr("Show More")).class("flat").halign(gtk::Align::Center).mtop(6);
-    // Offset by what was fetched, not shown: skipped duplicates must not refetch a page.
-    let fetched = Rc::new(Cell::new(list.len()));
+    let shown = list.tracks().into_iter().map(|t| t.info.id);
+    let pager = std::sync::Arc::new(std::sync::Mutex::new(tonearm_core::explore::ViewAllTracks::new(view_all, shown)));
     let list = list.downgrade();
     b.connect_clicked(move |b| {
         b.set_sensitive(false);
-        let (offset, path, b, list, fetched) = (fetched.get(), view_all.clone(), b.downgrade(), list.clone(), Rc::clone(&fetched));
+        let (pager, b, list) = (std::sync::Arc::clone(&pager), b.downgrade(), list.clone());
         glib::spawn_future_local(async move {
-            let r = crate::api::run(move || tonearm_core::explore::get_view_all_tracks(&path, offset, PAGE)).await;
+            let worker = std::sync::Arc::clone(&pager);
+            let page = crate::api::run(move || worker.lock().unwrap_or_else(std::sync::PoisonError::into_inner).next(PAGE)).await;
             let (Some(b), Some(l)) = (b.upgrade(), list.upgrade()) else { return };
             b.set_sensitive(true);
-            match r {
+            match page {
                 Ok(tracks) => {
-                    let have: std::collections::HashSet<_> = l.tracks().iter().map(|t| t.info.id.clone()).collect();
-                    let n = tracks.len();
-                    fetched.set(offset + n);
-                    for t in tracks.into_iter().filter(|t| !have.contains(&t.info.id)) {
+                    for t in tracks {
                         l.add_track(t);
                     }
-                    b.set_visible(n == PAGE);
+                    b.set_visible(!pager.lock().unwrap_or_else(std::sync::PoisonError::into_inner).is_done());
                 }
                 Err(e) => {
                     crate::player::toasts().notify(&tr("Could not load more tracks"));

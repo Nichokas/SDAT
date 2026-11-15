@@ -3232,6 +3232,147 @@ public func FfiConverterTypeTokenStore_lower(_ value: TokenStore) -> UInt64 {
 
 
 
+public protocol TopTracksPagerProtocol: AnyObject, Sendable {
+    
+    func isDone()  -> Bool
+    
+    /**
+     * The next `limit` tracks not shown yet, fewer at the end.
+     */
+    func next(limit: UInt32) async throws  -> [Track]
+    
+}
+open class TopTracksPager: TopTracksPagerProtocol, @unchecked Sendable {
+    fileprivate let handle: UInt64
+
+    /// Used to instantiate a [FFIObject] without an actual handle, for fakes in tests, mostly.
+#if swift(>=5.8)
+    @_documentation(visibility: private)
+#endif
+    public struct NoHandle {
+        public init() {}
+    }
+
+    // TODO: We'd like this to be `private` but for Swifty reasons,
+    // we can't implement `FfiConverter` without making this `required` and we can't
+    // make it `required` without making it `public`.
+#if swift(>=5.8)
+    @_documentation(visibility: private)
+#endif
+    required public init(unsafeFromHandle handle: UInt64) {
+        self.handle = handle
+    }
+
+    // This constructor can be used to instantiate a fake object.
+    // - Parameter noHandle: Placeholder value so we can have a constructor separate from the default empty one that may be implemented for classes extending [FFIObject].
+    //
+    // - Warning:
+    //     Any object instantiated with this constructor cannot be passed to an actual Rust-backed object. Since there isn't a backing handle the FFI lower functions will crash.
+#if swift(>=5.8)
+    @_documentation(visibility: private)
+#endif
+    public init(noHandle: NoHandle) {
+        self.handle = 0
+    }
+
+#if swift(>=5.8)
+    @_documentation(visibility: private)
+#endif
+    public func uniffiCloneHandle() -> UInt64 {
+        return try! rustCall { uniffi_tonearm_ffi_fn_clone_toptrackspager(self.handle, $0) }
+    }
+    // No primary constructor declared for this class.
+
+    deinit {
+        if handle == 0 {
+            // Mock objects have handle=0 don't try to free them
+            return
+        }
+
+        try! rustCall { uniffi_tonearm_ffi_fn_free_toptrackspager(handle, $0) }
+    }
+
+    
+
+    
+open func isDone() -> Bool  {
+    return try!  FfiConverterBool.lift(try! rustCall() {
+        uniffiCallStatus in
+    uniffi_tonearm_ffi_fn_method_toptrackspager_is_done(
+            self.uniffiCloneHandle(),uniffiCallStatus
+    )
+})
+}
+    
+    /**
+     * The next `limit` tracks not shown yet, fewer at the end.
+     */
+open func next(limit: UInt32)async throws  -> [Track]  {
+    return
+        try  await uniffiRustCallAsync(
+            rustFutureFunc: {
+                uniffi_tonearm_ffi_fn_method_toptrackspager_next(
+                        self.uniffiCloneHandle(),FfiConverterUInt32.lower(limit)
+                )
+            },
+            pollFunc: ffi_tonearm_ffi_rust_future_poll_rust_buffer,
+            completeFunc: ffi_tonearm_ffi_rust_future_complete_rust_buffer,
+            freeFunc: ffi_tonearm_ffi_rust_future_free_rust_buffer,
+            liftFunc: FfiConverterSequenceTypeTrack.lift,
+            errorHandler: FfiConverterTypeFfiError_lift
+        )
+}
+    
+
+    
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeTopTracksPager: FfiConverter {
+    typealias FfiType = UInt64
+    typealias SwiftType = TopTracksPager
+
+    public static func lift(_ handle: UInt64) throws -> TopTracksPager {
+        return TopTracksPager(unsafeFromHandle: handle)
+    }
+
+    public static func lower(_ value: TopTracksPager) -> UInt64 {
+        return value.uniffiCloneHandle()
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> TopTracksPager {
+        let handle: UInt64 = try readInt(&buf)
+        return try lift(handle)
+    }
+
+    public static func write(_ value: TopTracksPager, into buf: inout [UInt8]) {
+        writeInt(&buf, lower(value))
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeTopTracksPager_lift(_ handle: UInt64) throws -> TopTracksPager {
+    return try FfiConverterTypeTopTracksPager.lift(handle)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeTopTracksPager_lower(_ value: TopTracksPager) -> UInt64 {
+    return FfiConverterTypeTopTracksPager.lower(value)
+}
+
+
+
+
+
+
 /**
  * Pages of tracks.
  */
@@ -6727,21 +6868,16 @@ public func artistOverview(id: String)async throws  -> ArtistOverview  {
         )
 }
 /**
- * `limit` top tracks from `offset`, for "Show more" under the overview's few; fewer than `limit` means the end.
+ * "Show more" under an artist's top tracks; `shown` are the ids already on screen.
  */
-public func artistTopTracks(id: String, offset: UInt32, limit: UInt32)async throws  -> [Track]  {
-    return
-        try  await uniffiRustCallAsync(
-            rustFutureFunc: {
-                uniffi_tonearm_ffi_fn_func_artist_top_tracks(FfiConverterString.lower(id),FfiConverterUInt32.lower(offset),FfiConverterUInt32.lower(limit)
-                )
-            },
-            pollFunc: ffi_tonearm_ffi_rust_future_poll_rust_buffer,
-            completeFunc: ffi_tonearm_ffi_rust_future_complete_rust_buffer,
-            freeFunc: ffi_tonearm_ffi_rust_future_free_rust_buffer,
-            liftFunc: FfiConverterSequenceTypeTrack.lift,
-            errorHandler: FfiConverterTypeFfiError_lift
-        )
+public func artistTopTracksPager(id: String, shown: [String]) -> TopTracksPager  {
+    return try!  FfiConverterTypeTopTracksPager_lift(try! rustCall() {
+        uniffiCallStatus in
+    uniffi_tonearm_ffi_fn_func_artist_top_tracks_pager(
+        FfiConverterString.lower(id),
+        FfiConverterSequenceString.lower(shown),uniffiCallStatus
+    )
+})
 }
 public func collectionAlbums() -> AlbumPager  {
     return try!  FfiConverterTypeAlbumPager_lift(try! rustCall() {
@@ -7220,7 +7356,7 @@ private let initializationResult: InitializationResult = {
     if (uniffi_tonearm_ffi_checksum_func_artist_overview() != 63615) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_tonearm_ffi_checksum_func_artist_top_tracks() != 2500) {
+    if (uniffi_tonearm_ffi_checksum_func_artist_top_tracks_pager() != 58173) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_tonearm_ffi_checksum_func_collection_albums() != 15587) {
@@ -7353,6 +7489,12 @@ private let initializationResult: InitializationResult = {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_tonearm_ffi_checksum_method_playlistpager_next_page() != 46663) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_tonearm_ffi_checksum_method_toptrackspager_is_done() != 52371) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_tonearm_ffi_checksum_method_toptrackspager_next() != 56560) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_tonearm_ffi_checksum_method_trackpager_next_page() != 39957) {

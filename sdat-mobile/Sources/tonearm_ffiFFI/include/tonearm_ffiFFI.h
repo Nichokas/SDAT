@@ -477,6 +477,26 @@ void uniffi_tonearm_ffi_fn_free_playlistpager(uint64_t handle, RustCallStatus *_
 uint64_t uniffi_tonearm_ffi_fn_method_playlistpager_next_page(uint64_t ptr
 );
 #endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_TONEARM_FFI_FN_CLONE_TOPTRACKSPAGER
+#define UNIFFI_FFIDEF_UNIFFI_TONEARM_FFI_FN_CLONE_TOPTRACKSPAGER
+uint64_t uniffi_tonearm_ffi_fn_clone_toptrackspager(uint64_t handle, RustCallStatus *_Nonnull out_status
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_TONEARM_FFI_FN_FREE_TOPTRACKSPAGER
+#define UNIFFI_FFIDEF_UNIFFI_TONEARM_FFI_FN_FREE_TOPTRACKSPAGER
+void uniffi_tonearm_ffi_fn_free_toptrackspager(uint64_t handle, RustCallStatus *_Nonnull out_status
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_TONEARM_FFI_FN_METHOD_TOPTRACKSPAGER_IS_DONE
+#define UNIFFI_FFIDEF_UNIFFI_TONEARM_FFI_FN_METHOD_TOPTRACKSPAGER_IS_DONE
+int8_t uniffi_tonearm_ffi_fn_method_toptrackspager_is_done(uint64_t ptr, RustCallStatus *_Nonnull out_status
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_TONEARM_FFI_FN_METHOD_TOPTRACKSPAGER_NEXT
+#define UNIFFI_FFIDEF_UNIFFI_TONEARM_FFI_FN_METHOD_TOPTRACKSPAGER_NEXT
+uint64_t uniffi_tonearm_ffi_fn_method_toptrackspager_next(uint64_t ptr, uint32_t limit
+);
+#endif
 #ifndef UNIFFI_FFIDEF_UNIFFI_TONEARM_FFI_FN_CLONE_TRACKPAGER
 #define UNIFFI_FFIDEF_UNIFFI_TONEARM_FFI_FN_CLONE_TRACKPAGER
 uint64_t uniffi_tonearm_ffi_fn_clone_trackpager(uint64_t handle, RustCallStatus *_Nonnull out_status
@@ -774,9 +794,9 @@ uint64_t uniffi_tonearm_ffi_fn_func_artist(RustBuffer id
 uint64_t uniffi_tonearm_ffi_fn_func_artist_overview(RustBuffer id
 );
 #endif
-#ifndef UNIFFI_FFIDEF_UNIFFI_TONEARM_FFI_FN_FUNC_ARTIST_TOP_TRACKS
-#define UNIFFI_FFIDEF_UNIFFI_TONEARM_FFI_FN_FUNC_ARTIST_TOP_TRACKS
-uint64_t uniffi_tonearm_ffi_fn_func_artist_top_tracks(RustBuffer id, uint32_t offset, uint32_t limit
+#ifndef UNIFFI_FFIDEF_UNIFFI_TONEARM_FFI_FN_FUNC_ARTIST_TOP_TRACKS_PAGER
+#define UNIFFI_FFIDEF_UNIFFI_TONEARM_FFI_FN_FUNC_ARTIST_TOP_TRACKS_PAGER
+uint64_t uniffi_tonearm_ffi_fn_func_artist_top_tracks_pager(RustBuffer id, RustBuffer shown, RustCallStatus *_Nonnull out_status
 );
 #endif
 #ifndef UNIFFI_FFIDEF_UNIFFI_TONEARM_FFI_FN_FUNC_COLLECTION_ALBUMS
@@ -1256,9 +1276,9 @@ uint16_t uniffi_tonearm_ffi_checksum_func_artist_overview(void
     
 );
 #endif
-#ifndef UNIFFI_FFIDEF_UNIFFI_TONEARM_FFI_CHECKSUM_FUNC_ARTIST_TOP_TRACKS
-#define UNIFFI_FFIDEF_UNIFFI_TONEARM_FFI_CHECKSUM_FUNC_ARTIST_TOP_TRACKS
-uint16_t uniffi_tonearm_ffi_checksum_func_artist_top_tracks(void
+#ifndef UNIFFI_FFIDEF_UNIFFI_TONEARM_FFI_CHECKSUM_FUNC_ARTIST_TOP_TRACKS_PAGER
+#define UNIFFI_FFIDEF_UNIFFI_TONEARM_FFI_CHECKSUM_FUNC_ARTIST_TOP_TRACKS_PAGER
+uint16_t uniffi_tonearm_ffi_checksum_func_artist_top_tracks_pager(void
     
 );
 #endif
@@ -1523,6 +1543,18 @@ uint16_t uniffi_tonearm_ffi_checksum_method_artistpager_next_page(void
 #ifndef UNIFFI_FFIDEF_UNIFFI_TONEARM_FFI_CHECKSUM_METHOD_PLAYLISTPAGER_NEXT_PAGE
 #define UNIFFI_FFIDEF_UNIFFI_TONEARM_FFI_CHECKSUM_METHOD_PLAYLISTPAGER_NEXT_PAGE
 uint16_t uniffi_tonearm_ffi_checksum_method_playlistpager_next_page(void
+    
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_TONEARM_FFI_CHECKSUM_METHOD_TOPTRACKSPAGER_IS_DONE
+#define UNIFFI_FFIDEF_UNIFFI_TONEARM_FFI_CHECKSUM_METHOD_TOPTRACKSPAGER_IS_DONE
+uint16_t uniffi_tonearm_ffi_checksum_method_toptrackspager_is_done(void
+    
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_TONEARM_FFI_CHECKSUM_METHOD_TOPTRACKSPAGER_NEXT
+#define UNIFFI_FFIDEF_UNIFFI_TONEARM_FFI_CHECKSUM_METHOD_TOPTRACKSPAGER_NEXT
+uint16_t uniffi_tonearm_ffi_checksum_method_toptrackspager_next(void
     
 );
 #endif

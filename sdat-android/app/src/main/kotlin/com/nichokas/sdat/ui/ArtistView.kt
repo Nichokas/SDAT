@@ -46,9 +46,10 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.launch
 import uniffi.tonearm_ffi.ArtistOverview
 import uniffi.tonearm_ffi.FavouriteKind
+import uniffi.tonearm_ffi.TopTracksPager
 import uniffi.tonearm_ffi.Track
 import uniffi.tonearm_ffi.artistOverview
-import uniffi.tonearm_ffi.artistTopTracks
+import uniffi.tonearm_ffi.artistTopTracksPager
 
 // A follow tapped just before going back still goes through.
 
@@ -104,7 +105,7 @@ fun ArtistView(id: String) {
     }
 }
 
-/** Top tracks past the overview's few, a page per "Show More"; a short page marks the end. */
+/** Top tracks past the overview's few, a page per "Show More". */
 private class MoreTopTracks(private val artistId: String, private val scope: CoroutineScope) {
     var tracks by mutableStateOf(emptyList<Track>())
         private set
@@ -113,19 +114,16 @@ private class MoreTopTracks(private val artistId: String, private val scope: Cor
     var loading by mutableStateOf(false)
         private set
 
-    // Offset by what was fetched, not shown: skipped duplicates must not refetch a page.
-    private var fetched = 0
+    private var pager: TopTracksPager? = null
 
-    fun load(base: Int, shown: List<Track>) {
+    fun load(shown: List<Track>) {
         if (loading) return
         loading = true
         scope.launch {
             try {
-                val page = artistTopTracks(artistId, (base + fetched).toUInt(), PAGE)
-                fetched += page.size
-                val have = shown.mapTo(HashSet()) { it.id }
-                tracks = tracks + page.filter { it.id !in have }
-                canLoad = page.size == PAGE.toInt()
+                val p = pager ?: artistTopTracksPager(artistId, shown.map { it.id }).also { pager = it }
+                tracks = tracks + p.next(PAGE)
+                canLoad = !p.isDone()
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
@@ -168,7 +166,7 @@ private fun LazyListScope.sections(o: ArtistOverview, more: MoreTopTracks) {
         if (more.canLoad) {
             item(key = "top-more") {
                 Box(Modifier.fillMaxWidth().padding(top = 8.dp), contentAlignment = Alignment.Center) {
-                    GlasmioButton({ more.load(o.topTracks.size, top) }, enabled = !more.loading, size = GlasmioButtonSize.Medium) { Text("Show More") }
+                    GlasmioButton({ more.load(top) }, enabled = !more.loading, size = GlasmioButtonSize.Medium) { Text("Show More") }
                 }
             }
         }
