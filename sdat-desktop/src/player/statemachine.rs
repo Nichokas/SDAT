@@ -436,7 +436,7 @@ impl Machine {
             // of a Pause pressed after it.
             let before = self.queue.borrow().len();
             action();
-            let mut queue = self.queue.borrow_mut();
+            let mut q = self.queue.borrow_mut();
             let fired = q.split_off(before);
             for t in fired.into_iter().rev() {
                 q.push_front(t);
@@ -550,13 +550,13 @@ impl Machine {
                         // A queued stop or start has already replaced the
                         // source and moved on from the failed track; a queued
                         // next / previous may, so decide once it has run.
-                        let mut q = self.queue.borrow_mut();
-                        let replaced = q.iter().any(|t| matches!(t, Trigger::Stop | Trigger::PlayTrack(..) | Trigger::PlayTrackId(..)));
-                        match q.iter().rposition(|t| matches!(t, Trigger::Deferred(_))) {
+                        let mut queue = self.queue.borrow_mut();
+                        let replaced = queue.iter().any(|t| matches!(t, Trigger::Stop | Trigger::PlayTrack(..) | Trigger::PlayTrackId(..)));
+                        match queue.iter().rposition(|t| matches!(t, Trigger::Deferred(_))) {
                             _ if replaced => {}
-                            Some(i) => q.insert(i + 1, Trigger::ReportError(track, e)),
+                            Some(i) => queue.insert(i + 1, Trigger::ReportError(track, e)),
                             None => {
-                                drop(q);
+                                drop(queue);
                                 self.report_error(track.as_deref(), &e);
                             }
                         }
