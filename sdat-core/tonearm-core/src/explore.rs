@@ -265,7 +265,11 @@ impl ViewAllTracks {
 
     fn next_with(&mut self, limit: usize, mut fetch: impl FnMut(&str, usize, usize) -> Result<Vec<legacy::Item2>>) -> Result<Vec<Track>> {
         let mut out = Vec::new();
-        while out.len() < limit && !self.done {
+        // Bounded so a server that never sends a short page can't hold a click forever.
+        for _ in 0..5 {
+            if out.len() >= limit || self.done {
+                break;
+            }
             let items = match fetch(&self.path, self.offset, limit) {
                 Ok(items) => items,
                 Err(e) if out.is_empty() => return Err(e),
@@ -320,6 +324,20 @@ mod tests {
         assert_eq!(ids(&p.next_with(2, &mut fetch).expect("page")), ["5"]);
         assert!(p.is_done(), "a short page ends the list");
         assert_eq!(requested, [0, 2, 4, 5, 7], "offsets count every item used, videos and shown tracks included");
+    }
+
+    #[test]
+    fn view_all_requests_are_bounded_per_call() {
+        let mut calls = 0;
+        let mut p = ViewAllTracks::new("p".into(), ["1".to_string()]);
+        let got = p
+            .next_with(2, |_, _, _| {
+                calls += 1;
+                Ok(page(&[("TRACK", 1), ("VIDEO", 2)]))
+            })
+            .expect("page");
+        assert!(got.is_empty());
+        assert_eq!(calls, 5, "a server repeating full pages of nothing new stops after a few requests");
     }
 
     #[test]
