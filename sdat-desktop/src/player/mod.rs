@@ -192,6 +192,7 @@ pub fn init() -> Result<()> {
             next_track,
             on_eos_stopped: || Box::pin(on_eos_stopped()),
             clear_source: || source_changed().set(None),
+            on_error: |e| toasts().notify(&crate::i18n::trf("Playback failed: %s", &[&e])),
         },
     );
 
@@ -265,7 +266,9 @@ fn on_bus_message(msg: &gst::Message) {
                 return;
             }
             log::error!("playback failed: {} (debug: {:?})", e, err.debug());
+            fire(Trigger::Error(e.to_string()));
         }
+        MessageView::Buffering(b) => fire(Trigger::Buffering(b.percent() < 100)),
         MessageView::Tag(t) => quality::on_tags_received(&t.tags()),
         MessageView::StreamStart(_) => fire(Trigger::StreamStart),
         MessageView::Eos(_) => fire(Trigger::Eos),
