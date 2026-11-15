@@ -651,11 +651,27 @@ impl Worker {
         wire::set_status(false)?;
         self.mirror.status_written(false);
         let handed = wire::set_active(id);
-        if !matches!(&handed, Ok(Some(a)) if a == id) {
-            // An unattached target leaves no active player, and a failed call
-            // leaves it unknown: take it back and undo the pause.
-            if self.claim().is_ok() && self.last_local.as_ref().is_some_and(|l| l.playing) && wire::set_status(true).is_ok() {
-                self.mirror.status_written(true);
+        // A failed call leaves the outcome unknown: read who is active now.
+        let active = match &handed {
+            Ok(a) => a.clone(),
+            Err(_) => wire::state().ok().and_then(|s| s.active),
+        };
+        if active.as_deref() != Some(id) {
+            // An unattached target leaves no active player: take it back and undo
+            // the pause. A third device that claimed meanwhile keeps playback.
+            if active.is_none() || active.as_deref() == Some(self.mirror.me()) {
+                let restored = self.claim().is_ok()
+                    && (self.last_local.as_ref().is_none_or(|l| !l.playing) || wire::set_status(true).is_ok());
+                if restored {
+                    if self.last_local.as_ref().is_some_and(|l| l.playing) {
+                        self.mirror.status_written(true);
+                    }
+                } else {
+                    // Written again from the last report, with retries.
+                    self.pending.get_or_insert_with(|| Instant::now() + RETRY);
+                }
+            } else {
+                self.mirror.claimed(active);
             }
             handed?;
             return Err(CoreError::Other("the device is not available".into()));
@@ -687,7 +703,7 @@ impl Worker {
             local.position_ms += i64::try_from(self.last_local_at.elapsed().as_millis()).unwrap_or(0);
         }
         let writes = self.mirror.plan(&local, now_ms());
-        match self.apply(writes, &local) {
+        match self.apply(writes, &local, Instant::now()) {
             Ok(()) => {
                 self.backoff = RETRY;
                 true
@@ -702,7 +718,9 @@ impl Worker {
         }
     }
 
-    fn apply(&mut self, writes: Vec<Write>, local: &LocalPlayback) -> Result<()> {
+    /// `planned`: when `local`'s position was true; a playing position moves on
+    /// by the time the writes before it took.
+    fn apply(&mut self, writes: Vec<Write>, local: &LocalPlayback, planned: Instant) -> Result<()> {
         let me = self.mirror.me().to_string();
         for w in writes {
             // A sign-in to another account during the batch ends it.
@@ -726,6 +744,7 @@ impl Worker {
                 }
                 Write::Current { index, position_ms } => {
                     let e = self.mirror.entry(index).ok_or_else(|| CoreError::Other("queue entry missing".into()))?;
+                    let position_ms = if local.playing { position_ms + i64::try_from(planned.elapsed().as_millis()).unwrap_or(0) } else { position_ms };
                     let rev = wire::set_current(&self.queue()?, &e, position_ms, &me)?;
                     self.mirror.current_written(index, position_ms, local.playing, now_ms(), rev);
                 }

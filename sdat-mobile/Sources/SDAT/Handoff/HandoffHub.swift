@@ -153,7 +153,7 @@ final class HandoffHub {
     func send(to device: HandoffDevice) {
         guard let h = handoff else { return }
         report(force: true)
-        let sent = player.starts
+        let sent = (player.starts, player.plays)
         let gen = generation
         Task {
             do {
@@ -161,7 +161,7 @@ final class HandoffHub {
                 // Signed out or into another account meanwhile: nothing of this send applies.
                 guard gen == generation else { return }
                 // Not what the user started while the send ran.
-                if player.starts == sent, !Live.shared.isGuest { player.pause() }
+                if (player.starts, player.plays) == sent, !Live.shared.isGuest { player.pause() }
                 Chrome.shared.flash("Playing on \(Self.name(device))")
             } catch {
                 if gen == generation { Chrome.shared.flash("Couldn't send to \(Self.name(device))") }
