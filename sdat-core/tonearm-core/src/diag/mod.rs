@@ -5,6 +5,7 @@
 
 use std::cell::Cell;
 use std::fmt;
+use std::io::Write as _;
 use std::ops::{Deref, DerefMut};
 use std::path::PathBuf;
 use std::sync::{Mutex, MutexGuard, Once, OnceLock, PoisonError};
@@ -196,7 +197,8 @@ fn ingest(level: Level, target: &str, message: &str, backtrace: Option<String>, 
         (notify.then(|| event.clone()), echo.then(|| event.to_string()))
     };
     if let Some(line) = line {
-        eprintln!("{line}");
+        // Not `eprintln!`: it panics when stderr is closed, and logging must never fail the caller.
+        let _ = writeln!(std::io::stderr(), "{line}");
     }
     if let Some(event) = copy {
         global.notify(&event);

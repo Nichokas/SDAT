@@ -23,13 +23,14 @@ fn is_blank(b: u8) -> bool {
     b == b' ' || b == b'\t'
 }
 
-/// A quoted value whose opening quote is at `i`: its range without the quotes. Inside a debug-printed
+/// A quoted value whose opening quote (`"` or `'`) is at `i`: its range without the quotes. Inside a debug-printed
 /// string the quote is `\"` and every character of the value is escaped once more, so one level of
 /// escaping is undone before looking for the value's own closing quote.
 fn quoted(s: &[u8], i: usize) -> Option<(usize, usize)> {
     let escaped = s[i] == b'\\';
     let open = if escaped { i + 1 } else { i };
-    if s.get(open) != Some(&b'"') {
+    let quote = *s.get(open)?;
+    if quote != b'"' && (escaped || quote != b'\'') {
         return None;
     }
     let start = open + 1;
@@ -39,7 +40,7 @@ fn quoted(s: &[u8], i: usize) -> Option<(usize, usize)> {
             (true, b'\\', Some(&next)) => (next, 2),
             (_, c, _) => (c, 1),
         };
-        if c == b'"' && !in_escape {
+        if c == quote && !in_escape {
             break;
         }
         in_escape = c == b'\\' && !in_escape;
@@ -53,10 +54,10 @@ fn quoted(s: &[u8], i: usize) -> Option<(usize, usize)> {
 /// so prose such as "error code: 401" and JSON numbers such as `"code":401` stay readable.
 fn key_value(s: &[u8], after_key: usize) -> Option<(usize, usize)> {
     let mut i = after_key;
-    let quoted_key = matches!(s.get(i), Some(b'"' | b'\\'));
+    let quoted_key = matches!(s.get(i), Some(b'"' | b'\'' | b'\\'));
     if quoted_key {
         i = skip(s, i, |b| b == b'\\');
-        i += usize::from(s.get(i) == Some(&b'"'));
+        i += usize::from(matches!(s.get(i), Some(b'"' | b'\'')));
     }
     i = skip(s, i, |b| b.is_ascii_whitespace());
     let sep = *s.get(i)?;
@@ -64,7 +65,7 @@ fn key_value(s: &[u8], after_key: usize) -> Option<(usize, usize)> {
         return None;
     }
     let value = skip(s, i + 1, |b| b.is_ascii_whitespace());
-    if matches!(s.get(value), Some(b'"' | b'\\')) {
+    if matches!(s.get(value), Some(b'"' | b'\'' | b'\\')) {
         return quoted(s, value);
     }
     i = skip(s, i + 1, is_blank);
@@ -77,13 +78,13 @@ fn key_value(s: &[u8], after_key: usize) -> Option<(usize, usize)> {
 
 /// `Authorization: <scheme> <token>`: the whole value, to the end of the line unless quoted.
 fn header_value(s: &[u8], after_key: usize) -> Option<(usize, usize)> {
-    let mut i = skip(s, after_key, |b| matches!(b, b'"' | b'\\'));
+    let mut i = skip(s, after_key, |b| matches!(b, b'"' | b'\'' | b'\\'));
     i = skip(s, i, |b| b.is_ascii_whitespace());
     if !matches!(s.get(i), Some(b':' | b'=')) {
         return None;
     }
     let value = skip(s, i + 1, |b| b.is_ascii_whitespace());
-    if matches!(s.get(value), Some(b'"' | b'\\')) {
+    if matches!(s.get(value), Some(b'"' | b'\'' | b'\\')) {
         return quoted(s, value);
     }
     i = skip(s, i + 1, is_blank);
@@ -185,6 +186,12 @@ mod tests {
         assert_eq!(redact(r#"body: "{\"password\":\"abc\\ndef\"}""#), r#"body: "{\"password\":\"<redacted>\"}""#);
         assert_eq!(redact(r#"body: "{\"password\":\"a\\\"b\"}""#), r#"body: "{\"password\":\"<redacted>\"}""#);
         assert_eq!(redact(r#"{"password":"a\\b\"c"}"#), r#"{"password":"<redacted>"}"#);
+    }
+
+    #[test]
+    fn single_quoted_values() {
+        assert_eq!(redact("password='hunter2' user='me'"), "password='<redacted>' user='me'");
+        assert_eq!(redact("{'access_token': 'a\\'b'}"), "{'access_token': '<redacted>'}");
     }
 
     #[test]

@@ -51,7 +51,7 @@ impl LogFile {
 
     fn start_new(&mut self) {
         self.file = OpenOptions::new().create(true).append(true).open(self.dir.join(CURRENT)).ok();
-        self.size = 0;
+        self.size = self.file.as_ref().and_then(|f| f.metadata().ok()).map_or(0, |m| m.len());
     }
 
     /// Rotates before writing, so the newest event (a panic, say) is always in `diag.log`.
@@ -62,9 +62,9 @@ impl LogFile {
             self.start_new();
         }
         let Some(file) = self.file.as_mut() else { return };
-        if file.write_all(text.as_bytes()).is_ok() {
-            self.size += text.len() as u64;
-        }
+        // Counted even on failure: a partial write still grew the file.
+        let _ = file.write_all(text.as_bytes());
+        self.size += text.len() as u64;
     }
 
     fn empty(&mut self) {
