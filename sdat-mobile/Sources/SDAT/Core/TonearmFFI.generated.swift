@@ -1328,6 +1328,212 @@ public func FfiConverterTypeDeviceLogin_lower(_ value: DeviceLogin) -> UInt64 {
 
 
 /**
+ * Implemented by the app. Gets events of level warn and above, panics and marks, on any thread, with no
+ * core lock held. Forward them to Sentry and the platform log.
+ */
+public protocol DiagSink: AnyObject, Sendable {
+    
+    func onEvent(event: DiagEvent) 
+    
+}
+/**
+ * Implemented by the app. Gets events of level warn and above, panics and marks, on any thread, with no
+ * core lock held. Forward them to Sentry and the platform log.
+ */
+open class DiagSinkImpl: DiagSink, @unchecked Sendable {
+    fileprivate let handle: UInt64
+
+    /// Used to instantiate a [FFIObject] without an actual handle, for fakes in tests, mostly.
+#if swift(>=5.8)
+    @_documentation(visibility: private)
+#endif
+    public struct NoHandle {
+        public init() {}
+    }
+
+    // TODO: We'd like this to be `private` but for Swifty reasons,
+    // we can't implement `FfiConverter` without making this `required` and we can't
+    // make it `required` without making it `public`.
+#if swift(>=5.8)
+    @_documentation(visibility: private)
+#endif
+    required public init(unsafeFromHandle handle: UInt64) {
+        self.handle = handle
+    }
+
+    // This constructor can be used to instantiate a fake object.
+    // - Parameter noHandle: Placeholder value so we can have a constructor separate from the default empty one that may be implemented for classes extending [FFIObject].
+    //
+    // - Warning:
+    //     Any object instantiated with this constructor cannot be passed to an actual Rust-backed object. Since there isn't a backing handle the FFI lower functions will crash.
+#if swift(>=5.8)
+    @_documentation(visibility: private)
+#endif
+    public init(noHandle: NoHandle) {
+        self.handle = 0
+    }
+
+#if swift(>=5.8)
+    @_documentation(visibility: private)
+#endif
+    public func uniffiCloneHandle() -> UInt64 {
+        return try! rustCall { uniffi_tonearm_ffi_fn_clone_diagsink(self.handle, $0) }
+    }
+    // No primary constructor declared for this class.
+
+    deinit {
+        if handle == 0 {
+            // Mock objects have handle=0 don't try to free them
+            return
+        }
+
+        try! rustCall { uniffi_tonearm_ffi_fn_free_diagsink(handle, $0) }
+    }
+
+    
+
+    
+open func onEvent(event: DiagEvent)  {try! rustCall() {
+        uniffiCallStatus in
+    uniffi_tonearm_ffi_fn_method_diagsink_on_event(
+            self.uniffiCloneHandle(),
+        FfiConverterTypeDiagEvent_lower(event),uniffiCallStatus
+    )
+}
+}
+    
+
+    
+}
+
+
+
+// Put the implementation in a struct so we don't pollute the top-level namespace
+fileprivate struct UniffiCallbackInterfaceDiagSink {
+
+    // Create the VTable using a series of closures.
+    // Swift automatically converts these into C callback functions.
+    //
+    // Store the vtable directly.
+    static let vtable: UniffiVTableCallbackInterfaceDiagSink = UniffiVTableCallbackInterfaceDiagSink(
+        uniffiFree: { (uniffiHandle: UInt64) -> () in
+            do {
+                try FfiConverterTypeDiagSink.handleMap.remove(handle: uniffiHandle)
+            } catch {
+                print("Uniffi callback interface DiagSink: handle missing in uniffiFree")
+            }
+        },
+        uniffiClone: { (uniffiHandle: UInt64) -> UInt64 in
+            do {
+                return try FfiConverterTypeDiagSink.handleMap.clone(handle: uniffiHandle)
+            } catch {
+                fatalError("Uniffi callback interface DiagSink: handle missing in uniffiClone")
+            }
+        },
+        onEvent: { (
+            uniffiHandle: UInt64,
+            event: RustBuffer,
+            uniffiOutReturn: UnsafeMutableRawPointer,
+            uniffiCallStatus: UnsafeMutablePointer<RustCallStatus>
+        ) in
+            let makeCall = {
+                () throws -> () in
+                guard let uniffiObj = try? FfiConverterTypeDiagSink.handleMap.get(handle: uniffiHandle) else {
+                    throw UniffiInternalError.unexpectedStaleHandle
+                }
+                return uniffiObj.onEvent(
+                     event: try FfiConverterTypeDiagEvent_lift(event)
+                )
+            }
+
+            
+            let writeReturn = { () }
+            uniffiTraitInterfaceCall(
+                callStatus: uniffiCallStatus,
+                makeCall: makeCall,
+                writeReturn: writeReturn
+            )
+        }
+    )
+
+    // Rust stores this pointer for future callback invocations, so it must live
+    // for the process lifetime (not just for the init function call).
+    //
+    // `nonisolated(unsafe)` is needed under Swift 6 strict concurrency.
+    // This is safe because the pointee is initialized once during static init
+    // and never mutated by either side of the FFI.  Its fields are C function pointers.
+    nonisolated(unsafe) static let vtablePtr: UnsafePointer<UniffiVTableCallbackInterfaceDiagSink> = {
+        let ptr = UnsafeMutablePointer<UniffiVTableCallbackInterfaceDiagSink>.allocate(capacity: 1)
+        ptr.initialize(to: vtable)
+        return UnsafePointer(ptr)
+    }()
+}
+
+private func uniffiCallbackInitDiagSink() {
+    uniffi_tonearm_ffi_fn_init_callback_vtable_diagsink(UniffiCallbackInterfaceDiagSink.vtablePtr)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeDiagSink: FfiConverter {
+    fileprivate static let handleMap = UniffiHandleMap<DiagSink>()
+
+    typealias FfiType = UInt64
+    typealias SwiftType = DiagSink
+
+    public static func lift(_ handle: UInt64) throws -> DiagSink {
+        if ((handle & 1) == 0) {
+            // Rust-generated handle, construct a new class that uses the handle to implement the
+            // interface
+            return DiagSinkImpl(unsafeFromHandle: handle)
+        } else {
+            // Swift-generated handle, get the object from the handle map
+            return try handleMap.remove(handle: handle)
+        }
+    }
+
+    public static func lower(_ value: DiagSink) -> UInt64 {
+         if let rustImpl = value as? DiagSinkImpl {
+             // Rust-implemented object.  Clone the handle and return it
+            return rustImpl.uniffiCloneHandle()
+         } else {
+            // Swift object, generate a new vtable handle and return that.
+            return handleMap.insert(obj: value)
+         }
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> DiagSink {
+        let handle: UInt64 = try readInt(&buf)
+        return try lift(handle)
+    }
+
+    public static func write(_ value: DiagSink, into buf: inout [UInt8]) {
+        writeInt(&buf, lower(value))
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeDiagSink_lift(_ handle: UInt64) throws -> DiagSink {
+    return try FfiConverterTypeDiagSink.lift(handle)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeDiagSink_lower(_ value: DiagSink) -> UInt64 {
+    return FfiConverterTypeDiagSink.lower(value)
+}
+
+
+
+
+
+
+/**
  * This device as a player of the TIDAL account. Start it when signed in
  * and in the foreground (or playing); stop it when backgrounded without
  * playing, on sign-out and on quit.
@@ -4314,6 +4520,240 @@ public func FfiConverterTypeArtistRef_lower(_ value: ArtistRef) -> RustBuffer {
 }
 
 
+public struct DiagEvent: Equatable, Hashable {
+    /**
+     * Strictly increasing; pass the last one seen to `diag_events` for what came after.
+     */
+    public var seq: UInt64
+    /**
+     * Unix ms.
+     */
+    public var atMs: Int64
+    public var level: DiagLevel
+    public var target: String
+    public var message: String
+    public var backtrace: String?
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(
+        /**
+         * Strictly increasing; pass the last one seen to `diag_events` for what came after.
+         */seq: UInt64, 
+        /**
+         * Unix ms.
+         */atMs: Int64, level: DiagLevel, target: String, message: String, backtrace: String?) {
+        self.seq = seq
+        self.atMs = atMs
+        self.level = level
+        self.target = target
+        self.message = message
+        self.backtrace = backtrace
+    }
+
+    
+
+    
+}
+
+#if compiler(>=6)
+extension DiagEvent: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeDiagEvent: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> DiagEvent {
+        return
+            try DiagEvent(
+                seq: FfiConverterUInt64.read(from: &buf), 
+                atMs: FfiConverterInt64.read(from: &buf), 
+                level: FfiConverterTypeDiagLevel.read(from: &buf), 
+                target: FfiConverterString.read(from: &buf), 
+                message: FfiConverterString.read(from: &buf), 
+                backtrace: FfiConverterOptionString.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: DiagEvent, into buf: inout [UInt8]) {
+        FfiConverterUInt64.write(value.seq, into: &buf)
+        FfiConverterInt64.write(value.atMs, into: &buf)
+        FfiConverterTypeDiagLevel.write(value.level, into: &buf)
+        FfiConverterString.write(value.target, into: &buf)
+        FfiConverterString.write(value.message, into: &buf)
+        FfiConverterOptionString.write(value.backtrace, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeDiagEvent_lift(_ buf: RustBuffer) throws -> DiagEvent {
+    return try FfiConverterTypeDiagEvent.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeDiagEvent_lower(_ value: DiagEvent) -> RustBuffer {
+    return FfiConverterTypeDiagEvent.lower(value)
+}
+
+
+public struct DiagNetStat: Equatable, Hashable {
+    public var category: DiagNetCategory
+    public var requests: UInt64
+    /**
+     * Transport errors and HTTP statuses of 400 and above.
+     */
+    public var failures: UInt64
+    public var bytesIn: UInt64
+    public var totalMs: UInt64
+    public var maxMs: UInt64
+    public var lastStatus: UInt16?
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(category: DiagNetCategory, requests: UInt64, 
+        /**
+         * Transport errors and HTTP statuses of 400 and above.
+         */failures: UInt64, bytesIn: UInt64, totalMs: UInt64, maxMs: UInt64, lastStatus: UInt16?) {
+        self.category = category
+        self.requests = requests
+        self.failures = failures
+        self.bytesIn = bytesIn
+        self.totalMs = totalMs
+        self.maxMs = maxMs
+        self.lastStatus = lastStatus
+    }
+
+    
+
+    
+}
+
+#if compiler(>=6)
+extension DiagNetStat: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeDiagNetStat: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> DiagNetStat {
+        return
+            try DiagNetStat(
+                category: FfiConverterTypeDiagNetCategory.read(from: &buf), 
+                requests: FfiConverterUInt64.read(from: &buf), 
+                failures: FfiConverterUInt64.read(from: &buf), 
+                bytesIn: FfiConverterUInt64.read(from: &buf), 
+                totalMs: FfiConverterUInt64.read(from: &buf), 
+                maxMs: FfiConverterUInt64.read(from: &buf), 
+                lastStatus: FfiConverterOptionUInt16.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: DiagNetStat, into buf: inout [UInt8]) {
+        FfiConverterTypeDiagNetCategory.write(value.category, into: &buf)
+        FfiConverterUInt64.write(value.requests, into: &buf)
+        FfiConverterUInt64.write(value.failures, into: &buf)
+        FfiConverterUInt64.write(value.bytesIn, into: &buf)
+        FfiConverterUInt64.write(value.totalMs, into: &buf)
+        FfiConverterUInt64.write(value.maxMs, into: &buf)
+        FfiConverterOptionUInt16.write(value.lastStatus, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeDiagNetStat_lift(_ buf: RustBuffer) throws -> DiagNetStat {
+    return try FfiConverterTypeDiagNetStat.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeDiagNetStat_lower(_ value: DiagNetStat) -> RustBuffer {
+    return FfiConverterTypeDiagNetStat.lower(value)
+}
+
+
+public struct DiagStats: Equatable, Hashable {
+    public var uptimeMs: UInt64
+    public var cpuUserMs: UInt64
+    public var cpuSystemMs: UInt64
+    /**
+     * Peak resident memory of the process.
+     */
+    public var maxRssKb: UInt64
+    public var net: [DiagNetStat]
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(uptimeMs: UInt64, cpuUserMs: UInt64, cpuSystemMs: UInt64, 
+        /**
+         * Peak resident memory of the process.
+         */maxRssKb: UInt64, net: [DiagNetStat]) {
+        self.uptimeMs = uptimeMs
+        self.cpuUserMs = cpuUserMs
+        self.cpuSystemMs = cpuSystemMs
+        self.maxRssKb = maxRssKb
+        self.net = net
+    }
+
+    
+
+    
+}
+
+#if compiler(>=6)
+extension DiagStats: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeDiagStats: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> DiagStats {
+        return
+            try DiagStats(
+                uptimeMs: FfiConverterUInt64.read(from: &buf), 
+                cpuUserMs: FfiConverterUInt64.read(from: &buf), 
+                cpuSystemMs: FfiConverterUInt64.read(from: &buf), 
+                maxRssKb: FfiConverterUInt64.read(from: &buf), 
+                net: FfiConverterSequenceTypeDiagNetStat.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: DiagStats, into buf: inout [UInt8]) {
+        FfiConverterUInt64.write(value.uptimeMs, into: &buf)
+        FfiConverterUInt64.write(value.cpuUserMs, into: &buf)
+        FfiConverterUInt64.write(value.cpuSystemMs, into: &buf)
+        FfiConverterUInt64.write(value.maxRssKb, into: &buf)
+        FfiConverterSequenceTypeDiagNetStat.write(value.net, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeDiagStats_lift(_ buf: RustBuffer) throws -> DiagStats {
+    return try FfiConverterTypeDiagStats.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeDiagStats_lower(_ value: DiagStats) -> RustBuffer {
+    return FfiConverterTypeDiagStats.lower(value)
+}
+
+
 public struct ExplorePage: Equatable, Hashable {
     public var title: String
     public var sections: [ExploreSection]
@@ -5899,6 +6339,180 @@ public func FfiConverterTypeTrack_lower(_ value: Track) -> RustBuffer {
 
 
 
+public enum DiagLevel: Equatable, Hashable {
+    
+    case error
+    case warn
+    case info
+    case debug
+    case trace
+
+
+
+
+
+}
+
+#if compiler(>=6)
+extension DiagLevel: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeDiagLevel: FfiConverterRustBuffer {
+    typealias SwiftType = DiagLevel
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> DiagLevel {
+        let variant: Int32 = try readInt(&buf)
+        switch variant {
+        
+        case 1: return .error
+        
+        case 2: return .warn
+        
+        case 3: return .info
+        
+        case 4: return .debug
+        
+        case 5: return .trace
+        
+        default: throw UniffiInternalError.unexpectedEnumCase
+        }
+    }
+
+    public static func write(_ value: DiagLevel, into buf: inout [UInt8]) {
+        switch value {
+        
+        
+        case .error:
+            writeInt(&buf, Int32(1))
+        
+        
+        case .warn:
+            writeInt(&buf, Int32(2))
+        
+        
+        case .info:
+            writeInt(&buf, Int32(3))
+        
+        
+        case .debug:
+            writeInt(&buf, Int32(4))
+        
+        
+        case .trace:
+            writeInt(&buf, Int32(5))
+        
+        }
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeDiagLevel_lift(_ buf: RustBuffer) throws -> DiagLevel {
+    return try FfiConverterTypeDiagLevel.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeDiagLevel_lower(_ value: DiagLevel) -> RustBuffer {
+    return FfiConverterTypeDiagLevel.lower(value)
+}
+
+
+
+
+public enum DiagNetCategory: Equatable, Hashable {
+    
+    case tidal
+    case images
+    case lastFm
+    case listenBrainz
+    case other
+
+
+
+
+
+}
+
+#if compiler(>=6)
+extension DiagNetCategory: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeDiagNetCategory: FfiConverterRustBuffer {
+    typealias SwiftType = DiagNetCategory
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> DiagNetCategory {
+        let variant: Int32 = try readInt(&buf)
+        switch variant {
+        
+        case 1: return .tidal
+        
+        case 2: return .images
+        
+        case 3: return .lastFm
+        
+        case 4: return .listenBrainz
+        
+        case 5: return .other
+        
+        default: throw UniffiInternalError.unexpectedEnumCase
+        }
+    }
+
+    public static func write(_ value: DiagNetCategory, into buf: inout [UInt8]) {
+        switch value {
+        
+        
+        case .tidal:
+            writeInt(&buf, Int32(1))
+        
+        
+        case .images:
+            writeInt(&buf, Int32(2))
+        
+        
+        case .lastFm:
+            writeInt(&buf, Int32(3))
+        
+        
+        case .listenBrainz:
+            writeInt(&buf, Int32(4))
+        
+        
+        case .other:
+            writeInt(&buf, Int32(5))
+        
+        }
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeDiagNetCategory_lift(_ buf: RustBuffer) throws -> DiagNetCategory {
+    return try FfiConverterTypeDiagNetCategory.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeDiagNetCategory_lower(_ value: DiagNetCategory) -> RustBuffer {
+    return FfiConverterTypeDiagNetCategory.lower(value)
+}
+
+
+
+
 public enum FavouriteKind: Equatable, Hashable {
     
     case track
@@ -6955,6 +7569,30 @@ public func FfiConverterTypeRecentKind_lower(_ value: RecentKind) -> RustBuffer 
 #if swift(>=5.8)
 @_documentation(visibility: private)
 #endif
+fileprivate struct FfiConverterOptionUInt16: FfiConverterRustBuffer {
+    typealias SwiftType = UInt16?
+
+    public static func write(_ value: SwiftType, into buf: inout [UInt8]) {
+        guard let value = value else {
+            writeInt(&buf, Int8(0))
+            return
+        }
+        writeInt(&buf, Int8(1))
+        FfiConverterUInt16.write(value, into: &buf)
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> SwiftType {
+        switch try readInt(&buf) as Int8 {
+        case 0: return nil
+        case 1: return try FfiConverterUInt16.read(from: &buf)
+        default: throw UniffiInternalError.unexpectedOptionalTag
+        }
+    }
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
 fileprivate struct FfiConverterOptionInt64: FfiConverterRustBuffer {
     typealias SwiftType = Int64?
 
@@ -7019,6 +7657,30 @@ fileprivate struct FfiConverterOptionString: FfiConverterRustBuffer {
         switch try readInt(&buf) as Int8 {
         case 0: return nil
         case 1: return try FfiConverterString.read(from: &buf)
+        default: throw UniffiInternalError.unexpectedOptionalTag
+        }
+    }
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+fileprivate struct FfiConverterOptionTypeDiagSink: FfiConverterRustBuffer {
+    typealias SwiftType = DiagSink?
+
+    public static func write(_ value: SwiftType, into buf: inout [UInt8]) {
+        guard let value = value else {
+            writeInt(&buf, Int8(0))
+            return
+        }
+        writeInt(&buf, Int8(1))
+        FfiConverterTypeDiagSink.write(value, into: &buf)
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> SwiftType {
+        switch try readInt(&buf) as Int8 {
+        case 0: return nil
+        case 1: return try FfiConverterTypeDiagSink.read(from: &buf)
         default: throw UniffiInternalError.unexpectedOptionalTag
         }
     }
@@ -7414,6 +8076,56 @@ fileprivate struct FfiConverterSequenceTypeArtistRef: FfiConverterRustBuffer {
 #if swift(>=5.8)
 @_documentation(visibility: private)
 #endif
+fileprivate struct FfiConverterSequenceTypeDiagEvent: FfiConverterRustBuffer {
+    typealias SwiftType = [DiagEvent]
+
+    public static func write(_ value: [DiagEvent], into buf: inout [UInt8]) {
+        let len = Int32(value.count)
+        writeInt(&buf, len)
+        for item in value {
+            FfiConverterTypeDiagEvent.write(item, into: &buf)
+        }
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> [DiagEvent] {
+        let len: Int32 = try readInt(&buf)
+        var seq = [DiagEvent]()
+        seq.reserveCapacity(Int(len))
+        for _ in 0 ..< len {
+            seq.append(try FfiConverterTypeDiagEvent.read(from: &buf))
+        }
+        return seq
+    }
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+fileprivate struct FfiConverterSequenceTypeDiagNetStat: FfiConverterRustBuffer {
+    typealias SwiftType = [DiagNetStat]
+
+    public static func write(_ value: [DiagNetStat], into buf: inout [UInt8]) {
+        let len = Int32(value.count)
+        writeInt(&buf, len)
+        for item in value {
+            FfiConverterTypeDiagNetStat.write(item, into: &buf)
+        }
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> [DiagNetStat] {
+        let len: Int32 = try readInt(&buf)
+        var seq = [DiagNetStat]()
+        seq.reserveCapacity(Int(len))
+        for _ in 0 ..< len {
+            seq.append(try FfiConverterTypeDiagNetStat.read(from: &buf))
+        }
+        return seq
+    }
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
 fileprivate struct FfiConverterSequenceTypeExploreSection: FfiConverterRustBuffer {
     typealias SwiftType = [ExploreSection]
 
@@ -7756,6 +8468,106 @@ public func startDeviceLogin()async throws  -> DeviceLogin  {
             liftFunc: FfiConverterTypeDeviceLogin_lift,
             errorHandler: FfiConverterTypeFfiError_lift
         )
+}
+/**
+ * Empties the log and the log files, the previous run's included.
+ */
+public func diagClear()  {try! rustCall() {
+        uniffiCallStatus in
+    uniffi_tonearm_ffi_fn_func_diag_clear(uniffiCallStatus
+    )
+}
+}
+/**
+ * Events with a `seq` above `since`, oldest first. The log keeps the last 2000.
+ */
+public func diagEvents(since: UInt64) -> [DiagEvent]  {
+    return try!  FfiConverterSequenceTypeDiagEvent.lift(try! rustCall() {
+        uniffiCallStatus in
+    uniffi_tonearm_ffi_fn_func_diag_events(
+        FfiConverterUInt64.lower(since),uniffiCallStatus
+    )
+})
+}
+/**
+ * Start collecting. Call first thing at launch; later calls do nothing. `dir` keeps the log files
+ * (empty for none): the last run's log is then available from `diag_previous_session`.
+ */
+public func diagInit(dir: String, sink: DiagSink?)  {try! rustCall() {
+        uniffiCallStatus in
+    uniffi_tonearm_ffi_fn_func_diag_init(
+        FfiConverterString.lower(dir),
+        FfiConverterOptionTypeDiagSink.lower(sink),uniffiCallStatus
+    )
+}
+}
+/**
+ * Puts a note in the log at this moment and sends it to the sink.
+ */
+public func diagMark(note: String)  {try! rustCall() {
+        uniffiCallStatus in
+    uniffi_tonearm_ffi_fn_func_diag_mark(
+        FfiConverterString.lower(note),uniffiCallStatus
+    )
+}
+}
+/**
+ * The previous run's log, or an empty string.
+ */
+public func diagPreviousSession() -> String  {
+    return try!  FfiConverterString.lift(try! rustCall() {
+        uniffiCallStatus in
+    uniffi_tonearm_ffi_fn_func_diag_previous_session(uniffiCallStatus
+    )
+})
+}
+/**
+ * Adds an error or note from the app (a caught Kotlin or Swift exception) to the same log.
+ */
+public func diagRecord(level: DiagLevel, target: String, message: String, backtrace: String?)  {try! rustCall() {
+        uniffiCallStatus in
+    uniffi_tonearm_ffi_fn_func_diag_record(
+        FfiConverterTypeDiagLevel_lower(level),
+        FfiConverterString.lower(target),
+        FfiConverterString.lower(message),
+        FfiConverterOptionString.lower(backtrace),uniffiCallStatus
+    )
+}
+}
+/**
+ * A plain-text report to share. `extra` goes first: app version, OS and device.
+ */
+public func diagReport(extra: String) -> String  {
+    return try!  FfiConverterString.lift(try! rustCall() {
+        uniffiCallStatus in
+    uniffi_tonearm_ffi_fn_func_diag_report(
+        FfiConverterString.lower(extra),uniffiCallStatus
+    )
+})
+}
+/**
+ * Debug logging on or off.
+ */
+public func diagSetVerbose(on: Bool)  {try! rustCall() {
+        uniffiCallStatus in
+    uniffi_tonearm_ffi_fn_func_diag_set_verbose(
+        FfiConverterBool.lower(on),uniffiCallStatus
+    )
+}
+}
+public func diagStats() -> DiagStats  {
+    return try!  FfiConverterTypeDiagStats_lift(try! rustCall() {
+        uniffiCallStatus in
+    uniffi_tonearm_ffi_fn_func_diag_stats(uniffiCallStatus
+    )
+})
+}
+public func diagVerbose() -> Bool  {
+    return try!  FfiConverterBool.lift(try! rustCall() {
+        uniffiCallStatus in
+    uniffi_tonearm_ffi_fn_func_diag_verbose(uniffiCallStatus
+    )
+})
 }
 /**
  * A new random installation key (UUID) to keep in the app's settings.
@@ -8303,6 +9115,36 @@ private let initializationResult: InitializationResult = {
     if (uniffi_tonearm_ffi_checksum_func_start_device_login() != 8078) {
         return InitializationResult.apiChecksumMismatch
     }
+    if (uniffi_tonearm_ffi_checksum_func_diag_clear() != 4936) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_tonearm_ffi_checksum_func_diag_events() != 47636) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_tonearm_ffi_checksum_func_diag_init() != 62666) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_tonearm_ffi_checksum_func_diag_mark() != 48483) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_tonearm_ffi_checksum_func_diag_previous_session() != 48768) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_tonearm_ffi_checksum_func_diag_record() != 34085) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_tonearm_ffi_checksum_func_diag_report() != 5688) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_tonearm_ffi_checksum_func_diag_set_verbose() != 49082) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_tonearm_ffi_checksum_func_diag_stats() != 11065) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_tonearm_ffi_checksum_func_diag_verbose() != 55013) {
+        return InitializationResult.apiChecksumMismatch
+    }
     if (uniffi_tonearm_ffi_checksum_func_handoff_new_installation_key() != 5680) {
         return InitializationResult.apiChecksumMismatch
     }
@@ -8442,6 +9284,9 @@ private let initializationResult: InitializationResult = {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_tonearm_ffi_checksum_method_tokenstore_user_id() != 31558) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_tonearm_ffi_checksum_method_diagsink_on_event() != 11663) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_tonearm_ffi_checksum_method_handoff_continue_here() != 60981) {
@@ -8584,6 +9429,7 @@ private let initializationResult: InitializationResult = {
     }
 
     uniffiCallbackInitAppConfig()
+    uniffiCallbackInitDiagSink()
     uniffiCallbackInitHandoffObserver()
     uniffiCallbackInitLiveControlObserver()
     uniffiCallbackInitLiveObserver()
