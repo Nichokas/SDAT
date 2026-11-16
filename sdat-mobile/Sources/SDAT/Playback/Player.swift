@@ -910,10 +910,15 @@ final class Player {
         // (e.g. when the sample rate changes); `engineMoved` adopts it then. Starting the track
         // anew here would drop the preload that is already playing and replay it from 0.
         if let p = preloaded, avPlayer.items().contains(p.item) {
-            // A preload that fails never becomes current: load the next track the usual way.
+            // A preload that fails, is removed or never comes up loads the next track the usual way.
             let s = starts
             Task { [weak self] in
-                try? await Task.sleep(for: .seconds(3))
+                for _ in 0..<20 {
+                    try? await Task.sleep(for: .milliseconds(500))
+                    guard let self, self.playingItem === item, self.starts == s else { return }
+                    guard let p = self.preloaded, p.item.status != .failed,
+                          self.avPlayer.items().contains(p.item) else { break }
+                }
                 guard let self, self.playingItem === item, self.starts == s else { return }
                 self.advance(auto: true)
             }
