@@ -8,6 +8,8 @@ jni="${ANDROID_JNI_DIR:-$app/src/main/jniLibs}"
 kotlin="${ANDROID_KOTLIN_DIR:-$app/build/generated/source/uniffi/kotlin}"
 api="${ANDROID_API:-33}"
 cd "$root"
+# Cargo may use a shared target directory (scripts/setup-sccache.sh), so ask it instead of assuming ./target.
+target="$(cargo metadata --format-version 1 --no-deps | sed -n 's/.*"target_directory":"\([^"]*\)".*/\1/p')"
 # 16 KB page alignment is required for apps targeting Android 15+ on arm64.
 # Fat LTO with one codegen unit cuts the core by ~2.9 MB per ABI; Android only, so iOS and desktop builds are unchanged.
 RUSTFLAGS="${RUSTFLAGS:-} -C link-arg=-Wl,-z,max-page-size=16384" \
@@ -18,5 +20,5 @@ rm -f "$jni"/*/libiroh*.so
 rm -rf "$kotlin"
 # Library mode reads the UniFFI metadata; LTO drops it from the .so, so read the static archive (any ABI works).
 cargo run -q -p tonearm-ffi --features bindgen --bin uniffi-bindgen -- \
-  generate --library "${CARGO_TARGET_DIR:-$root/target}/aarch64-linux-android/release/libtonearm_ffi.a" --language kotlin --no-format --out-dir "$kotlin"
+  generate --library "$target/aarch64-linux-android/release/libtonearm_ffi.a" --language kotlin --no-format --out-dir "$kotlin"
 echo "ok: $(du -h "$jni"/*/libtonearm_ffi.so | tr '\n' ' ')"

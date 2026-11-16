@@ -10,7 +10,9 @@ cd "$core"
 if [ "$(uname)" = Linux ]; then export CARGO_TARGET_AARCH64_APPLE_IOS_LINKER="$here/scripts/ios-linker.sh"; fi
 SDKROOT="$sdk" IPHONEOS_DEPLOYMENT_TARGET=17.0 CC_aarch64_apple_ios=clang AR_aarch64_apple_ios=llvm-ar \
   cargo rustc -p tonearm-ffi --lib --release --target aarch64-apple-ios --crate-type staticlib
-lib="$core/target/aarch64-apple-ios/release/libtonearm_ffi.a"
+# Cargo may use a shared target directory (scripts/setup-sccache.sh), so ask it instead of assuming ./target.
+target="$(cargo metadata --format-version 1 --no-deps | sed -n 's/.*"target_directory":"\([^"]*\)".*/\1/p')"
+lib="$target/aarch64-apple-ios/release/libtonearm_ffi.a"
 cp "$lib" "$here/RustLib/libtonearm_ffi.a"
 tmp="$(mktemp -d)"
 cargo run -q -p tonearm-ffi --features bindgen --bin uniffi-bindgen-swift -- \
