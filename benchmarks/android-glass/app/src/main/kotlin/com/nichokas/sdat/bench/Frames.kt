@@ -12,7 +12,8 @@ const val BUDGET_60_NS = 16_666_667L
 
 /**
  * One rendered frame from FrameMetrics, in nanoseconds. [uiNs] is the main thread (input, animation, layout, draw),
- * [renderNs] the RenderThread (sync, command issue, swap) and [gpuNs] the GPU, negative where the phone does not report it.
+ * [renderNs] the RenderThread (sync, command issue, swap) and [gpuNs] the GPU; a stage is negative where the phone does
+ * not report it.
  * [vsyncNs] is its intended vsync on [System.nanoTime]'s clock. [intervalNs] is the time since the previous reported
  * frame's vsync, so it includes skipped vsyncs, and spans [dropped] frames whose reports were lost before this one.
  */
@@ -42,26 +43,33 @@ data class Stats(
     val jankPercent: Double,
     /** Frames slower than a 60 Hz frame, whatever the display's rate. */
     val over60Percent: Double,
-    val uiP90Ms: Double,
-    val renderP90Ms: Double,
-    /** Null when the phone reports no GPU time; the limiter is then the slower CPU stage. */
+    /** Each stage is null when the phone does not report it; the limiter is the slowest stage that is reported. */
+    val uiP90Ms: Double?,
+    val renderP90Ms: Double?,
     val gpuP90Ms: Double?,
     val lostReports: Int,
 ) {
-    val limiter get() = mapOf(Limiter.UiThread to uiP90Ms, Limiter.RenderThread to renderP90Ms, Limiter.Gpu to (gpuP90Ms ?: -1.0)).maxBy { it.value }.key
+    val limiter get() = mapOf(Limiter.UiThread to uiP90Ms, Limiter.RenderThread to renderP90Ms, Limiter.Gpu to gpuP90Ms).maxBy { it.value ?: -1.0 }.key
+}
+
+/**
+ * The frames whose vsync falls in [start, end), and how many lost reports fell in it too. Lost reports are placed
+ * evenly across the gap that hid them, so one lost just before a boundary counts on its own side.
+ */
+fun window(frames: List<Frame>, start: Long, end: Long): Pair<List<Frame>, Int> {
+    val lost = frames.sumOf { f -> (1..f.dropped).count { k -> f.vsyncNs - f.intervalNs * k / (f.dropped + 1) in start until end } }
+    return frames.filter { it.vsyncNs in start until end } to lost
 }
 
 /** Nearest-rank percentile of an ascending list. */
 fun percentile(sorted: List<Long>, p: Double): Long =
     if (sorted.isEmpty()) 0 else sorted[(ceil(p / 100 * sorted.size).toInt() - 1).coerceIn(0, sorted.lastIndex)]
 
-fun stats(frames: List<Frame>, seconds: Double): Stats {
-    val lostReports = frames.sumOf { it.dropped }
+fun stats(frames: List<Frame>, seconds: Double, lostReports: Int = frames.sumOf { it.dropped }): Stats {
+    fun stage(of: (Frame) -> Long) = frames.map(of).filter { it >= 0 }.sorted().let { if (it.isEmpty()) null else percentile(it, 90.0) / 1e6 }
     // An interval that spans lost reports is shared evenly by the frames in it, so a gap is neither dropped nor
     // charged to one frame.
     val intervals = frames.filter { it.intervalNs > 0 }.flatMap { f -> List(f.dropped + 1) { f.intervalNs / (f.dropped + 1) } }.sorted()
-    fun p90(of: (Frame) -> Long) = percentile(frames.map(of).sorted(), 90.0) / 1e6
-    val gpu = frames.map { it.gpuNs }.filter { it >= 0 }.sorted()
     fun share(test: (Frame) -> Boolean) = if (frames.isEmpty()) 0.0 else 100.0 * frames.count(test) / frames.size
     val total = frames.map { it.totalNs }.sorted()
     return Stats(
@@ -75,12 +83,15 @@ fun stats(frames: List<Frame>, seconds: Double): Stats {
         maxMs = (total.lastOrNull() ?: 0) / 1e6,
         jankPercent = share { it.totalNs > it.deadlineNs },
         over60Percent = share { it.totalNs > BUDGET_60_NS },
-        uiP90Ms = p90 { it.uiNs },
-        renderP90Ms = p90 { it.renderNs },
-        gpuP90Ms = if (gpu.isEmpty()) null else percentile(gpu, 90.0) / 1e6,
+        uiP90Ms = stage { it.uiNs },
+        renderP90Ms = stage { it.renderNs },
+        gpuP90Ms = stage { it.gpuNs },
         lostReports = lostReports,
     )
 }
+
+/** The stage's total, or -1 when any part of it is unreported (FrameMetrics' -1). */
+private fun FrameMetrics.sum(vararg ids: Int): Long = ids.map { getMetric(it) }.let { if (it.any { v -> v < 0 }) -1 else it.sum() }
 
 /** Every frame the window renders from creation to [close]; FrameMetrics reports on its own thread, a little late. */
 class FrameRecorder(private val window: Window) : AutoCloseable {
@@ -97,10 +108,8 @@ class FrameRecorder(private val window: Window) : AutoCloseable {
         if (m.getMetric(FrameMetrics.FIRST_DRAW_FRAME) == 0L) {
             frames += Frame(
                 totalNs = m.getMetric(FrameMetrics.TOTAL_DURATION),
-                uiNs = m.getMetric(FrameMetrics.INPUT_HANDLING_DURATION) + m.getMetric(FrameMetrics.ANIMATION_DURATION) +
-                    m.getMetric(FrameMetrics.LAYOUT_MEASURE_DURATION) + m.getMetric(FrameMetrics.DRAW_DURATION),
-                renderNs = m.getMetric(FrameMetrics.SYNC_DURATION) + m.getMetric(FrameMetrics.COMMAND_ISSUE_DURATION) +
-                    m.getMetric(FrameMetrics.SWAP_BUFFERS_DURATION),
+                uiNs = m.sum(FrameMetrics.INPUT_HANDLING_DURATION, FrameMetrics.ANIMATION_DURATION, FrameMetrics.LAYOUT_MEASURE_DURATION, FrameMetrics.DRAW_DURATION),
+                renderNs = m.sum(FrameMetrics.SYNC_DURATION, FrameMetrics.COMMAND_ISSUE_DURATION, FrameMetrics.SWAP_BUFFERS_DURATION),
                 gpuNs = m.getMetric(FrameMetrics.GPU_DURATION),
                 deadlineNs = m.getMetric(FrameMetrics.DEADLINE),
                 vsyncNs = vsync,

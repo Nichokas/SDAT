@@ -71,7 +71,8 @@ fun report(device: Device, runs: List<Run>, rounds: Int, reruns: Int = 0): Strin
         appendLine("  fps ${fps.median().f()}${fps.spread()} · frames >16.7 ms ${over.median().f()}%${over.spread()} · missed display deadline ${group.map { it.stats.jankPercent }.median().f()}%")
         appendLine("  frame p50 ${group.map { it.stats.p50Ms }.median().f()} · p90 ${group.map { it.stats.p90Ms }.median().f()}${group.map { it.stats.p90Ms }.spread()} · p99 ${group.map { it.stats.p99Ms }.median().f()} · max ${group.maxOf { it.stats.maxMs }.f()} ms")
         val limiters = group.map { it.stats.limiter }.groupingBy { it }.eachCount().maxBy { it.value }.key
-        appendLine("  p90 by stage: UI ${group.map { it.stats.uiP90Ms }.median().f()} · RenderThread ${group.map { it.stats.renderP90Ms }.median().f()} · GPU ${group.mapNotNull { it.stats.gpuP90Ms }.let { if (it.isEmpty()) "n/a" else "${it.median().f()} ms" }} · limiter $limiters")
+        fun stage(of: (Stats) -> Double?) = group.mapNotNull { of(it.stats) }.let { if (it.isEmpty()) "n/a" else "${it.median().f()} ms" }
+        appendLine("  p90 by stage: UI ${stage { it.uiP90Ms }} · RenderThread ${stage { it.renderP90Ms }} · GPU ${stage { it.gpuP90Ms }} · limiter $limiters")
         val first = group.minBy { it.round }
         appendLine("  first-use worst frame ${first.warmupWorstMs.f()} ms · images ${group.sumOf { it.imagesLoaded }} loaded, ${group.sumOf { it.imagesFailed }} failed · lost reports ${group.sumOf { it.stats.lostReports }}")
     }

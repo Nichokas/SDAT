@@ -160,7 +160,8 @@ class MainActivity : ComponentActivity() {
             delay(REPORT_LAG_MS)
             val frames = recorder.drain()
             val warmupWorstMs = (frames.filter { it.vsyncNs in warmStart until start }.maxOfOrNull { it.totalNs } ?: 0) / 1e6
-            val stats = stats(frames.filter { it.vsyncNs in start until end }, (end - start) / 1e9)
+            val (measured, lost) = window(frames, start, end)
+            val stats = stats(measured, (end - start) / 1e9, lost)
             return Run(scene, round, stats, warmupWorstMs, thermalStart, power.currentThermalStatus, images.loaded, images.failed)
         } finally {
             load.stop()

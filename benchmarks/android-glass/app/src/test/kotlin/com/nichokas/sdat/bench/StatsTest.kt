@@ -84,4 +84,18 @@ class StatsTest {
         val frames = List(99) { frame(5.0, interval = 16.7) } + frame(5.0, interval = 100.0, dropped = 4)
         assertEquals(20.0, stats(frames, seconds = 1.75).p99IntervalMs, 0.01)
     }
+
+    @Test fun anUnreportedCpuStageIsLeftOutOfItsPercentile() {
+        val s = stats(List(10) { i -> frame(20.0, ui = if (i < 5) -1e-6 else 8.0, render = 6.0, gpu = 4.0) }, seconds = 1.0)
+        assertEquals(8.0, s.uiP90Ms!!, 1e-9)
+        assertEquals(Limiter.UiThread, s.limiter)
+    }
+
+    @Test fun lostReportsCountInTheWindowTheyFellIn() {
+        // A report 100 ms after the last one hid 4 lost reports, at 20, 40, 60 and 80 ms. The window starts at 50 ms.
+        val f = Frame(10, 0, 0, 0, 16_600_000, vsyncNs = 100_000_000, intervalNs = 100_000_000, dropped = 4)
+        val (frames, lost) = window(listOf(f), start = 50_000_000, end = 200_000_000)
+        assertEquals(1, frames.size)
+        assertEquals(2, lost)
+    }
 }
