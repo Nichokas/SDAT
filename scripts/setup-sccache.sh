@@ -57,3 +57,36 @@ set_build_key() {
 
 set_build_key rustc-wrapper "$sccache"
 set_build_key target-dir "$target_dir"
+
+# The shared target directory only grows, so clean it daily once it passes a size limit.
+# The timer runs the script from the main checkout: a worktree can be deleted when its thread settles.
+main_root="$(git -C "$(dirname "$0")" rev-parse --path-format=absolute --git-common-dir)"
+main_root="${main_root%/.git}"
+if ! systemctl --user show-environment >/dev/null 2>&1; then
+  echo "No systemd user session; run $main_root/scripts/clean-cargo-target.sh now and then to keep $target_dir small."
+  exit 0
+fi
+unit_dir="$HOME/.config/systemd/user"
+mkdir -p "$unit_dir"
+cat >"$unit_dir/sdat-clean-cargo-target.service" <<UNIT
+[Unit]
+Description=Clean the shared Cargo target directory when it is too big
+
+[Service]
+Type=oneshot
+Environment="CARGO_HOME=$cargo_home"
+ExecStart="$main_root/scripts/clean-cargo-target.sh"
+UNIT
+cat >"$unit_dir/sdat-clean-cargo-target.timer" <<UNIT
+[Unit]
+Description=Daily Cargo target directory cleanup
+
+[Timer]
+OnCalendar=daily
+Persistent=true
+
+[Install]
+WantedBy=timers.target
+UNIT
+systemctl --user daemon-reload
+systemctl --user enable --now sdat-clean-cargo-target.timer
