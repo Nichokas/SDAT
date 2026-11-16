@@ -137,10 +137,6 @@ impl Mirror {
         self.state.queue_id.as_deref()
     }
 
-    pub(super) fn head(&self) -> Option<&Head> {
-        self.head.as_ref()
-    }
-
     pub(super) fn device(&self, id: &str) -> Option<Device> {
         self.state.players.iter().find(|p| p.id == id).cloned()
     }
