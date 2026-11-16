@@ -77,7 +77,8 @@ class FrameRecorder(private val window: Window) : AutoCloseable {
     private val listener = Window.OnFrameMetricsAvailableListener { _, m, dropped ->
         lost.addAndGet(dropped)
         val vsync = m.getMetric(FrameMetrics.INTENDED_VSYNC_TIMESTAMP)
-        val interval = if (lastVsync > 0) vsync - lastVsync else 0
+        // An interval spanning dropped reports would count frames that were drawn as missing, so it is left out.
+        val interval = if (lastVsync > 0 && dropped == 0) vsync - lastVsync else 0
         lastVsync = vsync
         if (m.getMetric(FrameMetrics.FIRST_DRAW_FRAME) == 0L) {
             frames += Frame(

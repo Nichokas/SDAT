@@ -21,10 +21,15 @@ fun covers(dir: File): List<File> {
     return (0 until COVERS).map { i ->
         File(dir, "cover-$i.jpg").also {
             if (!it.exists()) {
-                // Written beside and renamed, so a run killed mid-write never leaves a broken cover behind.
-                val tmp = File(dir, "cover-$i.jpg.tmp")
-                check(tmp.outputStream().use { out -> cover(i).compress(Bitmap.CompressFormat.JPEG, 85, out) }) { "Could not write $tmp" }
-                check(tmp.renameTo(it)) { "Could not move $tmp to $it" }
+                // Written to its own temporary file and renamed, so neither a run killed mid-write nor an overlapping
+                // preparation leaves a broken cover behind.
+                val tmp = File.createTempFile("cover-$i-", ".tmp", dir)
+                try {
+                    check(tmp.outputStream().use { out -> cover(i).compress(Bitmap.CompressFormat.JPEG, 85, out) }) { "Could not write $tmp" }
+                    check(tmp.renameTo(it) || it.exists()) { "Could not move $tmp to $it" }
+                } finally {
+                    tmp.delete()
+                }
             }
         }
     }
