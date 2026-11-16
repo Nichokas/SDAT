@@ -13,6 +13,17 @@ const PREVIOUS: &str = "diag.prev.log";
 const ROTATED: &str = "diag.log.1";
 const PREVIOUS_ROTATED: &str = "diag.prev.log.1";
 const LOCK: &str = "diag.lock";
+/// Longest message or backtrace kept, so one huge event (an error page logged whole) neither overflows
+/// [`MAX_FILE_BYTES`] nor holds the buffer's memory.
+const MAX_TEXT_BYTES: usize = 32 * 1024;
+
+fn truncated(mut text: String) -> String {
+    if text.len() > MAX_TEXT_BYTES {
+        text.truncate(text.floor_char_boundary(MAX_TEXT_BYTES));
+        text.push_str(" …(truncated)");
+    }
+    text
+}
 
 /// The event log: the last [`CAPACITY`] events in memory, and with a directory also a rotating text file.
 /// File errors are dropped on purpose: logging must never fail the app or log about itself.
@@ -92,8 +103,8 @@ impl Store {
             at_ms: chrono::Utc::now().timestamp_millis(),
             level,
             target: target.to_owned(),
-            message,
-            backtrace,
+            message: truncated(message),
+            backtrace: backtrace.map(truncated),
         };
         self.next_seq += 1;
         if let Some(file) = self.file.as_mut() {
@@ -247,6 +258,17 @@ mod tests {
         assert!(rotated > 0 && rotated <= MAX_FILE_BYTES, "{rotated}");
         assert!(current > 0 && current <= MAX_FILE_BYTES, "{current}");
         assert!(fs::read_to_string(tmp.0.join(CURRENT)).expect("diag.log").contains("1999 "));
+    }
+
+    #[test]
+    fn one_huge_event_is_cut_to_fit_the_file() {
+        let tmp = TempDir::new("huge");
+        let mut store = Store::new(Some(tmp.0.clone()));
+        info(&mut store, &"é".repeat(MAX_FILE_BYTES as usize));
+        let message = &store.since(0)[0].message;
+        assert!(message.len() < MAX_TEXT_BYTES + 32 && message.ends_with("…(truncated)"));
+        let current = fs::metadata(tmp.0.join(CURRENT)).expect("diag.log").len();
+        assert!(current < MAX_FILE_BYTES, "{current}");
     }
 
     #[test]

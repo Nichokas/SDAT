@@ -46,10 +46,6 @@ fn skip(s: &[u8], mut i: usize, f: impl Fn(u8) -> bool) -> usize {
     i
 }
 
-fn is_blank(b: u8) -> bool {
-    b == b' ' || b == b'\t'
-}
-
 /// A quoted value whose opening quote (`"` or `'`) is at `i`: its range without the quotes. Inside a debug-printed
 /// string the quote is `\"` and every character of the value is escaped once more, so one level of
 /// escaping is undone before looking for the value's own closing quote.
@@ -97,7 +93,7 @@ fn key_value(s: &[u8], after_key: usize, is_code: bool) -> Option<(usize, usize)
     {
         return Some(range);
     }
-    i = skip(s, i + 1, is_blank);
+    i = value;
     if is_code && (sep == b':' || quoted_key) {
         return None;
     }
@@ -122,7 +118,7 @@ fn header_value(s: &[u8], after_key: usize) -> Option<(usize, usize)> {
     {
         return Some(range);
     }
-    i = skip(s, i + 1, is_blank);
+    i = value;
     let end = skip(s, i, |b| b != b'\n' && b != b'\r');
     (end > i).then_some((i, end))
 }
@@ -195,6 +191,10 @@ mod tests {
         assert_eq!(redact(r#"{"password":123456,"x":1}"#), r#"{"password":<redacted>,"x":1}"#);
         assert_eq!(redact(r#"[{"sk": 42}]"#), r#"[{"sk": <redacted>}]"#);
         assert_eq!(redact("password: hunter2 next"), "password: <redacted> next");
+        assert_eq!(redact("{\"password\":\n  123456}"), "{\"password\":\n  <redacted>}");
+        assert_eq!(redact("Authorization:\nToken secret\nnext"), "Authorization:\n<redacted>\nnext");
+        assert_eq!(redact("password=hunter2"), "password=<redacted>");
+        assert_eq!(redact("Bearer secret"), "Bearer <redacted>");
     }
 
     #[test]
