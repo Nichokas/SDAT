@@ -65,20 +65,14 @@ fn on_activate(app: &adw::Application) {
     }
 }
 
-/// Panics inside `GLib` callbacks abort the process (they cannot unwind through C),
-/// so log them with a backtrace before the default hook runs.
-fn install_panic_hook() {
-    let default = std::panic::take_hook();
-    std::panic::set_hook(Box::new(move |info| {
-        let bt = std::backtrace::Backtrace::force_capture();
-        log::error!("panic: {info}\n{bt}");
-        default(info);
-    }));
-}
-
 fn main() -> glib::ExitCode {
-    env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("info")).init();
-    install_panic_hook();
+    tonearm_core::diag::init(Some(glib::user_config_dir().join(settings::CONFIG_DIR_NAME)), None);
+    if std::env::var("RUST_LOG").is_ok_and(|v| {
+        let v = v.to_ascii_lowercase();
+        v.contains("debug") || v.contains("trace")
+    }) {
+        tonearm_core::diag::set_verbose(true);
+    }
     ensure_schema();
     migrate::run();
     tonearm_core::config::install(Box::new(settings::GSettingsConfig));
