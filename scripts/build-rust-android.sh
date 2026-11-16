@@ -12,6 +12,7 @@ cd "$root"
 target="$(cargo metadata --format-version 1 --no-deps | python3 -c 'import json, sys; print(json.load(sys.stdin)["target_directory"])')"
 mkdir -p "$target"
 # One lock per target directory: another worktree must not rebuild the shared archive between our build and our reads of it.
+# Close the lock descriptor in each cargo child: a sccache server it starts would otherwise keep the lock after we exit.
 if command -v flock >/dev/null; then
   exec 9>"$target/.sdat-build.lock"; flock 9
 elif [ "$target" != "$(pwd -P)/target" ]; then
@@ -21,11 +22,11 @@ fi
 # Fat LTO with one codegen unit cuts the core by ~2.9 MB per ABI; Android only, so iOS and desktop builds are unchanged.
 RUSTFLAGS="${RUSTFLAGS:-} -C link-arg=-Wl,-z,max-page-size=16384" \
 CARGO_PROFILE_RELEASE_LTO=fat CARGO_PROFILE_RELEASE_CODEGEN_UNITS=1 \
-  cargo ndk -t arm64-v8a -t x86_64 -P "$api" -o "$jni" build -p tonearm-ffi --lib --release
+  cargo ndk -t arm64-v8a -t x86_64 -P "$api" -o "$jni" build -p tonearm-ffi --lib --release 9>&-
 # cargo-ndk also copies iroh's own cdylibs; libtonearm_ffi.so links iroh statically and never loads them.
 rm -f "$jni"/*/libiroh*.so
 rm -rf "$kotlin"
 # Library mode reads the UniFFI metadata; LTO drops it from the .so, so read the static archive (any ABI works).
 cargo run -q -p tonearm-ffi --features bindgen --bin uniffi-bindgen -- \
-  generate --library "$target/aarch64-linux-android/release/libtonearm_ffi.a" --language kotlin --no-format --out-dir "$kotlin"
+  generate --library "$target/aarch64-linux-android/release/libtonearm_ffi.a" --language kotlin --no-format --out-dir "$kotlin" 9>&-
 echo "ok: $(du -h "$jni"/*/libtonearm_ffi.so | tr '\n' ' ')"
