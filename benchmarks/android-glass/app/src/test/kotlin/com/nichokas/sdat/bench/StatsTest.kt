@@ -90,10 +90,20 @@ class StatsTest {
 
     @Test fun lostReportsArePlacedAsTheWorstCase() {
         // 120 Hz, every report 100 ms after the last and hiding 5 lost ones. Spread evenly they would be a smooth
-        // 60 fps; packed one 8.3 ms deadline apart they leave a 58.5 ms stall in each group, so the scene fails.
+        // 60 fps. Packed one 8.3 ms deadline apart they leave a 58.5 ms stall; and the 100 ms could hold 4 gaps just
+        // over 18.7 ms beside 2 of 8.3 ms.
         val s = stats(List(60) { frame(5.0, deadline = 8.3, interval = 100.0, dropped = 5) }, seconds = 6.0)
         assertEquals(60.0, s.fps, 1e-9)
-        assertEquals(100.0 / 6, s.over60Percent, 1e-9)
+        assertEquals(58.5, s.p99IntervalMs, 0.01)
+        assertEquals(400.0 / 6, s.over60Percent, 1e-9)
+        assertFalse(meets60(s.fps, s.over60Percent))
+    }
+
+    @Test fun lostReportsCountAsManySlowGapsAsTheyCouldHide() {
+        // 120 Hz: 270 smooth frames and 15 reports each hiding 5 lost ones in 100 ms. Each group could hold two 25 ms
+        // gaps (30 of 360, over 5%); one stall per group would be 15 of 360 and pass.
+        val frames = List(270) { frame(5.0, deadline = 8.3, interval = 8.3) } + List(15) { frame(5.0, deadline = 8.3, interval = 100.0, dropped = 5) }
+        val s = stats(frames, seconds = 3.75)
         assertFalse(meets60(s.fps, s.over60Percent))
     }
 

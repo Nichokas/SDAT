@@ -69,19 +69,31 @@ fun limiter(ui: Double?, render: Double?, gpu: Double?): Limiter? =
 /** A drawn frame's vsync and the time since the frame before it, reported or rebuilt from a lost report. */
 private data class Tick(val vsyncNs: Long, val intervalNs: Long)
 
+/** The closest two drawn frames can be: one deadline, or less where more frames fit the gap. */
+private fun Frame.step() = (intervalNs / (dropped + 1)).let { even -> if (deadlineNs > 0) minOf(deadlineNs, even) else even }
+
 /**
  * Every drawn frame, reported or not. FrameMetrics reports each drawn frame, and a report says how many reports were
  * lost since the one before it, so those frames lie between the two vsyncs. Their times are unknown, so they are
- * placed as the worst case: one deadline apart just before the report, leaving the rest of the gap as one stall. The
- * rate counts them; the gaps can only read slower than they were. The first report has no previous vsync, so reports
- * lost before it cannot be placed and are left out.
+ * placed as the worst gap: one [step] apart just before the report, leaving the rest as one stall. The first report
+ * has no previous vsync, so reports lost before it cannot be placed and are left out.
  */
 private fun ticks(frames: List<Frame>): List<Tick> = frames.flatMap { f ->
     if (f.intervalNs <= 0) return@flatMap listOf(Tick(f.vsyncNs, 0))
-    val even = f.intervalNs / (f.dropped + 1)
-    val step = if (f.deadlineNs > 0) minOf(f.deadlineNs, even) else even
+    val step = f.step()
     val stall = f.intervalNs - step * f.dropped
     (f.dropped downTo 0).map { k -> Tick(f.vsyncNs - step * k, if (k == f.dropped) stall else step) }
+}
+
+/**
+ * The most gaps over [LATE_60_NS] that [f]'s gap can hold. With no lost reports that is the gap itself; with lost ones,
+ * as many just-late gaps as fit beside the others at one [step].
+ */
+private fun slowGaps(f: Frame): Int {
+    if (f.dropped == 0) return if (f.intervalNs > LATE_60_NS) 1 else 0
+    val step = f.step()
+    if (step > LATE_60_NS) return f.dropped + 1
+    return ((f.intervalNs - (f.dropped + 1) * step) / (LATE_60_NS + 1 - step)).toInt().coerceIn(0, f.dropped + 1)
 }
 
 /** Nearest-rank percentile of an ascending list. */
@@ -91,14 +103,19 @@ fun percentile(sorted: List<Long>, p: Double): Long =
 /**
  * The window [start, end) of [frames], cut by vsync time: durations come from the reports in it and the rate from
  * every frame drawn in it, lost reports included. The time between frames takes every gap that overlaps the window,
- * so a stall that runs past its end still counts once its report is in.
+ * so a stall that runs past its end still counts once its report is in. Where reports were lost, the 1% low takes the
+ * longest stall the gap could hide and the slow-gap share the most slow gaps it could hold, so neither reads smoother
+ * than the frames were.
  */
 fun stats(frames: List<Frame>, seconds: Double, start: Long = Long.MIN_VALUE, end: Long = Long.MAX_VALUE): Stats {
+    fun overlaps(vsyncNs: Long, intervalNs: Long) = intervalNs > 0 && vsyncNs > start && vsyncNs - intervalNs < end
     val all = ticks(frames)
     val ticks = all.filter { it.vsyncNs in start until end }
+    val intervals = all.filter { overlaps(it.vsyncNs, it.intervalNs) }.map { it.intervalNs }.sorted()
+    val gaps = frames.filter { overlaps(it.vsyncNs, it.intervalNs) }
+    val gapCount = gaps.sumOf { it.dropped + 1 }
     @Suppress("NAME_SHADOWING") val frames = frames.filter { it.vsyncNs in start until end }
     fun stage(of: (Frame) -> Long) = frames.map(of).filter { it >= 0 }.sorted().let { if (it.isEmpty()) null else percentile(it, 90.0) / 1e6 }
-    val intervals = all.filter { it.intervalNs > 0 && it.vsyncNs > start && it.vsyncNs - it.intervalNs < end }.map { it.intervalNs }.sorted()
     fun share(test: (Frame) -> Boolean) = if (frames.isEmpty()) 0.0 else 100.0 * frames.count(test) / frames.size
     val total = frames.map { it.totalNs }.sorted()
     return Stats(
@@ -110,7 +127,7 @@ fun stats(frames: List<Frame>, seconds: Double, start: Long = Long.MIN_VALUE, en
         p99IntervalMs = percentile(intervals, 99.0) / 1e6,
         maxMs = (total.lastOrNull() ?: 0) / 1e6,
         jankPercent = share { it.totalNs > it.deadlineNs },
-        over60Percent = if (intervals.isEmpty()) 0.0 else 100.0 * intervals.count { it > LATE_60_NS } / intervals.size,
+        over60Percent = if (gapCount == 0) 0.0 else 100.0 * gaps.sumOf { slowGaps(it) } / gapCount,
         uiP90Ms = stage { it.uiNs },
         renderP90Ms = stage { it.renderNs },
         gpuP90Ms = stage { it.gpuNs },
