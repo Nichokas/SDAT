@@ -285,12 +285,14 @@ impl Mirror {
     }
 
     /// The entries after an adopted current one, read after it at `revision`.
-    /// Dropped once anything else is known of the queue.
-    pub(super) fn adopted_future(&mut self, revision: &str, future: Vec<Entry>) {
-        if let Some(w) = self.written.as_mut().filter(|w| w.revision == revision && w.cur == 0 && w.wrote.len() == 1 && w.entries.len() == 1) {
-            w.wrote.extend(future.iter().map(|e| e.track_id.clone()));
-            w.entries.extend(future);
-        }
+    /// Dropped once anything else is known of the queue; `false` then.
+    pub(super) fn adopted_future(&mut self, revision: &str, future: Vec<Entry>) -> bool {
+        let Some(w) = self.written.as_mut().filter(|w| w.revision == revision && w.cur == 0 && w.wrote.len() == 1 && w.entries.len() == 1) else {
+            return false;
+        };
+        w.wrote.extend(future.iter().map(|e| e.track_id.clone()));
+        w.entries.extend(future);
+        true
     }
 
     /// From a state read alone, before its queue: the active player left this
@@ -660,9 +662,9 @@ mod tests {
         m.claimed(Some(ME.into()));
         m.adopt(Entry { track_id: "1".into(), item_id: "a".into() }, &head("r", "1", "phone"), 10_000, 0);
         let future = vec![Entry { track_id: "2".into(), item_id: "b".into() }, Entry { track_id: "3".into(), item_id: "c".into() }];
-        m.adopted_future("r", future.clone());
+        assert!(m.adopted_future("r", future.clone()));
         // A second read of it is not appended again.
-        m.adopted_future("r", future);
+        assert!(!m.adopted_future("r", future));
         assert_eq!(
             m.plan(&local("1", &["2", "3"], 10_000, true), 100),
             vec![Write::Current { index: 0, position_ms: 10_000 }, Write::Status { playing: true }]
@@ -679,8 +681,22 @@ mod tests {
         m.fetched(state(Some("phone"), Status::Paused), None, None);
         m.claimed(Some(ME.into()));
         m.adopt(Entry { track_id: "1".into(), item_id: "a".into() }, &head("r", "1", "phone"), 10_000, 0);
-        m.adopted_future("r2", vec![Entry { track_id: "2".into(), item_id: "b".into() }]);
+        assert!(!m.adopted_future("r2", vec![Entry { track_id: "2".into(), item_id: "b".into() }]));
         assert!(matches!(m.plan(&local("1", &["2"], 10_000, true), 100).first(), Some(Write::Queue(_))));
+    }
+
+    #[test]
+    fn a_future_read_after_this_device_wrote_the_position_is_adopted() {
+        let mut m = Mirror::new(ME.into());
+        m.fetched(state(Some("phone"), Status::Paused), None, None);
+        m.claimed(Some(ME.into()));
+        m.adopt(Entry { track_id: "1".into(), item_id: "a".into() }, &head("r", "1", "phone"), 10_000, 0);
+        // The app played the track alone before what follows was read.
+        m.current_written(0, 12_000, true, 2_000, "r2".into());
+        m.status_written(true);
+        assert!(!m.adopted_future("r",vec![Entry { track_id: "2".into(), item_id: "b".into() }]));
+        assert!(m.adopted_future("r2", vec![Entry { track_id: "2".into(), item_id: "b".into() }]));
+        assert_eq!(m.plan(&local("1", &["2"], 12_000, true), 2_000), Vec::<Write>::new());
     }
 
     #[test]

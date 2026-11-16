@@ -41,6 +41,9 @@ const FRESH_PUSH_MS: i64 = 60_000;
 const ACK_MS: i64 = 5_000;
 /// How long after taking over a queue the app has to load it.
 const TAKEOVER: Duration = Duration::from_secs(10);
+/// A failed read of what follows a resumed track is tried again this often.
+const FUTURE_RETRY: Duration = Duration::from_secs(2);
+const FUTURE_RETRIES: u32 = 2;
 
 /// Another player of the account.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -363,11 +366,12 @@ impl Takeover {
 }
 
 /// A resume delivered without what follows its track: the queue it was read
-/// from, at that revision, and the track.
+/// from and the track, read next at `at`.
 struct Resumed {
     queue: String,
-    revision: String,
     track: String,
+    retries: u32,
+    at: Instant,
 }
 
 struct Worker {
@@ -421,10 +425,12 @@ impl Worker {
         let mut next_attach = Instant::now() + ATTACH_EVERY;
         let mut next_poll = Instant::now() + POLL_EVERY;
         loop {
-            if let Some(r) = self.future_due.take() {
+            if self.future_due.as_ref().is_some_and(|r| r.at <= Instant::now())
+                && let Some(r) = self.future_due.take()
+            {
                 self.read_future(r);
             }
-            let wake = [self.pending, self.awaiting.as_ref().map(|t| t.until), self.dirty, Some(next_attach), Some(next_poll)]
+            let wake = [self.pending, self.awaiting.as_ref().map(|t| t.until), self.future_due.as_ref().map(|r| r.at), self.dirty, Some(next_attach), Some(next_poll)]
                 .into_iter()
                 .flatten()
                 .min()
@@ -783,39 +789,42 @@ impl Worker {
         self.held = None;
         let read_at = Instant::now();
         self.awaiting = Some(Takeover { resumed, read_at, until: read_at + TAKEOVER });
-        self.future_due = Some(Resumed { queue, revision: head.revision.clone(), track: track.id().to_string() });
+        self.future_due = Some(Resumed { queue, track: track.id().to_string(), retries: 0, at: read_at });
         let from = from
             .or_else(|| head.updated_by.as_deref().and_then(|id| self.mirror.device(id)))
             .unwrap_or_else(|| Device { id: head.updated_by.clone().unwrap_or_default(), name: String::new() });
         Ok(Resume { from, current: track, position_ms, repeat: head.repeat })
     }
 
-    /// Reads what follows a resumed track, while its queue is still at the
-    /// resumed revision, and tells the app. Given up after a few tries: the
-    /// track then plays alone, and TIDAL's queue is left as it is.
-    fn read_future(&mut self, r: Resumed) {
-        for _ in 0..3 {
-            let read = wire::future_tracks(&r.queue, MAX_FUTURE).and_then(|f| Ok((f, wire::head(&r.queue)?.revision)));
-            match read {
-                Ok(((entries, tracks), revision)) if revision == r.revision => {
-                    if tracks.is_empty() {
-                        return;
-                    }
-                    self.mirror.adopted_future(&r.revision, entries);
-                    let ids = tracks.iter().map(|t| t.id().to_string()).collect();
-                    if let Some(t) = self.awaiting.as_mut().filter(|t| t.resumed.current.as_ref() == Some(&r.track)) {
-                        t.resumed.future = ids;
-                        // The app needs the time to append them.
-                        t.until = Instant::now() + TAKEOVER;
-                    }
-                    self.emit(HandoffEvent::Upcoming(Upcoming { current: r.track, tracks }));
+    /// Reads what follows a resumed track and tells the app, while the mirror
+    /// still knows only that track, at the revision read. A failed read is
+    /// tried again a little later; after the last try, or once the queue was
+    /// written by another device, the track plays alone and TIDAL's queue is
+    /// left as it is.
+    fn read_future(&mut self, mut r: Resumed) {
+        match wire::future_tracks(&r.queue, MAX_FUTURE).and_then(|f| Ok((f, wire::head(&r.queue)?.revision))) {
+            Ok(((_, tracks), _)) if tracks.is_empty() => {}
+            Ok(((entries, tracks), revision)) => {
+                if !self.mirror.adopted_future(&revision, entries) {
+                    log::info!("handoff: the resumed queue changed before what follows was read");
                     return;
                 }
-                Ok(_) => log::info!("handoff: the resumed queue changed while what follows was read"),
-                Err(e) => log::info!("handoff: reading what follows the resumed track failed error={e}"),
+                let ids = tracks.iter().map(|t| t.id().to_string()).collect();
+                if let Some(t) = self.awaiting.as_mut().filter(|t| t.resumed.current.as_ref() == Some(&r.track)) {
+                    t.resumed.future = ids;
+                    // The app needs the time to append them.
+                    t.until = Instant::now() + TAKEOVER;
+                }
+                self.emit(HandoffEvent::Upcoming(Upcoming { current: r.track, tracks }));
             }
+            Err(e) if r.retries < FUTURE_RETRIES => {
+                log::info!("handoff: reading what follows the resumed track failed, retrying error={e}");
+                r.retries += 1;
+                r.at = Instant::now() + FUTURE_RETRY;
+                self.future_due = Some(r);
+            }
+            Err(e) => log::warn!("handoff: gave up reading what follows the resumed track error={e}"),
         }
-        log::warn!("handoff: gave up reading what follows the resumed track");
     }
 
     /// Selects the other device's queue again (after a failed send), then makes
