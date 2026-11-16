@@ -63,6 +63,9 @@ final class Player {
     private var loadTask: Task<Void, Never>?
     private var preloadTask: Task<Void, Never>?
     private var preloaded: (trackId: String, item: AVPlayerItem, stream: Stream)?
+    /// The engine item of `current`: ends of other items are stale.
+    @ObservationIgnored private var playingItem: AVPlayerItem?
+    @ObservationIgnored private var itemObserver: AnyCancellable?
     private var startedAt: Date?
     private var listened: Double = 0
     private var scrobbled = false
@@ -83,6 +86,9 @@ final class Player {
         ) { [weak self] note in
             let item = note.object as? AVPlayerItem
             MainActor.assumeIsolated { self?.trackEnded(item) }
+        }
+        itemObserver = avPlayer.publisher(for: \.currentItem).receive(on: DispatchQueue.main).sink { [weak self] item in
+            MainActor.assumeIsolated { self?.engineMoved(to: item) }
         }
         observeSystemAudio()
     }
@@ -274,6 +280,7 @@ final class Player {
         }
         resumeAfterInterruption = false
         systemPaused = false
+        pausedByUser = isPlaying
         if isPlaying {
             plays += 1
             // A start still loading would otherwise autoplay over this pause.
@@ -294,6 +301,7 @@ final class Player {
     /// Pauses, also a start still loading: it then ends paused.
     func pause() {
         plays += 1
+        pausedByUser = true
         // A start still loading ends paused; an item already going but not yet marked playing stops.
         if loading { holdAutoplay = true }
         resumeAfterInterruption = false
@@ -568,6 +576,7 @@ final class Player {
         let far = abs(livePosition - host.secs) > Self.liveResumeWindow
         resumeAfterInterruption = false
         systemPaused = false
+        pausedByUser = false
         try? AVAudioSession.sharedInstance().setActive(true)
         isPlaying = true
         updateNowPlaying()
@@ -660,16 +669,24 @@ final class Player {
         } else {
             index = newIndex
         }
-        if auto, let p = preloaded, p.trackId == t.id, avPlayer.currentItem === p.item {
+        if auto, let p = preloaded, p.trackId == t.id, avPlayer.currentItem === p.item, p.item.status != .failed {
             preloaded = nil
+            let play = autoplayAfterEnd()
+            playingItem = p.item
             adopt(t, stream: p.stream)
-            avPlayer.play()
-            isPlaying = true
+            if play { avPlayer.play() } else { avPlayer.pause() }
+            isPlaying = play
             afterStart(t)
         } else {
-            start(t)
+            start(t, autoplay: auto ? autoplayAfterEnd() : true)
         }
     }
+
+    /// The user's last command was a pause. Unlike `isPlaying` it does not drop when an item ends,
+    /// so a track change the engine makes seconds later can still honor that pause.
+    @ObservationIgnored private var pausedByUser = false
+
+    private func autoplayAfterEnd() -> Bool { !pausedByUser && !systemPaused }
 
     /// A starting user-queue track joins the base queue right after the current track, so Previous
     /// and Next find it again. Returns its index.
@@ -716,6 +733,9 @@ final class Player {
     private func start(_ track: Track, resumeAt: Double = 0, autoplay: Bool = true) {
         needsStart = false
         holdAutoplay = false
+        pausedByUser = !autoplay
+        // Playing again ends an earlier system pause, as `toggle` does.
+        if autoplay { systemPaused = false }
         starts += 1
         let mine = starts
         let exact = exactResume
@@ -724,6 +744,8 @@ final class Player {
         loading = true
         position = resumeAt
         loadResumeAt = resumeAt
+        // The old item may still end while the new stream loads; that end is not this track's.
+        playingItem = nil
         invalidatePreload()
         loadTask?.cancel()
         loadTask = Task {
@@ -734,6 +756,7 @@ final class Player {
                 avPlayer.removeAllItems()
                 let item = Self.makeItem(url)
                 avPlayer.insert(item, after: nil)
+                playingItem = item
                 if url.isFileURL { watchLocal(item, track: track) }
                 if liveFollowing && autoplay && liveTarget != nil {
                     // Following a playing host: start only with a healthy buffer
@@ -772,13 +795,14 @@ final class Player {
                 if !Task.isCancelled { loadResumeAt = nil }
                 afterStart(track)
             } catch {
-                if !Task.isCancelled { loading = false; loadResumeAt = nil }
-                if !Task.isCancelled { self.error = friendlyMessage(error) }
-                // Nothing left in the engine (a handoff cleared it): paused, and play retries.
-                if !Task.isCancelled, avPlayer.currentItem == nil {
-                    isPlaying = false
-                    needsStart = true
-                }
+                guard !Task.isCancelled else { return }
+                loading = false; loadResumeAt = nil
+                self.error = friendlyMessage(error)
+                // An old item would play on with its end ignored: drop it. Paused, and play retries here.
+                avPlayer.pause(); avPlayer.removeAllItems()
+                isPlaying = false
+                needsStart = true
+                updateNowPlaying()
             }
         }
     }
@@ -798,6 +822,7 @@ final class Player {
             self.avPlayer.removeAllItems()
             let replacement = Self.makeItem(u)
             self.avPlayer.insert(replacement, after: nil)
+            self.playingItem = replacement
             if self.liveFollowing, self.liveAligning, self.liveTarget != nil {
                 // Following a host: align the online item like a fresh start.
                 let playing = await self.liveAlign(replacement)
@@ -877,12 +902,36 @@ final class Player {
     }
 
     private func trackEnded(_ item: AVPlayerItem?) {
-        // Only react to the item that was actually playing.
-        guard item == nil || item === avPlayer.items().first || item !== preloaded?.item else { return }
+        guard let item, item === playingItem else { return }
         // Listen Together guest: wait for the host's next track instead of advancing.
         if liveFollowing { DispatchQueue.main.async { self.avPlayer.pause(); self.isPlaying = false }; return }
         if repeatMode == .one, let c = current { start(c); return }
+        // The engine moves on to a queued preload by itself, sometimes only after this notification
+        // (e.g. when the sample rate changes); `engineMoved` adopts it then. Starting the track
+        // anew here would drop the preload that is already playing and replay it from 0.
+        if let p = preloaded, avPlayer.items().contains(p.item) {
+            // A preload that fails, is removed or never comes up loads the next track the usual way.
+            let s = starts, g = seekGeneration
+            Task { [weak self] in
+                for _ in 0..<20 {
+                    try? await Task.sleep(for: .milliseconds(500))
+                    guard let self, self.playingItem === item, self.starts == s, self.seekGeneration == g else { return }
+                    guard let p = self.preloaded, p.item.status != .failed,
+                          self.avPlayer.items().contains(p.item) else { break }
+                }
+                guard let self, self.playingItem === item, self.starts == s, self.seekGeneration == g else { return }
+                self.advance(auto: true)
+            }
+            return
+        }
         DispatchQueue.main.async { self.advance(auto: true) }
+    }
+
+    /// A failed preload is left to the fallback in `trackEnded`, which loads the track anew.
+    private func engineMoved(to item: AVPlayerItem?) {
+        guard let item, item === preloaded?.item, item === avPlayer.currentItem, item !== playingItem,
+              item.status != .failed else { return }
+        advance(auto: true)
     }
 
     private func refillIfNeeded() {
@@ -1245,7 +1294,7 @@ extension Player {
         resumeAfterInterruption = false
         recentIDs = []; recentOrder = []
         savedQueueVersion = -1; savedQueueOffset = 0
-        preloaded = nil; infinite = nil
+        preloaded = nil; playingItem = nil; infinite = nil
         queue = []; original = []; userQueue = []; index = nil; current = nil
         isPlaying = false; loading = false; loadResumeAt = nil; position = 0; duration = 0; stream = nil; sourceTitle = nil
         MPNowPlayingInfoCenter.default().nowPlayingInfo = nil
