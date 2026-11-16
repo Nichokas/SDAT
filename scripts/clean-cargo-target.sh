@@ -2,10 +2,11 @@
 # Empties the shared Cargo target directory (see setup-sccache.sh) once it passes a size limit.
 # sccache keeps the compiled dependencies, so the next build only recompiles our crates.
 # cargo-sweep does not work here: it does not understand Cargo's per-unit build directory layout.
-# Nothing here is cleaned while a build runs: this takes the same locks the builds hold (the
-# build scripts' .sdat-build.lock and Cargo's .cargo-lock and .cargo-artifact-lock, also under target-triple directories)
-# and skips the cleanup if one is taken; the next run tries again. The lock files themselves stay,
-# because a build that starts during the cleanup must lock the same file.
+# Nothing here is cleaned while a build runs: this takes the same locks the builds hold (the build
+# scripts' .sdat-build.lock, and Cargo's .cargo-* locks, also under target-triple directories) and
+# skips the cleanup if one is taken; the next run tries again. The lock files themselves stay, because
+# a build that starts during the cleanup must lock the same file. A build script that starts during
+# the cleanup waits for it; a plain cargo build that creates its lock then is not covered.
 # Usage: clean-cargo-target.sh [limit in GiB, default $SDAT_TARGET_LIMIT_GB or 8]
 set -euo pipefail
 
@@ -29,13 +30,19 @@ if [ "$used_kb" -le $((limit_gb * 1024 * 1024)) ]; then
   exit 0
 fi
 
+# Create the build scripts' lock if it is missing, so one that starts later waits for us.
+exec 9>>"$target_dir/.sdat-build.lock"
+if ! flock -n 9; then
+  echo "A build script holds $target_dir/.sdat-build.lock; not cleaning now."
+  exit 0
+fi
 while IFS= read -r lock; do
   exec {fd}<>"$lock"
   if ! flock -n "$fd"; then
     echo "A build holds $lock; not cleaning now."
     exit 0
   fi
-done < <(find "$target_dir" -maxdepth 3 \( -name ".cargo-*lock" -o -name .sdat-build.lock \) -type f)
+done < <(find "$target_dir" -maxdepth 3 -name ".cargo-*lock" -type f)
 
 echo "$target_dir uses $((used_kb / 1024 / 1024)) GiB, over the ${limit_gb} GiB limit; cleaning."
 find "$target_dir" -mindepth 1 ! -type d ! -name ".cargo-*lock" ! -name .sdat-build.lock -delete
