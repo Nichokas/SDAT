@@ -18,6 +18,15 @@
       "category": "entertainment",
       "versions": [
         {
+          "version": "2.1.0",
+          "buildVersion": "13",
+          "date": "2026-11-16T18:50:57Z",
+          "localizedDescription": "## What's Changed\n* Setup script: link libxml2.so.2 for the Swift toolchain on Ubuntu 25.10+ by @Nichokas in https://github.com/Nichokas/SDAT/pull/138\n* Review bot: retry CLI installs longer and fall back to a cached binary by @Nichokas in https://github.com/Nichokas/SDAT/pull/140\n* Desktop: stop the player on quit so exiting cannot hang by @Nichokas in https://github.com/Nichokas/SDAT/pull/139\n* Setup script: share one Cargo target directory across worktrees by @Nichokas in https://github.com/Nichokas/SDAT/pull/145\n* CI: add Depot CI copies of the Rust, Android and review gate workflows by @Nichokas in https://github.com/Nichokas/SDAT/pull/147\n* Dev profile: drop debug info from dependencies and keep line tables for our crates by @Nichokas in https://github.com/Nichokas/SDAT/pull/148\n* Scripts: run Android and Rust builds on Depot instead of the agent's machine by @Nichokas in https://github.com/Nichokas/SDAT/pull/149\n* Handoff: start the current track first, load the rest of the queue after by @Nichokas in https://github.com/Nichokas/SDAT/pull/146\n* Android: update Glasmio to 0.1.3 for its glass rendering performance work by @Nichokas in https://github.com/Nichokas/SDAT/pull/151\n* Android Discover: keep the plane across tab switches and follow the system theme by @Nichokas in https://github.com/Nichokas/SDAT/pull/150\n* Setup: clean the shared Cargo target directory daily once it passes 8 GiB by @Nichokas in https://github.com/Nichokas/SDAT/pull/152\n* iOS: keep a played Play Next track in the queue so Previous and Next find it again by @Nichokas in https://github.com/Nichokas/SDAT/pull/155\n* iOS: let the engine move on to the preloaded track instead of restarting it at a track change by @Nichokas in https://github.com/Nichokas/SDAT/pull/157\n* iOS: remove the sign-in logo by @Nichokas in https://github.com/Nichokas/SDAT/pull/158\n\n\n**Full Changelog**: https://github.com/Nichokas/SDAT/compare/v2.0.2...v2.1.0",
+          "downloadURL": "https://github.com/Nichokas/SDAT/releases/download/v2.1.0/SDAT-v2.1.0-unsigned.ipa",
+          "size": 28723225,
+          "minOSVersion": "26.0"
+        },
+        {
           "version": "2.0.2",
           "buildVersion": "12",
           "date": "2026-11-15T20:09:01Z",
@@ -99,11 +108,11 @@
           "minOSVersion": "26.0"
         }
       ],
-      "version": "2.0.2",
-      "versionDate": "2026-11-15T20:09:01Z",
-      "versionDescription": "## What's Changed\n* iOS: Discover ignores taps under the Handoff banner by @Nichokas in https://github.com/Nichokas/SDAT/pull/137\n\n\n**Full Changelog**: https://github.com/Nichokas/SDAT/compare/v2.0.1...v2.0.2",
-      "downloadURL": "https://github.com/Nichokas/SDAT/releases/download/v2.0.2/SDAT-v2.0.2-unsigned.ipa",
-      "size": 29101116
+      "version": "2.1.0",
+      "versionDate": "2026-11-16T18:50:57Z",
+      "versionDescription": "## What's Changed\n* Setup script: link libxml2.so.2 for the Swift toolchain on Ubuntu 25.10+ by @Nichokas in https://github.com/Nichokas/SDAT/pull/138\n* Review bot: retry CLI installs longer and fall back to a cached binary by @Nichokas in https://github.com/Nichokas/SDAT/pull/140\n* Desktop: stop the player on quit so exiting cannot hang by @Nichokas in https://github.com/Nichokas/SDAT/pull/139\n* Setup script: share one Cargo target directory across worktrees by @Nichokas in https://github.com/Nichokas/SDAT/pull/145\n* CI: add Depot CI copies of the Rust, Android and review gate workflows by @Nichokas in https://github.com/Nichokas/SDAT/pull/147\n* Dev profile: drop debug info from dependencies and keep line tables for our crates by @Nichokas in https://github.com/Nichokas/SDAT/pull/148\n* Scripts: run Android and Rust builds on Depot instead of the agent's machine by @Nichokas in https://github.com/Nichokas/SDAT/pull/149\n* Handoff: start the current track first, load the rest of the queue after by @Nichokas in https://github.com/Nichokas/SDAT/pull/146\n* Android: update Glasmio to 0.1.3 for its glass rendering performance work by @Nichokas in https://github.com/Nichokas/SDAT/pull/151\n* Android Discover: keep the plane across tab switches and follow the system theme by @Nichokas in https://github.com/Nichokas/SDAT/pull/150\n* Setup: clean the shared Cargo target directory daily once it passes 8 GiB by @Nichokas in https://github.com/Nichokas/SDAT/pull/152\n* iOS: keep a played Play Next track in the queue so Previous and Next find it again by @Nichokas in https://github.com/Nichokas/SDAT/pull/155\n* iOS: let the engine move on to the preloaded track instead of restarting it at a track change by @Nichokas in https://github.com/Nichokas/SDAT/pull/157\n* iOS: remove the sign-in logo by @Nichokas in https://github.com/Nichokas/SDAT/pull/158\n\n\n**Full Changelog**: https://github.com/Nichokas/SDAT/compare/v2.0.2...v2.1.0",
+      "downloadURL": "https://github.com/Nichokas/SDAT/releases/download/v2.1.0/SDAT-v2.1.0-unsigned.ipa",
+      "size": 28723225
     }
   ],
   "news": []
