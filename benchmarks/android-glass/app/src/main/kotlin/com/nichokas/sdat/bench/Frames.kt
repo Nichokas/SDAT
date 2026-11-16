@@ -53,7 +53,8 @@ fun stats(frames: List<Frame>, seconds: Double, lostReports: Int = 0): Stats {
     val total = frames.map { it.totalNs }.sorted()
     return Stats(
         frames = frames.size,
-        fps = if (seconds > 0) frames.size / seconds else 0.0,
+        // A dropped report is a frame that was drawn but not reported, so it still counts toward the rate.
+        fps = if (seconds > 0) (frames.size + lostReports) / seconds else 0.0,
         p50Ms = percentile(total, 50.0) / 1e6,
         p90Ms = percentile(total, 90.0) / 1e6,
         p99Ms = percentile(total, 99.0) / 1e6,

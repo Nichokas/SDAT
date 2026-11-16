@@ -53,13 +53,12 @@ import io.github.neoruaa.glasmio.scaffold.GlasmioPinnedPage
 import io.github.neoruaa.glasmio.scaffold.rememberGlasmioHeaderScrollEdge
 import io.github.neoruaa.glasmio.ui.GlasmioButton
 import io.github.neoruaa.glasmio.ui.GlasmioButtonSize
-import java.io.File
 import kotlin.math.roundToInt
 
 // Album: SDAT's DetailPage with its blurred cover backdrop, glass Play and Shuffle in the scrolled header, and the wide mini player.
 
 @Composable
-internal fun Album(covers: List<File>, images: ImageCounter, seconds: State<Float>) {
+internal fun Album(covers: List<Cover>, images: ImageCounter, seconds: State<Float>) {
     val list = rememberLazyListState()
     AutoScroll(list, speedDp = 1600f)
     val pastHeader by remember { derivedStateOf { list.firstVisibleItemIndex > 0 } }
@@ -103,7 +102,7 @@ internal fun Album(covers: List<File>, images: ImageCounter, seconds: State<Floa
 
 /** SDAT's wide mini player content: cover, title and artist, the play ring, and next. */
 @Composable
-private fun WideMini(art: File, images: ImageCounter, seconds: State<Float>) {
+private fun WideMini(art: Cover, images: ImageCounter, seconds: State<Float>) {
     Row(Modifier.fillMaxSize().padding(start = 9.dp, end = 10.dp), horizontalArrangement = Arrangement.spacedBy(10.dp), verticalAlignment = Alignment.CenterVertically) {
         val px = (38 * LocalDensity.current.density).roundToInt()
         AsyncImage(cover(art, px, false, images), null, Modifier.size(38.dp).clip(RoundedCornerShape(6.dp)), contentScale = ContentScale.Crop)
@@ -123,7 +122,7 @@ private fun WideMini(art: File, images: ImageCounter, seconds: State<Float>) {
 
 /** SDAT's DetailPage CoverBackdrop: the cover zoomed and blurred into colour fields. */
 @Composable
-private fun CoverBackdrop(file: File, images: ImageCounter, modifier: Modifier) {
+private fun CoverBackdrop(file: Cover, images: ImageCounter, modifier: Modifier) {
     Box(modifier.background(Color.Black).clipToBounds()) {
         AsyncImage(
             cover(file, 160, false, images),

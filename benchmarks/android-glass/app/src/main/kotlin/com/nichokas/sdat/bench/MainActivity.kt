@@ -81,7 +81,7 @@ class MainActivity : ComponentActivity() {
 
     @Composable
     private fun Runner(rounds: Int, onDone: (Phase.Done) -> Unit) {
-        var covers by remember { mutableStateOf<List<File>?>(null) }
+        var covers by remember { mutableStateOf<List<Cover>?>(null) }
         var current by remember { mutableStateOf<Pair<Scene, String>?>(null) }
         LaunchedEffect(Unit) {
             val files = withContext(Dispatchers.Default) { covers(File(cacheDir, "covers")) }

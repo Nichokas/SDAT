@@ -32,13 +32,12 @@ import androidx.compose.ui.unit.sp
 import coil3.compose.AsyncImage
 import com.nichokas.sdat.ui.PlaneGeometry
 import io.github.neoruaa.glasmio.core.GlasmioTheme
-import java.io.File
 import kotlin.math.roundToInt
 
 // Discover: SDAT's CoverPlane and PlaneGeometry, with the covers from disk.
 
 @Composable
-internal fun Discover(glass: Glass, covers: List<File>, images: ImageCounter, seconds: State<Float>, speedDp: Float, cold: Boolean) {
+internal fun Discover(glass: Glass, covers: List<Cover>, images: ImageCounter, seconds: State<Float>, speedDp: Float, cold: Boolean) {
     val noCompact = remember { mutableFloatStateOf(0f) }
     Host(
         glass,
@@ -67,7 +66,7 @@ internal fun Discover(glass: Glass, covers: List<File>, images: ImageCounter, se
 }
 
 @Composable
-private fun Plane(covers: List<File>, images: ImageCounter, seconds: State<Float>, speedDp: Float, cold: Boolean) {
+private fun Plane(covers: List<Cover>, images: ImageCounter, seconds: State<Float>, speedDp: Float, cold: Boolean) {
     val density = LocalDensity.current.density
     val placeholder = GlasmioTheme.colors.content.copy(alpha = 0.07f)
     BoxWithConstraints(Modifier.fillMaxSize()) {

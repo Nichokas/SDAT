@@ -72,4 +72,9 @@ class StatsTest {
         val score = score(listOf(Run(Scene(Page.Player, Glass.Live), 1, stats, 0.0, 0, 0, 0, 0)), refreshHz = 60f)
         assertEquals(30.0, score.worstLow.low1, 0.1)
     }
+
+    @Test fun droppedReportsStillCountAsRenderedFrames() {
+        val s = stats(List(300) { frame(10.0) }, seconds = 6.0, lostReports = 60)
+        assertEquals(60.0, s.fps, 1e-9)
+    }
 }

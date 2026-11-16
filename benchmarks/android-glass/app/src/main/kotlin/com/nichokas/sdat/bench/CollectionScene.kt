@@ -31,14 +31,13 @@ import coil3.compose.AsyncImage
 import io.github.neoruaa.glasmio.core.GlasmioTheme
 import io.github.neoruaa.glasmio.core.IosTypography
 import io.github.neoruaa.glasmio.scaffold.GlasmioPinnedListPage
-import java.io.File
 import kotlin.math.abs
 import kotlin.math.roundToInt
 
 // Collection: a long list of cover rows, scrolled up and down, with the tab bar collapsing as SDAT's does on scroll.
 
 @Composable
-internal fun Collection(glass: Glass, covers: List<File>, images: ImageCounter, seconds: State<Float>) {
+internal fun Collection(glass: Glass, covers: List<Cover>, images: ImageCounter, seconds: State<Float>) {
     val list = rememberLazyListState()
     AutoScroll(list, speedDp = 2200f)
     // Collapses and expands every 2 s with a 0.3 s morph, as a user scrolling down and back up triggers it.
@@ -70,7 +69,7 @@ internal fun Collection(glass: Glass, covers: List<File>, images: ImageCounter, 
 }
 
 @Composable
-internal fun CoverRow(file: File, title: String, subtitle: String, images: ImageCounter) {
+internal fun CoverRow(file: Cover, title: String, subtitle: String, images: ImageCounter) {
     Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 6.dp), verticalAlignment = Alignment.CenterVertically) {
         val px = (56 * LocalDensity.current.density).roundToInt()
         AsyncImage(cover(file, px, false, images), null, Modifier.size(56.dp).clip(RoundedCornerShape(8.dp)), contentScale = ContentScale.Crop)

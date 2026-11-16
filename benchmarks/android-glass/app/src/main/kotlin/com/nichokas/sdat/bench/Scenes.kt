@@ -38,7 +38,6 @@ import io.github.neoruaa.glasmio.glass.GlasmioBackdropHost
 import io.github.neoruaa.glasmio.icons.SfSymbol
 import io.github.neoruaa.glasmio.ui.GlasmioNavigationBar
 import io.github.neoruaa.glasmio.ui.GlasmioTabItem
-import java.io.File
 
 /** The SDAT screens the benchmark recreates; each animates itself the way a user drives it. */
 enum class Page(val label: String) {
@@ -71,7 +70,7 @@ class ImageCounter {
 }
 
 @Composable
-fun SceneView(scene: Scene, covers: List<File>, images: ImageCounter) {
+fun SceneView(scene: Scene, covers: List<Cover>, images: ImageCounter) {
     val appearance = GlassAppearance(reduceTransparency = scene.glass == Glass.Reduced)
     // Album and Player are dark in SDAT whatever the system says; the tabs follow it.
     val dark = scene.page == Page.Album || scene.page == Page.Player || isSystemInDarkTheme()
@@ -99,10 +98,10 @@ private fun rememberSeconds(): State<Float> {
 }
 
 @Composable
-internal fun cover(file: File, px: Int, cold: Boolean, images: ImageCounter): ImageRequest {
+internal fun cover(file: Cover, px: Int, cold: Boolean, images: ImageCounter): ImageRequest {
     val context = LocalContext.current
     return remember(file, px, cold) {
-        ImageRequest.Builder(context).data("file://${file.absolutePath}").size(px)
+        ImageRequest.Builder(context).data("file://${file.file(px).absolutePath}").size(px)
             .memoryCachePolicy(if (cold) CachePolicy.DISABLED else CachePolicy.ENABLED)
             .listener(onSuccess = { _, _ -> images.loaded++ }, onError = { _, _ -> images.failed++ })
             .build()

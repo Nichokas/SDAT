@@ -43,7 +43,6 @@ import io.github.neoruaa.glasmio.core.IosTypography
 import io.github.neoruaa.glasmio.glass.GlasmioBackdropHost
 import io.github.neoruaa.glasmio.glass.GlassSurface
 import io.github.neoruaa.glasmio.ui.GlasmioSlider
-import java.io.File
 import kotlin.math.roundToInt
 import kotlin.math.sin
 import kotlinx.coroutines.delay
@@ -52,7 +51,7 @@ import kotlinx.coroutines.delay
 // swiping between Now Playing and the queue while the slider moves.
 
 @Composable
-internal fun Player(covers: List<File>, images: ImageCounter, seconds: State<Float>) {
+internal fun Player(covers: List<Cover>, images: ImageCounter, seconds: State<Float>) {
     val pager = rememberPagerState { 2 }
     LaunchedEffect(pager) {
         while (true) {
@@ -77,7 +76,7 @@ internal fun Player(covers: List<File>, images: ImageCounter, seconds: State<Flo
 }
 
 @Composable
-private fun NowPlaying(art: File, images: ImageCounter, seconds: State<Float>) {
+private fun NowPlaying(art: Cover, images: ImageCounter, seconds: State<Float>) {
     // SDAT's PlayerSheet layout: the cover takes the height the controls leave, and a short window scrolls instead.
     BoxWithConstraints(Modifier.fillMaxSize().statusBarsPadding()) {
     val compact = maxHeight < 560.dp
@@ -106,7 +105,7 @@ private fun NowPlaying(art: File, images: ImageCounter, seconds: State<Float>) {
 }
 
 @Composable
-private fun Queue(covers: List<File>, images: ImageCounter) {
+private fun Queue(covers: List<Cover>, images: ImageCounter) {
     LazyColumn(Modifier.fillMaxSize().statusBarsPadding(), contentPadding = PaddingValues(bottom = 24.dp)) {
         items(80) { i -> CoverRow(covers[(i + 5) % covers.size], "Up next ${i + 1}", "Artist", images) }
     }
