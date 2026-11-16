@@ -22,7 +22,7 @@ private fun List<Double>.median() = sorted().let { if (it.isEmpty()) 0.0 else if
 
 private fun List<Double>.spread() = if (size < 2) "" else " (${min().f()}-${max().f()})"
 
-/** Meets 60 fps: at least 57 frames a second, and at most 5% of frames slower than a 60 Hz frame. A slower display never does. */
+/** Meets 60 fps: at least 57 frames a second, and at most 5% of frames shown later than a 60 Hz frame would be. */
 fun meets60(fps: Double, over60: Double) = fps >= 57.0 && over60 <= 5.0
 
 /** Below this rate a display cannot show 60 fps, however fast the app draws. */
@@ -72,7 +72,7 @@ fun report(device: Device, runs: List<Run>, rounds: Int, reruns: Int = 0): Strin
         val over = group.map { it.stats.over60Percent }
         val verdict = if (score.scenes.first { it.label == scene.label }.meets60) "60 fps OK" else "BELOW 60 fps"
         appendLine("[$verdict] ${scene.label}")
-        appendLine("  fps ${fps.median().f()}${fps.spread()} · frames >16.7 ms ${over.median().f()}%${over.spread()} · missed display deadline ${group.map { it.stats.jankPercent }.median().f()}%")
+        appendLine("  fps ${fps.median().f()}${fps.spread()} · gaps >16.7 ms ${over.median().f()}%${over.spread()} · missed display deadline ${group.map { it.stats.jankPercent }.median().f()}%")
         appendLine("  frame p50 ${group.map { it.stats.p50Ms }.median().f()} · p90 ${group.map { it.stats.p90Ms }.median().f()}${group.map { it.stats.p90Ms }.spread()} · p99 ${group.map { it.stats.p99Ms }.median().f()} · max ${group.maxOf { it.stats.maxMs }.f()} ms")
         fun stage(of: (Stats) -> Double?) = group.mapNotNull { of(it.stats) }.takeIf { it.isNotEmpty() }?.median()
         fun Double?.ms() = this?.let { "${it.f()} ms" } ?: "n/a"
@@ -86,7 +86,7 @@ fun report(device: Device, runs: List<Run>, rounds: Int, reruns: Int = 0): Strin
     val hot = runs.filter { maxOf(it.thermalStart, it.thermalEnd) >= 2 }
     appendLine(if (hot.isEmpty()) "Thermal: no throttling reported." else "Thermal: ${hot.size} run(s) started or ended at moderate or worse; later rounds may read slower than the phone is.")
     appendLine()
-    appendLine("Runs (round, scene, fps, p90 ms, >16.7 ms %, frames, thermal start-end):")
+    appendLine("Runs (round, scene, fps, p90 ms, gaps >16.7 ms %, frames, thermal start-end):")
     for (r in runs) {
         appendLine("  ${r.round} · ${r.scene.label} · ${r.stats.fps.f()} · ${r.stats.p90Ms.f()} · ${r.stats.over60Percent.f()} · ${r.stats.frames} · ${thermalNames.getOrElse(r.thermalStart) { "?" }}-${thermalNames.getOrElse(r.thermalEnd) { "?" }}")
     }

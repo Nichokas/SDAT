@@ -30,8 +30,8 @@ The player runs inside the activity window, without `GlasmioBottomSheet`'s own w
 
 The results screen opens with the score: the worst case, the median fps of the slowest scene; the 1% low, the frame rate shown during the slowest 1% of frames in any scene, from the time between frames; and how many scenes hold 60 fps. A chart below shows every scene: the bar is its median fps, the white tick its 1% low and the dashed line 60 fps. The same score heads the shared text.
 
-- `60 fps OK` means a median of at least 57 frames a second and at most 5% of frames slower than 16.7 ms.
-- `frames >16.7 ms` counts frames that would miss a 60 Hz deadline, whatever the display's rate. `missed display deadline` uses the phone's own rate, so it is higher on a 90 or 120 Hz screen.
+- `60 fps OK` means a median of at least 57 frames a second and at most 5% of gaps between frames longer than 16.7 ms.
+- `gaps >16.7 ms` counts frames shown more than a 60 Hz frame after the previous one, whatever the display's rate. It is measured between vsyncs, not from a frame's own duration: on a 120 Hz screen a pipelined frame can take over 16.7 ms and still arrive on time. `missed display deadline` uses the phone's own rate and each frame's duration, so it is higher on a 90 or 120 Hz screen.
 - `p90 by stage` splits each frame into the main thread (input, animation, layout, draw), the RenderThread (sync, command issue, swap) and the GPU. The slowest one is the `limiter`.
 - `first-use worst frame` is the worst frame while each scene first appeared. A large value there is a shader compile or a first decode, which users feel when they open a screen.
 - Each round runs the scenes in a different order, so heat and caches favour none of them. Medians come with the min-max across rounds. A difference smaller than that spread is no difference.

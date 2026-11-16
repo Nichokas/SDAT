@@ -10,6 +10,9 @@ import kotlin.math.ceil
 /** A 60 Hz frame's budget: the target SDAT has to meet on any screen. */
 const val BUDGET_60_NS = 16_666_667L
 
+/** A gap that lost a 60 Hz frame; the margin absorbs vsync jitter on a 60 Hz display. */
+private const val LATE_60_NS = BUDGET_60_NS + 2_000_000L
+
 /**
  * One rendered frame from FrameMetrics, in nanoseconds. [uiNs] is the main thread (input, animation, layout, draw),
  * [renderNs] the RenderThread (sync, command issue, swap) and [gpuNs] the GPU; a stage is negative where the phone does
@@ -41,7 +44,10 @@ data class Stats(
     val maxMs: Double,
     /** Frames that missed this display's own deadline. */
     val jankPercent: Double,
-    /** Frames slower than a 60 Hz frame, whatever the display's rate. */
+    /**
+     * Frames shown more than a 60 Hz frame after the one before, whatever the display's rate. Measured between
+     * vsyncs, not by a frame's own duration: a pipelined frame can take longer than 16.7 ms and still keep 120 fps.
+     */
     val over60Percent: Double,
     /** Each stage is null when the phone does not report it; the limiter is the slowest stage that is reported. */
     val uiP90Ms: Double?,
@@ -93,7 +99,7 @@ fun stats(frames: List<Frame>, seconds: Double, start: Long = Long.MIN_VALUE, en
         p99IntervalMs = percentile(intervals, 99.0) / 1e6,
         maxMs = (total.lastOrNull() ?: 0) / 1e6,
         jankPercent = share { it.totalNs > it.deadlineNs },
-        over60Percent = share { it.totalNs > BUDGET_60_NS },
+        over60Percent = if (intervals.isEmpty()) 0.0 else 100.0 * intervals.count { it > LATE_60_NS } / intervals.size,
         uiP90Ms = stage { it.uiNs },
         renderP90Ms = stage { it.renderNs },
         gpuP90Ms = stage { it.gpuNs },

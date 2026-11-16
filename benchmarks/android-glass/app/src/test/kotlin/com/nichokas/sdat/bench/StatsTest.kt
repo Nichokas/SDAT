@@ -18,8 +18,12 @@ class StatsTest {
     }
 
     @Test fun countsSlowFramesAgainst60HzAndTheDisplayDeadline() {
-        // A 120 Hz display: 10 ms misses its 8.3 ms deadline but fits a 60 Hz frame.
-        val s = stats(listOf(frame(10.0, deadline = 8.3), frame(20.0, deadline = 8.3), frame(5.0, deadline = 8.3), frame(6.0, deadline = 8.3)), seconds = 1.0)
+        // A 120 Hz display: 10 ms misses its 8.3 ms deadline. Only the 25 ms gap loses a 60 Hz frame; the 20 ms frame
+        // was pipelined and still arrived one vsync after the previous.
+        val s = stats(
+            listOf(frame(10.0, deadline = 8.3, interval = 8.3), frame(20.0, deadline = 8.3, interval = 8.3), frame(5.0, deadline = 8.3, interval = 25.0), frame(6.0, deadline = 8.3, interval = 8.3)),
+            seconds = 1.0,
+        )
         assertEquals(4.0, s.fps, 0.0)
         assertEquals(50.0, s.jankPercent, 0.0)
         assertEquals(25.0, s.over60Percent, 0.0)
