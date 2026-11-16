@@ -12,8 +12,12 @@ import java.io.File
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
+import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.async
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.selects.select
 
 internal const val WARMUP_MS = 2_000L
 internal const val MEASURE_MS = 6_000L
@@ -27,15 +31,17 @@ class Measured(val runs: List<Run>, val reruns: Int)
 
 /**
  * Shows every scene [rounds] times on [activity]'s window through [show] and measures it. A scene measured while the
- * app was paused (Home, Back, screen off) draws nothing, so it is measured again once the app is back.
+ * app is paused (Home, Back, screen off) draws nothing, so the attempt stops at the pause and the scene is measured
+ * again once the app is back.
  */
 suspend fun benchmark(activity: ComponentActivity, rounds: Int, show: (Shown) -> Unit): Measured {
     val power = activity.getSystemService(PowerManager::class.java)
     val runs = mutableListOf<Run>()
     val total = rounds * scenes.size
     var reruns = 0
-    var paused = false
-    val observer = LifecycleEventObserver { _, event -> if (event == Lifecycle.Event.ON_PAUSE) paused = true }
+    // Completed by the next pause; a fresh one for each attempt. Only touched on the main thread.
+    var paused = CompletableDeferred<Unit>()
+    val observer = LifecycleEventObserver { _, event -> if (event == Lifecycle.Event.ON_PAUSE) paused.complete(Unit) }
     activity.lifecycle.addObserver(observer)
     try {
         FrameRecorder(activity.window).use { recorder ->
@@ -46,12 +52,18 @@ suspend fun benchmark(activity: ComponentActivity, rounds: Int, show: (Shown) ->
                     var attempt = 0
                     while (true) {
                         activity.lifecycle.currentStateFlow.first { it.isAtLeast(Lifecycle.State.RESUMED) }
-                        paused = false
+                        paused = CompletableDeferred()
                         // A counter per attempt, so a late image callback from another scene cannot change this one's count.
                         val shown = Shown(scene, "${runs.size + 1}/$total · round $round" + if (attempt > 0) " · retry $attempt" else "", ImageCounter())
                         show(shown)
-                        val run = measure(scene, round, recorder, power, shown.images)
-                        if (!paused) {
+                        val run = coroutineScope {
+                            val measuring = async { measure(scene, round, recorder, power, shown.images) }
+                            select {
+                                measuring.onAwait { it }
+                                paused.onAwait { measuring.cancel(); null }
+                            }
+                        }
+                        if (run != null) {
                             runs += run
                             break
                         }
