@@ -19,6 +19,8 @@ sccache="$(command -v sccache || echo "$cargo_home/bin/sccache")"
 config="$cargo_home/config.toml"
 mkdir -p "$cargo_home" "$target_dir"
 touch "$config"
+# A dotfiles-managed config is a symlink; edit its destination so the link survives the atomic replace below.
+config="$(readlink -f "$config" 2>/dev/null || echo "$config")"
 
 python3 -c 'import tomllib' 2>/dev/null || { echo "python3 3.11 or newer is required to read $config." >&2; exit 1; }
 
