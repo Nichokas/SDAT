@@ -18,6 +18,14 @@ case "$target" in
   *) echo "usage: $0 android | rust [core|desktop]" >&2; exit 2 ;;
 esac
 
+# depot ci run patches in tracked changes only, so a new file would be tested as missing and the run could still pass.
+untracked="$(git ls-files --others --exclude-standard | grep -v '^\.depot/' || true)"
+if [ -n "$untracked" ]; then
+  echo "Untracked files would be left out of the Depot run. Run 'git add -N <file>' (or commit them) first:" >&2
+  echo "$untracked" >&2
+  exit 1
+fi
+
 args=(--workflow ".depot/workflows/$workflow")
 for job in "${jobs[@]}"; do args+=(--job "$job"); done
 output="$(depot ci run "${args[@]}")"
@@ -26,7 +34,7 @@ run="$(sed -n 's/^Run: //p' <<<"$output" | head -1)"
 [ -n "$run" ] || { echo "Could not read the run id from depot ci run." >&2; exit 1; }
 
 if ! depot ci status "$run" --wait >/dev/null 2>&1; then
-  depot ci diagnose "$run" || true
+  depot ci diagnose --run "$run" || true
   echo "Run $run failed. Logs: depot ci status $run" >&2
   exit 1
 fi
@@ -35,7 +43,7 @@ echo "Run $run passed."
 out="$root/out/depot/$run"
 mkdir -p "$out"
 # Columns: artifact id, name, size, ...; the header and the "No artifacts found." line carry no uuid.
-depot ci artifacts list "$run" | awk '$1 ~ /^[0-9a-f]{8}-/ { print $1, $2 }' | while read -r id name; do
+depot ci artifacts list "$run" | awk '$1 ~ /^[0-9a-f]+-[0-9a-f]+-/ { print $1, $2 }' | while read -r id name; do
   depot ci artifacts download "$id" --output-file "$out/$name.zip"
   echo "$out/$name.zip"
 done
