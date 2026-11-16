@@ -36,7 +36,7 @@ pub(super) enum Out {
 struct Written {
     /// Local track ids, current first.
     wrote: Vec<String>,
-    /// TIDAL's entries for them, as read back.
+    /// TIDAL's entries for them, as far as read back.
     entries: Vec<Entry>,
     cur: usize,
     revision: String,
@@ -57,6 +57,11 @@ impl Written {
             rest == tracks || (capped && 2 * rest.len() >= tracks.len() && tracks.starts_with(rest))
         };
         (self.cur..self.wrote.len()).chain(0..self.cur.min(self.wrote.len())).find(|&k| matches(k))
+    }
+
+    /// TIDAL's entry for written index `index`, if it was read back and still matches.
+    fn known(&self, index: usize) -> Option<&Entry> {
+        self.entries.get(index).filter(|e| self.wrote.get(index) == Some(&e.track_id))
     }
 }
 
@@ -161,7 +166,8 @@ impl Mirror {
             out.push(Write::NewQueue);
         }
         let tracks: Vec<String> = std::iter::once(cur).chain(local.future.iter().take(MAX_FUTURE)).cloned().collect();
-        if let Some((w, index)) = self.written.as_ref().and_then(|w| w.find(&tracks).map(|i| (w, i))) {
+        // An entry never read back can't be selected: the queue is written again.
+        if let Some((w, index)) = self.written.as_ref().and_then(|w| w.find(&tracks).filter(|&i| w.known(i).is_some()).map(|i| (w, i))) {
             if w.repeat != local.repeat {
                 out.push(Write::Repeat(local.repeat));
             }
@@ -182,8 +188,7 @@ impl Mirror {
 
     /// TIDAL's entry for written index `index`, if it still matches.
     pub(super) fn entry(&self, index: usize) -> Option<Entry> {
-        let w = self.written.as_ref()?;
-        w.entries.get(index).filter(|e| w.wrote.get(index) == Some(&e.track_id)).cloned()
+        self.written.as_ref()?.known(index).cloned()
     }
 
     pub(super) fn claimed(&mut self, active: Option<String>) {
@@ -260,15 +265,53 @@ impl Mirror {
         self.local_playing = false;
     }
 
-    /// Takes over the queue as read for a resume, so the first report after
-    /// it only writes the position and status.
-    pub(super) fn adopt(&mut self, entries: Vec<Entry>, head: &Head, position_ms: i64, now_ms: i64) {
-        let wrote = entries.iter().map(|e| e.track_id.clone()).collect();
-        self.written =
-            Some(Written { wrote, entries, cur: 0, revision: head.revision.clone(), repeat: head.repeat, position_ms, at_ms: now_ms, playing: false });
+    /// Takes over the queue as read for a resume, its current entry first,
+    /// so the first report after it only writes the position and status.
+    pub(super) fn adopt(&mut self, current: Entry, head: &Head, position_ms: i64, now_ms: i64) {
+        let written = Written {
+            wrote: vec![current.track_id.clone()],
+            entries: vec![current],
+            cur: 0,
+            revision: head.revision.clone(),
+            repeat: head.repeat,
+            position_ms,
+            at_ms: now_ms,
+            playing: false,
+        };
+        self.written = Some(written);
         // The queue read for this is the baseline now: the next read must not take it for a new push.
         self.head = Some(head.clone());
         self.need_position = true;
+    }
+
+    /// The queue as written still is an adopted current entry alone, at `revision`.
+    pub(super) fn holds_adoption(&self, revision: &str) -> bool {
+        self.written.as_ref().is_some_and(|w| w.revision == revision && w.cur == 0 && w.wrote.len() == 1 && w.entries.len() == 1)
+    }
+
+    /// The entries after an adopted current one, read after it at `revision`.
+    /// Dropped once anything else is known of the queue; `false` then.
+    pub(super) fn adopted_future(&mut self, revision: &str, future: Vec<Entry>) -> bool {
+        if !self.holds_adoption(revision) {
+            return false;
+        }
+        let Some(w) = self.written.as_mut() else { return false };
+        w.wrote.extend(future.iter().map(|e| e.track_id.clone()));
+        w.entries.extend(future);
+        true
+    }
+
+    /// From a state read alone, before its queue: the active player left this
+    /// device for another, which the app is told at once. [`Mirror::fetched`]
+    /// does not tell it again.
+    pub(super) fn moved(&mut self, state: &State) -> Option<HandoffEvent> {
+        let a = state.active.as_deref().filter(|a| *a != self.me && self.fetched && self.is_active())?;
+        let d = state.players.iter().find(|p| p.id == a).cloned().unwrap_or_else(|| Device { id: a.to_string(), name: String::new() });
+        self.last_active = Some(a.to_string());
+        // Nothing is written as the active player any more, even if the queue read fails.
+        self.state.active = Some(a.to_string());
+        self.written = None;
+        Some(HandoffEvent::MovedTo(d))
     }
 
     /// A fresh read of TIDAL's state. `updated_by` is the device that last
@@ -613,11 +656,73 @@ mod tests {
         m.fetched(state(Some("phone"), Status::Paused), None, None);
         m.claimed(Some(ME.into()));
         let h = head("r", "1", "phone");
-        m.adopt(vec![Entry { track_id: "1".into(), item_id: "a".into() }, Entry { track_id: "2".into(), item_id: "b".into() }], &h, 10_000, 0);
+        m.adopt(Entry { track_id: "1".into(), item_id: "a".into() }, &h, 10_000, 0);
+        // The app plays the current track before what follows arrives.
+        assert_eq!(m.plan(&local("1", &[], 10_000, true), 100), vec![Write::Current { index: 0, position_ms: 10_000 }, Write::Status { playing: true }]);
+    }
+
+    #[test]
+    fn the_future_read_after_an_adoption_writes_only_the_position() {
+        let mut m = Mirror::new(ME.into());
+        m.fetched(state(Some("phone"), Status::Paused), None, None);
+        m.claimed(Some(ME.into()));
+        m.adopt(Entry { track_id: "1".into(), item_id: "a".into() }, &head("r", "1", "phone"), 10_000, 0);
+        let future = vec![Entry { track_id: "2".into(), item_id: "b".into() }, Entry { track_id: "3".into(), item_id: "c".into() }];
+        assert!(m.adopted_future("r", future.clone()));
+        // A second read of it is not appended again.
+        assert!(!m.adopted_future("r", future));
         assert_eq!(
-            m.plan(&local("1", &["2"], 10_000, true), 100),
+            m.plan(&local("1", &["2", "3"], 10_000, true), 100),
             vec![Write::Current { index: 0, position_ms: 10_000 }, Write::Status { playing: true }]
         );
         assert_eq!(m.entry(1), Some(Entry { track_id: "2".into(), item_id: "b".into() }));
+        m.current_written(0, 10_000, true, 100, "r2".into());
+        m.status_written(true);
+        assert_eq!(m.plan(&local("2", &["3"], 0, true), 200), vec![Write::Current { index: 1, position_ms: 0 }]);
+    }
+
+    #[test]
+    fn a_future_read_at_another_revision_is_not_adopted() {
+        let mut m = Mirror::new(ME.into());
+        m.fetched(state(Some("phone"), Status::Paused), None, None);
+        m.claimed(Some(ME.into()));
+        m.adopt(Entry { track_id: "1".into(), item_id: "a".into() }, &head("r", "1", "phone"), 10_000, 0);
+        assert!(!m.adopted_future("r2", vec![Entry { track_id: "2".into(), item_id: "b".into() }]));
+        assert!(matches!(m.plan(&local("1", &["2"], 10_000, true), 100).first(), Some(Write::Queue(_))));
+    }
+
+    #[test]
+    fn entries_not_read_back_are_written_again() {
+        let mut m = active_with(&[]);
+        // A send reads back only the current entry.
+        m.queue_written(ids(&["1", "2", "3"]), vec![Entry { track_id: "1".into(), item_id: "i1".into() }], "r".into(), Repeat::Off);
+        m.current_written(0, 0, true, 0, "r".into());
+        assert_eq!(m.plan(&local("1", &["2", "3"], 30_000, false), 30_000), vec![Write::Current { index: 0, position_ms: 30_000 }, Write::Status { playing: false }]);
+        assert_eq!(m.plan(&local("2", &["3"], 0, true), 31_000).first(), Some(&Write::Queue(ids(&["2", "3"]))));
+    }
+
+    #[test]
+    fn a_move_is_told_from_the_state_alone_and_once() {
+        let mut m = active_with(&["1"]);
+        let s = state(Some("phone"), Status::Playing);
+        assert!(matches!(m.moved(&s), Some(HandoffEvent::MovedTo(d)) if d == dev("phone", "iPhone")));
+        assert!(!m.is_active());
+        // The pause this causes is not written over the new player's state.
+        assert!(m.plan(&local("1", &[], 5_000, false), 5_000).is_empty());
+        // The queue read failed: the next read tells nothing again.
+        assert!(m.moved(&s).is_none());
+        let out = m.fetched(s, Some(head("r2", "1", "phone")), None);
+        assert!(events(&out).iter().all(|e| !matches!(e, HandoffEvent::MovedTo(_))));
+    }
+
+    #[test]
+    fn only_a_named_other_player_is_an_early_move() {
+        let mut m = active_with(&["1"]);
+        assert!(m.moved(&state(None, Status::Paused)).is_none());
+        assert!(m.moved(&state(Some(ME), Status::Paused)).is_none());
+        let mut idle = Mirror::new(ME.into());
+        assert!(idle.moved(&state(Some("phone"), Status::Playing)).is_none());
+        idle.fetched(state(Some("laptop"), Status::Playing), None, None);
+        assert!(idle.moved(&state(Some("phone"), Status::Playing)).is_none());
     }
 }

@@ -41,6 +41,12 @@ const FRESH_PUSH_MS: i64 = 60_000;
 const ACK_MS: i64 = 5_000;
 /// How long after taking over a queue the app has to load it.
 const TAKEOVER: Duration = Duration::from_secs(10);
+/// A failed read of what follows a resumed track is tried again this often.
+const FUTURE_RETRY: Duration = Duration::from_secs(2);
+const FUTURE_RETRIES: u32 = 2;
+/// A resumed track with less left than this could end before what follows it
+/// arrives: that is read before the resume is delivered.
+const NEAR_END_MS: i64 = 20_000;
 
 /// Another player of the account.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -81,14 +87,22 @@ pub struct LocalPlayback {
     pub repeat: Repeat,
 }
 
-/// Playback taken over from another device.
+/// Playback taken over from another device: the current track only, so it
+/// starts sooner. What follows it comes after, as [`HandoffEvent::Upcoming`].
 #[derive(Debug, Clone)]
 pub struct Resume {
     pub from: Device,
     pub current: Track,
-    pub future: Vec<Track>,
     pub position_ms: i64,
     pub repeat: Repeat,
+}
+
+/// The tracks after a resumed one.
+#[derive(Debug, Clone)]
+pub struct Upcoming {
+    /// Track id of the resumed track they follow.
+    pub current: String,
+    pub tracks: Vec<Track>,
 }
 
 #[derive(Debug, Clone)]
@@ -101,6 +115,10 @@ pub enum HandoffEvent {
     Arrived(Resume),
     /// Another device became the active player: pause here.
     MovedTo(Device),
+    /// What follows the track of the last [`HandoffEvent::Arrived`] or
+    /// [`Handoff::continue_here`], read after it. Append it while that track
+    /// is still the current one. Not sent when nothing follows.
+    Upcoming(Upcoming),
 }
 
 /// Called on the handoff's own thread: hand events on, don't block on them.
@@ -240,6 +258,7 @@ impl Handoff {
             backoff: RETRY,
             dirty: Some(Instant::now()),
             awaiting: None,
+            future_due: None,
             held: None,
             before_takeover: None,
             arrival: None,
@@ -331,6 +350,37 @@ fn now_ms() -> i64 {
 #[derive(Clone)]
 struct Arrival(Option<Device>);
 
+/// Playback just taken over, until the app reports it or `until` passes.
+struct Takeover {
+    resumed: LocalPlayback,
+    /// When the resume was read: a playing report has moved on from its position since.
+    read_at: Instant,
+    until: Instant,
+}
+
+impl Takeover {
+    /// `l` is the resumed playback, at about the resumed position (playing on from it).
+    fn reported_by(&self, l: &LocalPlayback, now: Instant) -> bool {
+        let elapsed = i64::try_from(now.saturating_duration_since(self.read_at).as_millis()).unwrap_or(i64::MAX);
+        let near = l.position_ms >= self.resumed.position_ms.saturating_sub(ACK_MS)
+            && l.position_ms <= self.resumed.position_ms.saturating_add(elapsed).saturating_add(ACK_MS);
+        l.current == self.resumed.current && l.future == self.resumed.future && near
+    }
+}
+
+/// A resume delivered without what follows its track: the queue it was read
+/// from and the track, read next at `at` unless `tail` already holds it.
+struct Resumed {
+    queue: String,
+    track: String,
+    retries: u32,
+    at: Instant,
+    tail: Option<Tail>,
+}
+
+/// The entries and tracks after a queue's current one, and its revision.
+type Tail = (Vec<wire::Entry>, Vec<Track>, String);
+
 struct Worker {
     mirror: Mirror,
     /// The signed-in user at start: after an account switch nothing more is
@@ -349,10 +399,11 @@ struct Worker {
     backoff: Duration,
     /// When TIDAL's state is read next.
     dirty: Option<Instant>,
-    /// After taking over a queue: what it holds, until the app reports it
-    /// or the deadline passes. Other reports meanwhile are the old local
+    /// After taking over a queue: other reports meanwhile are the old local
     /// playback, and would overwrite the queue.
-    awaiting: Option<(LocalPlayback, Instant)>,
+    awaiting: Option<Takeover>,
+    /// What follows the last resumed track, read before the next command.
+    future_due: Option<Resumed>,
     /// The last report held back by `awaiting`, written once it ends.
     held: Option<(LocalPlayback, Instant)>,
     /// The track that played here when a takeover began.
@@ -381,7 +432,12 @@ impl Worker {
         let mut next_attach = Instant::now() + ATTACH_EVERY;
         let mut next_poll = Instant::now() + POLL_EVERY;
         loop {
-            let wake = [self.pending, self.awaiting.as_ref().map(|a| a.1), self.dirty, Some(next_attach), Some(next_poll)]
+            if self.future_due.as_ref().is_some_and(|r| r.at <= Instant::now())
+                && let Some(r) = self.future_due.take()
+            {
+                self.read_future(r);
+            }
+            let wake = [self.pending, self.awaiting.as_ref().map(|t| t.until), self.future_due.as_ref().map(|r| r.at), self.dirty, Some(next_attach), Some(next_poll)]
                 .into_iter()
                 .flatten()
                 .min()
@@ -419,7 +475,7 @@ impl Worker {
                 Err(RecvTimeoutError::Timeout) => {}
             }
             let now = Instant::now();
-            if self.awaiting.as_ref().is_some_and(|a| a.1 <= now) {
+            if self.awaiting.as_ref().is_some_and(|t| t.until <= now) {
                 self.awaiting = None;
                 let before = self.before_takeover.take();
                 // Only a track started here since then counts: the old playback is dropped.
@@ -475,12 +531,8 @@ impl Worker {
                 self.mirror.reset_start();
             }
         }
-        if let Some((resumed, since)) = &self.awaiting {
-            // The resumed playback, at about the resumed position (playing on from it).
-            let elapsed = i64::try_from(TAKEOVER.saturating_sub(since.saturating_duration_since(Instant::now())).as_millis()).unwrap_or(0);
-            let near = l.position_ms >= resumed.position_ms.saturating_sub(ACK_MS)
-                && l.position_ms <= resumed.position_ms.saturating_add(elapsed).saturating_add(ACK_MS);
-            if l.current != resumed.current || l.future != resumed.future || !near {
+        if let Some(t) = &self.awaiting {
+            if !t.reported_by(&l, Instant::now()) {
                 self.held = Some((l, at));
                 return;
             }
@@ -528,8 +580,9 @@ impl Worker {
         crate::auth::tokens().user_id() == self.account
     }
 
-    /// Reads TIDAL's state and tells the app what changed.
-    fn refresh(&mut self) -> Result<()> {
+    /// Reads TIDAL's state and tells the app what changed. Returns the state
+    /// and then its selected queue's head, as read.
+    fn refresh(&mut self) -> Result<(wire::State, Option<wire::Head>)> {
         if !self.same_account() {
             return Err(CoreError::NotSignedIn);
         }
@@ -554,6 +607,13 @@ impl Worker {
                 self.rollback_queue = None;
                 self.rollback_playing = false;
             }
+        }
+        // Told before the queue read, so this device pauses one call sooner. Not while
+        // a send's outcome is unsettled: a track started here since then keeps playing.
+        if self.quarantined.is_none()
+            && let Some(ev) = self.mirror.moved(&state)
+        {
+            self.emit(ev);
         }
         let head = state.queue_id.as_deref().map(wire::head_with_track).transpose()?;
         // Settled only by a complete read (the head too): a failed read keeps the report held.
@@ -615,6 +675,7 @@ impl Worker {
         if fresh_push {
             self.arrival = Some(Arrival(by.clone()));
         }
+        let read = (state.clone(), head.clone());
         for o in self.mirror.fetched(state, head, by.clone()) {
             match o {
                 Out::Event(ev) => self.emit(*ev),
@@ -627,11 +688,14 @@ impl Worker {
         if let Some(Arrival(from)) = self.arrival.clone() {
             // The reads above may span another claim: only a device still active plays.
             // A failed read keeps the arrival; the caller reads again shortly.
-            if wire::state()?.active.as_deref() != Some(self.mirror.me()) {
+            let now = wire::state()?;
+            if now.active.as_deref() != Some(self.mirror.me()) {
                 self.arrival = None;
-                return Ok(());
+                return Ok(read);
             }
-            match self.resume(None, from) {
+            // The head read above and this state are the resume's first round.
+            let selected = read.0.queue_id.clone().zip(read.1.clone());
+            match self.resume(None, from, selected, now) {
                 Ok(r) => {
                     self.arrival = None;
                     self.emit(HandoffEvent::Arrived(r));
@@ -642,7 +706,7 @@ impl Worker {
                 }
             }
         }
-        Ok(())
+        Ok(read)
     }
 
     /// Makes this device the active player; an error if TIDAL picked another.
@@ -656,21 +720,24 @@ impl Worker {
         Ok(())
     }
 
-    /// Reads the queue for playing it here, from the device that wrote it.
+    /// Reads the current track for playing it here, from the device that wrote
+    /// it; what follows it is read after the resume is delivered. `selected` is
+    /// the selected queue and its head, read before `state`: the first round.
     /// `claim` makes this device active once the queue proved readable.
-    fn resume(&mut self, claim: Option<Instant>, from: Option<Device>) -> Result<Resume> {
-        let mut queue = self.mirror.queue_id().ok_or_else(|| CoreError::Other("nothing to continue".into()))?.to_string();
+    fn resume(&mut self, claim: Option<Instant>, from: Option<Device>, selected: Option<(String, wire::Head)>, state: wire::State) -> Result<Resume> {
+        let (mut queue, head) = selected.ok_or_else(|| CoreError::Other("nothing to continue".into()))?;
+        let mut read = Some((head, state));
         let mut before: Option<String> = None;
         let mut status;
         let mut claimed = false;
-        // Read the selected queue until a snapshot agrees with itself and is
-        // still the selection, before the claim and once more after it (the
-        // source may switch queues in between).
+        // Read the selected queue's head, then the state, until it is still the
+        // selection, before the claim and once more after it (the source may
+        // switch queues in between).
         let mut rounds = 0;
-        let (head, mut entries, future, current, track) = loop {
+        let (head, current, track) = loop {
             rounds += 1;
-            let read = Self::snapshot(&queue).and_then(|r| Ok((r, wire::state()?)));
-            let ((head, entries, future), now) = match read {
+            let read = read.take().map_or_else(|| wire::head_with_track(&queue).and_then(|h| Ok((h, wire::state()?))), Ok);
+            let (head, now) = match read {
                 Ok(r) => r,
                 Err(e) => return Err(self.undo_claim(claimed, before.as_deref(), e)),
             };
@@ -705,7 +772,7 @@ impl Worker {
                     }
                     claimed = true;
                 }
-                _ => break (head, entries, future, current, track),
+                _ => break (head, current, track),
             }
         };
         // The caller gave up during the reads after the claim: give it back.
@@ -719,36 +786,66 @@ impl Worker {
         let playing = claim.is_some() && status == wire::Status::Playing;
         let now = now_ms();
         let position_ms = mirror::position_now(head.position_ms.unwrap_or(0), head.position_at_ms.unwrap_or(now), now, playing, duration);
-        let resumed = LocalPlayback {
-            current: Some(track.id().to_string()),
-            future: future.iter().map(|t| t.id().to_string()).collect(),
-            position_ms,
-            ..LocalPlayback::default()
-        };
-        entries.insert(0, current);
-        self.mirror.adopt(entries, &head, position_ms, now);
+        // Nothing follows it until that is read: the app plays the current track alone first.
+        let resumed = LocalPlayback { current: Some(track.id().to_string()), position_ms, ..LocalPlayback::default() };
+        self.mirror.adopt(current, &head, position_ms, now);
         // A report from before this would overwrite the queue just taken over.
         self.pending = None;
         // What played here before: if it still is when the wait ends, it is old playback, not a choice.
         self.before_takeover = self.last_local.take().and_then(|l| l.current);
         self.held = None;
-        self.awaiting = Some((resumed, Instant::now() + TAKEOVER));
+        let read_at = Instant::now();
+        self.awaiting = Some(Takeover { resumed, read_at, until: read_at + TAKEOVER });
+        let tail = (duration.saturating_sub(position_ms) < NEAR_END_MS)
+            .then(|| Self::read_tail(&queue).inspect_err(|e| log::info!("handoff: reading what follows a track near its end failed error={e}")).ok())
+            .flatten();
+        self.future_due = Some(Resumed { queue, track: track.id().to_string(), retries: 0, at: read_at, tail });
         let from = from
             .or_else(|| head.updated_by.as_deref().and_then(|id| self.mirror.device(id)))
             .unwrap_or_else(|| Device { id: head.updated_by.clone().unwrap_or_default(), name: String::new() });
-        Ok(Resume { from, current: track, future, position_ms, repeat: head.repeat })
+        Ok(Resume { from, current: track, position_ms, repeat: head.repeat })
     }
 
-    /// Head, entries and tracks of `queue` from reads that agree on its revision.
-    fn snapshot(queue: &str) -> Result<(wire::Head, Vec<wire::Entry>, Vec<Track>)> {
-        for _ in 0..3 {
-            let head = wire::head_with_track(queue)?;
-            let (entries, future) = wire::future_tracks(queue, MAX_FUTURE)?;
-            if wire::head(queue)?.revision == head.revision {
-                return Ok((head, entries, future));
+    /// Reads what follows a resumed track and tells the app. A failed read is
+    /// tried again a little later; after the last try the track plays alone
+    /// and TIDAL's queue is left as it is.
+    fn read_future(&mut self, mut r: Resumed) {
+        match r.tail.take().map_or_else(|| Self::read_tail(&r.queue), Ok) {
+            Ok((_, tracks, _)) if tracks.is_empty() => {}
+            Ok((entries, tracks, revision)) => {
+                // The queue was rewritten since, here or elsewhere: what follows is no longer the resume's.
+                if !self.mirror.holds_adoption(&revision) {
+                    log::info!("handoff: the resumed queue changed before what follows was read");
+                    return;
+                }
+                // Taken into the mirror only while the app's report of the track alone is held back: one
+                // already taken would plan a rewrite to that track. Without it, the app's append rewrites them.
+                if let Some(t) = self.awaiting.as_mut().filter(|t| t.resumed.current.as_ref() == Some(&r.track)) {
+                    self.mirror.adopted_future(&revision, entries);
+                    t.resumed.future = tracks.iter().map(|t| t.id().to_string()).collect();
+                    // The app needs the time to append them.
+                    t.until = Instant::now() + TAKEOVER;
+                }
+                self.emit(HandoffEvent::Upcoming(Upcoming { current: r.track, tracks }));
             }
+            Err(e) if r.retries < FUTURE_RETRIES => {
+                log::info!("handoff: reading what follows the resumed track failed, retrying error={e}");
+                r.retries += 1;
+                r.at = Instant::now() + FUTURE_RETRY;
+                self.future_due = Some(r);
+            }
+            Err(e) => log::warn!("handoff: gave up reading what follows the resumed track error={e}"),
         }
-        Err(CoreError::Network("the queue kept changing while it was read".into()))
+    }
+
+    /// What follows the current entry of `queue`, from reads that agree on its revision.
+    fn read_tail(queue: &str) -> Result<Tail> {
+        let revision = wire::head(queue)?.revision;
+        let (entries, tracks) = wire::future_tracks(queue, MAX_FUTURE)?;
+        if wire::head(queue)?.revision != revision {
+            return Err(CoreError::Network("the queue changed while what follows was read".into()));
+        }
+        Ok((entries, tracks, revision))
     }
 
     /// Selects the other device's queue again (after a failed send), then makes
@@ -833,15 +930,18 @@ impl Worker {
             return Err(CoreError::NotSignedIn);
         }
         // Never continue from a remembered queue: it may be gone. A failed read is retried
-        // (a pending arrival with it).
-        if let Err(e) = self.refresh() {
-            self.dirty.get_or_insert_with(|| Instant::now() + RETRY);
-            return Err(e);
-        }
+        // (a pending arrival with it). What it read is the resume's first round.
+        let (state, head) = match self.refresh() {
+            Ok(read) => read,
+            Err(e) => {
+                self.dirty.get_or_insert_with(|| Instant::now() + RETRY);
+                return Err(e);
+            }
+        };
         let from = self.mirror.state().active.as_deref().filter(|a| *a != self.mirror.me()).and_then(|a| self.mirror.device(a));
         // A pending arrival is what this pull takes over; kept if the pull fails, so it is retried.
         let arrival = self.arrival.take();
-        let r = self.resume(Some(deadline), from);
+        let r = self.resume(Some(deadline), from, state.queue_id.clone().zip(head), state);
         if r.is_err() && arrival.is_some() && self.mirror.is_active() {
             self.arrival = arrival;
             self.dirty.get_or_insert_with(|| Instant::now() + RETRY);
@@ -965,9 +1065,9 @@ impl Worker {
         self.dirty.get_or_insert_with(Instant::now);
     }
 
-    /// Writes the last report; `exact` also writes its position. `false` on
-    /// failure, and then it is tried again later.
-    fn write_local(&mut self, exact: bool) -> bool {
+    /// Writes the last report; `sending` (right before a hand-over) also writes
+    /// its position. `false` on failure, and then it is tried again later.
+    fn write_local(&mut self, sending: bool) -> bool {
         let Some(local) = self.last_local.clone() else { return true };
         if !self.same_account() {
             return false;
@@ -980,7 +1080,7 @@ impl Worker {
             self.pending.get_or_insert_with(|| Instant::now() + RETRY);
             return false;
         }
-        if exact {
+        if sending {
             self.mirror.force_position();
         }
         // Written later than reported (throttle, retries): where it plays now.
@@ -989,7 +1089,7 @@ impl Worker {
             local.position_ms += i64::try_from(self.last_local_at.elapsed().as_millis()).unwrap_or(0);
         }
         let writes = self.mirror.plan(&local, now_ms());
-        match self.apply(writes, &local, Instant::now()) {
+        match self.apply(writes, &local, Instant::now(), sending) {
             Ok(()) => {
                 self.backoff = RETRY;
                 true
@@ -1005,8 +1105,9 @@ impl Worker {
     }
 
     /// `planned`: when `local`'s position was true; a playing position moves on
-    /// by the time the writes before it took.
-    fn apply(&mut self, writes: Vec<Write>, local: &LocalPlayback, planned: Instant) -> Result<()> {
+    /// by the time the writes before it took. `sending`: the queue is handed
+    /// over right after, so only a rewritten queue's current entry is read back.
+    fn apply(&mut self, writes: Vec<Write>, local: &LocalPlayback, planned: Instant, sending: bool) -> Result<()> {
         let me = self.mirror.me().to_string();
         for w in writes {
             // A sign-in to another account during the batch ends it.
@@ -1020,8 +1121,10 @@ impl Worker {
                     let q = self.queue()?;
                     wire::rewrite(&q, &tracks, local.repeat)?;
                     let head = wire::head(&q)?;
-                    let mut entries = wire::future_entries(&q, MAX_FUTURE)?;
-                    entries.splice(0..0, head.current);
+                    let mut entries: Vec<wire::Entry> = head.current.into_iter().collect();
+                    if !sending {
+                        entries.extend(wire::future_entries(&q, MAX_FUTURE)?);
+                    }
                     self.mirror.queue_written(tracks, entries, head.revision, local.repeat);
                 }
                 Write::Repeat(r) => {
@@ -1061,14 +1164,42 @@ mod tests {
         assert_ne!(k, new_installation_key());
     }
 
+    fn playback(current: &str, future: &[&str], position_ms: i64) -> LocalPlayback {
+        LocalPlayback { current: Some(current.into()), future: future.iter().map(|t| (*t).to_string()).collect(), position_ms, playing: true, repeat: Repeat::Off }
+    }
+
+    #[test]
+    fn a_takeover_counts_the_position_from_the_resume_read() {
+        let read_at = Instant::now();
+        let now = read_at + Duration::from_secs(12);
+        // The wait restarted when what follows arrived, 10 s after the read.
+        let t = Takeover { resumed: playback("1", &["2", "3"], 10_000), read_at, until: read_at + Duration::from_secs(10) + TAKEOVER };
+        assert!(t.reported_by(&playback("1", &["2", "3"], 22_000), now));
+        assert!(!t.reported_by(&playback("1", &["2", "3"], 40_000), now));
+        assert!(!t.reported_by(&playback("1", &["2", "3"], 2_000), now));
+    }
+
+    #[test]
+    fn a_takeover_waits_for_what_follows() {
+        let read_at = Instant::now();
+        let mut t = Takeover { resumed: playback("1", &[], 10_000), read_at, until: read_at + TAKEOVER };
+        // Before the future is read, the current track alone is the resumed playback.
+        assert!(t.reported_by(&playback("1", &[], 10_000), read_at));
+        t.resumed.future = vec!["2".into()];
+        assert!(!t.reported_by(&playback("1", &[], 10_000), read_at));
+        assert!(t.reported_by(&playback("1", &["2"], 10_000), read_at));
+        assert!(!t.reported_by(&playback("9", &["2"], 10_000), read_at));
+    }
+
     struct Log(Mutex<Vec<String>>);
     impl HandoffListener for Log {
         fn on_event(&self, ev: HandoffEvent) {
             let line = match ev {
                 HandoffEvent::Devices(d) => format!("devices {:?}", d.iter().map(|d| &d.name).collect::<Vec<_>>()),
                 HandoffEvent::Elsewhere(e) => format!("elsewhere {:?}", e.map(|e| (e.device.name, e.track.title().to_string(), e.playing))),
-                HandoffEvent::Arrived(r) => format!("arrived {} +{} at {}", r.current.title(), r.future.len(), r.position_ms),
+                HandoffEvent::Arrived(r) => format!("arrived {} at {}", r.current.title(), r.position_ms),
                 HandoffEvent::MovedTo(d) => format!("moved to {}", d.name),
+                HandoffEvent::Upcoming(u) => format!("upcoming after {}: {}", u.current, u.tracks.iter().map(Track::id).collect::<Vec<_>>().join(",")),
             };
             eprintln!("{line}");
             self.0.lock().unwrap_or_else(PoisonError::into_inner).push(line);
@@ -1112,8 +1243,8 @@ mod tests {
         wait(&lb, "elsewhere Some((\"SDAT test A\"*true))");
         let r = b.continue_here().expect("continue here");
         assert_eq!(r.current.id(), ids[0]);
-        assert_eq!(r.future.iter().map(|t| t.id().to_string()).collect::<Vec<_>>(), ids[1..]);
         assert!(r.position_ms >= 30_000, "position {}", r.position_ms);
+        wait(&lb, &format!("upcoming after {}: {}", ids[0], ids[1..].join(",")));
         wait(&la, "moved to SDAT test B");
         a.report(LocalPlayback { current: Some(ids[0].clone()), future: ids[1..].to_vec(), position_ms: 31_000, playing: false, repeat: Repeat::Off });
         // B still reports its old playback, then the resumed one, then moves on.
@@ -1125,10 +1256,11 @@ mod tests {
         let a_id = b.devices().into_iter().find(|d| d.name == "SDAT test A").expect("a listed").id;
         b.send_to(&a_id).expect("send to a");
         wait(&la, "arrived");
+        wait(&la, &format!("upcoming after {}: {}", ids[1], ids[2..].join(",")));
         let got = la.0.lock().unwrap_or_else(PoisonError::into_inner).iter().find(|l| l.starts_with("arrived")).cloned().unwrap_or_default();
         // Reported playing at 12 345 ms about 2 s before the send: written where it plays then.
         let at: i64 = got.rsplit(' ').next().and_then(|n| n.parse().ok()).unwrap_or(0);
-        assert!(got.contains("+3 at ") && (12_345..16_000).contains(&at), "{got}");
+        assert!((12_345..16_000).contains(&at), "{got}");
         a.stop();
         b.stop();
         assert!(wait_detached(Duration::from_secs(10)), "not detached");

@@ -169,6 +169,20 @@ final class Player {
         // Where the other device was, not the nearest segment start.
         exactResume = true
         load(0, resumeAt: max(secs, 0))
+        resumedVersion = queueVersion
+    }
+
+    /// What follows a handoff's resumed track `id`, only while the queues still are what that resume set up: else
+    /// the user started or queued something else, or it is a duplicate.
+    @discardableResult
+    func appendUpNext(after id: String, _ tracks: [Track]) -> Bool {
+        guard resumedVersion == queueVersion, index != nil, current?.id == id, !tracks.isEmpty else { return false }
+        resumedVersion = nil
+        queue.append(contentsOf: tracks)
+        original.append(contentsOf: tracks)
+        invalidatePreload()
+        persist()
+        return true
     }
 
     func setShuffle(_ on: Bool) {
@@ -894,6 +908,9 @@ final class Player {
     @ObservationIgnored private var exactResume = false
     /// Bumped on every start: tells one playback from a later one of the same track.
     @ObservationIgnored private(set) var starts = 0
+    /// `queueVersion` right after a handoff resume, until what follows its track is appended: any change to the
+    /// queues since ends it, a restart or a repeat does not.
+    @ObservationIgnored private var resumedVersion: Int?
     /// Bumped by every play or pause command, a resume of the same track too.
     @ObservationIgnored private(set) var plays = 0
     @ObservationIgnored private var restoredInfinite = false

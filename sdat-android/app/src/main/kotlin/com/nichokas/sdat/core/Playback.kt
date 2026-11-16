@@ -74,6 +74,9 @@ class Playback(context: Context, private val prefs: Preferences, secrets: Secret
      * took over, and the player sheet drops a drag meant for the previous entry. */
     var entry by mutableIntStateOf(0)
         private set
+    /** The base queue a Handoff resume restored, until what follows its track is appended. Any new list replaces it;
+     * a restart or a repeat keeps it. */
+    private var resumedBase: List<Track>? = null
     /** Bumped by every play or pause command, so a late handoff result knows the user acted. */
     var controls = 0
         private set
@@ -654,13 +657,24 @@ class Playback(context: Context, private val prefs: Preferences, secrets: Secret
     var onChange: (() -> Unit)? = null
 
     /** Another device's playback (Handoff), loaded like the queue saved at launch and played from [atMs]. */
-    fun resume(current: Track, future: List<Track>, atMs: Long, repeat: Repeat) {
+    fun resume(current: Track, atMs: Long, repeat: Repeat) {
         // An arrival that plays here is newer than a Continue here still on its way.
         controls++
-        val (saved, state) = resumed(current, future, maxOf(atMs, 0) / 1000.0, repeat)
+        val (saved, state) = resumed(current, maxOf(atMs, 0) / 1000.0, repeat)
         queue.restore(saved, state)
         replaceInfinite(null)
+        resumedBase = queue.original
         start(current, resumeAt = state.position)
+    }
+
+    /** The rest of a resumed queue (Handoff), after its track [after], while that resume's queue still is the one
+     * playing. */
+    fun appendUpNext(after: String, tracks: List<Track>) {
+        val base = resumedBase
+        if (base == null || queue.original !== base || !upcomingApplies(after, track?.id, base.map { it.id })) return
+        resumedBase = null
+        queue.extend(tracks)
+        changed()
     }
 
     /** After a failure or a controller's stop there is nothing prepared, so this starts the track again where it was;

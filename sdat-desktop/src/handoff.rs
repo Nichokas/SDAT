@@ -7,7 +7,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use gtk::gio;
-use tonearm_core::handoff::{Device, Elsewhere, Handoff, HandoffEvent, HandoffListener, LocalPlayback, Repeat, Resume};
+use tonearm_core::handoff::{Device, Elsewhere, Handoff, HandoffEvent, HandoffListener, LocalPlayback, Repeat, Resume, Upcoming};
 
 use crate::i18n::{tr, trf};
 use crate::model::PlaybackSource;
@@ -31,6 +31,9 @@ thread_local! {
     /// Bumped on every track start, repeats included: a send or continue
     /// that finishes after a newer start leaves that playback alone.
     static STARTS: Cell<u64> = const { Cell::new(0) };
+    /// The latest `Upcoming` not applied yet.
+    static UPCOMING: RefCell<Option<Upcoming>> = const { RefCell::new(None) };
+    static RESUMED: RefCell<Option<Resumed>> = const { RefCell::new(None) };
 }
 
 const RETRY: Duration = Duration::from_mins(1);
@@ -114,6 +117,7 @@ pub fn stop() {
     }
     ELSEWHERE.with(RefCell::take);
     CONTINUING.with(|c| c.set(false));
+    forget_resume();
     banner().set(None);
     devices().set(Vec::new());
 }
@@ -178,9 +182,10 @@ fn on_event(ev: HandoffEvent) {
             }
         }
         // A Listen Together guest follows its host.
-        HandoffEvent::Arrived(_) | HandoffEvent::MovedTo(_) if crate::live::is_guest() => {}
+        HandoffEvent::Arrived(_) | HandoffEvent::MovedTo(_) | HandoffEvent::Upcoming(_) if crate::live::is_guest() => {}
         HandoffEvent::Arrived(r) => {
             let from = name(&r.from);
+            forget_resume();
             match play(r) {
                 Ok(()) => player::toasts().notify(&trf("Continued from %s", &[&from])),
                 Err(e) => {
@@ -190,11 +195,85 @@ fn on_event(ev: HandoffEvent) {
             }
         }
         HandoffEvent::MovedTo(d) => {
+            // What follows a resume here no longer starts.
+            forget_resume();
             // Also when paused: a pause cancels a resume that would start playing later.
             player::pause();
             player::toasts().notify(&trf("Playing on %s", &[&name(&d)]));
         }
+        HandoffEvent::Upcoming(u) => {
+            UPCOMING.with(|s| *s.borrow_mut() = Some(u));
+            apply_upcoming();
+        }
     }
+}
+
+/// The playback the last resume started.
+struct Resumed {
+    id: String,
+    /// `player::list_generation()` right after its start: a new list ends it,
+    /// a restart or a repeat does not.
+    generation: u64,
+    /// Its track loaded as the current one.
+    loaded: bool,
+}
+
+#[derive(Debug, PartialEq, Eq)]
+enum Step {
+    Apply,
+    Wait,
+    Drop,
+}
+
+/// What to do with the tracks after the resumed track. `owned`: its list
+/// still is the one playing; `alone`: the resumed track is the current one
+/// with nothing after it in the list.
+fn upcoming_step(continuing: bool, owned: bool, loaded: bool, alone: bool) -> Step {
+    if continuing {
+        // Its result decides: played, or dropped with it.
+        Step::Wait
+    } else if !owned {
+        Step::Drop
+    } else if !loaded {
+        Step::Wait
+    } else if alone {
+        Step::Apply
+    } else {
+        // The user queued something else, or a duplicate.
+        Step::Drop
+    }
+}
+
+fn apply_upcoming() {
+    let Some(u) = UPCOMING.with(RefCell::take) else { return };
+    let (owned, loaded) = RESUMED.with(|r| match r.borrow().as_ref() {
+        Some(r) if r.id == u.current && r.generation == player::list_generation() => (true, r.loaded),
+        _ => (false, false),
+    });
+    let alone = player::current_track_id().as_deref() == Some(u.current.as_str()) && player::base_queue().is_empty();
+    match upcoming_step(CONTINUING.with(Cell::get), owned, loaded, alone) {
+        // The base queue hook reports it, which ends the core's wait for it.
+        Step::Apply => player::set_list_rest(u.tracks),
+        Step::Wait => UPCOMING.with(|s| *s.borrow_mut() = Some(u)),
+        Step::Drop => {}
+    }
+}
+
+fn resumed_loaded() {
+    let playing = player::current_track_id();
+    RESUMED.with(|r| {
+        if let Some(r) = r.borrow_mut().as_mut()
+            && Some(&r.id) == playing.as_ref()
+            && r.generation == player::list_generation()
+        {
+            r.loaded = true;
+        }
+    });
+}
+
+fn forget_resume() {
+    UPCOMING.with(RefCell::take);
+    RESUMED.with(RefCell::take);
 }
 
 pub fn name(d: &Device) -> String {
@@ -204,11 +283,14 @@ pub fn name(d: &Device) -> String {
 /// Loads playback taken over from another device and plays it.
 fn play(r: Resume) -> anyhow::Result<()> {
     let source = (!r.from.name.is_empty()).then(|| PlaybackSource::List { title: r.from.name.clone(), route: String::new() });
-    let tracks = std::iter::once(r.current).chain(r.future).collect();
+    let id = r.current.id().to_string();
     // Repeat-one would make the load pick the old track again: set it after.
     let before = player::repeat_mode_changed().get();
     player::set_repeat_mode(RepeatMode::None);
-    let played = player::play_at(source, tracks, Duration::from_millis(u64::try_from(r.position_ms).unwrap_or(0)));
+    let played = player::play_at(source, vec![r.current], Duration::from_millis(u64::try_from(r.position_ms).unwrap_or(0)));
+    if played.is_ok() {
+        RESUMED.with(|s| *s.borrow_mut() = Some(Resumed { id, generation: player::list_generation(), loaded: false }));
+    }
     // A failed load keeps the user's own repeat mode.
     player::set_repeat_mode(if played.is_ok() { repeat_mode(r.repeat) } else { before });
     played
@@ -224,6 +306,7 @@ pub fn continue_here() {
     let Some(h) = handoff() else { return };
     let generation = current_generation();
     CONTINUING.with(|c| c.set(true));
+    forget_resume();
     banner().set(None);
     let started = (starts(), player::play_requests(), player::pauses(), player::plays());
     glib::spawn_future_local(async move {
@@ -240,13 +323,17 @@ pub fn continue_here() {
             if !crate::live::is_guest() {
                 banner().set(ELSEWHERE.with(|s| s.borrow().clone()));
             }
+            UPCOMING.with(RefCell::take);
             return;
         }
-        let r = r.and_then(play);
-        if let Err(e) = r {
-            log::error!("handoff: continue here failed error={e:#}");
-            player::toasts().notify(&tr("Could not continue playback here"));
-            banner().set(ELSEWHERE.with(|s| s.borrow().clone()));
+        match r.and_then(play) {
+            Ok(()) => apply_upcoming(),
+            Err(e) => {
+                UPCOMING.with(RefCell::take);
+                log::error!("handoff: continue here failed error={e:#}");
+                player::toasts().notify(&tr("Could not continue playback here"));
+                banner().set(ELSEWHERE.with(|s| s.borrow().clone()));
+            }
         }
     });
 }
@@ -360,6 +447,8 @@ fn install_hooks() {
     player::track_changed().on_lazy(|_| {
         STARTS.with(|s| s.set(s.get() + 1));
         report();
+        resumed_loaded();
+        apply_upcoming();
         CONTINUE
     });
     // A repeat-one restart moves the position back to 0 without a track change.
@@ -434,6 +523,20 @@ mod tests {
         for m in [RepeatMode::None, RepeatMode::Track, RepeatMode::Queue] {
             assert_eq!(repeat_mode(local(None, vec![], vec![], Duration::ZERO, false, m).repeat), m);
         }
+    }
+
+    #[test]
+    fn upcoming_follows_only_the_resumed_playback() {
+        // (continuing, owned, loaded, alone)
+        assert_eq!(upcoming_step(false, true, true, true), Step::Apply);
+        // Continue here still running, even before its resume plays.
+        assert_eq!(upcoming_step(true, false, false, false), Step::Wait);
+        // The resumed track still loading.
+        assert_eq!(upcoming_step(false, true, false, false), Step::Wait);
+        // A new list since, even of the same track.
+        assert_eq!(upcoming_step(false, false, true, true), Step::Drop);
+        // A duplicate, or the user queued something meanwhile.
+        assert_eq!(upcoming_step(false, true, true, false), Step::Drop);
     }
 
     #[test]

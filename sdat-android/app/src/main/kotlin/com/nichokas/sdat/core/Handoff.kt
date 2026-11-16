@@ -45,6 +45,8 @@ object Handoff {
     private var wanted = false
     /** Bumped on every start and stop; core callbacks carry the value they began with. */
     private var generation = 0
+    /** Upcoming that came while a Continue here ran, applied once its result is played or dropped. */
+    private var pendingUpcoming: HandoffEvent.Upcoming? = null
 
     fun attach(player: Playback, prefs: Preferences, session: Session, deviceName: () -> String) {
         this.player = player
@@ -101,6 +103,7 @@ object Handoff {
         elsewhere = null
         devices = emptyList()
         continuing = false
+        pendingUpcoming = null
     }
 
     /** A Listen Together guest plays the host's queue, not its own. */
@@ -114,6 +117,7 @@ object Handoff {
         val h = link ?: return
         if (continuing || Live.isGuest) return
         continuing = true
+        pendingUpcoming = null
         val gen = generation
         val entry = player.entry
         val controls = player.controls
@@ -129,7 +133,12 @@ object Handoff {
                 Log.i(TAG, "continue here failed: $e")
                 if (gen == generation) Chrome.flash("Couldn't continue here")
             } finally {
-                if (gen == generation) continuing = false
+                if (gen == generation) {
+                    continuing = false
+                    // Also when this result was not played: an Arrived that superseded it may own the held tracks.
+                    pendingUpcoming?.let(::append)
+                    pendingUpcoming = null
+                }
             }
         }
     }
@@ -156,7 +165,12 @@ object Handoff {
         }
     }
 
-    private fun play(r: HandoffResume) = player.resume(r.current, r.future, r.positionMs, r.repeat.local)
+    private fun play(r: HandoffResume) = player.resume(r.current, r.positionMs, r.repeat.local)
+
+    /** The report this queue edit sends is what the core waits for. */
+    private fun append(u: HandoffEvent.Upcoming) {
+        if (!Live.isGuest) player.appendUpNext(u.currentId, u.tracks)
+    }
 
     private fun handle(e: HandoffEvent, gen: Int) {
         if (gen != generation) return
@@ -168,6 +182,8 @@ object Handoff {
                 play(e.resume)
                 Chrome.flash("Continued from ${e.resume.from.label}")
             }
+            // May follow a running Continue here's result, so it waits for that.
+            is HandoffEvent.Upcoming -> if (continuing) pendingUpcoming = e else append(e)
             is HandoffEvent.MovedTo -> if (!Live.isGuest) {
                 player.pause()
                 Chrome.flash("Playing on ${e.device.label}")
@@ -204,6 +220,10 @@ internal val HandoffRepeat.local get() = when (this) {
     HandoffRepeat.ALL -> Repeat.All
     HandoffRepeat.ONE -> Repeat.One
 }
+
+/** Upcoming tracks follow [resumedId] only while it plays and the base queue still is that track alone; otherwise the
+ * user started something else, even a list at that track, or they are already there. */
+internal fun upcomingApplies(resumedId: String, currentId: String?, base: List<String>) = currentId == resumedId && base == listOf(resumedId)
 
 /** "Playing on iPhone", or "Paused on iPhone · 2 h ago". */
 internal fun elsewhereLine(e: HandoffElsewhere, nowMs: Long): String {
