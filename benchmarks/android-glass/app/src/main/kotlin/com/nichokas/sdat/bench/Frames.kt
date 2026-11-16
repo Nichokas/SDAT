@@ -14,8 +14,9 @@ const val BUDGET_60_NS = 16_666_667L
 /**
  * One rendered frame from FrameMetrics, in nanoseconds. [uiNs] is the main thread (input, animation, layout, draw),
  * [renderNs] the RenderThread (sync, command issue, swap) and [gpuNs] the GPU, negative where the phone does not report it.
+ * [intervalNs] is the time since the previous frame's vsync, so it includes the vsyncs skipped between them.
  */
-data class Frame(val totalNs: Long, val uiNs: Long, val renderNs: Long, val gpuNs: Long, val deadlineNs: Long)
+data class Frame(val totalNs: Long, val uiNs: Long, val renderNs: Long, val gpuNs: Long, val deadlineNs: Long, val intervalNs: Long)
 
 enum class Limiter { UiThread, RenderThread, Gpu }
 
@@ -25,6 +26,8 @@ data class Stats(
     val p50Ms: Double,
     val p90Ms: Double,
     val p99Ms: Double,
+    /** The 99th percentile of the time between frames: what the user sees in the slowest 1% of the run. */
+    val p99IntervalMs: Double,
     val maxMs: Double,
     /** Frames that missed this display's own deadline. */
     val jankPercent: Double,
@@ -54,6 +57,7 @@ fun stats(frames: List<Frame>, seconds: Double, lostReports: Int = 0): Stats {
         p50Ms = percentile(total, 50.0) / 1e6,
         p90Ms = percentile(total, 90.0) / 1e6,
         p99Ms = percentile(total, 99.0) / 1e6,
+        p99IntervalMs = percentile(frames.map { it.intervalNs }.filter { it > 0 }.sorted(), 99.0) / 1e6,
         maxMs = (total.lastOrNull() ?: 0) / 1e6,
         jankPercent = share { it.totalNs > it.deadlineNs },
         over60Percent = share { it.totalNs > BUDGET_60_NS },
@@ -69,8 +73,12 @@ class FrameRecorder(private val window: Window) : AutoCloseable {
     private val thread = HandlerThread("frame-metrics").apply { start() }
     private val frames = ConcurrentLinkedQueue<Frame>()
     private val lost = AtomicInteger()
+    private var lastVsync = 0L // Only touched on the metrics thread.
     private val listener = Window.OnFrameMetricsAvailableListener { _, m, dropped ->
         lost.addAndGet(dropped)
+        val vsync = m.getMetric(FrameMetrics.INTENDED_VSYNC_TIMESTAMP)
+        val interval = if (lastVsync > 0) vsync - lastVsync else 0
+        lastVsync = vsync
         if (m.getMetric(FrameMetrics.FIRST_DRAW_FRAME) == 0L) {
             frames += Frame(
                 totalNs = m.getMetric(FrameMetrics.TOTAL_DURATION),
@@ -80,6 +88,7 @@ class FrameRecorder(private val window: Window) : AutoCloseable {
                     m.getMetric(FrameMetrics.SWAP_BUFFERS_DURATION),
                 gpuNs = m.getMetric(FrameMetrics.GPU_DURATION),
                 deadlineNs = m.getMetric(FrameMetrics.DEADLINE),
+                intervalNs = interval,
             )
         }
     }

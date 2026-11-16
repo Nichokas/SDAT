@@ -20,6 +20,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.State
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
@@ -58,7 +59,7 @@ import kotlin.math.roundToInt
 // Album: SDAT's DetailPage with its blurred cover backdrop, glass Play and Shuffle in the scrolled header, and the wide mini player.
 
 @Composable
-internal fun Album(covers: List<File>, images: ImageCounter) {
+internal fun Album(covers: List<File>, images: ImageCounter, seconds: State<Float>) {
     val list = rememberLazyListState()
     AutoScroll(list, speedDp = 1600f)
     val pastHeader by remember { derivedStateOf { list.firstVisibleItemIndex > 0 } }
@@ -94,7 +95,7 @@ internal fun Album(covers: List<File>, images: ImageCounter) {
         },
         overlayContent = {
             GlassSurface(Modifier.align(Alignment.BottomCenter).fillMaxWidth().navigationBarsPadding().padding(start = 24.dp, end = 24.dp, bottom = 12.dp).height(62.dp), shape = RoundedCornerShape(percent = 50)) {
-                WideMini(art, images)
+                WideMini(art, images, seconds)
             }
         },
     )
@@ -102,7 +103,7 @@ internal fun Album(covers: List<File>, images: ImageCounter) {
 
 /** SDAT's wide mini player content: cover, title and artist, the play ring, and next. */
 @Composable
-private fun WideMini(art: File, images: ImageCounter) {
+private fun WideMini(art: File, images: ImageCounter, seconds: State<Float>) {
     Row(Modifier.fillMaxSize().padding(start = 9.dp, end = 10.dp), horizontalArrangement = Arrangement.spacedBy(10.dp), verticalAlignment = Alignment.CenterVertically) {
         val px = (38 * LocalDensity.current.density).roundToInt()
         AsyncImage(cover(art, px, false, images), null, Modifier.size(38.dp).clip(RoundedCornerShape(6.dp)), contentScale = ContentScale.Crop)
@@ -110,7 +111,7 @@ private fun WideMini(art: File, images: ImageCounter) {
             Text("Track title", style = IosTypography.subheadline, fontWeight = FontWeight.SemiBold, color = Color.White, maxLines = 1)
             Text("Artist", style = IosTypography.caption1, color = Color.White.copy(alpha = 0.6f), maxLines = 1)
         }
-        Box(Modifier.size(40.dp)) { ProgressRing(null) }
+        Box(Modifier.size(40.dp)) { ProgressRing(seconds) }
         Canvas(Modifier.size(36.dp, 40.dp).padding(horizontal = 9.dp, vertical = 13.dp)) {
             val half = size.width / 2
             for (x in listOf(0f, half)) {

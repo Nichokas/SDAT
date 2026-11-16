@@ -104,7 +104,7 @@ class MainActivity : ComponentActivity() {
                             while (true) {
                                 lifecycle.currentStateFlow.first { it.isAtLeast(Lifecycle.State.RESUMED) }
                                 paused = false
-                                current = scene to "${runs.size + 1}/$total · round $round" + if (attempt > 0) " · again" else ""
+                                current = scene to "${runs.size + 1}/$total · round $round" + if (attempt > 0) " · retry $attempt" else ""
                                 val run = measure(scene, round, recorder, power)
                                 if (!paused) {
                                     runs += run

@@ -26,8 +26,8 @@ private fun List<Double>.spread() = if (size < 2) "" else " (${min().f()}-${max(
 fun meets60(fps: Double, over60: Double) = fps >= 57.0 && over60 <= 5.0
 
 /**
- * One scene across rounds: its median fps, and its 1% low, the rate its slowest 1% of frames could hold
- * (1000 / p99 ms, capped at the display's rate).
+ * One scene across rounds: its median fps, and its 1% low, the rate shown during its slowest 1% of frames
+ * (1000 / p99 of the time between frames, capped at the display's rate).
  */
 data class SceneScore(val label: String, val fps: Double, val low1: Double, val meets60: Boolean)
 
@@ -41,7 +41,7 @@ data class Score(val scenes: List<SceneScore>, val refreshHz: Float) {
 fun score(runs: List<Run>, refreshHz: Float) = Score(
     runs.groupBy { it.scene }.map { (scene, group) ->
         val fps = group.map { it.stats.fps }.median()
-        val p99 = group.map { it.stats.p99Ms }.median()
+        val p99 = group.map { it.stats.p99IntervalMs }.median()
         val low1 = if (p99 > 0) minOf(refreshHz.toDouble(), 1000 / p99) else refreshHz.toDouble()
         SceneScore(scene.label, fps, low1, meets60(fps, group.map { it.stats.over60Percent }.median()))
     },

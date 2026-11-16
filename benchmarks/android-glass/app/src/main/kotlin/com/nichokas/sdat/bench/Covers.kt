@@ -23,8 +23,8 @@ fun covers(dir: File): List<File> {
             if (!it.exists()) {
                 // Written beside and renamed, so a run killed mid-write never leaves a broken cover behind.
                 val tmp = File(dir, "cover-$i.jpg.tmp")
-                tmp.outputStream().use { out -> cover(i).compress(Bitmap.CompressFormat.JPEG, 85, out) }
-                tmp.renameTo(it)
+                check(tmp.outputStream().use { out -> cover(i).compress(Bitmap.CompressFormat.JPEG, 85, out) }) { "Could not write $tmp" }
+                check(tmp.renameTo(it)) { "Could not move $tmp to $it" }
             }
         }
     }

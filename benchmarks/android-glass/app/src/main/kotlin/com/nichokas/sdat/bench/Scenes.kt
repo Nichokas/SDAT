@@ -81,7 +81,7 @@ fun SceneView(scene: Scene, covers: List<File>, images: ImageCounter) {
             Page.DiscoverPan -> Discover(scene.glass, covers, images, seconds, speedDp = 900f, cold = false)
             Page.DiscoverFling -> Discover(scene.glass, covers, images, seconds, speedDp = 3500f, cold = true)
             Page.Collection -> Collection(scene.glass, covers, images, seconds)
-            Page.Album -> Album(covers, images)
+            Page.Album -> Album(covers, images, seconds)
             Page.Player -> Player(covers, images, seconds)
         }
     }

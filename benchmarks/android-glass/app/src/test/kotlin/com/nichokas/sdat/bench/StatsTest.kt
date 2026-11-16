@@ -6,8 +6,8 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class StatsTest {
-    private fun frame(ms: Double, ui: Double = 0.0, render: Double = 0.0, gpu: Double = 0.0, deadline: Double = 16.6) =
-        Frame((ms * 1e6).toLong(), (ui * 1e6).toLong(), (render * 1e6).toLong(), (gpu * 1e6).toLong(), (deadline * 1e6).toLong())
+    private fun frame(ms: Double, ui: Double = 0.0, render: Double = 0.0, gpu: Double = 0.0, deadline: Double = 16.6, interval: Double = 16.6) =
+        Frame((ms * 1e6).toLong(), (ui * 1e6).toLong(), (render * 1e6).toLong(), (gpu * 1e6).toLong(), (deadline * 1e6).toLong(), (interval * 1e6).toLong())
 
     @Test fun percentileIsNearestRank() {
         val sorted = (1L..10L).toList()
@@ -56,7 +56,7 @@ class StatsTest {
     }
 
     @Test fun scoreTakesTheSlowestSceneAndCapsTheOnePercentLowAtTheDisplayRate() {
-        fun run(scene: Scene, frameMs: Double) = Run(scene, 1, stats(List(60) { frame(frameMs) }, seconds = 1.0), 0.0, 0, 0, 0, 0)
+        fun run(scene: Scene, frameMs: Double) = Run(scene, 1, stats(List(60) { frame(frameMs, interval = frameMs) }, seconds = 1.0), 0.0, 0, 0, 0, 0)
         val fast = Scene(Page.Collection, Glass.None)
         val slow = Scene(Page.DiscoverFling, Glass.Live, busyCores = 2)
         val score = score(listOf(run(fast, 5.0), run(slow, 25.0)), refreshHz = 60f)
@@ -64,5 +64,12 @@ class StatsTest {
         assertEquals(40.0, score.worstLow.low1, 1e-9)
         assertEquals(60.0, score.scenes.first { it.label == fast.label }.low1, 0.0)
         assertEquals(1, score.passing)
+    }
+
+    @Test fun fastFramesWithSkippedVsyncsStillShowALowOnePercent() {
+        // 5 ms to render, but only every other 60 Hz vsync: the user sees 30 fps.
+        val stats = stats(List(30) { frame(5.0, interval = 33.3) }, seconds = 1.0)
+        val score = score(listOf(Run(Scene(Page.Player, Glass.Live), 1, stats, 0.0, 0, 0, 0, 0)), refreshHz = 60f)
+        assertEquals(30.0, score.worstLow.low1, 0.1)
     }
 }
