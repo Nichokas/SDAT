@@ -1,25 +1,59 @@
 #!/usr/bin/env bash
-# Installs sccache and enables it in the user's Cargo config, so every git worktree
-# reuses the dependencies another one already compiled. Safe to run again.
+# Sets up the user's Cargo config so every git worktree shares build output:
+#  - sccache reuses the dependencies another worktree already compiled, and
+#  - one shared target directory, because sccache alone still copies every artifact into
+#    each worktree's own target/ (several GB per worktree).
+# Cargo locks the shared target directory, so builds from different worktrees run one at a time.
+# Safe to run again; keys you already set under [build] are left alone.
 set -euo pipefail
 
 cargo_home="${CARGO_HOME:-$HOME/.cargo}"
+target_dir="${SDAT_TARGET_DIR:-$HOME/.cache/cargo-target}"
+case "$target_dir" in
+  *[\"\\]*) echo "SDAT_TARGET_DIR must not contain quotes or backslashes: $target_dir" >&2; exit 1 ;;
+esac
 command -v sccache >/dev/null || cargo install sccache --locked
 sccache="$(command -v sccache || echo "$cargo_home/bin/sccache")"
 "$sccache" --version
 
 config="$cargo_home/config.toml"
-mkdir -p "$cargo_home"
+mkdir -p "$cargo_home" "$target_dir"
 touch "$config"
+# A dotfiles-managed config is a symlink; edit its destination so the link survives the atomic replace below.
+config="$(readlink -f "$config" 2>/dev/null || echo "$config")"
 
-# Only ever append a fresh [build] table; anything already there is left for the user to edit.
-if grep -Eq 'rustc-wrapper.*sccache' "$config"; then
-  echo "sccache is already enabled in $config"
-elif grep -Eq 'rustc-wrapper|^[[:space:]]*(\[[[:space:]]*"?build"?[[:space:]]*\]|"?build"?[[:space:]]*\.)' "$config"; then
-  echo "$config already configures build; add this under [build] yourself:" >&2
-  echo "rustc-wrapper = \"$sccache\"" >&2
-  exit 1
-else
-  printf '\n[build]\nrustc-wrapper = "%s"\n' "$sccache" >>"$config"
-  echo "Enabled sccache in $config"
-fi
+python3 -c 'import tomllib' 2>/dev/null || { echo "python3 3.11 or newer is required to read $config." >&2; exit 1; }
+
+# tomllib knows every spelling of a key (bare, quoted, dotted, inline table); a regex does not.
+# Prints "no-build", "unset", or "set" followed by the current value.
+build_key_state() {
+  python3 -I -c 'import sys, tomllib
+build = tomllib.load(open(sys.argv[1], "rb")).get("build")
+key = sys.argv[2]
+print("no-build" if build is None else f"set {build[key]}" if key in build else "unset")' "$config" "$1" 2>/dev/null
+}
+
+set_build_key() {
+  local key="$1" value="$2" state tmp
+  state="$(build_key_state "$key")" || { echo "$config is not valid TOML; fix it and run this again." >&2; exit 1; }
+  if [ "${state%% *}" = set ]; then
+    echo "$key is already set in $config"
+    [ "${state#set }" = "$value" ] || echo "Note: it is '${state#set }', not '$value'; left unchanged, so edit it if worktrees should share build output." >&2
+  elif [ "$state" = no-build ]; then
+    printf '\n[build]\n%s = "%s"\n' "$key" "$value" >>"$config"
+    echo "Set $key in $config"
+  elif grep -Eq '^[[:space:]]*\[[[:space:]]*build[[:space:]]*\][[:space:]]*(#.*)?$' "$config"; then
+    # No sed -i: its syntax differs between GNU and BSD.
+    tmp="$(mktemp "$config.XXXXXX")"
+    LINE="$key = \"$value\"" awk '{ print } !done && /^[[:space:]]*\[[[:space:]]*build[[:space:]]*\]/ { print ENVIRON["LINE"]; done = 1 }' "$config" >"$tmp"
+    mv "$tmp" "$config" # same directory, so the swap is atomic and a full disk cannot leave a truncated config
+    echo "Set $key in $config"
+  else
+    echo "$config defines build in a form this script does not edit; add this under [build] yourself:" >&2
+    echo "$key = \"$value\"" >&2
+    exit 1
+  fi
+}
+
+set_build_key rustc-wrapper "$sccache"
+set_build_key target-dir "$target_dir"

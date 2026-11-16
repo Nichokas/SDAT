@@ -75,6 +75,8 @@ CFG
 export TONEARM_VERSION=%{version}
 export TONEARM_COMMIT=v%{version}
 export RUSTFLAGS="%{?build_rustflags}"
+# A developer-wide Cargo target-dir (scripts/setup-sccache.sh) must not move the output %install reads.
+export CARGO_TARGET_DIR=target
 cargo build --release --offline --frozen -p sdat-desktop
 
 %install

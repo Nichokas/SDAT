@@ -84,8 +84,7 @@ The current design for Tonearm originally came to be when I tried myself on a re
 The SDAT desktop app is part of the SDAT monorepo Cargo workspace (run commands from the repository root). You need a Rust toolchain (edition 2024, Rust 1.85+) and the development files for GTK 4.20+, libadwaita 1.8+, GStreamer (base, good and bad plugins) and OpenSSL. On Fedora:
 ```sh
 sudo dnf install cargo rust clippy gtk4-devel libadwaita-devel gstreamer1-devel gstreamer1-plugins-base-devel gstreamer1-plugins-good gstreamer1-plugins-bad-free openssl-devel
-cargo build --release -p sdat-desktop
-./target/release/sdat-desktop
+cargo run --release -p sdat-desktop
 ```
 The GSettings schema is compiled by `build.rs`, so the binary runs from the build tree without installing the schema. For a system install, also install `sdat-desktop/internal/settings/com.nichokas.SDAT.Desktop.gschema.xml` (plus the legacy `dev.dergs.Tonearm.gschema.xml`, read once to migrate old settings), the desktop file and metainfo from `sdat-desktop/build/`, and the icons from `sdat-desktop/internal/icons/hicolor`, then run `glib-compile-schemas`.
 
