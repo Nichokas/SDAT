@@ -88,10 +88,19 @@ class StatsTest {
         assertEquals(60.0, s.fps, 1e-9)
     }
 
-    @Test fun anIntervalAcrossLostReportsIsSharedByItsFrames() {
-        // 99 smooth frames, then one report after a 100 ms gap that hid 4 lost reports: 5 frames of 20 ms each.
-        val frames = List(99) { frame(5.0, interval = 16.7) } + frame(5.0, interval = 100.0, dropped = 4)
-        assertEquals(20.0, stats(frames, seconds = 1.75).p99IntervalMs, 0.01)
+    @Test fun lostReportsArePlacedAsTheWorstCase() {
+        // 120 Hz, every report 100 ms after the last and hiding 5 lost ones. Spread evenly they would be a smooth
+        // 60 fps; packed one 8.3 ms deadline apart they leave a 58.5 ms stall in each group, so the scene fails.
+        val s = stats(List(60) { frame(5.0, deadline = 8.3, interval = 100.0, dropped = 5) }, seconds = 6.0)
+        assertEquals(60.0, s.fps, 1e-9)
+        assertEquals(100.0 / 6, s.over60Percent, 1e-9)
+        assertFalse(meets60(s.fps, s.over60Percent))
+    }
+
+    @Test fun lostReportsAt60HzStaySmooth() {
+        // 6 frames in 100 ms on a 60 Hz screen can only be one per vsync, and the worst case agrees.
+        val s = stats(List(60) { frame(5.0, deadline = 16.6, interval = 100.0, dropped = 5) }, seconds = 6.0)
+        assertEquals(0.0, s.over60Percent, 0.0)
     }
 
     @Test fun anUnreportedCpuStageIsLeftOutOfItsPercentile() {
@@ -101,19 +110,27 @@ class StatsTest {
     }
 
     @Test fun lostReportsCountInTheWindowTheyFellIn() {
-        // A report 100 ms after the last one hid 4 lost reports, at 20, 40, 60 and 80 ms. The window starts at 50 ms.
+        // A report 100 ms after the last one hid 4 lost reports, placed at 33.6, 50.2, 66.8 and 83.4 ms. The window starts at 50 ms.
         val f = Frame(10, 0, 0, 0, 16_600_000, vsyncNs = 100_000_000, intervalNs = 100_000_000, dropped = 4)
         val s = stats(listOf(f), seconds = 1.0, start = 50_000_000, end = 200_000_000)
         assertEquals(1, s.frames)
-        assertEquals(2, s.lostReports)
+        assertEquals(3, s.lostReports)
     }
 
-    @Test fun aStallLostJustBeforeTheEndStaysInThatWindow() {
-        // Smooth frames to 1 s, then a 1.1 s gap hiding 4 frames 220 ms apart; its report lands at 2.1 s, after the window ends at 2 s.
-        val smooth = (1..60).map { i -> Frame(5_000_000, 0, 0, 0, 16_600_000, vsyncNs = i * 16_666_667L, intervalNs = 16_666_667) }
+    private val smoothToOneSecond = (1..60).map { i -> Frame(5_000_000, 0, 0, 0, 16_600_000, vsyncNs = i * 16_666_667L, intervalNs = 16_666_667) }
+
+    @Test fun aStallRunningPastTheEndStillCounts() {
+        // Smooth frames to 1 s, then nothing until 2.1 s; the window ends at 2 s.
+        val stall = Frame(5_000_000, 0, 0, 0, 16_600_000, vsyncNs = 2_100_000_000, intervalNs = 1_100_000_000)
+        val s = stats(smoothToOneSecond + stall, seconds = 2.0, start = 0, end = 2_000_000_000)
+        assertEquals(1100.0, s.p99IntervalMs, 0.01)
+    }
+
+    @Test fun aStallHidingLostReportsPastTheEndStillCounts() {
+        // As above, but the 2.1 s report hid 4 lost ones: packed 16.6 ms apart, the stall runs from 1 s to 2.0336 s.
         val stall = Frame(5_000_000, 0, 0, 0, 16_600_000, vsyncNs = 2_100_000_000, intervalNs = 1_100_000_000, dropped = 4)
-        val s = stats(smooth + stall, seconds = 2.0, start = 0, end = 2_000_000_000)
-        assertEquals(220.0, s.p99IntervalMs, 0.01)
+        val s = stats(smoothToOneSecond + stall, seconds = 2.0, start = 0, end = 2_000_000_000)
+        assertEquals(1033.6, s.p99IntervalMs, 0.01)
     }
 
     @Test fun noReportedStageNamesNoLimiter() {

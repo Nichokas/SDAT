@@ -70,13 +70,18 @@ fun limiter(ui: Double?, render: Double?, gpu: Double?): Limiter? =
 private data class Tick(val vsyncNs: Long, val intervalNs: Long)
 
 /**
- * Every drawn frame, reported or not. A report says how many reports were lost since the one before it, so those
- * frames lie between the two vsyncs and are rebuilt evenly across that gap. The first report has no previous vsync,
- * so reports lost before it cannot be placed and are left out.
+ * Every drawn frame, reported or not. FrameMetrics reports each drawn frame, and a report says how many reports were
+ * lost since the one before it, so those frames lie between the two vsyncs. Their times are unknown, so they are
+ * placed as the worst case: one deadline apart just before the report, leaving the rest of the gap as one stall. The
+ * rate counts them; the gaps can only read slower than they were. The first report has no previous vsync, so reports
+ * lost before it cannot be placed and are left out.
  */
 private fun ticks(frames: List<Frame>): List<Tick> = frames.flatMap { f ->
-    if (f.intervalNs <= 0) listOf(Tick(f.vsyncNs, 0))
-    else (f.dropped downTo 0).map { k -> Tick(f.vsyncNs - f.intervalNs / (f.dropped + 1) * k, f.intervalNs / (f.dropped + 1)) }
+    if (f.intervalNs <= 0) return@flatMap listOf(Tick(f.vsyncNs, 0))
+    val even = f.intervalNs / (f.dropped + 1)
+    val step = if (f.deadlineNs > 0) minOf(f.deadlineNs, even) else even
+    val stall = f.intervalNs - step * f.dropped
+    (f.dropped downTo 0).map { k -> Tick(f.vsyncNs - step * k, if (k == f.dropped) stall else step) }
 }
 
 /** Nearest-rank percentile of an ascending list. */
@@ -84,14 +89,16 @@ fun percentile(sorted: List<Long>, p: Double): Long =
     if (sorted.isEmpty()) 0 else sorted[(ceil(p / 100 * sorted.size).toInt() - 1).coerceIn(0, sorted.lastIndex)]
 
 /**
- * The window [start, end) of [frames], cut by vsync time: durations come from the reports in it, the rate and the
- * time between frames from every frame drawn in it, lost reports included.
+ * The window [start, end) of [frames], cut by vsync time: durations come from the reports in it and the rate from
+ * every frame drawn in it, lost reports included. The time between frames takes every gap that overlaps the window,
+ * so a stall that runs past its end still counts once its report is in.
  */
 fun stats(frames: List<Frame>, seconds: Double, start: Long = Long.MIN_VALUE, end: Long = Long.MAX_VALUE): Stats {
-    val ticks = ticks(frames).filter { it.vsyncNs in start until end }
+    val all = ticks(frames)
+    val ticks = all.filter { it.vsyncNs in start until end }
     @Suppress("NAME_SHADOWING") val frames = frames.filter { it.vsyncNs in start until end }
     fun stage(of: (Frame) -> Long) = frames.map(of).filter { it >= 0 }.sorted().let { if (it.isEmpty()) null else percentile(it, 90.0) / 1e6 }
-    val intervals = ticks.map { it.intervalNs }.filter { it > 0 }.sorted()
+    val intervals = all.filter { it.intervalNs > 0 && it.vsyncNs > start && it.vsyncNs - it.intervalNs < end }.map { it.intervalNs }.sorted()
     fun share(test: (Frame) -> Boolean) = if (frames.isEmpty()) 0.0 else 100.0 * frames.count(test) / frames.size
     val total = frames.map { it.totalNs }.sorted()
     return Stats(
