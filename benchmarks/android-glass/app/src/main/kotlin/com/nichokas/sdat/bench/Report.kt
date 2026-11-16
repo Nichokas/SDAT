@@ -76,8 +76,8 @@ fun report(device: Device, runs: List<Run>, rounds: Int, reruns: Int = 0): Strin
         appendLine("  first-use worst frame ${first.warmupWorstMs.f()} ms · images ${group.sumOf { it.imagesLoaded }} loaded, ${group.sumOf { it.imagesFailed }} failed · lost reports ${group.sumOf { it.stats.lostReports }}")
     }
     appendLine()
-    val hot = runs.filter { it.thermalEnd >= 2 }
-    appendLine(if (hot.isEmpty()) "Thermal: no throttling reported." else "Thermal: ${hot.size} run(s) ended at moderate or worse; later rounds may read slower than the phone is.")
+    val hot = runs.filter { maxOf(it.thermalStart, it.thermalEnd) >= 2 }
+    appendLine(if (hot.isEmpty()) "Thermal: no throttling reported." else "Thermal: ${hot.size} run(s) started or ended at moderate or worse; later rounds may read slower than the phone is.")
     appendLine()
     appendLine("Runs (round, scene, fps, p90 ms, >16.7 ms %, frames, thermal start-end):")
     for (r in runs) {
