@@ -21,22 +21,29 @@ mkdir -p "$cargo_home" "$target_dir"
 touch "$config"
 
 # tomllib knows every spelling of a key (bare, quoted, dotted, inline table); a regex does not.
+# Prints "no-build", "unset", or "set" followed by the current value.
 build_key_state() {
   python3 -I -c 'import sys, tomllib
 build = tomllib.load(open(sys.argv[1], "rb")).get("build")
-print("no-build" if build is None else "set" if sys.argv[2] in build else "unset")' "$config" "$1"  2>/dev/null
+key = sys.argv[2]
+print("no-build" if build is None else f"set {build[key]}" if key in build else "unset")' "$config" "$1" 2>/dev/null
 }
 
 set_build_key() {
-  local key="$1" value="$2" state
+  local key="$1" value="$2" state tmp
   state="$(build_key_state "$key")" || { echo "$config is not valid TOML; fix it and run this again." >&2; exit 1; }
-  if [ "$state" = set ]; then
+  if [ "${state%% *}" = set ]; then
     echo "$key is already set in $config"
+    [ "${state#set }" = "$value" ] || echo "Note: it is '${state#set }', not '$value'; left unchanged, so edit it if worktrees should share build output." >&2
   elif [ "$state" = no-build ]; then
     printf '\n[build]\n%s = "%s"\n' "$key" "$value" >>"$config"
     echo "Set $key in $config"
   elif grep -Eq '^[[:space:]]*\[[[:space:]]*build[[:space:]]*\][[:space:]]*(#.*)?$' "$config"; then
-    sed -i "/^[[:space:]]*\[[[:space:]]*build[[:space:]]*\]/a $key = \"$value\"" "$config"
+    # No sed -i: its syntax differs between GNU and BSD.
+    tmp="$(mktemp)"
+    LINE="$key = \"$value\"" awk '{ print } !done && /^[[:space:]]*\[[[:space:]]*build[[:space:]]*\]/ { print ENVIRON["LINE"]; done = 1 }' "$config" >"$tmp"
+    cat "$tmp" >"$config"
+    rm -f "$tmp"
     echo "Set $key in $config"
   else
     echo "$config defines build in a form this script does not edit; add this under [build] yourself:" >&2
