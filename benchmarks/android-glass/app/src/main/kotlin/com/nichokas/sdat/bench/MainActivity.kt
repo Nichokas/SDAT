@@ -7,7 +7,6 @@ import android.content.Intent
 import android.os.Build
 import android.os.Bundle
 import android.os.PowerManager
-import android.os.SystemClock
 import android.util.Log
 import android.view.WindowManager
 import androidx.activity.ComponentActivity
@@ -55,6 +54,7 @@ import kotlinx.coroutines.withContext
 
 private const val WARMUP_MS = 2_000L
 private const val MEASURE_MS = 6_000L
+private const val REPORT_LAG_MS = 300L
 
 private sealed interface Phase {
     data object Ready : Phase
@@ -150,12 +150,18 @@ class MainActivity : ComponentActivity() {
         images.failed = 0
         val load = CpuLoad(scene.busyCores)
         try {
+            recorder.drain()
+            val warmStart = System.nanoTime()
             delay(WARMUP_MS)
-            val warmup = recorder.take(WARMUP_MS / 1000.0)
-            val start = SystemClock.uptimeMillis()
+            val start = System.nanoTime()
             delay(MEASURE_MS)
-            val stats = recorder.take((SystemClock.uptimeMillis() - start) / 1000.0)
-            return Run(scene, round, stats, warmup.maxMs, thermalStart, power.currentThermalStatus, images.loaded, images.failed)
+            val end = System.nanoTime()
+            // Reports arrive on their own thread after their frame, so the window is cut by vsync time once the last are in.
+            delay(REPORT_LAG_MS)
+            val frames = recorder.drain()
+            val warmupWorstMs = (frames.filter { it.vsyncNs in warmStart until start }.maxOfOrNull { it.totalNs } ?: 0) / 1e6
+            val stats = stats(frames.filter { it.vsyncNs in start until end }, (end - start) / 1e9)
+            return Run(scene, round, stats, warmupWorstMs, thermalStart, power.currentThermalStatus, images.loaded, images.failed)
         } finally {
             load.stop()
         }

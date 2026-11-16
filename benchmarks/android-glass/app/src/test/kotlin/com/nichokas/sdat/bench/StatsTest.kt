@@ -6,8 +6,8 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class StatsTest {
-    private fun frame(ms: Double, ui: Double = 0.0, render: Double = 0.0, gpu: Double = 0.0, deadline: Double = 16.6, interval: Double = 16.6) =
-        Frame((ms * 1e6).toLong(), (ui * 1e6).toLong(), (render * 1e6).toLong(), (gpu * 1e6).toLong(), (deadline * 1e6).toLong(), (interval * 1e6).toLong())
+    private fun frame(ms: Double, ui: Double = 0.0, render: Double = 0.0, gpu: Double = 0.0, deadline: Double = 16.6, interval: Double = 16.6, dropped: Int = 0) =
+        Frame((ms * 1e6).toLong(), (ui * 1e6).toLong(), (render * 1e6).toLong(), (gpu * 1e6).toLong(), (deadline * 1e6).toLong(), intervalNs = (interval * 1e6).toLong(), dropped = dropped)
 
     @Test fun percentileIsNearestRank() {
         val sorted = (1L..10L).toList()
@@ -74,7 +74,14 @@ class StatsTest {
     }
 
     @Test fun droppedReportsStillCountAsRenderedFrames() {
-        val s = stats(List(300) { frame(10.0) }, seconds = 6.0, lostReports = 60)
+        val s = stats(List(300) { i -> frame(10.0, dropped = if (i % 5 == 0) 1 else 0) }, seconds = 6.0)
+        assertEquals(60, s.lostReports)
         assertEquals(60.0, s.fps, 1e-9)
+    }
+
+    @Test fun anIntervalAcrossLostReportsIsSharedByItsFrames() {
+        // 99 smooth frames, then one report after a 100 ms gap that hid 4 lost reports: 5 frames of 20 ms each.
+        val frames = List(99) { frame(5.0, interval = 16.7) } + frame(5.0, interval = 100.0, dropped = 4)
+        assertEquals(20.0, stats(frames, seconds = 1.75).p99IntervalMs, 0.01)
     }
 }

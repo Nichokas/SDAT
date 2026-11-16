@@ -5,7 +5,6 @@ import android.os.HandlerThread
 import android.view.FrameMetrics
 import android.view.Window
 import java.util.concurrent.ConcurrentLinkedQueue
-import java.util.concurrent.atomic.AtomicInteger
 import kotlin.math.ceil
 
 /** A 60 Hz frame's budget: the target SDAT has to meet on any screen. */
@@ -14,9 +13,19 @@ const val BUDGET_60_NS = 16_666_667L
 /**
  * One rendered frame from FrameMetrics, in nanoseconds. [uiNs] is the main thread (input, animation, layout, draw),
  * [renderNs] the RenderThread (sync, command issue, swap) and [gpuNs] the GPU, negative where the phone does not report it.
- * [intervalNs] is the time since the previous frame's vsync, so it includes the vsyncs skipped between them.
+ * [vsyncNs] is its intended vsync on [System.nanoTime]'s clock. [intervalNs] is the time since the previous reported
+ * frame's vsync, so it includes skipped vsyncs, and spans [dropped] frames whose reports were lost before this one.
  */
-data class Frame(val totalNs: Long, val uiNs: Long, val renderNs: Long, val gpuNs: Long, val deadlineNs: Long, val intervalNs: Long)
+data class Frame(
+    val totalNs: Long,
+    val uiNs: Long,
+    val renderNs: Long,
+    val gpuNs: Long,
+    val deadlineNs: Long,
+    val vsyncNs: Long = 0,
+    val intervalNs: Long = 0,
+    val dropped: Int = 0,
+)
 
 enum class Limiter { UiThread, RenderThread, Gpu }
 
@@ -46,7 +55,11 @@ data class Stats(
 fun percentile(sorted: List<Long>, p: Double): Long =
     if (sorted.isEmpty()) 0 else sorted[(ceil(p / 100 * sorted.size).toInt() - 1).coerceIn(0, sorted.lastIndex)]
 
-fun stats(frames: List<Frame>, seconds: Double, lostReports: Int = 0): Stats {
+fun stats(frames: List<Frame>, seconds: Double): Stats {
+    val lostReports = frames.sumOf { it.dropped }
+    // An interval that spans lost reports is shared evenly by the frames in it, so a gap is neither dropped nor
+    // charged to one frame.
+    val intervals = frames.filter { it.intervalNs > 0 }.flatMap { f -> List(f.dropped + 1) { f.intervalNs / (f.dropped + 1) } }.sorted()
     fun p90(of: (Frame) -> Long) = percentile(frames.map(of).sorted(), 90.0) / 1e6
     val gpu = frames.map { it.gpuNs }.filter { it >= 0 }.sorted()
     fun share(test: (Frame) -> Boolean) = if (frames.isEmpty()) 0.0 else 100.0 * frames.count(test) / frames.size
@@ -58,7 +71,7 @@ fun stats(frames: List<Frame>, seconds: Double, lostReports: Int = 0): Stats {
         p50Ms = percentile(total, 50.0) / 1e6,
         p90Ms = percentile(total, 90.0) / 1e6,
         p99Ms = percentile(total, 99.0) / 1e6,
-        p99IntervalMs = percentile(frames.map { it.intervalNs }.filter { it > 0 }.sorted(), 99.0) / 1e6,
+        p99IntervalMs = percentile(intervals, 99.0) / 1e6,
         maxMs = (total.lastOrNull() ?: 0) / 1e6,
         jankPercent = share { it.totalNs > it.deadlineNs },
         over60Percent = share { it.totalNs > BUDGET_60_NS },
@@ -69,18 +82,18 @@ fun stats(frames: List<Frame>, seconds: Double, lostReports: Int = 0): Stats {
     )
 }
 
-/** Every frame the window renders from creation to [close]; FrameMetrics reports on its own thread. */
+/** Every frame the window renders from creation to [close]; FrameMetrics reports on its own thread, a little late. */
 class FrameRecorder(private val window: Window) : AutoCloseable {
     private val thread = HandlerThread("frame-metrics").apply { start() }
     private val frames = ConcurrentLinkedQueue<Frame>()
-    private val lost = AtomicInteger()
-    private var lastVsync = 0L // Only touched on the metrics thread.
+    // Only touched on the metrics thread.
+    private var lastVsync = 0L
+    private var pendingDropped = 0
     private val listener = Window.OnFrameMetricsAvailableListener { _, m, dropped ->
-        lost.addAndGet(dropped)
         val vsync = m.getMetric(FrameMetrics.INTENDED_VSYNC_TIMESTAMP)
-        // An interval spanning dropped reports would count frames that were drawn as missing, so it is left out.
-        val interval = if (lastVsync > 0 && dropped == 0) vsync - lastVsync else 0
+        val interval = if (lastVsync > 0) vsync - lastVsync else 0
         lastVsync = vsync
+        pendingDropped += dropped
         if (m.getMetric(FrameMetrics.FIRST_DRAW_FRAME) == 0L) {
             frames += Frame(
                 totalNs = m.getMetric(FrameMetrics.TOTAL_DURATION),
@@ -90,8 +103,11 @@ class FrameRecorder(private val window: Window) : AutoCloseable {
                     m.getMetric(FrameMetrics.SWAP_BUFFERS_DURATION),
                 gpuNs = m.getMetric(FrameMetrics.GPU_DURATION),
                 deadlineNs = m.getMetric(FrameMetrics.DEADLINE),
+                vsyncNs = vsync,
                 intervalNs = interval,
+                dropped = pendingDropped,
             )
+            pendingDropped = 0
         }
     }
 
@@ -99,11 +115,8 @@ class FrameRecorder(private val window: Window) : AutoCloseable {
         window.addOnFrameMetricsAvailableListener(listener, Handler(thread.looper))
     }
 
-    /** The frames since the last take, over [seconds] of wall time. */
-    fun take(seconds: Double): Stats {
-        val taken = generateSequence { frames.poll() }.toList()
-        return stats(taken, seconds, lost.getAndSet(0))
-    }
+    /** The frames reported since the last drain; callers pick a window by [Frame.vsyncNs]. */
+    fun drain(): List<Frame> = generateSequence { frames.poll() }.toList()
 
     override fun close() {
         window.removeOnFrameMetricsAvailableListener(listener)
