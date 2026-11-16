@@ -98,4 +98,22 @@ class StatsTest {
         assertEquals(1, frames.size)
         assertEquals(2, lost)
     }
+
+    @Test fun noReportedStageNamesNoLimiter() {
+        val s = stats(List(10) { frame(20.0, ui = -1e-6, render = -1e-6, gpu = -1e-6) }, seconds = 1.0)
+        assertEquals(null, s.limiter)
+    }
+
+    @Test fun reportedLimiterFollowsTheStageMedians() {
+        // Voting per run would say GPU (2 of 3 runs); the medians shown are UI 3 ms and GPU 2 ms, so the UI thread.
+        fun run(ui: Double, gpu: Double) = Run(Scene(Page.Collection, Glass.Live), 1, stats(List(10) { frame(20.0, ui = ui, gpu = gpu) }, seconds = 1.0), 0.0, 0, 0, 0, 0)
+        val device = Device("phone", "soc", "16", 4.0, false, 60f, "1080x2400", "0.1.3")
+        val text = report(device, listOf(run(100.0, 101.0), run(1.0, 2.0), run(3.0, 2.0)), rounds = 3)
+        assertTrue(text, text.contains("limiter UiThread"))
+    }
+
+    @Test fun reportsLostBeforeTheFirstReportAreNotPlaced() {
+        val first = Frame(10, 0, 0, 0, 16_600_000, vsyncNs = 100_000_000, intervalNs = 0, dropped = 3)
+        assertEquals(0, window(listOf(first), start = 0, end = 200_000_000).second)
+    }
 }

@@ -49,15 +49,20 @@ data class Stats(
     val gpuP90Ms: Double?,
     val lostReports: Int,
 ) {
-    val limiter get() = mapOf(Limiter.UiThread to uiP90Ms, Limiter.RenderThread to renderP90Ms, Limiter.Gpu to gpuP90Ms).maxBy { it.value ?: -1.0 }.key
+    val limiter get() = limiter(uiP90Ms, renderP90Ms, gpuP90Ms)
 }
+
+/** The slowest of the stages that were reported, or null when none was. */
+fun limiter(ui: Double?, render: Double?, gpu: Double?): Limiter? =
+    listOf(Limiter.UiThread to ui, Limiter.RenderThread to render, Limiter.Gpu to gpu).filter { it.second != null }.maxByOrNull { it.second!! }?.first
 
 /**
  * The frames whose vsync falls in [start, end), and how many lost reports fell in it too. Lost reports are placed
  * evenly across the gap that hid them, so one lost just before a boundary counts on its own side.
  */
 fun window(frames: List<Frame>, start: Long, end: Long): Pair<List<Frame>, Int> {
-    val lost = frames.sumOf { f -> (1..f.dropped).count { k -> f.vsyncNs - f.intervalNs * k / (f.dropped + 1) in start until end } }
+    // The first report has no previous vsync, so reports lost before it cannot be placed and are left out.
+    val lost = frames.filter { it.intervalNs > 0 }.sumOf { f -> (1..f.dropped).count { k -> f.vsyncNs - f.intervalNs * k / (f.dropped + 1) in start until end } }
     return frames.filter { it.vsyncNs in start until end } to lost
 }
 
@@ -108,7 +113,8 @@ class FrameRecorder(private val window: Window) : AutoCloseable {
         if (m.getMetric(FrameMetrics.FIRST_DRAW_FRAME) == 0L) {
             frames += Frame(
                 totalNs = m.getMetric(FrameMetrics.TOTAL_DURATION),
-                uiNs = m.sum(FrameMetrics.INPUT_HANDLING_DURATION, FrameMetrics.ANIMATION_DURATION, FrameMetrics.LAYOUT_MEASURE_DURATION, FrameMetrics.DRAW_DURATION),
+                // UNKNOWN_DELAY is the wait for a busy main thread before the frame could start.
+                uiNs = m.sum(FrameMetrics.UNKNOWN_DELAY_DURATION, FrameMetrics.INPUT_HANDLING_DURATION, FrameMetrics.ANIMATION_DURATION, FrameMetrics.LAYOUT_MEASURE_DURATION, FrameMetrics.DRAW_DURATION),
                 renderNs = m.sum(FrameMetrics.SYNC_DURATION, FrameMetrics.COMMAND_ISSUE_DURATION, FrameMetrics.SWAP_BUFFERS_DURATION),
                 gpuNs = m.getMetric(FrameMetrics.GPU_DURATION),
                 deadlineNs = m.getMetric(FrameMetrics.DEADLINE),
