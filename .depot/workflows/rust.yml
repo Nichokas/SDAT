@@ -1,0 +1,77 @@
+# Depot CI Migration
+# Source: .github/workflows/rust.yml
+#
+# Changes made:
+# - Rewrote .github/ path references to .depot/
+# - Changed GitHub runs-on labels to their Depot equivalents
+
+name: Rust (core + desktop)
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "sdat-core/**"
+      - "sdat-desktop/**"
+      - "Cargo.toml"
+      - "Cargo.lock"
+      - ".depot/workflows/rust.yml"
+  pull_request:
+    # A draft builds without review, so it builds again behind the gate once it is ready.
+    types: [opened, synchronize, reopened, ready_for_review]
+    paths:
+      - ".depot/workflows/review-gate.yml"
+      - "sdat-core/**"
+      - "sdat-desktop/**"
+      - "Cargo.toml"
+      - "Cargo.lock"
+      - ".depot/workflows/rust.yml"
+
+permissions:
+  contents: read
+
+# A new push to a PR supersedes its running build. Each main build gets its own group, so none is
+# cancelled or replaced while queued and every one saves the cache.
+concurrency:
+  group: rust-${{ github.event_name == 'pull_request' && github.ref || github.run_id }}
+  cancel-in-progress: true
+
+jobs:
+  review-gate:
+    name: Review gate
+    permissions:
+      contents: read
+      pull-requests: read
+    uses: ./.depot/workflows/review-gate.yml
+
+  core:
+    needs: review-gate
+    runs-on: depot-ubuntu-latest # was: ubuntu-latest. Mapped standard GitHub runner to Depot equivalent.
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: core
+          # PRs restore main's cache but do not save their own (keeps the 10 GB quota for main).
+          save-if: ${{ github.ref == 'refs/heads/main' }}
+      - name: Test core and FFI
+        run: cargo test -p tonearm-core -p tonearm-ffi --locked
+  desktop:
+    needs: review-gate
+    runs-on: depot-ubuntu-latest # was: ubuntu-latest. Mapped standard GitHub runner to Depot equivalent.
+    container: fedora:latest
+    steps:
+      - name: Install GTK/GStreamer deps
+        run: dnf -y install --setopt=install_weak_deps=False tar zstd cargo rust gcc git-core gtk4-devel libadwaita-devel gstreamer1-devel gstreamer1-plugins-base-devel libsecret-devel openssl-devel glib2-devel
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: desktop-fedora
+          save-if: ${{ github.ref == 'refs/heads/main' }}
+      # `cargo test` builds the whole crate, so a separate `cargo check` only compiled it twice.
+      - name: Test desktop app (migration and other unit tests)
+        run: cargo test -p sdat-desktop --locked
