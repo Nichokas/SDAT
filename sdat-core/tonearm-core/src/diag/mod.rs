@@ -220,13 +220,16 @@ pub fn events_since(seq: u64) -> Vec<Event> {
     GLOBAL.get().and_then(Global::lock).map_or_default(|store| store.since(seq))
 }
 
-/// Debug level on, or back to info. Call after [`init`], which resets it to info.
+/// Debug level on, or back to info. Does nothing before [`init`], which resets it to info.
 pub fn set_verbose(on: bool) {
+    if GLOBAL.get().is_none() {
+        return;
+    }
     log::set_max_level(if on { log::LevelFilter::Debug } else { log::LevelFilter::Info });
 }
 
 pub fn verbose() -> bool {
-    log::max_level() >= log::LevelFilter::Debug
+    GLOBAL.get().is_some() && log::max_level() >= log::LevelFilter::Debug
 }
 
 /// The previous run's log, or an empty string.

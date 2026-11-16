@@ -8,10 +8,21 @@ const KEYS: [&str; 10] =
 /// Short keys that also end longer words (`zipcode`, `disk`, `x_tidal_token`): matched only at a word start.
 const WORD_KEYS: [&str; 3] = ["token", "code", "sk"];
 
-/// Where a bare value ends. Punctuation that a password may contain (`,`, `;`, `)`) does not end it:
-/// swallowing a trailing bracket costs nothing, leaving half a password visible does.
-fn is_delimiter(b: u8) -> bool {
-    b.is_ascii_whitespace() || matches!(b, b'"' | b'\'' | b'\\' | b'&' | b'<')
+/// The end of a bare value starting at `i`: whitespace, `&`, a quote, or the escaped quote that closes a
+/// debug-printed string. Other punctuation (`,`, `)`, a lone backslash) may be part of a password and
+/// is redacted with it.
+fn bare_end(s: &[u8], mut i: usize) -> usize {
+    while i < s.len() {
+        let b = s[i];
+        if b.is_ascii_whitespace()
+            || matches!(b, b'&' | b'"' | b'\'')
+            || (b == b'\\' && matches!(s.get(i + 1), Some(b'"' | b'\'')))
+        {
+            break;
+        }
+        i += 1;
+    }
+    i
 }
 
 fn skip(s: &[u8], mut i: usize, f: impl Fn(u8) -> bool) -> usize {
@@ -74,7 +85,7 @@ fn key_value(s: &[u8], after_key: usize) -> Option<(usize, usize)> {
     if sep == b':' || quoted_key {
         return None;
     }
-    let end = skip(s, i, |b| !is_delimiter(b));
+    let end = bare_end(s, i);
     (end > i).then_some((i, end))
 }
 
@@ -98,7 +109,7 @@ fn secret_at(s: &[u8], lower: &[u8], i: usize) -> Option<(usize, usize)> {
     let rest = &lower[i..];
     if rest.starts_with(b"bearer ") {
         let start = i + "bearer ".len();
-        let end = skip(s, start, |b| !is_delimiter(b));
+        let end = bare_end(s, start);
         return (end > start).then_some((start, end));
     }
     if rest.starts_with(b"authorization") {
@@ -193,6 +204,8 @@ mod tests {
     #[test]
     fn bare_values_keep_their_punctuation() {
         assert_eq!(redact("password=abc,secret;x) next"), "password=<redacted> next");
+        assert_eq!(redact("password=abc\\hunter2<x> next"), "password=<redacted> next");
+        assert_eq!(redact(r#"msg: "password=abc\" ok""#), r#"msg: "password=<redacted>\" ok""#);
     }
 
     #[test]
