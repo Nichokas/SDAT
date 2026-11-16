@@ -124,4 +124,12 @@ class StatsTest {
         val first = Frame(10, 0, 0, 0, 16_600_000, vsyncNs = 100_000_000, intervalNs = 0, dropped = 3)
         assertEquals(0, stats(listOf(first), seconds = 1.0, start = 0, end = 200_000_000).lostReports)
     }
+
+    @Test fun aSceneThatDrewNothingHasTheWorstOnePercentLow() {
+        val drawn = Run(Scene(Page.Collection, Glass.Live), 1, stats(List(60) { frame(5.0) }, seconds = 1.0), 0.0, 0, 0, 0, 0)
+        val stalled = Run(Scene(Page.Player, Glass.Live), 1, stats(emptyList(), seconds = 1.0), 0.0, 0, 0, 0, 0)
+        val score = score(listOf(drawn, stalled), refreshHz = 60f)
+        assertEquals(stalled.scene.label, score.worstLow.label)
+        assertEquals(0.0, score.worstLow.low1, 0.0)
+    }
 }

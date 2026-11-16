@@ -42,7 +42,8 @@ fun score(runs: List<Run>, refreshHz: Float) = Score(
     runs.groupBy { it.scene }.map { (scene, group) ->
         val fps = group.map { it.stats.fps }.median()
         val p99 = group.map { it.stats.p99IntervalMs }.median()
-        val low1 = if (p99 > 0) minOf(refreshHz.toDouble(), 1000 / p99) else refreshHz.toDouble()
+        // No interval at all means nothing was drawn, the worst a scene can do.
+        val low1 = if (p99 > 0) minOf(refreshHz.toDouble(), 1000 / p99) else 0.0
         SceneScore(scene.label, fps, low1, meets60(fps, group.map { it.stats.over60Percent }.median()))
     },
     refreshHz,

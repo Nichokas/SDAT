@@ -108,28 +108,25 @@ private fun FrameMetrics.sum(vararg ids: Int): Long = ids.map { getMetric(it) }.
 class FrameRecorder(private val window: Window) : AutoCloseable {
     private val thread = HandlerThread("frame-metrics").apply { start() }
     private val frames = ConcurrentLinkedQueue<Frame>()
-    // Only touched on the metrics thread.
-    private var lastVsync = 0L
-    private var pendingDropped = 0
+    private var lastVsync = 0L // Only touched on the metrics thread.
+
+    // Every report is kept, so each interval and its lost reports run back to the report just before it. The window's
+    // first draw happened long before the recorder, which starts once the covers are ready.
     private val listener = Window.OnFrameMetricsAvailableListener { _, m, dropped ->
         val vsync = m.getMetric(FrameMetrics.INTENDED_VSYNC_TIMESTAMP)
         val interval = if (lastVsync > 0) vsync - lastVsync else 0
         lastVsync = vsync
-        pendingDropped += dropped
-        if (m.getMetric(FrameMetrics.FIRST_DRAW_FRAME) == 0L) {
-            frames += Frame(
-                totalNs = m.getMetric(FrameMetrics.TOTAL_DURATION),
-                // UNKNOWN_DELAY is the wait for a busy main thread before the frame could start.
-                uiNs = m.sum(FrameMetrics.UNKNOWN_DELAY_DURATION, FrameMetrics.INPUT_HANDLING_DURATION, FrameMetrics.ANIMATION_DURATION, FrameMetrics.LAYOUT_MEASURE_DURATION, FrameMetrics.DRAW_DURATION),
-                renderNs = m.sum(FrameMetrics.SYNC_DURATION, FrameMetrics.COMMAND_ISSUE_DURATION, FrameMetrics.SWAP_BUFFERS_DURATION),
-                gpuNs = m.getMetric(FrameMetrics.GPU_DURATION),
-                deadlineNs = m.getMetric(FrameMetrics.DEADLINE),
-                vsyncNs = vsync,
-                intervalNs = interval,
-                dropped = pendingDropped,
-            )
-            pendingDropped = 0
-        }
+        frames += Frame(
+            totalNs = m.getMetric(FrameMetrics.TOTAL_DURATION),
+            // UNKNOWN_DELAY is the wait for a busy main thread before the frame could start.
+            uiNs = m.sum(FrameMetrics.UNKNOWN_DELAY_DURATION, FrameMetrics.INPUT_HANDLING_DURATION, FrameMetrics.ANIMATION_DURATION, FrameMetrics.LAYOUT_MEASURE_DURATION, FrameMetrics.DRAW_DURATION),
+            renderNs = m.sum(FrameMetrics.SYNC_DURATION, FrameMetrics.COMMAND_ISSUE_DURATION, FrameMetrics.SWAP_BUFFERS_DURATION),
+            gpuNs = m.getMetric(FrameMetrics.GPU_DURATION),
+            deadlineNs = m.getMetric(FrameMetrics.DEADLINE),
+            vsyncNs = vsync,
+            intervalNs = interval,
+            dropped = dropped,
+        )
     }
 
     init {
