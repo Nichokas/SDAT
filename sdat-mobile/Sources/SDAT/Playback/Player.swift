@@ -16,7 +16,7 @@ final class Player {
     private(set) var index: Int?
     /// "Play next" / "Add to queue" tracks; they play before the rest of the base queue.
     private(set) var userQueue: [Track] = [] { didSet { queueVersion &+= 1 } }
-    /// Track currently playing (may come from the user queue).
+    /// Track currently playing.
     private(set) var current: Track?
     private(set) var isPlaying = false {
         didSet { if isPlaying != oldValue { scheduleSessionRelease() } }
@@ -259,6 +259,7 @@ final class Player {
         guard userQueue.indices.contains(offset) else { return }
         let t = userQueue[offset]
         userQueue.removeFirst(offset + 1)
+        index = joinQueue(t)
         start(t)
     }
 
@@ -653,8 +654,12 @@ final class Player {
             stopAtEnd()
             return
         }
-        if fromUser { userQueue.removeFirst() }
-        index = newIndex
+        if fromUser {
+            userQueue.removeFirst()
+            index = joinQueue(t)
+        } else {
+            index = newIndex
+        }
         if auto, let p = preloaded, p.trackId == t.id, avPlayer.currentItem === p.item {
             preloaded = nil
             adopt(t, stream: p.stream)
@@ -664,6 +669,21 @@ final class Player {
         } else {
             start(t)
         }
+    }
+
+    /// A starting user-queue track joins the base queue right after the current track, so Previous
+    /// and Next find it again. Returns its index.
+    private func joinQueue(_ t: Track) -> Int {
+        let at = index.map { $0 + 1 } ?? 0
+        if original == queue {
+            original.insert(t, at: at)
+        } else {
+            let cur = index.flatMap { queue[safe: $0] }
+            let o = cur.flatMap { c in original.firstIndex { $0.id == c.id } }.map { $0 + 1 } ?? original.count
+            original.insert(t, at: o)
+        }
+        queue.insert(t, at: at)
+        return at
     }
 
     /// End of a finite queue (repeat off): really stop, rewound and paused.
