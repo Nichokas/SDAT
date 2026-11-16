@@ -742,6 +742,8 @@ final class Player {
         loading = true
         position = resumeAt
         loadResumeAt = resumeAt
+        // The old item may still end while the new stream loads; that end is not this track's.
+        playingItem = nil
         invalidatePreload()
         loadTask?.cancel()
         loadTask = Task {
