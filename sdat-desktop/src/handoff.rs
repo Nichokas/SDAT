@@ -216,7 +216,8 @@ struct Resumed {
     requests: u64,
     /// `player::pauses()` then: a pause or stop since keeps an ended track stopped.
     pauses: u64,
-    loaded: bool,
+    /// It played or paused as the current track: a stop from then on is its end.
+    started: bool,
 }
 
 #[derive(Debug, PartialEq, Eq)]
@@ -230,13 +231,13 @@ enum Step {
 
 /// What to do with the tracks after the resumed track. `owned`: nothing else
 /// started since the resume; `current`: the resumed track still is the current
-/// one; `ended`: playback stopped by itself since it loaded; `base_empty`:
+/// one; `ended`: playback stopped by itself since it started; `base_empty`:
 /// nothing follows in the list.
-fn upcoming_step(continuing: bool, owned: bool, loaded: bool, current: bool, ended: bool, base_empty: bool) -> Step {
+fn upcoming_step(continuing: bool, owned: bool, started: bool, current: bool, ended: bool, base_empty: bool) -> Step {
     if !owned {
         Step::Drop
-    } else if continuing || !loaded {
-        // Its result decides, or its load does.
+    } else if continuing || !started {
+        // Its result decides, or its start does.
         Step::Wait
     } else if ended {
         Step::Start
@@ -251,12 +252,12 @@ fn upcoming_step(continuing: bool, owned: bool, loaded: bool, current: bool, end
 fn apply_upcoming() {
     let Some(u) = UPCOMING.with(RefCell::take) else { return };
     let playing = player::current_track_id();
-    let (owned, loaded, pauses, source) = RESUMED.with(|r| match r.borrow().as_ref() {
-        Some(r) if r.id == u.current && r.requests == player::play_requests() => (true, r.loaded, r.pauses, r.source.clone()),
+    let (owned, started, pauses, source) = RESUMED.with(|r| match r.borrow().as_ref() {
+        Some(r) if r.id == u.current && r.requests == player::play_requests() => (true, r.started, r.pauses, r.source.clone()),
         _ => (false, false, 0, None),
     });
     let ended = player::playback_state_changed().get().status == PlaybackStatus::Stopped && pauses == player::pauses();
-    match upcoming_step(CONTINUING.with(Cell::get), owned, loaded, playing.as_deref() == Some(u.current.as_str()), ended, player::base_queue().is_empty()) {
+    match upcoming_step(CONTINUING.with(Cell::get), owned, started, playing.as_deref() == Some(u.current.as_str()), ended, player::base_queue().is_empty()) {
         // The base queue hook reports it, which ends the core's wait for it.
         Step::Apply => player::set_list_rest(u.tracks),
         Step::Start => {
@@ -269,15 +270,19 @@ fn apply_upcoming() {
     }
 }
 
-/// The resumed track loaded: from now on a stop is its end.
-fn resumed_loaded() {
+/// Marks the resumed track started once it plays or pauses as the current
+/// track. Its load alone is not enough: the status still is the stop before it.
+fn resumed_started(status: PlaybackStatus) {
+    if status == PlaybackStatus::Stopped {
+        return;
+    }
     let playing = player::current_track_id();
     RESUMED.with(|r| {
         if let Some(r) = r.borrow_mut().as_mut()
             && Some(&r.id) == playing.as_ref()
             && r.requests == player::play_requests()
         {
-            r.loaded = true;
+            r.started = true;
         }
     });
 }
@@ -300,7 +305,7 @@ fn play(r: Resume) -> anyhow::Result<()> {
     player::set_repeat_mode(RepeatMode::None);
     let played = player::play_at(source.clone(), vec![r.current], Duration::from_millis(u64::try_from(r.position_ms).unwrap_or(0)));
     if played.is_ok() {
-        let resumed = Resumed { id, source, requests: player::play_requests(), pauses: player::pauses(), loaded: false };
+        let resumed = Resumed { id, source, requests: player::play_requests(), pauses: player::pauses(), started: false };
         RESUMED.with(|s| *s.borrow_mut() = Some(resumed));
     }
     // A failed load keeps the user's own repeat mode.
@@ -459,7 +464,7 @@ fn install_hooks() {
     player::track_changed().on_lazy(|_| {
         STARTS.with(|s| s.set(s.get() + 1));
         report();
-        resumed_loaded();
+        resumed_started(player::playback_state_changed().get().status);
         apply_upcoming();
         CONTINUE
     });
@@ -485,6 +490,8 @@ fn install_hooks() {
         // Position updates fire often; only status changes are reported.
         if LAST_STATUS.with(Cell::get) != Some((ps.status, ps.loading, ps.buffering)) {
             report();
+            resumed_started(ps.status);
+            apply_upcoming();
         }
         CONTINUE
     });
@@ -539,9 +546,9 @@ mod tests {
 
     #[test]
     fn upcoming_follows_only_the_resumed_playback() {
-        // (continuing, owned, loaded, current, ended, base_empty)
+        // (continuing, owned, started, current, ended, base_empty)
         assert_eq!(upcoming_step(false, true, true, true, false, true), Step::Apply);
-        // Continue here still running, or the resumed track still loading.
+        // Continue here still running, or the resumed track not started yet.
         assert_eq!(upcoming_step(true, true, true, true, false, true), Step::Wait);
         assert_eq!(upcoming_step(false, true, false, false, false, true), Step::Wait);
         // It ended waiting for them.
