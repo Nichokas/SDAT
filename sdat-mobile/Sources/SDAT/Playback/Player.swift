@@ -733,6 +733,8 @@ final class Player {
         needsStart = false
         holdAutoplay = false
         pausedByUser = !autoplay
+        // Playing again ends an earlier system pause, as `toggle` does.
+        if autoplay { systemPaused = false }
         starts += 1
         let mine = starts
         let exact = exactResume
