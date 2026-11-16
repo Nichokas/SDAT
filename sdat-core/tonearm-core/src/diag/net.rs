@@ -100,7 +100,15 @@ fn record(c: &Counter, elapsed_ms: u64, outcome: &reqwest::Result<Response>) {
 /// `RequestBuilder::send` that also counts the request under its host's category for the diagnostics report.
 pub(crate) fn send(rb: RequestBuilder) -> reqwest::Result<Response> {
     let (client, request) = rb.build_split();
-    let request = request?;
+    let request = match request {
+        Ok(request) => request,
+        Err(e) => {
+            let other = &COUNTERS[NetCategory::Other.index()];
+            other.requests.fetch_add(1, Relaxed);
+            other.failures.fetch_add(1, Relaxed);
+            return Err(e);
+        }
+    };
     let counter = &COUNTERS[classify(request.url().host_str()).index()];
     let started = Instant::now();
     let outcome = client.execute(request);

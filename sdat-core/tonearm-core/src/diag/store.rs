@@ -62,9 +62,12 @@ impl LogFile {
             self.start_new();
         }
         let Some(file) = self.file.as_mut() else { return };
-        // Counted even on failure: a partial write still grew the file.
-        let _ = file.write_all(text.as_bytes());
-        self.size += text.len() as u64;
+        if file.write_all(text.as_bytes()).is_ok() {
+            self.size += text.len() as u64;
+        } else if let Ok(meta) = file.metadata() {
+            // A failed write may still have written part of the event: count what is really on disk.
+            self.size = meta.len();
+        }
     }
 
     fn empty(&mut self) {
