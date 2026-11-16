@@ -3,8 +3,22 @@
 use std::borrow::Cow;
 
 const REDACTED: &str = "<redacted>";
-const KEYS: [&str; 10] =
-    ["access_token", "refresh_token", "client_secret", "session_key", "password", "api_key", "api_sig", "token", "code", "sk"];
+const KEYS: [&str; 14] = [
+    "access_token",
+    "refresh_token",
+    "client_secret",
+    "session_key",
+    "device_code",
+    "user_code",
+    "devicecode",
+    "usercode",
+    "password",
+    "api_key",
+    "api_sig",
+    "token",
+    "code",
+    "sk",
+];
 /// Short keys that also end longer words (`zipcode`, `disk`, `x_tidal_token`): matched only at a word start.
 const WORD_KEYS: [&str; 3] = ["token", "code", "sk"];
 
@@ -63,9 +77,9 @@ fn quoted(s: &[u8], i: usize) -> Option<(usize, usize)> {
     (start < end).then_some((start, end))
 }
 
-/// `key`, an optional closing quote, then `=` or `:` and the value. Only `key=value` takes a bare value,
-/// so prose such as "error code: 401" and JSON numbers such as `"code":401` stay readable.
-fn key_value(s: &[u8], after_key: usize) -> Option<(usize, usize)> {
+/// `key`, an optional closing quote, then `=` or `:` and the value. A bare `code` is taken only from
+/// `code=value`, so prose such as "error code: 401" and JSON numbers such as `"code":401` stay readable.
+fn key_value(s: &[u8], after_key: usize, is_code: bool) -> Option<(usize, usize)> {
     let mut i = after_key;
     let quoted_key = matches!(s.get(i), Some(b'"' | b'\'' | b'\\'));
     if quoted_key {
@@ -84,10 +98,14 @@ fn key_value(s: &[u8], after_key: usize) -> Option<(usize, usize)> {
         return Some(range);
     }
     i = skip(s, i + 1, is_blank);
-    if sep == b':' || quoted_key {
+    if is_code && (sep == b':' || quoted_key) {
         return None;
     }
-    let end = bare_end(s, i);
+    let mut end = bare_end(s, i);
+    if quoted_key {
+        // A JSON number, `true` or `null` ends where the object or array goes on.
+        end = i + s[i..end].iter().position(|b| matches!(b, b',' | b'}' | b']')).unwrap_or(end - i);
+    }
     (end > i).then_some((i, end))
 }
 
@@ -123,7 +141,7 @@ fn secret_at(s: &[u8], lower: &[u8], i: usize) -> Option<(usize, usize)> {
     if WORD_KEYS.contains(key) && i > 0 && (lower[i - 1].is_ascii_alphanumeric() || lower[i - 1] == b'_') {
         return None;
     }
-    key_value(s, i + key.len())
+    key_value(s, i + key.len(), *key == "code")
 }
 
 /// Replaces the value of every credential in `text` with `<redacted>`: `access_token`, `refresh_token`,
@@ -174,6 +192,16 @@ mod tests {
             r#"{"access_token":"<redacted>","expires_in":3600,"refresh_token": "<redacted>"}"#
         );
         assert_eq!(redact(r#"{"password":"p w"}"#), r#"{"password":"<redacted>"}"#);
+        assert_eq!(redact(r#"{"password":123456,"x":1}"#), r#"{"password":<redacted>,"x":1}"#);
+        assert_eq!(redact(r#"[{"sk": 42}]"#), r#"[{"sk": <redacted>}]"#);
+        assert_eq!(redact("password: hunter2 next"), "password: <redacted> next");
+    }
+
+    #[test]
+    fn device_login_codes() {
+        assert_eq!(redact("device_code=abc&user_code=XYZ"), "device_code=<redacted>&user_code=<redacted>");
+        assert_eq!(redact(r#"{"deviceCode":"abc","userCode":"XYZ"}"#), r#"{"deviceCode":"<redacted>","userCode":"<redacted>"}"#);
+        assert_eq!(redact(r#"{"device_code":"abc"}"#), r#"{"device_code":"<redacted>"}"#);
     }
 
     #[test]

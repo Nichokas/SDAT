@@ -170,18 +170,23 @@ fn uptime_ms() -> u64 {
     u64::try_from(STARTED.get_or_init(Instant::now).elapsed().as_millis()).unwrap_or(u64::MAX)
 }
 
-/// Starts collecting. Only the first call has an effect.
+/// Starts collecting. Only the first call has an effect; a later one is logged as a warning and ignored.
 ///
 /// Installs the `log` logger (default level info, echoed to stderr) and a panic hook, and with `dir` keeps
 /// `diag.log` there, moving the last run's to `diag.prev.log`.
 pub fn init(dir: Option<PathBuf>, sink: Option<Box<dyn Sink>>) {
     static INIT: Once = Once::new();
     STARTED.get_or_init(Instant::now);
+    let mut first = false;
     // A concurrent caller waits here until the logger and the panic hook are in place, not only the store.
     INIT.call_once(|| {
+        first = true;
         let _ = GLOBAL.set(Global { store: Mutex::new(Store::new(dir)), sink });
         install::install();
     });
+    if !first {
+        log::warn!("diag::init called again; its directory and sink are ignored");
+    }
 }
 
 /// The one path every event takes, so redaction happens before anything is stored, written or sent.
@@ -302,6 +307,15 @@ mod tests {
         assert_eq!(events[0].target, "panic");
         assert!(events[0].backtrace.as_deref().is_some_and(|b| !b.is_empty()));
         assert_eq!(sent("diag-test-panic-1").len(), 1);
+    }
+
+    #[test]
+    fn a_second_init_keeps_the_first_sink_and_says_so() {
+        setup();
+        init(None, None);
+        assert_ne!(stored("diag::init called again").len(), 0);
+        record(Level::Warn, "test", "diag-test-after-second-init", None);
+        assert_eq!(sent("diag-test-after-second-init").len(), 1);
     }
 
     #[test]
