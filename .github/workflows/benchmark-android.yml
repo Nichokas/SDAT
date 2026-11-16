@@ -1,0 +1,56 @@
+name: Benchmark APK
+
+# Builds the glass benchmark (benchmarks/android-glass) as a signed-with-debug-key release APK, kept as an artifact.
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
+    paths:
+      - "benchmarks/android-glass/**"
+      - "sdat-android/gradle/libs.versions.toml"
+      - ".github/workflows/benchmark-android.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: benchmark-android-${{ github.event_name == 'api' && github.run_id || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  review-gate:
+    if: github.event_name == 'pull_request'
+    name: Review gate
+    permissions:
+      contents: read
+      pull-requests: read
+    uses: ./.github/workflows/review-gate.yml
+
+  build:
+    needs: review-gate
+    if: ${{ !failure() && !cancelled() }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 21
+      - uses: android-actions/setup-android@v3
+        with:
+          packages: ""
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          cache-read-only: ${{ github.ref != 'refs/heads/main' }}
+      - name: Unit tests and release APK
+        working-directory: benchmarks/android-glass
+        run: ./gradlew testDebugUnitTest assembleRelease
+      - uses: actions/upload-artifact@v4
+        with:
+          name: sdat-glass-benchmark
+          path: benchmarks/android-glass/app/build/outputs/apk/release/app-release.apk
+          retention-days: 30
+          if-no-files-found: error
