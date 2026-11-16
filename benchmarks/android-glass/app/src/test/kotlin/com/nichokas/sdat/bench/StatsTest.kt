@@ -43,4 +43,15 @@ class StatsTest {
         assertFalse(meets60(fps = 45.0, over60 = 0.0, refreshHz = 60f))
         assertTrue(meets60(fps = 85.0, over60 = 1.0, refreshHz = 90f))
     }
+
+    @Test fun scoreTakesTheSlowestSceneAndCapsTheOnePercentLowAtTheDisplayRate() {
+        fun run(scene: Scene, frameMs: Double) = Run(scene, 1, stats(List(60) { frame(frameMs) }, seconds = 1.0), 0.0, 0, 0, 0, 0)
+        val fast = Scene(Page.Collection, Glass.None)
+        val slow = Scene(Page.DiscoverFling, Glass.Live, busyCores = 2)
+        val score = score(listOf(run(fast, 5.0), run(slow, 25.0)), refreshHz = 60f)
+        assertEquals(slow.label, score.worstLow.label)
+        assertEquals(40.0, score.worstLow.low1, 1e-9)
+        assertEquals(60.0, score.scenes.first { it.label == fast.label }.low1, 0.0)
+        assertEquals(1, score.passing)
+    }
 }

@@ -25,6 +25,29 @@ private fun List<Double>.spread() = if (size < 2) "" else " (${min().f()}-${max(
 /** Meets 60 fps: at least 57 frames a second, and at most 5% of frames slower than a 60 Hz frame. */
 fun meets60(fps: Double, over60: Double, refreshHz: Float) = fps >= minOf(57.0, refreshHz * 0.95) && over60 <= 5.0
 
+/**
+ * One scene across rounds: its median fps, and its 1% low, the rate its slowest 1% of frames could hold
+ * (1000 / p99 ms, capped at the display's rate).
+ */
+data class SceneScore(val label: String, val fps: Double, val low1: Double, val meets60: Boolean)
+
+/** The headline: the slowest scene sets the worst case, as the slowest screen sets how SDAT feels. */
+data class Score(val scenes: List<SceneScore>, val refreshHz: Float) {
+    val worst get() = scenes.minBy { it.fps }
+    val worstLow get() = scenes.minBy { it.low1 }
+    val passing get() = scenes.count { it.meets60 }
+}
+
+fun score(runs: List<Run>, refreshHz: Float) = Score(
+    runs.groupBy { it.scene }.map { (scene, group) ->
+        val fps = group.map { it.stats.fps }.median()
+        val p99 = group.map { it.stats.p99Ms }.median()
+        val low1 = if (p99 > 0) minOf(refreshHz.toDouble(), 1000 / p99) else refreshHz.toDouble()
+        SceneScore(scene.label, fps, low1, meets60(fps, group.map { it.stats.over60Percent }.median(), refreshHz))
+    },
+    refreshHz,
+)
+
 private val thermalNames = listOf("none", "light", "moderate", "severe", "critical", "emergency", "shutdown")
 
 fun report(device: Device, runs: List<Run>, rounds: Int): String = buildString {
@@ -33,10 +56,15 @@ fun report(device: Device, runs: List<Run>, rounds: Int): String = buildString {
     appendLine("RAM ${device.ramGb.f()} GB${if (device.lowRam) " (low-RAM device)" else ""} · ${device.screen} · ${device.refreshHz.toDouble().f(0)} Hz")
     appendLine("Glasmio ${device.glasmio} · $rounds round(s), medians with (min-max) across rounds")
     appendLine()
+    val score = score(runs, device.refreshHz)
+    appendLine("SCORE: worst case ${score.worst.fps.f()} fps (${score.worst.label})")
+    appendLine("       1% low ${score.worstLow.low1.f()} fps (${score.worstLow.label})")
+    appendLine("       ${score.passing}/${score.scenes.size} scenes hold 60 fps")
+    appendLine()
     for ((scene, group) in runs.groupBy { it.scene }) {
         val fps = group.map { it.stats.fps }
         val over = group.map { it.stats.over60Percent }
-        val verdict = if (meets60(fps.median(), over.median(), device.refreshHz)) "60 fps OK" else "BELOW 60 fps"
+        val verdict = if (score.scenes.first { it.label == scene.label }.meets60) "60 fps OK" else "BELOW 60 fps"
         appendLine("[$verdict] ${scene.label}")
         appendLine("  fps ${fps.median().f()}${fps.spread()} · frames >16.7 ms ${over.median().f()}%${over.spread()} · missed display deadline ${group.map { it.stats.jankPercent }.median().f()}%")
         appendLine("  frame p50 ${group.map { it.stats.p50Ms }.median().f()} · p90 ${group.map { it.stats.p90Ms }.median().f()}${group.map { it.stats.p90Ms }.spread()} · p99 ${group.map { it.stats.p99Ms }.median().f()} · max ${group.maxOf { it.stats.maxMs }.f()} ms")

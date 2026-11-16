@@ -56,7 +56,7 @@ private const val MEASURE_MS = 6_000L
 private sealed interface Phase {
     data object Ready : Phase
     data class Running(val rounds: Int) : Phase
-    data class Done(val report: String, val file: File?) : Phase
+    data class Done(val report: String, val score: Score, val file: File?) : Phase
 }
 
 class MainActivity : ComponentActivity() {
@@ -71,14 +71,14 @@ class MainActivity : ComponentActivity() {
             var phase by remember { mutableStateOf<Phase>(Phase.Ready) }
             when (val p = phase) {
                 Phase.Ready -> Menu { rounds -> phase = Phase.Running(rounds) }
-                is Phase.Running -> Runner(p.rounds, recorder) { report, file -> phase = Phase.Done(report, file) }
-                is Phase.Done -> Results(p.report, p.file) { phase = Phase.Ready }
+                is Phase.Running -> Runner(p.rounds, recorder) { done -> phase = done }
+                is Phase.Done -> Results(p) { phase = Phase.Ready }
             }
         }
     }
 
     @Composable
-    private fun Runner(rounds: Int, recorder: FrameRecorder, onDone: (String, File?) -> Unit) {
+    private fun Runner(rounds: Int, recorder: FrameRecorder, onDone: (Phase.Done) -> Unit) {
         var covers by remember { mutableStateOf<List<File>?>(null) }
         var current by remember { mutableStateOf<Pair<Scene, String>?>(null) }
         LaunchedEffect(Unit) {
@@ -108,7 +108,8 @@ class MainActivity : ComponentActivity() {
             }
             recorder.end()
             current = null
-            val text = report(device(), runs, rounds)
+            val device = device()
+            val text = report(device, runs, rounds)
             Log.i("SdatBench", text)
             val file = withContext(Dispatchers.IO) {
                 runCatching {
@@ -116,7 +117,7 @@ class MainActivity : ComponentActivity() {
                     File(getExternalFilesDir("results"), "bench-$stamp.txt").apply { writeText(text) }
                 }.getOrNull()
             }
-            onDone(text, file)
+            onDone(Phase.Done(text, score(runs, device.refreshHz), file))
         }
         val files = covers
         val shown = current
@@ -159,7 +160,10 @@ class MainActivity : ComponentActivity() {
     }
 
     @Composable
-    private fun Results(report: String, file: File?, onAgain: () -> Unit) = Page {
+    private fun Results(done: Phase.Done, onAgain: () -> Unit) = Page {
+        val (report, score, file) = done
+        ScoreCard(score)
+        FpsChart(score)
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             Button({
                 startActivity(Intent.createChooser(Intent(Intent.ACTION_SEND).setType("text/plain").putExtra(Intent.EXTRA_TEXT, report), "Share results"))
