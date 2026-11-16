@@ -116,7 +116,7 @@ class MainActivity : ComponentActivity() {
             }) { Text("Copy") }
             OutlinedButton(onAgain) { Text("Again") }
         }
-        if (file != null) Text("Saved to ${file.absolutePath}", fontSize = 12.sp)
+        Text(if (file != null) "Saved to ${file.absolutePath}" else "Not saved to a file; use Share or Copy", fontSize = 12.sp)
         Text(report, fontFamily = FontFamily.Monospace, fontSize = 11.sp)
     }
 

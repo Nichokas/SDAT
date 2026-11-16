@@ -117,10 +117,10 @@ fun device(activity: Activity): Device {
 
 /** The report in the app's results folder, or null when external storage is unavailable. */
 fun save(activity: Activity, text: String): File? = runCatching {
-    val dir = activity.getExternalFilesDir("results") ?: return null
+    val dir = checkNotNull(activity.getExternalFilesDir("results")) { "External storage is unavailable" }
     val stamp = SimpleDateFormat("yyyyMMdd-HHmmss", Locale.US).format(Date())
     File(dir, "bench-$stamp.txt").apply { writeText(text) }
-}.getOrNull()
+}.onFailure { Log.w("SdatBench", "Could not save the report", it) }.getOrNull()
 
 /** Busy threads standing in for audio decoding, a download and the core's network work beside the UI. */
 private class CpuLoad(threads: Int) {
