@@ -9,7 +9,10 @@ kotlin="${ANDROID_KOTLIN_DIR:-$app/build/generated/source/uniffi/kotlin}"
 api="${ANDROID_API:-33}"
 cd "$root"
 # Cargo may use a shared target directory (scripts/setup-sccache.sh), so ask it instead of assuming ./target.
-target="$(cargo metadata --format-version 1 --no-deps | sed -n 's/.*"target_directory":"\([^"]*\)".*/\1/p')"
+target="$(cargo metadata --format-version 1 --no-deps | python3 -c 'import json, sys; print(json.load(sys.stdin)["target_directory"])')"
+mkdir -p "$target"
+# One lock per target directory: another worktree must not rebuild the shared archive between our build and our reads of it.
+if command -v flock >/dev/null; then exec 9>"$target/.sdat-build.lock"; flock 9; fi
 # 16 KB page alignment is required for apps targeting Android 15+ on arm64.
 # Fat LTO with one codegen unit cuts the core by ~2.9 MB per ABI; Android only, so iOS and desktop builds are unchanged.
 RUSTFLAGS="${RUSTFLAGS:-} -C link-arg=-Wl,-z,max-page-size=16384" \

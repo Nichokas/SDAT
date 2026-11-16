@@ -9,6 +9,9 @@ set -euo pipefail
 
 cargo_home="${CARGO_HOME:-$HOME/.cargo}"
 target_dir="${SDAT_TARGET_DIR:-$HOME/.cache/cargo-target}"
+case "$target_dir" in
+  *[\"\\]*) echo "SDAT_TARGET_DIR must not contain quotes or backslashes: $target_dir" >&2; exit 1 ;;
+esac
 command -v sccache >/dev/null || cargo install sccache --locked
 sccache="$(command -v sccache || echo "$cargo_home/bin/sccache")"
 "$sccache" --version
