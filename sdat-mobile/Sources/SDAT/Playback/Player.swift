@@ -911,15 +911,15 @@ final class Player {
         // anew here would drop the preload that is already playing and replay it from 0.
         if let p = preloaded, avPlayer.items().contains(p.item) {
             // A preload that fails, is removed or never comes up loads the next track the usual way.
-            let s = starts
+            let s = starts, g = seekGeneration
             Task { [weak self] in
                 for _ in 0..<20 {
                     try? await Task.sleep(for: .milliseconds(500))
-                    guard let self, self.playingItem === item, self.starts == s else { return }
+                    guard let self, self.playingItem === item, self.starts == s, self.seekGeneration == g else { return }
                     guard let p = self.preloaded, p.item.status != .failed,
                           self.avPlayer.items().contains(p.item) else { break }
                 }
-                guard let self, self.playingItem === item, self.starts == s else { return }
+                guard let self, self.playingItem === item, self.starts == s, self.seekGeneration == g else { return }
                 self.advance(auto: true)
             }
             return
