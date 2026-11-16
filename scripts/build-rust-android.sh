@@ -12,7 +12,11 @@ cd "$root"
 target="$(cargo metadata --format-version 1 --no-deps | python3 -c 'import json, sys; print(json.load(sys.stdin)["target_directory"])')"
 mkdir -p "$target"
 # One lock per target directory: another worktree must not rebuild the shared archive between our build and our reads of it.
-if command -v flock >/dev/null; then exec 9>"$target/.sdat-build.lock"; flock 9; fi
+if command -v flock >/dev/null; then
+  exec 9>"$target/.sdat-build.lock"; flock 9
+elif [ "$target" != "$root/target" ]; then
+  echo "flock is required to share $target between worktrees; install util-linux or unset build.target-dir." >&2; exit 1
+fi
 # 16 KB page alignment is required for apps targeting Android 15+ on arm64.
 # Fat LTO with one codegen unit cuts the core by ~2.9 MB per ABI; Android only, so iOS and desktop builds are unchanged.
 RUSTFLAGS="${RUSTFLAGS:-} -C link-arg=-Wl,-z,max-page-size=16384" \

@@ -10,7 +10,11 @@ cd "$core"
 target="$(cargo metadata --format-version 1 --no-deps | python3 -c 'import json, sys; print(json.load(sys.stdin)["target_directory"])')"
 mkdir -p "$target"
 # One lock per target directory: another worktree must not rebuild the shared archive between our build and our reads of it.
-if command -v flock >/dev/null; then exec 9>"$target/.sdat-build.lock"; flock 9; fi
+if command -v flock >/dev/null; then
+  exec 9>"$target/.sdat-build.lock"; flock 9
+elif [ "$target" != "$core/target" ]; then
+  echo "flock is required to share $target between worktrees; install util-linux or unset build.target-dir." >&2; exit 1
+fi
 # On Linux, link Apple dylibs (iroh-relay) with clang + ld64.lld.
 if [ "$(uname)" = Linux ]; then export CARGO_TARGET_AARCH64_APPLE_IOS_LINKER="$here/scripts/ios-linker.sh"; fi
 SDKROOT="$sdk" IPHONEOS_DEPLOYMENT_TARGET=17.0 CC_aarch64_apple_ios=clang AR_aarch64_apple_ios=llvm-ar \
