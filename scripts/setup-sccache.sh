@@ -17,29 +17,28 @@ config="$cargo_home/config.toml"
 mkdir -p "$cargo_home" "$target_dir"
 touch "$config"
 
-if grep -Eq '^[[:space:]]*(\[[[:space:]]*"build"[[:space:]]*\]|"?build"?[[:space:]]*\.)' "$config"; then
-  echo "$config configures build in a form this script does not edit; add this under [build] yourself:" >&2
-  printf 'rustc-wrapper = "%s"\ntarget-dir = "%s"\n' "$sccache" "$target_dir" >&2
-  exit 1
-fi
-
-has_build_key() {
-  awk -v key="$1" '
-    /^[[:space:]]*\[/ { in_build = ($0 ~ /^[[:space:]]*\[[[:space:]]*build[[:space:]]*\]/) }
-    in_build && $0 ~ "^[[:space:]]*" key "[[:space:]]*=" { found = 1 }
-    END { exit !found }' "$config"
+# tomllib knows every spelling of a key (bare, quoted, dotted, inline table); a regex does not.
+build_key_state() {
+  python3 -I -c 'import sys, tomllib
+build = tomllib.load(open(sys.argv[1], "rb")).get("build")
+print("no-build" if build is None else "set" if sys.argv[2] in build else "unset")' "$config" "$1"  2>/dev/null
 }
 
 set_build_key() {
-  local key="$1" value="$2"
-  if has_build_key "$key"; then
+  local key="$1" value="$2" state
+  state="$(build_key_state "$key")" || { echo "$config is not valid TOML; fix it and run this again." >&2; exit 1; }
+  if [ "$state" = set ]; then
     echo "$key is already set in $config"
-  elif grep -Eq '^[[:space:]]*\[[[:space:]]*build[[:space:]]*\]' "$config"; then
+  elif [ "$state" = no-build ]; then
+    printf '\n[build]\n%s = "%s"\n' "$key" "$value" >>"$config"
+    echo "Set $key in $config"
+  elif grep -Eq '^[[:space:]]*\[[[:space:]]*build[[:space:]]*\][[:space:]]*(#.*)?$' "$config"; then
     sed -i "/^[[:space:]]*\[[[:space:]]*build[[:space:]]*\]/a $key = \"$value\"" "$config"
     echo "Set $key in $config"
   else
-    printf '\n[build]\n%s = "%s"\n' "$key" "$value" >>"$config"
-    echo "Set $key in $config"
+    echo "$config defines build in a form this script does not edit; add this under [build] yourself:" >&2
+    echo "$key = \"$value\"" >&2
+    exit 1
   fi
 }
 
