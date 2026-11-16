@@ -253,14 +253,14 @@ class GateTests(unittest.TestCase):
     def pr(self, sha="abc", draft=False, repo=review_bot.REPO):
         return {"head": {"sha": sha, "repo": {"full_name": repo}}, "draft": draft}
 
-    def gate(self, prs, comments):
+    def gate(self, prs, comments, keep_waiting=False):
         prs, comments = iter(prs), iter(comments)
 
         def fake(*args, body=None):
             return json.dumps([next(comments)]) if "--paginate" in args else json.dumps(next(prs))
 
         with mock.patch.object(review_bot, "gh_api", fake), mock.patch.object(review_bot.time, "sleep"):
-            return review_bot.gate(7, "abc")
+            return review_bot.gate(7, "abc", keep_waiting)
 
     def test_findings_or_failures_block_and_skips_do_not(self):
         self.assertTrue(review_bot.builds_may_run([Result("cubic", Status.SKIPPED)]))
@@ -276,6 +276,13 @@ class GateTests(unittest.TestCase):
 
     def test_block_verdict_fails(self):
         self.assertFalse(self.gate([self.pr()], [[self.comment("abc", "block")]]))
+
+    def test_keep_waiting_holds_through_a_block_until_a_pass(self):
+        block, ok = [self.comment("abc", "block")], [self.comment("abc", "pass")]
+        self.assertTrue(self.gate([self.pr()] * 3, [block, block, ok], keep_waiting=True))
+
+    def test_keep_waiting_still_fails_when_the_commit_is_superseded(self):
+        self.assertFalse(self.gate([self.pr(), self.pr("newer")], [[self.comment("abc", "block")]], keep_waiting=True))
 
     def test_superseded_commit_fails(self):
         self.assertFalse(self.gate([self.pr("newer")], []))

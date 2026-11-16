@@ -443,8 +443,12 @@ def verdict(pr: int, sha: str) -> str | None:
     return match.group(2) if match and match.group(1) == sha else None
 
 
-def gate(pr: int, sha: str) -> bool:
-    """Wait until the reviewers have finished on sha; True if the builds may run."""
+def gate(pr: int, sha: str, keep_waiting: bool = False) -> bool:
+    """Wait until the reviewers have finished on sha; True if the builds may run.
+
+    keep_waiting holds the gate through a block verdict, for builds that rerun-builds cannot
+    restart (Depot CI): a later `/review` that passes the same sha then releases them.
+    """
     while True:
         data = json.loads(gh_api(f"repos/{REPO}/pulls/{pr}"))
         if data["head"]["sha"] != sha:
@@ -453,7 +457,7 @@ def gate(pr: int, sha: str) -> bool:
         if data["draft"] or (data["head"]["repo"] or {}).get("full_name") != REPO:
             print("The review bot does not run on drafts or forks.")
             return True
-        if result := verdict(pr, sha):
+        if (result := verdict(pr, sha)) and (result == "pass" or not keep_waiting):
             return result == "pass"
         time.sleep(GATE_POLL_SECONDS)
 
@@ -560,6 +564,7 @@ def main() -> None:
     gate_cmd = commands.add_parser("gate")
     gate_cmd.add_argument("--pr", type=int, required=True)
     gate_cmd.add_argument("--sha", required=True)
+    gate_cmd.add_argument("--keep-waiting", action="store_true")
 
     rerun_cmd = commands.add_parser("rerun-builds")
     rerun_cmd.add_argument("--pr", type=int, required=True)
@@ -574,7 +579,7 @@ def main() -> None:
     elif args.command == "publish":
         publish(args.pr, args.sha, args.base, load_results(args.results), args.run_url)
     elif args.command == "gate":
-        if not gate(args.pr, args.sha):
+        if not gate(args.pr, args.sha, args.keep_waiting):
             sys.exit(
                 "The reviewers did not pass this commit. Fix the findings and push, "
                 "or answer them and comment /review: a clean run starts the builds."

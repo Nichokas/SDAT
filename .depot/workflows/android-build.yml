@@ -1,0 +1,111 @@
+# Depot CI Migration
+# Source: .github/workflows/android-build.yml
+#
+# Changes made:
+# - Rewrote .github/ path references to .depot/
+# - Changed GitHub runs-on labels to their Depot equivalents
+# - Dropped prune-gradle-cache: it trims the GitHub cache quota, which Depot runs do not use
+
+name: Android
+
+on:
+  push:
+    branches: [main]
+    paths: &paths
+      - "sdat-android/**"
+      - "sdat-core/**"
+      - "Cargo.toml"
+      - "Cargo.lock"
+      - "scripts/build-rust-android.sh"
+      - ".depot/workflows/android-build.yml"
+      - ".depot/workflows/review-gate.yml"
+  pull_request:
+    # A draft builds without review, so it builds again behind the gate once it is ready.
+    types: [opened, synchronize, reopened, ready_for_review]
+    paths: *paths
+
+permissions:
+  contents: read
+
+concurrency:
+  group: android-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  review-gate:
+    name: Review gate
+    permissions:
+      contents: read
+      pull-requests: read
+    uses: ./.depot/workflows/review-gate.yml
+
+  build:
+    needs: review-gate
+    name: build (${{ matrix.variant }})
+    runs-on: depot-ubuntu-latest # was: ubuntu-latest. Mapped standard GitHub runner to Depot equivalent.
+    timeout-minutes: 45
+    # R8 and lint each take about three minutes and fought for the same four cores in one job.
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - variant: debug
+            tasks: assembleDebug lintDebug testDebugUnitTest
+          - variant: release
+            tasks: assembleRelease
+    env:
+      NDK_VERSION: 27.1.12297006
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 21
+      - uses: android-actions/setup-android@v3
+        with:
+          packages: ""
+      - name: Cache NDK
+        id: ndk
+        uses: actions/cache@v4
+        with:
+          path: ${{ env.ANDROID_HOME }}/ndk/${{ env.NDK_VERSION }}
+          key: ndk-${{ env.NDK_VERSION }}
+      - name: Install NDK
+        if: steps.ndk.outputs.cache-hit != 'true'
+        run: sdkmanager "ndk;${NDK_VERSION}"
+      - name: Install Rust Android targets
+        run: rustup target add aarch64-linux-android x86_64-linux-android
+      # The NDK and the build flags in the script are not in Cargo.lock: without them in the key, a
+      # change leaves an exact-hit cache whose artifacts are all stale and never get saved again.
+      - uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: android-${{ env.NDK_VERSION }}-${{ hashFiles('scripts/build-rust-android.sh') }}
+          # Both legs build the same Rust, so one save is enough.
+          save-if: ${{ github.ref == 'refs/heads/main' && matrix.variant == 'debug' }}
+      - name: Install cargo-ndk
+        uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-ndk
+      - uses: gradle/actions/setup-gradle@v4
+      - name: Build, lint and test
+        working-directory: sdat-android
+        env:
+          ANDROID_NDK_HOME: ${{ env.ANDROID_HOME }}/ndk/${{ env.NDK_VERSION }}
+        run: ./gradlew ${{ matrix.tasks }}
+      - name: Check both ABIs carry the Rust core and no iroh cdylibs
+        if: matrix.variant == 'debug'
+        run: |
+          for abi in arm64-v8a x86_64; do
+            apk=sdat-android/app/build/outputs/apk/debug/app-$abi-debug.apk
+            unzip -l "$apk" | grep -q "lib/$abi/libtonearm_ffi.so"
+            if unzip -l "$apk" | grep -q "/libiroh"; then echo "iroh cdylib in $apk"; exit 1; fi
+          done
+      - uses: actions/upload-artifact@v4
+        if: matrix.variant == 'debug'
+        with:
+          name: sdat-android-debug
+          path: sdat-android/app/build/outputs/apk/debug/app-*-debug.apk
+          retention-days: 3
+          if-no-files-found: error

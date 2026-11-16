@@ -1,0 +1,35 @@
+# Depot CI Migration
+# Source: .github/workflows/review-gate.yml
+#
+# Changes made:
+# - Changed GitHub runs-on labels to their Depot equivalents
+
+name: Review gate
+# Called first by the PR builds: the reviewers' findings usually mean another push, which would
+# cancel the build anyway. Fork PRs get no review and skip the gate, so their code never runs
+# with this token.
+on:
+  workflow_call:
+permissions: {}
+jobs:
+  wait:
+    runs-on: depot-ubuntu-latest # was: ubuntu-latest. Mapped standard GitHub runner to Depot equivalent.
+    timeout-minutes: 60
+    permissions:
+      contents: read
+      pull-requests: read
+    steps:
+      - uses: actions/checkout@v4
+        if: github.event.pull_request.head.repo.full_name == github.repository
+        with:
+          sparse-checkout: scripts/review_bot.py
+          sparse-checkout-cone-mode: false
+          persist-credentials: false
+      - name: Wait for the review bot
+        if: github.event.pull_request.head.repo.full_name == github.repository
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR: ${{ github.event.pull_request.number }}
+          SHA: ${{ github.event.pull_request.head.sha }}
+        # rerun-builds only restarts GitHub Actions runs, so this gate itself waits for a passing /review.
+        run: python3 scripts/review_bot.py gate --pr "$PR" --sha "$SHA" --keep-waiting
