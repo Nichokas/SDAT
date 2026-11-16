@@ -963,6 +963,11 @@ pub fn set_list_rest(tracks: Vec<Track>) {
     }
 }
 
+/// Changes with every new list started.
+pub fn list_generation() -> u64 {
+    LIST_GENERATION.with(std::cell::Cell::get)
+}
+
 fn bump_list_generation() {
     LIST_GENERATION.with(|g| g.set(g.get() + 1));
     FEEDER.with(|f| *f.borrow_mut() = None);

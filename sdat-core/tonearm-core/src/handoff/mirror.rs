@@ -284,12 +284,18 @@ impl Mirror {
         self.need_position = true;
     }
 
+    /// The queue as written still is an adopted current entry alone, at `revision`.
+    pub(super) fn holds_adoption(&self, revision: &str) -> bool {
+        self.written.as_ref().is_some_and(|w| w.revision == revision && w.cur == 0 && w.wrote.len() == 1 && w.entries.len() == 1)
+    }
+
     /// The entries after an adopted current one, read after it at `revision`.
     /// Dropped once anything else is known of the queue; `false` then.
     pub(super) fn adopted_future(&mut self, revision: &str, future: Vec<Entry>) -> bool {
-        let Some(w) = self.written.as_mut().filter(|w| w.revision == revision && w.cur == 0 && w.wrote.len() == 1 && w.entries.len() == 1) else {
+        if !self.holds_adoption(revision) {
             return false;
-        };
+        }
+        let Some(w) = self.written.as_mut() else { return false };
         w.wrote.extend(future.iter().map(|e| e.track_id.clone()));
         w.entries.extend(future);
         true

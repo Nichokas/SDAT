@@ -74,10 +74,9 @@ class Playback(context: Context, private val prefs: Preferences, secrets: Secret
      * took over, and the player sheet drops a drag meant for the previous entry. */
     var entry by mutableIntStateOf(0)
         private set
-    /** The [entry] a Handoff resume started, until what follows its track is appended. */
-    private var resumedEntry = -1
-    /** [entry] and [controls] when the queue last ran out: a play or pause since keeps the player as it is. */
-    private var ranOut: Pair<Int, Int>? = null
+    /** The base queue a Handoff resume restored, until what follows its track is appended. Any new list replaces it;
+     * a restart or a repeat keeps it. */
+    private var resumedBase: List<Track>? = null
     /** Bumped by every play or pause command, so a late handoff result knows the user acted. */
     var controls = 0
         private set
@@ -450,7 +449,6 @@ class Playback(context: Context, private val prefs: Preferences, secrets: Secret
 
     /** End of a finite queue: rewound and paused, and saved that way. Playing it again counts as a new listen. */
     private fun stopAtEnd() {
-        ranOut = entry to controls
         player.pause()
         player.seekToDefaultPosition()
         position = 0.0
@@ -665,19 +663,18 @@ class Playback(context: Context, private val prefs: Preferences, secrets: Secret
         val (saved, state) = resumed(current, maxOf(atMs, 0) / 1000.0, repeat)
         queue.restore(saved, state)
         replaceInfinite(null)
+        resumedBase = queue.original
         start(current, resumeAt = state.position)
-        resumedEntry = entry
     }
 
-    /** The rest of a resumed queue (Handoff), after its track [after], while that resume still is what plays. A track
-     * that ran out waiting goes on to them. */
+    /** The rest of a resumed queue (Handoff), after its track [after], while that resume's queue still is the one
+     * playing. */
     fun appendUpNext(after: String, tracks: List<Track>) {
-        if (entry != resumedEntry || !upcomingApplies(after, track?.id, queue.original.map { it.id })) return
-        resumedEntry = -1
-        val ended = ranOut == (entry to controls) && !playing
+        val base = resumedBase
+        if (base == null || queue.original !== base || !upcomingApplies(after, track?.id, base.map { it.id })) return
+        resumedBase = null
         queue.extend(tracks)
         changed()
-        if (ended) next()
     }
 
     /** After a failure or a controller's stop there is nothing prepared, so this starts the track again where it was;

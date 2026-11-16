@@ -44,6 +44,9 @@ const TAKEOVER: Duration = Duration::from_secs(10);
 /// A failed read of what follows a resumed track is tried again this often.
 const FUTURE_RETRY: Duration = Duration::from_secs(2);
 const FUTURE_RETRIES: u32 = 2;
+/// A resumed track with less left than this could end before what follows it
+/// arrives: that is read before the resume is delivered.
+const NEAR_END_MS: i64 = 20_000;
 
 /// Another player of the account.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -366,13 +369,17 @@ impl Takeover {
 }
 
 /// A resume delivered without what follows its track: the queue it was read
-/// from and the track, read next at `at`.
+/// from and the track, read next at `at` unless `tail` already holds it.
 struct Resumed {
     queue: String,
     track: String,
     retries: u32,
     at: Instant,
+    tail: Option<Tail>,
 }
+
+/// The entries and tracks after a queue's current one, and its revision.
+type Tail = (Vec<wire::Entry>, Vec<Track>, String);
 
 struct Worker {
     mirror: Mirror,
@@ -789,7 +796,10 @@ impl Worker {
         self.held = None;
         let read_at = Instant::now();
         self.awaiting = Some(Takeover { resumed, read_at, until: read_at + TAKEOVER });
-        self.future_due = Some(Resumed { queue, track: track.id().to_string(), retries: 0, at: read_at });
+        let tail = (duration.saturating_sub(position_ms) < NEAR_END_MS)
+            .then(|| Self::read_tail(&queue).inspect_err(|e| log::info!("handoff: reading what follows a track near its end failed error={e}")).ok())
+            .flatten();
+        self.future_due = Some(Resumed { queue, track: track.id().to_string(), retries: 0, at: read_at, tail });
         let from = from
             .or_else(|| head.updated_by.as_deref().and_then(|id| self.mirror.device(id)))
             .unwrap_or_else(|| Device { id: head.updated_by.clone().unwrap_or_default(), name: String::new() });
@@ -800,16 +810,18 @@ impl Worker {
     /// tried again a little later; after the last try the track plays alone
     /// and TIDAL's queue is left as it is.
     fn read_future(&mut self, mut r: Resumed) {
-        match wire::future_tracks(&r.queue, MAX_FUTURE).and_then(|f| Ok((f, wire::head(&r.queue)?.revision))) {
-            Ok(((_, tracks), _)) if tracks.is_empty() => {}
-            Ok(((entries, tracks), revision)) => {
+        match r.tail.take().map_or_else(|| Self::read_tail(&r.queue), Ok) {
+            Ok((_, tracks, _)) if tracks.is_empty() => {}
+            Ok((entries, tracks, revision)) => {
+                // The queue was rewritten since, here or elsewhere: what follows is no longer the resume's.
+                if !self.mirror.holds_adoption(&revision) {
+                    log::info!("handoff: the resumed queue changed before what follows was read");
+                    return;
+                }
                 // Taken into the mirror only while the app's report of the track alone is held back: one
                 // already taken would plan a rewrite to that track. Without it, the app's append rewrites them.
                 if let Some(t) = self.awaiting.as_mut().filter(|t| t.resumed.current.as_ref() == Some(&r.track)) {
-                    if !self.mirror.adopted_future(&revision, entries) {
-                        log::info!("handoff: the resumed queue changed before what follows was read");
-                        return;
-                    }
+                    self.mirror.adopted_future(&revision, entries);
                     t.resumed.future = tracks.iter().map(|t| t.id().to_string()).collect();
                     // The app needs the time to append them.
                     t.until = Instant::now() + TAKEOVER;
@@ -824,6 +836,16 @@ impl Worker {
             }
             Err(e) => log::warn!("handoff: gave up reading what follows the resumed track error={e}"),
         }
+    }
+
+    /// What follows the current entry of `queue`, from reads that agree on its revision.
+    fn read_tail(queue: &str) -> Result<Tail> {
+        let revision = wire::head(queue)?.revision;
+        let (entries, tracks) = wire::future_tracks(queue, MAX_FUTURE)?;
+        if wire::head(queue)?.revision != revision {
+            return Err(CoreError::Network("the queue changed while what follows was read".into()));
+        }
+        Ok((entries, tracks, revision))
     }
 
     /// Selects the other device's queue again (after a failed send), then makes
