@@ -685,7 +685,8 @@ final class Player {
 
     private func autoplayAfterEnd() -> Bool {
         defer { endedAtPlays = nil }
-        guard let p = endedAtPlays else { return true }
+        // Unset: the engine switched before the end notification came, so nothing ended yet.
+        guard let p = endedAtPlays else { return isPlaying && !systemPaused }
         return p == plays ? !systemPaused : isPlaying
     }
 
