@@ -19,7 +19,14 @@ private const val SIZE = 320
 fun covers(dir: File): List<File> {
     dir.mkdirs()
     return (0 until COVERS).map { i ->
-        File(dir, "cover-$i.jpg").also { if (!it.exists()) it.outputStream().use { out -> cover(i).compress(Bitmap.CompressFormat.JPEG, 85, out) } }
+        File(dir, "cover-$i.jpg").also {
+            if (!it.exists()) {
+                // Written beside and renamed, so a run killed mid-write never leaves a broken cover behind.
+                val tmp = File(dir, "cover-$i.jpg.tmp")
+                tmp.outputStream().use { out -> cover(i).compress(Bitmap.CompressFormat.JPEG, 85, out) }
+                tmp.renameTo(it)
+            }
+        }
     }
 }
 

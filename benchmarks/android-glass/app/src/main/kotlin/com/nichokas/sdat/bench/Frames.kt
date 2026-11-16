@@ -5,6 +5,7 @@ import android.os.HandlerThread
 import android.view.FrameMetrics
 import android.view.Window
 import java.util.concurrent.ConcurrentLinkedQueue
+import java.util.concurrent.atomic.AtomicInteger
 import kotlin.math.ceil
 
 /** A 60 Hz frame's budget: the target SDAT has to meet on any screen. */
@@ -12,7 +13,7 @@ const val BUDGET_60_NS = 16_666_667L
 
 /**
  * One rendered frame from FrameMetrics, in nanoseconds. [uiNs] is the main thread (input, animation, layout, draw),
- * [renderNs] the RenderThread (sync, command issue, swap) and [gpuNs] the GPU.
+ * [renderNs] the RenderThread (sync, command issue, swap) and [gpuNs] the GPU, negative where the phone does not report it.
  */
 data class Frame(val totalNs: Long, val uiNs: Long, val renderNs: Long, val gpuNs: Long, val deadlineNs: Long)
 
@@ -31,10 +32,11 @@ data class Stats(
     val over60Percent: Double,
     val uiP90Ms: Double,
     val renderP90Ms: Double,
-    val gpuP90Ms: Double,
+    /** Null when the phone reports no GPU time; the limiter is then the slower CPU stage. */
+    val gpuP90Ms: Double?,
     val lostReports: Int,
 ) {
-    val limiter get() = mapOf(Limiter.UiThread to uiP90Ms, Limiter.RenderThread to renderP90Ms, Limiter.Gpu to gpuP90Ms).maxBy { it.value }.key
+    val limiter get() = mapOf(Limiter.UiThread to uiP90Ms, Limiter.RenderThread to renderP90Ms, Limiter.Gpu to (gpuP90Ms ?: -1.0)).maxBy { it.value }.key
 }
 
 /** Nearest-rank percentile of an ascending list. */
@@ -43,6 +45,7 @@ fun percentile(sorted: List<Long>, p: Double): Long =
 
 fun stats(frames: List<Frame>, seconds: Double, lostReports: Int = 0): Stats {
     fun p90(of: (Frame) -> Long) = percentile(frames.map(of).sorted(), 90.0) / 1e6
+    val gpu = frames.map { it.gpuNs }.filter { it >= 0 }.sorted()
     fun share(test: (Frame) -> Boolean) = if (frames.isEmpty()) 0.0 else 100.0 * frames.count(test) / frames.size
     val total = frames.map { it.totalNs }.sorted()
     return Stats(
@@ -56,18 +59,18 @@ fun stats(frames: List<Frame>, seconds: Double, lostReports: Int = 0): Stats {
         over60Percent = share { it.totalNs > BUDGET_60_NS },
         uiP90Ms = p90 { it.uiNs },
         renderP90Ms = p90 { it.renderNs },
-        gpuP90Ms = p90 { it.gpuNs },
+        gpuP90Ms = if (gpu.isEmpty()) null else percentile(gpu, 90.0) / 1e6,
         lostReports = lostReports,
     )
 }
 
-/** Every frame the window renders between [begin] and [end]; FrameMetrics reports on its own thread. */
-class FrameRecorder(private val window: Window) {
+/** Every frame the window renders from creation to [close]; FrameMetrics reports on its own thread. */
+class FrameRecorder(private val window: Window) : AutoCloseable {
     private val thread = HandlerThread("frame-metrics").apply { start() }
     private val frames = ConcurrentLinkedQueue<Frame>()
-    @Volatile private var lost = 0
+    private val lost = AtomicInteger()
     private val listener = Window.OnFrameMetricsAvailableListener { _, m, dropped ->
-        lost += dropped
+        lost.addAndGet(dropped)
         if (m.getMetric(FrameMetrics.FIRST_DRAW_FRAME) == 0L) {
             frames += Frame(
                 totalNs = m.getMetric(FrameMetrics.TOTAL_DURATION),
@@ -81,17 +84,18 @@ class FrameRecorder(private val window: Window) {
         }
     }
 
-    fun begin() {
-        take(0.0)
+    init {
         window.addOnFrameMetricsAvailableListener(listener, Handler(thread.looper))
     }
 
     /** The frames since the last take, over [seconds] of wall time. */
     fun take(seconds: Double): Stats {
         val taken = generateSequence { frames.poll() }.toList()
-        val dropped = lost.also { lost = 0 }
-        return stats(taken, seconds, dropped)
+        return stats(taken, seconds, lost.getAndSet(0))
     }
 
-    fun end() = window.removeOnFrameMetricsAvailableListener(listener)
+    override fun close() {
+        window.removeOnFrameMetricsAvailableListener(listener)
+        thread.quitSafely()
+    }
 }

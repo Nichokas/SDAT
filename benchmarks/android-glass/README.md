@@ -23,7 +23,7 @@ The player runs inside the activity window, without `GlasmioBottomSheet`'s own w
 
 1. Build the APK. Agents use `scripts/depot-run.sh benchmark`. Anyone can use `./gradlew assembleRelease` in this folder, or download the `sdat-glass-benchmark` artifact of the `Benchmark APK` workflow.
 2. Install `app-release.apk`. It is an R8 release build signed with a debug key, so it installs beside SDAT.
-3. Charge the phone, close other apps, open SDAT Bench, and choose the full run (3 rounds, about 6 minutes). Do not touch the screen.
+3. Charge the phone, close other apps, open SDAT Bench, and choose the full run (3 rounds, about 6 minutes). Do not touch the screen. A scene interrupted by leaving the app or the screen turning off is measured again when you come back, and the report says how many were.
 4. Share or copy the report. It is also saved to `Android/data/com.nichokas.sdat.bench/files/results/`.
 
 ## Read the report

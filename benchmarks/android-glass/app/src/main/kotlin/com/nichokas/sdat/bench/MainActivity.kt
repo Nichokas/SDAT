@@ -42,12 +42,15 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
 import java.io.File
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.withContext
 
 private const val WARMUP_MS = 2_000L
@@ -66,19 +69,18 @@ class MainActivity : ComponentActivity() {
         enableEdgeToEdge()
         super.onCreate(savedInstanceState)
         window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
-        val recorder = FrameRecorder(window)
         setContent {
             var phase by remember { mutableStateOf<Phase>(Phase.Ready) }
             when (val p = phase) {
                 Phase.Ready -> Menu { rounds -> phase = Phase.Running(rounds) }
-                is Phase.Running -> Runner(p.rounds, recorder) { done -> phase = done }
+                is Phase.Running -> Runner(p.rounds) { done -> phase = done }
                 is Phase.Done -> Results(p) { phase = Phase.Ready }
             }
         }
     }
 
     @Composable
-    private fun Runner(rounds: Int, recorder: FrameRecorder, onDone: (Phase.Done) -> Unit) {
+    private fun Runner(rounds: Int, onDone: (Phase.Done) -> Unit) {
         var covers by remember { mutableStateOf<List<File>?>(null) }
         var current by remember { mutableStateOf<Pair<Scene, String>?>(null) }
         LaunchedEffect(Unit) {
@@ -87,29 +89,39 @@ class MainActivity : ComponentActivity() {
             val power = getSystemService(PowerManager::class.java)
             val runs = mutableListOf<Run>()
             val total = rounds * scenes.size
-            recorder.begin()
-            for (round in 1..rounds) {
-                // Each round starts further along the list, so heat and caches favour no scene.
-                val order = scenes.indices.map { scenes[(it + (round - 1) * scenes.size / 3) % scenes.size] }
-                for (scene in order) {
-                    current = scene to "${runs.size + 1}/$total · round $round"
-                    val load = CpuLoad(scene.busyCores)
-                    val thermalStart = power.currentThermalStatus
-                    images.loaded = 0
-                    images.failed = 0
-                    delay(WARMUP_MS)
-                    val warmup = recorder.take(WARMUP_MS / 1000.0)
-                    val start = SystemClock.uptimeMillis()
-                    delay(MEASURE_MS)
-                    val stats = recorder.take((SystemClock.uptimeMillis() - start) / 1000.0)
-                    load.stop()
-                    runs += Run(scene, round, stats, warmup.maxMs, thermalStart, power.currentThermalStatus, images.loaded, images.failed)
+            var reruns = 0
+            // A scene measured while the app is paused (Home, Back, screen off) draws nothing; it is measured again.
+            var paused = false
+            val observer = LifecycleEventObserver { _, event -> if (event == Lifecycle.Event.ON_PAUSE) paused = true }
+            lifecycle.addObserver(observer)
+            try {
+                FrameRecorder(window).use { recorder ->
+                    for (round in 1..rounds) {
+                        // Each round starts further along the list, so heat and caches favour no scene.
+                        val order = scenes.indices.map { scenes[(it + (round - 1) * scenes.size / 3) % scenes.size] }
+                        for (scene in order) {
+                            var attempt = 0
+                            while (true) {
+                                lifecycle.currentStateFlow.first { it.isAtLeast(Lifecycle.State.RESUMED) }
+                                paused = false
+                                current = scene to "${runs.size + 1}/$total · round $round" + if (attempt > 0) " · again" else ""
+                                val run = measure(scene, round, recorder, power)
+                                if (!paused) {
+                                    runs += run
+                                    break
+                                }
+                                attempt++
+                                reruns++
+                            }
+                        }
+                    }
                 }
+            } finally {
+                lifecycle.removeObserver(observer)
             }
-            recorder.end()
             current = null
             val device = device()
-            val text = report(device, runs, rounds)
+            val text = report(device, runs, rounds, reruns)
             Log.i("SdatBench", text)
             val file = withContext(Dispatchers.IO) {
                 runCatching {
@@ -129,6 +141,23 @@ class MainActivity : ComponentActivity() {
             // Keyed, so every run starts the scene from scratch: no state, scroll or cached layout carries over.
             key(shown) { SceneView(shown.first, files, images) }
             Text(shown.second, color = Color.White, fontSize = 11.sp, modifier = Modifier.safeDrawingPadding().padding(4.dp).background(Color.Black.copy(alpha = 0.5f)).padding(horizontal = 4.dp))
+        }
+    }
+
+    private suspend fun measure(scene: Scene, round: Int, recorder: FrameRecorder, power: PowerManager): Run {
+        val thermalStart = power.currentThermalStatus
+        images.loaded = 0
+        images.failed = 0
+        val load = CpuLoad(scene.busyCores)
+        try {
+            delay(WARMUP_MS)
+            val warmup = recorder.take(WARMUP_MS / 1000.0)
+            val start = SystemClock.uptimeMillis()
+            delay(MEASURE_MS)
+            val stats = recorder.take((SystemClock.uptimeMillis() - start) / 1000.0)
+            return Run(scene, round, stats, warmup.maxMs, thermalStart, power.currentThermalStatus, images.loaded, images.failed)
+        } finally {
+            load.stop()
         }
     }
 

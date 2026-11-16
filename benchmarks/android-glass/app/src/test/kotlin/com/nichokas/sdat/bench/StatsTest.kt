@@ -38,10 +38,21 @@ class StatsTest {
     }
 
     @Test fun meets60NeedsBothRateAndSmoothness() {
-        assertTrue(meets60(fps = 59.5, over60 = 2.0, refreshHz = 60f))
-        assertFalse(meets60(fps = 59.5, over60 = 12.0, refreshHz = 60f))
-        assertFalse(meets60(fps = 45.0, over60 = 0.0, refreshHz = 60f))
-        assertTrue(meets60(fps = 85.0, over60 = 1.0, refreshHz = 90f))
+        assertTrue(meets60(fps = 59.5, over60 = 2.0))
+        assertFalse(meets60(fps = 59.5, over60 = 12.0))
+        assertFalse(meets60(fps = 45.0, over60 = 0.0))
+        assertTrue(meets60(fps = 85.0, over60 = 1.0))
+    }
+
+    @Test fun aSmooth30HzDisplayDoesNotPass60() {
+        val s = stats(List(30) { frame(10.0, deadline = 33.3) }, seconds = 1.0)
+        assertFalse(meets60(s.fps, s.over60Percent))
+    }
+
+    @Test fun anUnreportedGpuIsNotAMeasuredZero() {
+        val s = stats(List(10) { frame(20.0, ui = 4.0, render = 6.0, gpu = -1e-6) }, seconds = 1.0)
+        assertEquals(null, s.gpuP90Ms)
+        assertEquals(Limiter.RenderThread, s.limiter)
     }
 
     @Test fun scoreTakesTheSlowestSceneAndCapsTheOnePercentLowAtTheDisplayRate() {

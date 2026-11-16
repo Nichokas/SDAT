@@ -22,8 +22,8 @@ private fun List<Double>.median() = sorted().let { if (it.isEmpty()) 0.0 else if
 
 private fun List<Double>.spread() = if (size < 2) "" else " (${min().f()}-${max().f()})"
 
-/** Meets 60 fps: at least 57 frames a second, and at most 5% of frames slower than a 60 Hz frame. */
-fun meets60(fps: Double, over60: Double, refreshHz: Float) = fps >= minOf(57.0, refreshHz * 0.95) && over60 <= 5.0
+/** Meets 60 fps: at least 57 frames a second, and at most 5% of frames slower than a 60 Hz frame. A slower display never does. */
+fun meets60(fps: Double, over60: Double) = fps >= 57.0 && over60 <= 5.0
 
 /**
  * One scene across rounds: its median fps, and its 1% low, the rate its slowest 1% of frames could hold
@@ -43,18 +43,20 @@ fun score(runs: List<Run>, refreshHz: Float) = Score(
         val fps = group.map { it.stats.fps }.median()
         val p99 = group.map { it.stats.p99Ms }.median()
         val low1 = if (p99 > 0) minOf(refreshHz.toDouble(), 1000 / p99) else refreshHz.toDouble()
-        SceneScore(scene.label, fps, low1, meets60(fps, group.map { it.stats.over60Percent }.median(), refreshHz))
+        SceneScore(scene.label, fps, low1, meets60(fps, group.map { it.stats.over60Percent }.median()))
     },
     refreshHz,
 )
 
 private val thermalNames = listOf("none", "light", "moderate", "severe", "critical", "emergency", "shutdown")
 
-fun report(device: Device, runs: List<Run>, rounds: Int): String = buildString {
+fun report(device: Device, runs: List<Run>, rounds: Int, reruns: Int = 0): String = buildString {
     appendLine("SDAT glass benchmark")
     appendLine("${device.name} · ${device.soc} · Android ${device.android}")
     appendLine("RAM ${device.ramGb.f()} GB${if (device.lowRam) " (low-RAM device)" else ""} · ${device.screen} · ${device.refreshHz.toDouble().f(0)} Hz")
     appendLine("Glasmio ${device.glasmio} · $rounds round(s), medians with (min-max) across rounds")
+    if (device.refreshHz < 59) appendLine("This display runs below 60 Hz, so no scene can reach 60 fps on it.")
+    if (reruns > 0) appendLine("$reruns scene(s) were measured again after the app left the foreground.")
     appendLine()
     val score = score(runs, device.refreshHz)
     appendLine("SCORE: worst case ${score.worst.fps.f()} fps (${score.worst.label})")
@@ -69,7 +71,7 @@ fun report(device: Device, runs: List<Run>, rounds: Int): String = buildString {
         appendLine("  fps ${fps.median().f()}${fps.spread()} · frames >16.7 ms ${over.median().f()}%${over.spread()} · missed display deadline ${group.map { it.stats.jankPercent }.median().f()}%")
         appendLine("  frame p50 ${group.map { it.stats.p50Ms }.median().f()} · p90 ${group.map { it.stats.p90Ms }.median().f()}${group.map { it.stats.p90Ms }.spread()} · p99 ${group.map { it.stats.p99Ms }.median().f()} · max ${group.maxOf { it.stats.maxMs }.f()} ms")
         val limiters = group.map { it.stats.limiter }.groupingBy { it }.eachCount().maxBy { it.value }.key
-        appendLine("  p90 by stage: UI ${group.map { it.stats.uiP90Ms }.median().f()} · RenderThread ${group.map { it.stats.renderP90Ms }.median().f()} · GPU ${group.map { it.stats.gpuP90Ms }.median().f()} ms · limiter $limiters")
+        appendLine("  p90 by stage: UI ${group.map { it.stats.uiP90Ms }.median().f()} · RenderThread ${group.map { it.stats.renderP90Ms }.median().f()} · GPU ${group.mapNotNull { it.stats.gpuP90Ms }.let { if (it.isEmpty()) "n/a" else "${it.median().f()} ms" }} · limiter $limiters")
         val first = group.minBy { it.round }
         appendLine("  first-use worst frame ${first.warmupWorstMs.f()} ms · images ${group.sumOf { it.imagesLoaded }} loaded, ${group.sumOf { it.imagesFailed }} failed · lost reports ${group.sumOf { it.stats.lostReports }}")
     }

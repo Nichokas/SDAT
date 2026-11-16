@@ -51,6 +51,7 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ColorFilter
 import androidx.compose.ui.graphics.ColorMatrix
+import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.graphicsLayer
@@ -427,9 +428,31 @@ private fun Album(covers: List<File>, images: ImageCounter) {
             }
         },
         overlayContent = {
-            GlassSurface(Modifier.align(Alignment.BottomCenter).fillMaxWidth().navigationBarsPadding().padding(start = 24.dp, end = 24.dp, bottom = 12.dp).height(62.dp), shape = RoundedCornerShape(percent = 50)) {}
+            GlassSurface(Modifier.align(Alignment.BottomCenter).fillMaxWidth().navigationBarsPadding().padding(start = 24.dp, end = 24.dp, bottom = 12.dp).height(62.dp), shape = RoundedCornerShape(percent = 50)) {
+                WideMini(art, images)
+            }
         },
     )
+}
+
+/** SDAT's wide mini player content: cover, title and artist, the play ring, and next. */
+@Composable
+private fun WideMini(art: File, images: ImageCounter) {
+    Row(Modifier.fillMaxSize().padding(start = 9.dp, end = 10.dp), horizontalArrangement = Arrangement.spacedBy(10.dp), verticalAlignment = Alignment.CenterVertically) {
+        val px = (38 * LocalDensity.current.density).roundToInt()
+        AsyncImage(cover(art, px, false, images), null, Modifier.size(38.dp).clip(RoundedCornerShape(6.dp)), contentScale = ContentScale.Crop)
+        Column(Modifier.weight(1f)) {
+            Text("Track title", style = IosTypography.subheadline, fontWeight = FontWeight.SemiBold, color = Color.White, maxLines = 1)
+            Text("Artist", style = IosTypography.caption1, color = Color.White.copy(alpha = 0.6f), maxLines = 1)
+        }
+        Box(Modifier.size(40.dp)) { ProgressRing(null) }
+        Canvas(Modifier.size(36.dp, 40.dp).padding(horizontal = 9.dp, vertical = 13.dp)) {
+            val half = size.width / 2
+            for (x in listOf(0f, half)) {
+                drawPath(Path().apply { moveTo(x, 0f); lineTo(x + half, size.height / 2); lineTo(x, size.height); close() }, Color.White)
+            }
+        }
+    }
 }
 
 /** SDAT's DetailPage CoverBackdrop: the cover zoomed and blurred into colour fields. */
