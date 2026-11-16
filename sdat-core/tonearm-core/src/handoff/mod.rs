@@ -796,22 +796,21 @@ impl Worker {
         Ok(Resume { from, current: track, position_ms, repeat: head.repeat })
     }
 
-    /// Reads what follows a resumed track and tells the app, while the mirror
-    /// still knows only that track, at the revision read. A failed read is
-    /// tried again a little later; after the last try, or once the queue was
-    /// written by another device, the track plays alone and TIDAL's queue is
-    /// left as it is.
+    /// Reads what follows a resumed track and tells the app. A failed read is
+    /// tried again a little later; after the last try the track plays alone
+    /// and TIDAL's queue is left as it is.
     fn read_future(&mut self, mut r: Resumed) {
         match wire::future_tracks(&r.queue, MAX_FUTURE).and_then(|f| Ok((f, wire::head(&r.queue)?.revision))) {
             Ok(((_, tracks), _)) if tracks.is_empty() => {}
             Ok(((entries, tracks), revision)) => {
-                if !self.mirror.adopted_future(&revision, entries) {
-                    log::info!("handoff: the resumed queue changed before what follows was read");
-                    return;
-                }
-                let ids = tracks.iter().map(|t| t.id().to_string()).collect();
+                // Taken into the mirror only while the app's report of the track alone is held back: one
+                // already taken would plan a rewrite to that track. Without it, the app's append rewrites them.
                 if let Some(t) = self.awaiting.as_mut().filter(|t| t.resumed.current.as_ref() == Some(&r.track)) {
-                    t.resumed.future = ids;
+                    if !self.mirror.adopted_future(&revision, entries) {
+                        log::info!("handoff: the resumed queue changed before what follows was read");
+                        return;
+                    }
+                    t.resumed.future = tracks.iter().map(|t| t.id().to_string()).collect();
                     // The app needs the time to append them.
                     t.until = Instant::now() + TAKEOVER;
                 }

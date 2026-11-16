@@ -686,20 +686,6 @@ mod tests {
     }
 
     #[test]
-    fn a_future_read_after_this_device_wrote_the_position_is_adopted() {
-        let mut m = Mirror::new(ME.into());
-        m.fetched(state(Some("phone"), Status::Paused), None, None);
-        m.claimed(Some(ME.into()));
-        m.adopt(Entry { track_id: "1".into(), item_id: "a".into() }, &head("r", "1", "phone"), 10_000, 0);
-        // The app played the track alone before what follows was read.
-        m.current_written(0, 12_000, true, 2_000, "r2".into());
-        m.status_written(true);
-        assert!(!m.adopted_future("r",vec![Entry { track_id: "2".into(), item_id: "b".into() }]));
-        assert!(m.adopted_future("r2", vec![Entry { track_id: "2".into(), item_id: "b".into() }]));
-        assert_eq!(m.plan(&local("1", &["2"], 12_000, true), 2_000), Vec::<Write>::new());
-    }
-
-    #[test]
     fn entries_not_read_back_are_written_again() {
         let mut m = active_with(&[]);
         // A send reads back only the current entry.
