@@ -11,7 +11,8 @@ class DiscoverCache(private val file: File) {
     /** Empty when there is no pool yet, or the file is unreadable or from another format. */
     fun load(): List<Track> = runCatching { decode(file.readText()) }.getOrDefault(emptyList())
 
-    fun save(tracks: List<Track>) {
+    /** Drops the pool when the cache was cleared after [epoch], so a pool fetched for one account never lands after its sign-out. */
+    fun save(tracks: List<Track>, epoch: Long) {
         runCatching {
             // Written aside and renamed, so a crash mid-write never leaves half a file.
             val text = encode(tracks)
@@ -19,19 +20,25 @@ class DiscoverCache(private val file: File) {
             var moved = false
             try {
                 tmp.writeText(text)
-                moved = tmp.renameTo(file)
+                moved = synchronized(lock) { epoch == Companion.epoch && tmp.renameTo(file) }
             } finally {
                 if (!moved) tmp.delete()
             }
         }
     }
 
-    fun clear() {
+    fun clear() = synchronized(lock) {
+        epoch++
         file.delete()
     }
 
     companion object {
         private const val FORMAT = 1
+        private val lock = Any()
+
+        /** Counts clears; a load reads it when it starts and hands it to [save]. */
+        @Volatile var epoch = 0L
+            private set
 
         fun of(context: Context) = DiscoverCache(File(context.cacheDir, "discover.json"))
 

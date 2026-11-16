@@ -44,6 +44,7 @@ class Session(context: Context) : TokenStore {
         picture.value = null
         // Before the new session is saved, so a process killed in between can't pair it with the old history.
         Recents.clear()
+        Discover.reset()
         // A session that failed to restore leaves the previous account's entries behind.
         prefs.edit {
             clear()
@@ -63,6 +64,7 @@ class Session(context: Context) : TokenStore {
         Live.signOut()
         Handoff.stop()
         Boot.cancel()
+        Discover.reset()
         DiscoverCache.of(app).clear()
         Downloads.removeAll()
         prefs.edit { clear() }

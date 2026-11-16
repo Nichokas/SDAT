@@ -19,11 +19,8 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveableStateHolder
-import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
@@ -33,6 +30,7 @@ import com.nichokas.sdat.core.AppTab
 import com.nichokas.sdat.core.Boot
 import com.nichokas.sdat.core.Chrome
 import com.nichokas.sdat.core.Destination
+import com.nichokas.sdat.core.Discover
 import com.nichokas.sdat.core.Downloads
 import com.nichokas.sdat.core.Live
 import com.nichokas.sdat.core.Morph
@@ -50,7 +48,6 @@ import io.github.neoruaa.glasmio.icons.SfSymbol
 import io.github.neoruaa.glasmio.scaffold.navigation.GlasmioNavDisplay
 import io.github.neoruaa.glasmio.scaffold.navigation.GlasmioNavHeaderMotion
 import io.github.neoruaa.glasmio.ui.GlasmioTabItem
-import uniffi.tonearm_ffi.Mix
 
 private val AppTab.label get() = when (this) {
     AppTab.Discover -> "Discover"
@@ -89,12 +86,8 @@ fun RootView(session: Session, playback: Playback, prefs: Preferences, secrets: 
     if (Boot.active) return BootLoaderView(Boot.progress.value)
     val nav = Chrome.nav
     val stacks = rememberSaveableStateHolder()
-    // The Discover header's shuffle sits in the overlay, where glass can sample the page, so the mixes live here.
-    var mixes by remember { mutableStateOf(emptyList<Mix>()) }
-    val discoverMixes: (List<Mix>) -> Unit = {
-        mixes = it
-        playback.resumeInfinite(it)
-    }
+    val mixes = Discover.mixes
+    LaunchedEffect(mixes) { playback.resumeInfinite(mixes) }
     GlasmioBackdropHost(
         modifier = Modifier.fillMaxSize(),
         sampledContent = {
@@ -102,7 +95,7 @@ fun RootView(session: Session, playback: Playback, prefs: Preferences, secrets: 
             stacks.SaveableStateProvider(nav.tab.name) {
                 TabStack(nav.tab, nav.stack) { route ->
                     when (route) {
-                        null -> TabRoot(nav.tab, session, playback, discoverMixes)
+                        null -> TabRoot(nav.tab, session, playback)
                         Route.Settings -> SettingsView(session, prefs, secrets, playback::setStreamingQuality, playback::setPreloadNext, onBack = Chrome::pop)
                         is Route.Explore -> ExploreView(route.path, route.title)
                         is Route.Album -> AlbumView(route.id)
@@ -162,8 +155,8 @@ private fun TabStack(tab: AppTab, stack: List<Destination>, page: @Composable (R
 private fun contentKey(key: Any): Any = if (key is Destination) key.id else key.toString()
 
 @Composable
-private fun TabRoot(tab: AppTab, session: Session, playback: Playback, onMixes: (List<Mix>) -> Unit) = when (tab) {
-    AppTab.Discover -> DiscoverView(session, onPlay = playback::playDiscover, onMixes = onMixes)
+private fun TabRoot(tab: AppTab, session: Session, playback: Playback) = when (tab) {
+    AppTab.Discover -> DiscoverView(session, onPlay = playback::playDiscover)
     AppTab.Search -> SearchView()
     AppTab.Collection -> CollectionView()
 }
