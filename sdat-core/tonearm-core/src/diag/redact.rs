@@ -78,8 +78,10 @@ fn key_value(s: &[u8], after_key: usize) -> Option<(usize, usize)> {
         return None;
     }
     let value = skip(s, i + 1, |b| b.is_ascii_whitespace());
-    if matches!(s.get(value), Some(b'"' | b'\'' | b'\\')) {
-        return quoted(s, value);
+    if matches!(s.get(value), Some(b'"' | b'\'' | b'\\'))
+        && let Some(range) = quoted(s, value)
+    {
+        return Some(range);
     }
     i = skip(s, i + 1, is_blank);
     if sep == b':' || quoted_key {
@@ -97,8 +99,10 @@ fn header_value(s: &[u8], after_key: usize) -> Option<(usize, usize)> {
         return None;
     }
     let value = skip(s, i + 1, |b| b.is_ascii_whitespace());
-    if matches!(s.get(value), Some(b'"' | b'\'' | b'\\')) {
-        return quoted(s, value);
+    if matches!(s.get(value), Some(b'"' | b'\'' | b'\\'))
+        && let Some(range) = quoted(s, value)
+    {
+        return Some(range);
     }
     i = skip(s, i + 1, is_blank);
     let end = skip(s, i, |b| b != b'\n' && b != b'\r');
@@ -205,6 +209,8 @@ mod tests {
     fn bare_values_keep_their_punctuation() {
         assert_eq!(redact("password=abc,secret;x) next"), "password=<redacted> next");
         assert_eq!(redact("password=abc\\hunter2<x> next"), "password=<redacted> next");
+        assert_eq!(redact("password=\\hunter2 next"), "password=<redacted> next");
+        assert_eq!(redact("Authorization: \\xyz\nnext"), "Authorization: <redacted>\nnext");
         assert_eq!(redact(r#"msg: "password=abc\" ok""#), r#"msg: "password=<redacted>\" ok""#);
     }
 
