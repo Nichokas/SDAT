@@ -950,6 +950,19 @@ pub fn extend_list(generation: u64, tracks: &[Track]) -> bool {
     true
 }
 
+/// Makes `tracks` the rest of the list after the current track, as if the
+/// list had started with them: queue repeat and shuffle cover all of it.
+/// Unlike [`extend_list`], keeps repeated tracks.
+pub fn set_list_rest(tracks: Vec<Track>) {
+    let Some(current) = track_changed().with(|t| t.as_ref().map(|e| e.track.clone())) else { return };
+    let id = current.id().to_string();
+    base_queue().set(std::iter::once(current).chain(tracks).collect());
+    base_queue().pop();
+    if base_queue().is_shuffled() {
+        base_queue().shuffle(&id);
+    }
+}
+
 fn bump_list_generation() {
     LIST_GENERATION.with(|g| g.set(g.get() + 1));
     FEEDER.with(|f| *f.borrow_mut() = None);
