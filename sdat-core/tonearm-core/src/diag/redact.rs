@@ -8,8 +8,10 @@ const KEYS: [&str; 10] =
 /// Short keys that also end longer words (`zipcode`, `disk`, `x_tidal_token`): matched only at a word start.
 const WORD_KEYS: [&str; 3] = ["token", "code", "sk"];
 
+/// Where a bare value ends. Punctuation that a password may contain (`,`, `;`, `)`) does not end it:
+/// swallowing a trailing bracket costs nothing, leaving half a password visible does.
 fn is_delimiter(b: u8) -> bool {
-    b.is_ascii_whitespace() || matches!(b, b'"' | b'\'' | b'\\' | b'&' | b',' | b';' | b')' | b']' | b'}' | b'<' | b'>')
+    b.is_ascii_whitespace() || matches!(b, b'"' | b'\'' | b'\\' | b'&' | b'<')
 }
 
 fn skip(s: &[u8], mut i: usize, f: impl Fn(u8) -> bool) -> usize {
@@ -189,6 +191,28 @@ mod tests {
     }
 
     #[test]
+    fn bare_values_keep_their_punctuation() {
+        assert_eq!(redact("password=abc,secret;x) next"), "password=<redacted> next");
+    }
+
+    #[test]
+    fn multibyte_text_around_secrets_never_splits_a_character() {
+        let pieces = ["", "ä", "€", "😀", "\\", "\"", "'", "=", ":", " ", "\n", "&"];
+        for key in ["password", "token", "Bearer ", "Authorization", "\"code\"", "\\\"sk\\\""] {
+            for a in pieces {
+                for b in pieces {
+                    for c in pieces {
+                        let text = format!("{a}{key}{b}={c}x{a}€{b}\"{c}ä{a}");
+                        let _ = redact(&text);
+                        let text = format!("{a}{key}{b}:{c}\\\"{a}😀{b}\\\"{c}");
+                        let _ = redact(&text);
+                    }
+                }
+            }
+        }
+    }
+
+    #[test]
     fn single_quoted_values() {
         assert_eq!(redact("password='hunter2' user='me'"), "password='<redacted>' user='me'");
         assert_eq!(redact("{'access_token': 'a\\'b'}"), "{'access_token': '<redacted>'}");
@@ -198,7 +222,7 @@ mod tests {
     fn last_fm_credentials_and_key_spellings() {
         assert_eq!(
             redact("error sending request for url (https://ws.audioscrobbler.com/2.0/?method=user.getInfo&sk=s3ss&api_sig=f00&api_key=k3y)"),
-            "error sending request for url (https://ws.audioscrobbler.com/2.0/?method=user.getInfo&sk=<redacted>&api_sig=<redacted>&api_key=<redacted>)"
+            "error sending request for url (https://ws.audioscrobbler.com/2.0/?method=user.getInfo&sk=<redacted>&api_sig=<redacted>&api_key=<redacted>"
         );
         assert_eq!(redact("auth.getSession token=t0k"), "auth.getSession token=<redacted>");
         assert_eq!(redact("client-secret=a CLIENT.SECRET = b"), "client-secret=<redacted> CLIENT.SECRET = <redacted>");
