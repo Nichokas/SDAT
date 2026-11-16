@@ -26,21 +26,21 @@ class DiscoverCacheTest {
 
     @Test fun roundTripsThroughTheFile() {
         val c = cache()
-        c.save(listOf(full, bare, full.copy(id = "3", album = AlbumRef("al2", "Other", null, null), bpm = null)))
+        c.save(listOf(full, bare, full.copy(id = "3", album = AlbumRef("al2", "Other", null, null), bpm = null)), DiscoverCache.epoch)
         assertEquals(listOf(full, bare, full.copy(id = "3", album = AlbumRef("al2", "Other", null, null), bpm = null)), c.load())
     }
 
     @Test fun aNewSaveReplacesTheOldPool() {
         val c = cache()
-        c.save(listOf(full))
-        c.save(listOf(bare))
+        c.save(listOf(full), DiscoverCache.epoch)
+        c.save(listOf(bare), DiscoverCache.epoch)
         assertEquals(listOf(bare), c.load())
         assertEquals(listOf("discover.json"), dir.root.list()!!.toList())
     }
 
     @Test fun dropsArtistPicturesAsOnIos() {
         val c = cache()
-        c.save(listOf(bare.copy(artists = listOf(ArtistRef("a", "A", "https://p/1.jpg")))))
+        c.save(listOf(bare.copy(artists = listOf(ArtistRef("a", "A", "https://p/1.jpg")))), DiscoverCache.epoch)
         assertEquals(listOf(ArtistRef("a", "A", null)), c.load().single().artists)
     }
 
@@ -48,9 +48,18 @@ class DiscoverCacheTest {
 
     @Test fun clearedIsEmpty() {
         val c = cache()
-        c.save(listOf(full))
+        c.save(listOf(full), DiscoverCache.epoch)
         c.clear()
         assertEquals(emptyList<Track>(), c.load())
+    }
+
+    @Test fun aPoolFetchedBeforeAClearIsDropped() {
+        val c = cache()
+        val epoch = DiscoverCache.epoch
+        c.clear()
+        c.save(listOf(full), epoch)
+        assertEquals(emptyList<Track>(), c.load())
+        assertEquals(emptyList<String>(), dir.root.list()!!.toList())
     }
 
     @Test fun corruptFileIsEmpty() {

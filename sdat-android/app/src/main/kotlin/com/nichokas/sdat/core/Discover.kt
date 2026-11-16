@@ -40,6 +40,7 @@ object Discover {
     }
 
     private suspend fun fetch(cache: DiscoverCache) {
+        val epoch = DiscoverCache.epoch
         error = null
         if (tracks.isEmpty()) tracks = withContext(Dispatchers.IO) { cache.load() }
         val hadCache = tracks.isNotEmpty()
@@ -56,7 +57,7 @@ object Discover {
                 }
             }
             loaded = pool.tracks.isNotEmpty()
-            if (loaded) pool.tracks.toList().let { withContext(Dispatchers.IO) { cache.save(it) } }
+            if (loaded) pool.tracks.toList().let { withContext(Dispatchers.IO) { cache.save(it, epoch) } }
             if (pool.tracks.isEmpty() && !hadCache) error = "Your home mixes have no covers yet."
         } catch (e: CancellationException) {
             throw e

@@ -161,13 +161,14 @@ object Boot {
 
     /** Same source and dedupe as Discover's load, but continues until the pool is varied. */
     private suspend fun discover(cache: DiscoverCache, report: (Double) -> Unit) {
+        val epoch = DiscoverCache.epoch
         val pool = CoverPool()
         Shuffle(homeMixes()).use { source ->
             repeat(12) {
                 val batch = source.nextBatch(60u)
                 pool.add(batch)
                 // Incremental, so a timeout keeps what arrived.
-                if (pool.tracks.isNotEmpty()) pool.tracks.toList().let { withContext(Dispatchers.IO) { cache.save(it) } }
+                if (pool.tracks.isNotEmpty()) pool.tracks.toList().let { withContext(Dispatchers.IO) { cache.save(it, epoch) } }
                 report(pool.tracks.size / TARGET_COVERS.toDouble())
                 if (pool.tracks.size >= TARGET_COVERS * 2 || (pool.tracks.size >= TARGET_COVERS && batch.isEmpty())) return
             }
