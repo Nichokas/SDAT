@@ -19,6 +19,9 @@ internal const val WARMUP_MS = 2_000L
 internal const val MEASURE_MS = 6_000L
 private const val REPORT_LAG_MS = 300L
 
+/** The scene on screen, its status line, and the counter its image requests report to. */
+class Shown(val scene: Scene, val label: String, val images: ImageCounter)
+
 /** The measured runs, and how many scenes were measured again after the app left the foreground. */
 class Measured(val runs: List<Run>, val reruns: Int)
 
@@ -26,7 +29,7 @@ class Measured(val runs: List<Run>, val reruns: Int)
  * Shows every scene [rounds] times on [activity]'s window through [show] and measures it. A scene measured while the
  * app was paused (Home, Back, screen off) draws nothing, so it is measured again once the app is back.
  */
-suspend fun benchmark(activity: ComponentActivity, images: ImageCounter, rounds: Int, show: (Scene, String) -> Unit): Measured {
+suspend fun benchmark(activity: ComponentActivity, rounds: Int, show: (Shown) -> Unit): Measured {
     val power = activity.getSystemService(PowerManager::class.java)
     val runs = mutableListOf<Run>()
     val total = rounds * scenes.size
@@ -44,8 +47,10 @@ suspend fun benchmark(activity: ComponentActivity, images: ImageCounter, rounds:
                     while (true) {
                         activity.lifecycle.currentStateFlow.first { it.isAtLeast(Lifecycle.State.RESUMED) }
                         paused = false
-                        show(scene, "${runs.size + 1}/$total · round $round" + if (attempt > 0) " · retry $attempt" else "")
-                        val run = measure(scene, round, recorder, power, images)
+                        // A counter per attempt, so a late image callback from another scene cannot change this one's count.
+                        val shown = Shown(scene, "${runs.size + 1}/$total · round $round" + if (attempt > 0) " · retry $attempt" else "", ImageCounter())
+                        show(shown)
+                        val run = measure(scene, round, recorder, power, shown.images)
                         if (!paused) {
                             runs += run
                             break
@@ -64,8 +69,6 @@ suspend fun benchmark(activity: ComponentActivity, images: ImageCounter, rounds:
 
 private suspend fun measure(scene: Scene, round: Int, recorder: FrameRecorder, power: PowerManager, images: ImageCounter): Run {
     val thermalStart = power.currentThermalStatus
-    images.loaded = 0
-    images.failed = 0
     val load = CpuLoad(scene.busyCores)
     try {
         recorder.drain()

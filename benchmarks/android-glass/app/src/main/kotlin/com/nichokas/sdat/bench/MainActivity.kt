@@ -49,8 +49,6 @@ private sealed interface Phase {
 }
 
 class MainActivity : ComponentActivity() {
-    private val images = ImageCounter()
-
     override fun onCreate(savedInstanceState: Bundle?) {
         enableEdgeToEdge()
         super.onCreate(savedInstanceState)
@@ -68,10 +66,10 @@ class MainActivity : ComponentActivity() {
     @Composable
     private fun Runner(rounds: Int, onDone: (Phase.Done) -> Unit) {
         var covers by remember { mutableStateOf<List<Cover>?>(null) }
-        var current by remember { mutableStateOf<Pair<Scene, String>?>(null) }
+        var current by remember { mutableStateOf<Shown?>(null) }
         LaunchedEffect(Unit) {
             covers = withContext(Dispatchers.Default) { covers(File(cacheDir, "covers")) }
-            val measured = benchmark(this@MainActivity, images, rounds) { scene, label -> current = scene to label }
+            val measured = benchmark(this@MainActivity, rounds) { current = it }
             current = null
             val device = device(this@MainActivity)
             val text = report(device, measured.runs, rounds, measured.reruns)
@@ -87,8 +85,8 @@ class MainActivity : ComponentActivity() {
         }
         Box(Modifier.fillMaxSize()) {
             // Keyed, so every run starts the scene from scratch: no state, scroll or cached layout carries over.
-            key(shown) { SceneView(shown.first, files, images) }
-            Text(shown.second, color = Color.White, fontSize = 11.sp, modifier = Modifier.safeDrawingPadding().padding(4.dp).background(Color.Black.copy(alpha = 0.5f)).padding(horizontal = 4.dp))
+            key(shown) { SceneView(shown.scene, files, shown.images) }
+            Text(shown.label, color = Color.White, fontSize = 11.sp, modifier = Modifier.safeDrawingPadding().padding(4.dp).background(Color.Black.copy(alpha = 0.5f)).padding(horizontal = 4.dp))
         }
     }
 
