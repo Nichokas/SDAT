@@ -10,6 +10,7 @@
 
 mod auth;
 mod convert;
+mod diag;
 mod handoff;
 mod library;
 mod live;
@@ -18,6 +19,7 @@ mod scrobbling;
 
 pub use auth::*;
 pub use convert::*;
+pub use diag::*;
 pub use handoff::*;
 pub use library::*;
 pub use live::*;
