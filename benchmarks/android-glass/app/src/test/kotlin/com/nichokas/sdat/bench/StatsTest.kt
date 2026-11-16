@@ -132,4 +132,10 @@ class StatsTest {
         assertEquals(stalled.scene.label, score.worstLow.label)
         assertEquals(0.0, score.worstLow.low1, 0.0)
     }
+
+    @Test fun scenesCoverEveryPageInEachOfItsGlassModesAndNothingElse() {
+        assertEquals(14, scenes.size)
+        assertEquals(scenes.size, scenes.toSet().size)
+        assertTrue(runCatching { Scene(Page.Album, Glass.None) }.isFailure)
+    }
 }

@@ -39,29 +39,33 @@ import io.github.neoruaa.glasmio.icons.SfSymbol
 import io.github.neoruaa.glasmio.ui.GlasmioNavigationBar
 import io.github.neoruaa.glasmio.ui.GlasmioTabItem
 
-/** The SDAT screens the benchmark recreates; each animates itself the way a user drives it. */
-enum class Page(val label: String) {
-    DiscoverPan("Discover, steady pan"),
-    DiscoverFling("Discover, fast fling, covers decoded on entry"),
-    Collection("Collection list scroll, tab bar morphing"),
-    Album("Album page scroll over the blurred cover"),
-    Player("Player, pager swipes over the blurred cover"),
-}
-
 /** Live is SDAT today; Reduced is Glasmio's reduceTransparency (glass drawn as solid fills, nothing sampled); None drops Glasmio's chrome. */
 enum class Glass(val label: String) { Live("live glass"), Reduced("reduced transparency"), None("no glass") }
 
+/**
+ * The SDAT screens the benchmark recreates, each with the glass modes it runs in; each animates itself the way a user
+ * drives it. Album and Player have no glass-free form in SDAT, so they run only live and reduced.
+ */
+enum class Page(val label: String, val glass: List<Glass>) {
+    DiscoverPan("Discover, steady pan", Glass.entries),
+    DiscoverFling("Discover, fast fling, covers decoded on entry", Glass.entries),
+    Collection("Collection list scroll, tab bar morphing", Glass.entries),
+    Album("Album page scroll over the blurred cover", listOf(Glass.Live, Glass.Reduced)),
+    Player("Player, pager swipes over the blurred cover", listOf(Glass.Live, Glass.Reduced)),
+}
+
 data class Scene(val page: Page, val glass: Glass, val busyCores: Int = 0) {
+    init {
+        require(glass in page.glass) { "${page.name} has no ${glass.name} form" }
+    }
+
     val label get() = "${page.label} · ${glass.label}" + if (busyCores > 0) " · $busyCores busy cores" else ""
 }
 
-/** Light to worst case. Album and Player have no glass-free form in SDAT, so they run only live and reduced. */
-val scenes = buildList {
-    for (page in listOf(Page.DiscoverPan, Page.DiscoverFling, Page.Collection)) for (glass in Glass.entries) add(Scene(page, glass))
-    for (page in listOf(Page.Album, Page.Player)) for (glass in listOf(Glass.Live, Glass.Reduced)) add(Scene(page, glass))
+/** Light to worst case: every page in each of its glass modes, then the fling with busy cores. */
+val scenes = Page.entries.flatMap { page -> page.glass.map { Scene(page, it) } } +
     // Playback decoding, a download and the core's network work all run beside the UI on a real phone.
-    add(Scene(Page.DiscoverFling, Glass.Live, busyCores = 2))
-}
+    Scene(Page.DiscoverFling, Glass.Live, busyCores = 2)
 
 /** Counts every cover request so the report shows the images really loaded. */
 class ImageCounter {
