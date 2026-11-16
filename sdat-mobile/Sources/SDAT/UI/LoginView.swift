@@ -1,10 +1,8 @@
 import SwiftUI
 
-/// Onboarding / TIDAL device linking: hero logo in the upper part of the screen,
-/// blue Liquid Glass sign-in button at the bottom. The flow itself lives in Session.
+/// Onboarding / TIDAL device linking: centred title, blue Liquid Glass sign-in
+/// button at the bottom. The flow itself lives in Session.
 struct LoginView: View {
-    static let logoSize: CGFloat = 220
-
     @Environment(Session.self) private var session
     @Environment(\.openURL) private var openURL
     @State private var appeared = false
@@ -15,13 +13,9 @@ struct LoginView: View {
             Color.black.ignoresSafeArea()
             GeometryReader { g in
                 ScrollView {
-                    VStack(spacing: 0) {
-                        // Logo centre at ~37% of the screen height.
-                        Color.clear.frame(height: max(24, g.size.height * 0.37 - Self.logoSize / 2))
-                        hero
-                        Spacer(minLength: 24)
-                    }
-                    .frame(maxWidth: .infinity, minHeight: g.size.height, alignment: .top)
+                    hero
+                        .padding(.vertical, 24)
+                        .frame(maxWidth: .infinity, minHeight: g.size.height)
                 }
                 .scrollBounceBehavior(.basedOnSize)
             }
@@ -35,20 +29,13 @@ struct LoginView: View {
 
     @ViewBuilder private var hero: some View {
         VStack(spacing: 24) {
-            LogoTile()
-                .frame(width: Self.logoSize, height: Self.logoSize)
-                .scaleEffect(appeared ? 1 : 0.85)
-                .offset(y: appeared ? 0 : 16)
-                .opacity(appeared ? 1 : 0)
             Text("SDAT")
                 .font(.system(size: 48, weight: .heavy, design: .rounded))
                 .tracking(4)
                 .foregroundStyle(.white)
                 .lineLimit(1).minimumScaleFactor(0.5)
-                .frame(maxWidth: Self.logoSize + 40)
                 .offset(y: appeared ? 0 : 12)
                 .opacity(appeared ? 1 : 0)
-                .animation(.spring(duration: 0.8, bounce: 0.2).delay(0.15), value: appeared)
             if let login = session.pending {
                 VStack(spacing: 10) {
                     Text("Enter this code on TIDAL").font(.subheadline).foregroundStyle(.secondary)
@@ -95,20 +82,6 @@ struct LoginView: View {
         .padding(.bottom, 12)
         .offset(y: appeared ? 0 : 40)
         .opacity(appeared ? 1 : 0)
-    }
-}
-
-/// Hero: the glass-plate logo artwork (black background blends with the screen).
-private struct LogoTile: View {
-    var body: some View {
-        Group {
-            if let ui = UIImage(named: "loginlogo", in: .module, with: nil) {
-                Image(uiImage: ui).resizable().interpolation(.high).scaledToFit()
-            } else {
-                RoundedRectangle(cornerRadius: 40, style: .continuous).fill(Color.white.opacity(0.06))
-            }
-        }
-        .accessibilityHidden(true)
     }
 }
 
