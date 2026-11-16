@@ -8,6 +8,7 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use super::Cmd;
+use crate::diag::net::send;
 
 /// Each connection is cut after this long and reopened, so a dead one is
 /// noticed (the server sends a keepalive about every 15 s). It also bounds
@@ -80,7 +81,7 @@ fn run(url: &str, tx: &Sender<Cmd>, stop: &AtomicBool, down: &AtomicBool, dead: 
     while !stop.load(Ordering::Relaxed) {
         let opened = Instant::now();
         let resp = crate::api::user_bearer().map_err(|e| e.to_string()).and_then(|t| {
-            client.get(url).bearer_auth(t).header("Accept", "text/event-stream").send().map_err(|e| e.to_string())
+            send(client.get(url).bearer_auth(t).header("Accept", "text/event-stream")).map_err(|e| e.to_string())
         });
         match resp {
             Ok(r) if r.status().is_success() => {
