@@ -74,7 +74,8 @@ Description=Clean the shared Cargo target directory when it is too big
 
 [Service]
 Type=oneshot
-ExecStart=$main_root/scripts/clean-cargo-target.sh
+Environment="CARGO_HOME=$cargo_home"
+ExecStart="$main_root/scripts/clean-cargo-target.sh"
 UNIT
 cat >"$unit_dir/sdat-clean-cargo-target.timer" <<UNIT
 [Unit]
