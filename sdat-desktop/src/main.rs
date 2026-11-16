@@ -67,11 +67,13 @@ fn on_activate(app: &adw::Application) {
 
 fn main() -> glib::ExitCode {
     tonearm_core::diag::init(Some(glib::user_config_dir().join(settings::CONFIG_DIR_NAME)), None);
-    if std::env::var("RUST_LOG").is_ok_and(|v| {
-        let v = v.to_ascii_lowercase();
-        v.contains("debug") || v.contains("trace")
-    }) {
-        tonearm_core::diag::set_verbose(true);
+    // One level for everything: per-crate directives are ignored, and debug or trace means our own crates.
+    if let Some(level) = std::env::var("RUST_LOG").ok().and_then(|v| v.trim().parse::<log::LevelFilter>().ok()) {
+        if level >= log::LevelFilter::Debug {
+            tonearm_core::diag::set_verbose(true);
+        } else {
+            log::set_max_level(level);
+        }
     }
     ensure_schema();
     migrate::run();

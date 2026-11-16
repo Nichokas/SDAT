@@ -1,6 +1,7 @@
 use std::collections::VecDeque;
 use std::fs::{self, File, OpenOptions};
 use std::io::Write;
+use std::os::fd::AsRawFd;
 use std::path::PathBuf;
 
 use super::{Event, Level};
@@ -11,6 +12,7 @@ const CURRENT: &str = "diag.log";
 const PREVIOUS: &str = "diag.prev.log";
 const ROTATED: &str = "diag.log.1";
 const PREVIOUS_ROTATED: &str = "diag.prev.log.1";
+const LOCK: &str = "diag.lock";
 
 /// The event log: the last [`CAPACITY`] events in memory, and with a directory also a rotating text file.
 /// File errors are dropped on purpose: logging must never fail the app or log about itself.
@@ -24,18 +26,27 @@ struct LogFile {
     dir: PathBuf,
     file: Option<File>,
     size: u64,
+    /// Held for the life of the process; the lock goes with it.
+    _lock: File,
 }
 
 impl LogFile {
-    fn open(dir: PathBuf) -> Self {
+    /// `None` when another process already logs to `dir`. A second desktop launch runs this before GTK
+    /// hands it to the running instance, and must not rotate that instance's live `diag.log` away.
+    fn open(dir: PathBuf) -> Option<Self> {
         let _ = fs::create_dir_all(&dir);
+        let lock = OpenOptions::new().create(true).truncate(false).write(true).open(dir.join(LOCK)).ok()?;
+        // SAFETY: `lock` is an open file, so its descriptor stays valid for the call.
+        if unsafe { libc::flock(lock.as_raw_fd(), libc::LOCK_EX | libc::LOCK_NB) } != 0 {
+            return None;
+        }
         // A `diag.log.1` can only come from the last run, because each start moves it aside.
         let _ = fs::remove_file(dir.join(PREVIOUS_ROTATED));
         let _ = fs::rename(dir.join(ROTATED), dir.join(PREVIOUS_ROTATED));
         let _ = fs::rename(dir.join(CURRENT), dir.join(PREVIOUS));
-        let mut log = Self { dir, file: None, size: 0 };
+        let mut log = Self { dir, file: None, size: 0, _lock: lock };
         log.start_new();
-        log
+        Some(log)
     }
 
     fn start_new(&mut self) {
@@ -69,7 +80,7 @@ impl LogFile {
 impl Store {
     /// With a directory, moves the last run's `diag.log` to `diag.prev.log` and starts a new `diag.log`.
     pub(super) fn new(dir: Option<PathBuf>) -> Self {
-        Self { ring: VecDeque::with_capacity(CAPACITY), next_seq: 1, file: dir.map(LogFile::open) }
+        Self { ring: VecDeque::with_capacity(CAPACITY), next_seq: 1, file: dir.and_then(LogFile::open) }
     }
 
     pub(super) fn push(&mut self, level: Level, target: &str, message: String, backtrace: Option<String>) -> &Event {
@@ -196,10 +207,28 @@ mod tests {
         assert!(!second.previous_session().contains("this run"));
         let current = fs::read_to_string(tmp.0.join(CURRENT)).expect("diag.log");
         assert!(current.contains("this run") && !current.contains("boom"));
+        drop(second);
 
         let third = Store::new(Some(tmp.0.clone()));
         assert!(third.previous_session().contains("this run"));
         assert!(!third.previous_session().contains("boom"));
+    }
+
+    #[test]
+    fn a_second_process_leaves_the_running_ones_log_alone() {
+        let tmp = TempDir::new("second");
+        let mut running = Store::new(Some(tmp.0.clone()));
+        info(&mut running, "live session");
+        let second = Store::new(Some(tmp.0.clone()));
+        assert_eq!(second.previous_session(), "");
+        drop(second);
+        info(&mut running, "still live");
+        let current = fs::read_to_string(tmp.0.join(CURRENT)).expect("diag.log");
+        assert!(current.contains("live session") && current.contains("still live"), "{current}");
+        drop(running);
+
+        let next = Store::new(Some(tmp.0.clone()));
+        assert!(next.previous_session().contains("still live"));
     }
 
     #[test]
