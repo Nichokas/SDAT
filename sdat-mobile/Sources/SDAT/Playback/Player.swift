@@ -280,6 +280,7 @@ final class Player {
         }
         resumeAfterInterruption = false
         systemPaused = false
+        pausedByUser = isPlaying
         if isPlaying {
             plays += 1
             // A start still loading would otherwise autoplay over this pause.
@@ -300,6 +301,7 @@ final class Player {
     /// Pauses, also a start still loading: it then ends paused.
     func pause() {
         plays += 1
+        pausedByUser = true
         // A start still loading ends paused; an item already going but not yet marked playing stops.
         if loading { holdAutoplay = true }
         resumeAfterInterruption = false
@@ -679,16 +681,11 @@ final class Player {
         }
     }
 
-    /// `plays` when the current track ended on its own: the engine may switch to the next item
-    /// seconds later, and a pause from the user or the system meanwhile holds for that track.
-    @ObservationIgnored private var endedAtPlays: Int?
+    /// The user's last command was a pause. Unlike `isPlaying` it does not drop when an item ends,
+    /// so a track change the engine makes seconds later can still honor that pause.
+    @ObservationIgnored private var pausedByUser = false
 
-    private func autoplayAfterEnd() -> Bool {
-        defer { endedAtPlays = nil }
-        // Unset: the engine switched before the end notification came, so nothing ended yet.
-        guard let p = endedAtPlays else { return isPlaying && !systemPaused }
-        return p == plays ? !systemPaused : isPlaying
-    }
+    private func autoplayAfterEnd() -> Bool { !pausedByUser && !systemPaused }
 
     /// A starting user-queue track joins the base queue right after the current track, so Previous
     /// and Next find it again. Returns its index.
@@ -735,6 +732,7 @@ final class Player {
     private func start(_ track: Track, resumeAt: Double = 0, autoplay: Bool = true) {
         needsStart = false
         holdAutoplay = false
+        pausedByUser = !autoplay
         starts += 1
         let mine = starts
         let exact = exactResume
@@ -905,7 +903,6 @@ final class Player {
         // Listen Together guest: wait for the host's next track instead of advancing.
         if liveFollowing { DispatchQueue.main.async { self.avPlayer.pause(); self.isPlaying = false }; return }
         if repeatMode == .one, let c = current { start(c); return }
-        endedAtPlays = plays
         // The engine moves on to a queued preload by itself, sometimes only after this notification
         // (e.g. when the sample rate changes); `engineMoved` adopts it then. Starting the track
         // anew here would drop the preload that is already playing and replay it from 0.
