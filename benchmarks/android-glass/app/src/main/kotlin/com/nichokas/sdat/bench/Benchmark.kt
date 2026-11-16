@@ -117,8 +117,9 @@ fun device(activity: Activity): Device {
 
 /** The report in the app's results folder, or null when external storage is unavailable. */
 fun save(activity: Activity, text: String): File? = runCatching {
+    val dir = activity.getExternalFilesDir("results") ?: return null
     val stamp = SimpleDateFormat("yyyyMMdd-HHmmss", Locale.US).format(Date())
-    File(activity.getExternalFilesDir("results"), "bench-$stamp.txt").apply { writeText(text) }
+    File(dir, "bench-$stamp.txt").apply { writeText(text) }
 }.getOrNull()
 
 /** Busy threads standing in for audio decoding, a download and the core's network work beside the UI. */
