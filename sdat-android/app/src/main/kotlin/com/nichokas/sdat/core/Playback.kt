@@ -74,6 +74,8 @@ class Playback(context: Context, private val prefs: Preferences, secrets: Secret
      * took over, and the player sheet drops a drag meant for the previous entry. */
     var entry by mutableIntStateOf(0)
         private set
+    /** The [entry] that last stopped at the end of the queue. */
+    private var ranOutAt = -1
     /** Bumped by every play or pause command, so a late handoff result knows the user acted. */
     var controls = 0
         private set
@@ -446,6 +448,7 @@ class Playback(context: Context, private val prefs: Preferences, secrets: Secret
 
     /** End of a finite queue: rewound and paused, and saved that way. Playing it again counts as a new listen. */
     private fun stopAtEnd() {
+        ranOutAt = entry
         player.pause()
         player.seekToDefaultPosition()
         position = 0.0
@@ -663,10 +666,13 @@ class Playback(context: Context, private val prefs: Preferences, secrets: Secret
         start(current, resumeAt = state.position)
     }
 
-    /** The rest of a resumed queue (Handoff), after the current track. */
-    fun appendUpNext(tracks: List<Track>) {
+    /** The rest of a resumed queue (Handoff), after its track [after]. A track that ran out waiting goes on to them. */
+    fun appendUpNext(after: String, tracks: List<Track>) {
+        if (!upcomingApplies(after, track?.id, queue.original.map { it.id })) return
+        val ranOut = ranOutAt == entry && !playing
         queue.extend(tracks)
         changed()
+        if (ranOut) next()
     }
 
     /** After a failure or a controller's stop there is nothing prepared, so this starts the track again where it was;

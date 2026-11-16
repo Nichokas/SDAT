@@ -171,13 +171,19 @@ final class Player {
         load(0, resumeAt: max(secs, 0))
     }
 
-    /// Appends to the base queue after its last track (what follows a handoff's resumed track).
-    func appendUpNext(_ tracks: [Track]) {
-        defer { persist() }
-        guard index != nil, !tracks.isEmpty else { return }
+    /// What follows a handoff's resumed track `id`, only while the base queue still is that track alone: else the
+    /// user started something else, even a list at that track, or it is a duplicate. A track that ran out waiting
+    /// goes on to them.
+    @discardableResult
+    func appendUpNext(after id: String, _ tracks: [Track]) -> Bool {
+        guard index != nil, current?.id == id, original.map(\.id) == [id], !tracks.isEmpty else { return false }
+        let ranOut = ranOutAt == starts && !isPlaying
         queue.append(contentsOf: tracks)
         original.append(contentsOf: tracks)
         invalidatePreload()
+        persist()
+        if ranOut { next() }
+        return true
     }
 
     func setShuffle(_ on: Bool) {
@@ -663,6 +669,7 @@ final class Player {
 
     /// End of a finite queue (repeat off): really stop, rewound and paused.
     private func stopAtEnd() {
+        ranOutAt = starts
         // End of queue (repeat off): really stop the engine and rewind to the start,
         // paused, like Apple Music. Previously only the flag flipped, so the UI showed
         // "paused" while the audio kept playing after a manual next.
@@ -903,6 +910,8 @@ final class Player {
     @ObservationIgnored private var exactResume = false
     /// Bumped on every start: tells one playback from a later one of the same track.
     @ObservationIgnored private(set) var starts = 0
+    /// The `starts` value of the playback that last stopped at the end of the queue.
+    @ObservationIgnored private var ranOutAt = -1
     /// Bumped by every play or pause command, a resume of the same track too.
     @ObservationIgnored private(set) var plays = 0
     @ObservationIgnored private var restoredInfinite = false

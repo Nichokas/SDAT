@@ -50,11 +50,14 @@ class HandoffTest {
         assertEquals(listOf("b", "a", "c"), q.upNext)
     }
 
-    @Test fun upcomingFollowsOnlyTheResumedTrackWithNothingAfterIt() {
-        assertTrue(upcomingApplies("a", "a", emptyList()))
-        assertFalse(upcomingApplies("a", "b", emptyList()))
-        assertFalse(upcomingApplies("a", null, emptyList()))
-        assertFalse(upcomingApplies("a", "a", listOf("b")))
+    @Test fun upcomingFollowsOnlyTheResumedTrackAlone() {
+        assertTrue(upcomingApplies("a", "a", listOf("a")))
+        assertFalse(upcomingApplies("a", "b", listOf("a")))
+        assertFalse(upcomingApplies("a", null, listOf("a")))
+        // Already appended.
+        assertFalse(upcomingApplies("a", "a", listOf("a", "b")))
+        // A list started at that track meanwhile.
+        assertFalse(upcomingApplies("a", "a", listOf("x", "a")))
     }
 
     @Test fun bannerLine() {

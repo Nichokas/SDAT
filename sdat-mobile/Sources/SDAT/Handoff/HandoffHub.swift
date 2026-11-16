@@ -181,11 +181,9 @@ final class HandoffHub {
         player.resume([r.current], at: Double(r.positionMs) / 1000, repeat: rep, from: r.from.name)
     }
 
-    /// Only onto the resumed track with nothing after it yet; else the user moved on, or it is a duplicate.
+    /// The report after the append is what the core waits for.
     private func appendUpcoming(_ currentId: String, _ tracks: [Track]) {
-        guard player.current?.id == currentId, player.upNext.isEmpty else { return }
-        player.appendUpNext(tracks)
-        report()
+        if player.appendUpNext(after: currentId, tracks) { report() }
     }
 
     // MARK: events

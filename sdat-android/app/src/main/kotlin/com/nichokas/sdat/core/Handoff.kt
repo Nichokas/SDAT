@@ -169,7 +169,7 @@ object Handoff {
 
     /** The report this queue edit sends is what the core waits for. */
     private fun append(u: HandoffEvent.Upcoming) {
-        if (!Live.isGuest && upcomingApplies(u.currentId, player.track?.id, player.upNext.map { it.id })) player.appendUpNext(u.tracks)
+        if (!Live.isGuest) player.appendUpNext(u.currentId, u.tracks)
     }
 
     private fun handle(e: HandoffEvent, gen: Int) {
@@ -221,9 +221,9 @@ internal val HandoffRepeat.local get() = when (this) {
     HandoffRepeat.ONE -> Repeat.One
 }
 
-/** Upcoming tracks follow [resumedId] only while it still plays with nothing after it in the base queue; otherwise
- * the user moved on, or they are already there. */
-internal fun upcomingApplies(resumedId: String, currentId: String?, upNext: List<String>) = currentId == resumedId && upNext.isEmpty()
+/** Upcoming tracks follow [resumedId] only while it plays and the base queue still is that track alone; otherwise the
+ * user started something else, even a list at that track, or they are already there. */
+internal fun upcomingApplies(resumedId: String, currentId: String?, base: List<String>) = currentId == resumedId && base == listOf(resumedId)
 
 /** "Playing on iPhone", or "Paused on iPhone · 2 h ago". */
 internal fun elsewhereLine(e: HandoffElsewhere, nowMs: Long): String {
