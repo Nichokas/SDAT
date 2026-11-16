@@ -87,6 +87,12 @@ final class Player {
             let item = note.object as? AVPlayerItem
             MainActor.assumeIsolated { self?.trackEnded(item) }
         }
+        systemObservers.append(NotificationCenter.default.addObserver(
+            forName: AVPlayerItem.failedToPlayToEndTimeNotification, object: nil, queue: .main
+        ) { [weak self] note in
+            let item = note.object as? AVPlayerItem
+            MainActor.assumeIsolated { self?.itemFailed(item) }
+        })
         itemObserver = avPlayer.publisher(for: \.currentItem).receive(on: DispatchQueue.main).sink { [weak self] item in
             MainActor.assumeIsolated { self?.engineMoved(to: item) }
         }
@@ -666,7 +672,7 @@ final class Player {
         } else {
             index = newIndex
         }
-        if auto, let p = preloaded, p.trackId == t.id, avPlayer.currentItem === p.item {
+        if auto, let p = preloaded, p.trackId == t.id, avPlayer.currentItem === p.item, p.item.status != .failed {
             preloaded = nil
             playingItem = p.item
             adopt(t, stream: p.stream)
@@ -906,9 +912,18 @@ final class Player {
         DispatchQueue.main.async { self.advance(auto: true) }
     }
 
+    /// A failed preload is left to the fallback in `trackEnded`, which loads the track anew.
     private func engineMoved(to item: AVPlayerItem?) {
-        guard let item, item === preloaded?.item, item === avPlayer.currentItem, item !== playingItem else { return }
+        guard let item, item === preloaded?.item, item === avPlayer.currentItem, item !== playingItem,
+              item.status != .failed else { return }
         advance(auto: true)
+    }
+
+    /// The playing stream broke off (an expired URL, a dropped connection): fetch it again and go on
+    /// from where it stopped. Downloaded files fall back in `watchLocal`.
+    private func itemFailed(_ item: AVPlayerItem?) {
+        guard let item, item === playingItem, let c = current, !isOffline, !loading else { return }
+        start(c, resumeAt: position)
     }
 
     private func refillIfNeeded() {
