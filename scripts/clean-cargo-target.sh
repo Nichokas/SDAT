@@ -22,7 +22,8 @@ if [ ! -d "$target_dir" ]; then
   exit 0
 fi
 
-used_kb="$(du -sLk "$target_dir" | cut -f1)"
+target_dir="$(cd -P "$target_dir" && pwd)" # find and du must see a symlinked target's contents
+used_kb="$(du -sk "$target_dir" | cut -f1)"
 if [ "$used_kb" -le $((limit_gb * 1024 * 1024)) ]; then
   echo "$target_dir uses $((used_kb / 1024 / 1024)) GiB, under the ${limit_gb} GiB limit."
   exit 0
