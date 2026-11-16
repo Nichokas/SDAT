@@ -33,9 +33,7 @@ thread_local! {
     static STARTS: Cell<u64> = const { Cell::new(0) };
     /// The latest `Upcoming` not applied yet.
     static UPCOMING: RefCell<Option<Upcoming>> = const { RefCell::new(None) };
-    /// The last resumed track and `player::play_requests()` right after its
-    /// start: until another start, its load is still ours to wait for.
-    static RESUMED: RefCell<Option<(String, u64)>> = const { RefCell::new(None) };
+    static RESUMED: RefCell<Option<Resumed>> = const { RefCell::new(None) };
 }
 
 const RETRY: Duration = Duration::from_mins(1);
@@ -197,6 +195,8 @@ fn on_event(ev: HandoffEvent) {
             }
         }
         HandoffEvent::MovedTo(d) => {
+            // What follows a resume here no longer starts.
+            forget_resume();
             // Also when paused: a pause cancels a resume that would start playing later.
             player::pause();
             player::toasts().notify(&trf("Playing on %s", &[&name(&d)]));
@@ -208,39 +208,78 @@ fn on_event(ev: HandoffEvent) {
     }
 }
 
+/// The playback the last resume started.
+struct Resumed {
+    id: String,
+    source: Option<PlaybackSource>,
+    /// `player::play_requests()` right after its start: another start ends it.
+    requests: u64,
+    /// `player::pauses()` then: a pause or stop since keeps an ended track stopped.
+    pauses: u64,
+    loaded: bool,
+}
+
 #[derive(Debug, PartialEq, Eq)]
 enum Step {
     Apply,
+    /// The resumed track ended waiting for them: start them.
+    Start,
     Wait,
     Drop,
 }
 
-/// What to do with the tracks after `after`. `loading`: the resumed start of
-/// `after` has not loaded yet; `base_empty`: nothing follows in the list.
-fn upcoming_step(after: &str, continuing: bool, playing: Option<&str>, loading: bool, base_empty: bool) -> Step {
-    if continuing {
-        // Its result decides: played, or dropped with it.
+/// What to do with the tracks after the resumed track. `owned`: nothing else
+/// started since the resume; `current`: the resumed track still is the current
+/// one; `ended`: playback stopped by itself since it loaded; `base_empty`:
+/// nothing follows in the list.
+fn upcoming_step(continuing: bool, owned: bool, loaded: bool, current: bool, ended: bool, base_empty: bool) -> Step {
+    if !owned {
+        Step::Drop
+    } else if continuing || !loaded {
+        // Its result decides, or its load does.
         Step::Wait
-    } else if playing == Some(after) {
-        // A filled list: the user queued something else, or a duplicate.
-        if base_empty { Step::Apply } else { Step::Drop }
-    } else if loading {
-        Step::Wait
+    } else if ended {
+        Step::Start
+    } else if current && base_empty {
+        Step::Apply
     } else {
+        // A filled list: the user queued something else, or a duplicate.
         Step::Drop
     }
 }
 
 fn apply_upcoming() {
     let Some(u) = UPCOMING.with(RefCell::take) else { return };
-    let loading = RESUMED.with(|r| r.borrow().as_ref().is_some_and(|(id, at)| *id == u.current && *at == player::play_requests()));
     let playing = player::current_track_id();
-    match upcoming_step(&u.current, CONTINUING.with(Cell::get), playing.as_deref(), loading, player::base_queue().is_empty()) {
+    let (owned, loaded, pauses, source) = RESUMED.with(|r| match r.borrow().as_ref() {
+        Some(r) if r.id == u.current && r.requests == player::play_requests() => (true, r.loaded, r.pauses, r.source.clone()),
+        _ => (false, false, 0, None),
+    });
+    let ended = player::playback_state_changed().get().status == PlaybackStatus::Stopped && pauses == player::pauses();
+    match upcoming_step(CONTINUING.with(Cell::get), owned, loaded, playing.as_deref() == Some(u.current.as_str()), ended, player::base_queue().is_empty()) {
         // The base queue hook reports it, which ends the core's wait for it.
         Step::Apply => player::set_list_rest(u.tracks),
+        Step::Start => {
+            if let Err(e) = player::play_at(source, u.tracks, Duration::ZERO) {
+                log::warn!("handoff: could not play what follows the resumed track error={e:#}");
+            }
+        }
         Step::Wait => UPCOMING.with(|s| *s.borrow_mut() = Some(u)),
         Step::Drop => {}
     }
+}
+
+/// The resumed track loaded: from now on a stop is its end.
+fn resumed_loaded() {
+    let playing = player::current_track_id();
+    RESUMED.with(|r| {
+        if let Some(r) = r.borrow_mut().as_mut()
+            && Some(&r.id) == playing.as_ref()
+            && r.requests == player::play_requests()
+        {
+            r.loaded = true;
+        }
+    });
 }
 
 fn forget_resume() {
@@ -259,9 +298,10 @@ fn play(r: Resume) -> anyhow::Result<()> {
     // Repeat-one would make the load pick the old track again: set it after.
     let before = player::repeat_mode_changed().get();
     player::set_repeat_mode(RepeatMode::None);
-    let played = player::play_at(source, vec![r.current], Duration::from_millis(u64::try_from(r.position_ms).unwrap_or(0)));
+    let played = player::play_at(source.clone(), vec![r.current], Duration::from_millis(u64::try_from(r.position_ms).unwrap_or(0)));
     if played.is_ok() {
-        RESUMED.with(|s| *s.borrow_mut() = Some((id, player::play_requests())));
+        let resumed = Resumed { id, source, requests: player::play_requests(), pauses: player::pauses(), loaded: false };
+        RESUMED.with(|s| *s.borrow_mut() = Some(resumed));
     }
     // A failed load keeps the user's own repeat mode.
     player::set_repeat_mode(if played.is_ok() { repeat_mode(r.repeat) } else { before });
@@ -419,7 +459,7 @@ fn install_hooks() {
     player::track_changed().on_lazy(|_| {
         STARTS.with(|s| s.set(s.get() + 1));
         report();
-        // A resumed track that just loaded.
+        resumed_loaded();
         apply_upcoming();
         CONTINUE
     });
@@ -498,19 +538,19 @@ mod tests {
     }
 
     #[test]
-    fn upcoming_follows_only_its_track() {
-        // Continue here still running: its result decides.
-        assert_eq!(upcoming_step("1", true, Some("1"), false, true), Step::Wait);
-        assert_eq!(upcoming_step("1", false, Some("1"), false, true), Step::Apply);
-        assert_eq!(upcoming_step("1", false, Some("1"), true, true), Step::Apply);
-        // A duplicate, or the user queued a list meanwhile.
-        assert_eq!(upcoming_step("1", false, Some("1"), false, false), Step::Drop);
-        // The resumed track is still loading.
-        assert_eq!(upcoming_step("1", false, None, true, true), Step::Wait);
-        assert_eq!(upcoming_step("1", false, Some("0"), true, true), Step::Wait);
-        // The user moved on.
-        assert_eq!(upcoming_step("1", false, Some("2"), false, true), Step::Drop);
-        assert_eq!(upcoming_step("1", false, None, false, true), Step::Drop);
+    fn upcoming_follows_only_the_resumed_playback() {
+        // (continuing, owned, loaded, current, ended, base_empty)
+        assert_eq!(upcoming_step(false, true, true, true, false, true), Step::Apply);
+        // Continue here still running, or the resumed track still loading.
+        assert_eq!(upcoming_step(true, true, true, true, false, true), Step::Wait);
+        assert_eq!(upcoming_step(false, true, false, false, false, true), Step::Wait);
+        // It ended waiting for them.
+        assert_eq!(upcoming_step(false, true, true, false, true, true), Step::Start);
+        // Another start since, even of the same track.
+        assert_eq!(upcoming_step(false, false, true, true, false, true), Step::Drop);
+        assert_eq!(upcoming_step(true, false, false, false, false, true), Step::Drop);
+        // A duplicate, or the user queued something meanwhile.
+        assert_eq!(upcoming_step(false, true, true, true, false, false), Step::Drop);
     }
 
     #[test]

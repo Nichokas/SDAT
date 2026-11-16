@@ -169,20 +169,22 @@ final class Player {
         // Where the other device was, not the nearest segment start.
         exactResume = true
         load(0, resumeAt: max(secs, 0))
+        resumedStart = starts
     }
 
-    /// What follows a handoff's resumed track `id`, only while the base queue still is that track alone: else the
-    /// user started something else, even a list at that track, or it is a duplicate. A track that ran out waiting
-    /// goes on to them.
+    /// What follows a handoff's resumed track `id`, only while that resume still is what plays and its base queue
+    /// still is that track alone: else the user started something else, or it is a duplicate. A track that ran out
+    /// waiting goes on to them.
     @discardableResult
     func appendUpNext(after id: String, _ tracks: [Track]) -> Bool {
-        guard index != nil, current?.id == id, original.map(\.id) == [id], !tracks.isEmpty else { return false }
-        let ranOut = ranOutAt == starts && !isPlaying
+        guard resumedStart == starts, index != nil, current?.id == id, original.map(\.id) == [id], !tracks.isEmpty else { return false }
+        resumedStart = nil
+        let ended = ranOut.map { $0.starts == starts && $0.plays == plays } == true && !isPlaying
         queue.append(contentsOf: tracks)
         original.append(contentsOf: tracks)
         invalidatePreload()
         persist()
-        if ranOut { next() }
+        if ended { next() }
         return true
     }
 
@@ -669,7 +671,7 @@ final class Player {
 
     /// End of a finite queue (repeat off): really stop, rewound and paused.
     private func stopAtEnd() {
-        ranOutAt = starts
+        ranOut = (starts, plays)
         // End of queue (repeat off): really stop the engine and rewind to the start,
         // paused, like Apple Music. Previously only the flag flipped, so the UI showed
         // "paused" while the audio kept playing after a manual next.
@@ -910,8 +912,10 @@ final class Player {
     @ObservationIgnored private var exactResume = false
     /// Bumped on every start: tells one playback from a later one of the same track.
     @ObservationIgnored private(set) var starts = 0
-    /// The `starts` value of the playback that last stopped at the end of the queue.
-    @ObservationIgnored private var ranOutAt = -1
+    /// The `starts` value of a handoff resume's playback, until what follows its track is appended.
+    @ObservationIgnored private var resumedStart: Int?
+    /// `starts` and `plays` when the queue last ran out: a play or pause since keeps the player as it is.
+    @ObservationIgnored private var ranOut: (starts: Int, plays: Int)?
     /// Bumped by every play or pause command, a resume of the same track too.
     @ObservationIgnored private(set) var plays = 0
     @ObservationIgnored private var restoredInfinite = false
