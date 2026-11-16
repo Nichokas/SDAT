@@ -74,7 +74,8 @@ multiple_crate_versions = "allow"
 too_many_lines = "allow"
 
 # Debug info is most of the shared target directory. Dependencies get none; our own crates keep line numbers for panics.
-# Debugging with a debugger: CARGO_PROFILE_DEV_DEBUG=2 cargo build
+# Full debug info for our crates under a debugger: CARGO_PROFILE_DEV_DEBUG=2 cargo build. To step into a dependency too, remove the
+# override below locally; the package override wins over that variable.
 [profile.dev]
 debug = "line-tables-only"
 
