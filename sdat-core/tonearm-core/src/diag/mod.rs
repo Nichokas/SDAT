@@ -7,7 +7,7 @@ use std::cell::Cell;
 use std::fmt;
 use std::ops::{Deref, DerefMut};
 use std::path::PathBuf;
-use std::sync::{Mutex, MutexGuard, OnceLock, PoisonError};
+use std::sync::{Mutex, MutexGuard, Once, OnceLock, PoisonError};
 use std::time::Instant;
 
 mod install;
@@ -174,26 +174,25 @@ fn uptime_ms() -> u64 {
 /// Installs the `log` logger (default level info, echoed to stderr) and a panic hook, and with `dir` keeps
 /// `diag.log` there, moving the last run's to `diag.prev.log`.
 pub fn init(dir: Option<PathBuf>, sink: Option<Box<dyn Sink>>) {
+    static INIT: Once = Once::new();
     STARTED.get_or_init(Instant::now);
-    let mut first = false;
-    GLOBAL.get_or_init(|| {
-        first = true;
-        Global { store: Mutex::new(Store::new(dir)), sink }
-    });
-    if first {
+    // A concurrent caller waits here until the logger and the panic hook are in place, not only the store.
+    INIT.call_once(|| {
+        let _ = GLOBAL.set(Global { store: Mutex::new(Store::new(dir)), sink });
         install::install();
-    }
+    });
 }
 
 /// The one path every event takes, so redaction happens before anything is stored, written or sent.
 fn ingest(level: Level, target: &str, message: &str, backtrace: Option<String>, echo: bool) {
     let Some(global) = GLOBAL.get() else { return };
+    let target = redact::redact(target);
     let message = redact::redact(message).into_owned();
     let backtrace = backtrace.map(|b| redact::redact(&b).into_owned());
     let notify = matches!(level, Level::Error | Level::Warn) || target == MARK_TARGET || target == PANIC_TARGET;
     let (copy, line) = {
         let Some(mut store) = global.lock() else { return };
-        let event = store.push(level, target, message, backtrace);
+        let event = store.push(level, &target, message, backtrace);
         (notify.then(|| event.clone()), echo.then(|| event.to_string()))
     };
     if let Some(line) = line {
@@ -254,14 +253,13 @@ pub fn stats() -> Stats {
 /// A plain-text report to share: `extra` (the platform header: app version, OS, device) first, then
 /// uptime, process and network figures and every event in the buffer.
 pub fn report(extra: &str) -> String {
-    report::build(extra, &stats(), &events_since(0))
+    report::build(&redact::redact(extra), &stats(), &events_since(0))
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
     use std::panic::{AssertUnwindSafe, catch_unwind};
-    use std::sync::Once;
 
     static SENT: Mutex<Vec<Event>> = Mutex::new(Vec::new());
 
@@ -369,7 +367,11 @@ mod tests {
             assert!(!text.contains("hunter2"), "{text}");
             assert!(text.contains("<redacted>"));
         }
-        assert!(!report("").contains("hunter2"));
+        record(Level::Error, "https://cb?code=hunter2-t", "diag-test-secret-6 target", None);
+        assert!(stored("diag-test-secret-6 target").iter().all(|e| !e.target.contains("hunter2")));
+        assert!(sent("diag-test-secret-6 target").iter().all(|e| !e.target.contains("hunter2")));
+        let text = report("SDAT Authorization: Bearer hunter2-h");
+        assert!(!text.contains("hunter2"), "{text}");
     }
 
     #[test]

@@ -68,8 +68,8 @@ static COUNTERS: [Counter; 5] = [const {
 
 pub(super) fn classify(host: Option<&str>) -> NetCategory {
     match host {
-        Some("api.tidal.com" | "openapi.tidal.com" | "auth.tidal.com" | "login.tidal.com") => NetCategory::Tidal,
         Some("resources.tidal.com") => NetCategory::Images,
+        Some(h) if h == "tidal.com" || h.ends_with(".tidal.com") => NetCategory::Tidal,
         Some("ws.audioscrobbler.com") => NetCategory::LastFm,
         Some("api.listenbrainz.org") => NetCategory::ListenBrainz,
         _ => NetCategory::Other,
@@ -134,13 +134,14 @@ mod tests {
 
     #[test]
     fn hosts_map_to_their_category() {
-        for h in ["api.tidal.com", "openapi.tidal.com", "auth.tidal.com", "login.tidal.com"] {
+        for h in ["tidal.com", "api.tidal.com", "openapi.tidal.com", "auth.tidal.com", "login.tidal.com"] {
             assert_eq!(classify(Some(h)), NetCategory::Tidal, "{h}");
         }
         assert_eq!(classify(Some("resources.tidal.com")), NetCategory::Images);
         assert_eq!(classify(Some("ws.audioscrobbler.com")), NetCategory::LastFm);
         assert_eq!(classify(Some("api.listenbrainz.org")), NetCategory::ListenBrainz);
         assert_eq!(classify(Some("example.com")), NetCategory::Other);
+        assert_eq!(classify(Some("eviltidal.com")), NetCategory::Other);
         assert_eq!(classify(Some("evil-api.tidal.com.example.com")), NetCategory::Other);
         assert_eq!(classify(None), NetCategory::Other);
     }
