@@ -31,4 +31,5 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           PR: ${{ github.event.pull_request.number }}
           SHA: ${{ github.event.pull_request.head.sha }}
-        run: python3 scripts/review_bot.py gate --pr "$PR" --sha "$SHA"
+        # rerun-builds only restarts GitHub Actions runs, so this gate itself waits for a passing /review.
+        run: python3 scripts/review_bot.py gate --pr "$PR" --sha "$SHA" --keep-waiting
