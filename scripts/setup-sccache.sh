@@ -42,10 +42,9 @@ set_build_key() {
     echo "Set $key in $config"
   elif grep -Eq '^[[:space:]]*\[[[:space:]]*build[[:space:]]*\][[:space:]]*(#.*)?$' "$config"; then
     # No sed -i: its syntax differs between GNU and BSD.
-    tmp="$(mktemp)"
+    tmp="$(mktemp "$config.XXXXXX")"
     LINE="$key = \"$value\"" awk '{ print } !done && /^[[:space:]]*\[[[:space:]]*build[[:space:]]*\]/ { print ENVIRON["LINE"]; done = 1 }' "$config" >"$tmp"
-    cat "$tmp" >"$config"
-    rm -f "$tmp"
+    mv "$tmp" "$config" # same directory, so the swap is atomic and a full disk cannot leave a truncated config
     echo "Set $key in $config"
   else
     echo "$config defines build in a form this script does not edit; add this under [build] yourself:" >&2
