@@ -10,7 +10,10 @@ import kotlin.math.ceil
 /** A 60 Hz frame's budget: the target SDAT has to meet on any screen. */
 const val BUDGET_60_NS = 16_666_667L
 
-/** A gap that lost a 60 Hz frame; the margin absorbs vsync jitter on a 60 Hz display. */
+/**
+ * A gap between two frames' intended vsyncs that lost a 60 Hz frame: 18.7 ms, the 2 ms margin absorbing vsync jitter
+ * on a 60 Hz display. Any slower refresh step (22.2 ms at 90 Hz, 25 ms at 120 Hz) is above it.
+ */
 private const val LATE_60_NS = BUDGET_60_NS + 2_000_000L
 
 /**
@@ -45,8 +48,9 @@ data class Stats(
     /** Frames that missed this display's own deadline. */
     val jankPercent: Double,
     /**
-     * Frames shown more than a 60 Hz frame after the one before, whatever the display's rate. Measured between
-     * vsyncs, not by a frame's own duration: a pipelined frame can take longer than 16.7 ms and still keep 120 fps.
+     * Gaps between frames' intended vsyncs over 18.7 ms, a lost 60 Hz frame, whatever the display's rate: the pace the
+     * app started frames at, not a frame's own duration, as a pipelined frame can take over 16.7 ms and still keep
+     * 120 fps. FrameMetrics has no presentation time; a frame presented late counts in [jankPercent] instead.
      */
     val over60Percent: Double,
     /** Each stage is null when the phone does not report it; the limiter is the slowest stage that is reported. */

@@ -30,6 +30,11 @@ class StatsTest {
         assertEquals(20.0, s.maxMs, 0.0)
     }
 
+    @Test fun aGapWithinTheJitterMarginKeepsThe60HzPace() {
+        val s = stats(listOf(frame(5.0, interval = 16.7), frame(5.0, interval = 18.5), frame(5.0, interval = 18.9), frame(5.0, interval = 16.7)), seconds = 1.0)
+        assertEquals(25.0, s.over60Percent, 0.0)
+    }
+
     @Test fun limiterIsTheSlowestStageAtP90() {
         val s = stats(List(10) { frame(20.0, ui = 4.0, render = 6.0, gpu = 14.0) }, seconds = 1.0)
         assertEquals(Limiter.Gpu, s.limiter)
