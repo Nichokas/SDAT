@@ -674,14 +674,25 @@ final class Player {
         }
         if auto, let p = preloaded, p.trackId == t.id, avPlayer.currentItem === p.item, p.item.status != .failed {
             preloaded = nil
+            let play = autoplayAfterEnd()
             playingItem = p.item
             adopt(t, stream: p.stream)
-            avPlayer.play()
-            isPlaying = true
+            if play { avPlayer.play() } else { avPlayer.pause() }
+            isPlaying = play
             afterStart(t)
         } else {
-            start(t)
+            start(t, autoplay: auto ? autoplayAfterEnd() : true)
         }
+    }
+
+    /// `plays` when the current track ended on its own: the engine may switch to the next item
+    /// seconds later, and a pause from the user or the system meanwhile holds for that track.
+    @ObservationIgnored private var endedAtPlays: Int?
+
+    private func autoplayAfterEnd() -> Bool {
+        defer { endedAtPlays = nil }
+        guard let p = endedAtPlays else { return true }
+        return p == plays ? !systemPaused : isPlaying
     }
 
     /// A starting user-queue track joins the base queue right after the current track, so Previous
@@ -896,6 +907,7 @@ final class Player {
         // Listen Together guest: wait for the host's next track instead of advancing.
         if liveFollowing { DispatchQueue.main.async { self.avPlayer.pause(); self.isPlaying = false }; return }
         if repeatMode == .one, let c = current { start(c); return }
+        endedAtPlays = plays
         // The engine moves on to a queued preload by itself, sometimes only after this notification
         // (e.g. when the sample rate changes); `engineMoved` adopts it then. Starting the track
         // anew here would drop the preload that is already playing and replay it from 0.
