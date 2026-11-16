@@ -18,6 +18,8 @@ import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.saveable.listSaver
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
@@ -35,15 +37,18 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
 import uniffi.tonearm_ffi.Track
 
+private val offsetSaver = listSaver<Offset, Float>({ listOf(it.x, it.y) }, { Offset(it[0], it[1]) })
+
 /** iOS Discover's endless 2D plane: staggered rows of one size each, panned freely with inertia. */
 @Composable
-fun CoverPlane(tracks: List<Track>, onTap: (Track) -> Unit, modifier: Modifier = Modifier) {
-    var pan by remember { mutableStateOf(Offset.Zero) }
+fun CoverPlane(tracks: List<Track>, background: Color, placeholder: Color, onTap: (Track) -> Unit, modifier: Modifier = Modifier) {
+    // Saved so another tab and back returns to the same spot on the plane.
+    var pan by rememberSaveable(stateSaver = offsetSaver) { mutableStateOf(Offset.Zero) }
     var fling by remember { mutableStateOf<Job?>(null) }
     val scope = rememberCoroutineScope()
     val density = LocalDensity.current
     BoxWithConstraints(
-        modifier.fillMaxSize().background(Color.Black).pointerInput(Unit) {
+        modifier.fillMaxSize().background(background).pointerInput(Unit) {
             val velocity = VelocityTracker()
             detectDragGestures(
                 onDragStart = {
@@ -87,7 +92,7 @@ fun CoverPlane(tracks: List<Track>, onTap: (Track) -> Unit, modifier: Modifier =
                     modifier = Modifier
                         .offset { IntOffset((frame.x * px - pan.x).roundToInt(), (frame.y * px - pan.y).roundToInt()) }
                         .size(frame.size.dp)
-                        .background(Color.White.copy(alpha = 0.07f))
+                        .background(placeholder)
                         .clickable(enabled = track.streamable) { onTap(track) },
                 )
             }
