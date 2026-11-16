@@ -87,12 +87,6 @@ final class Player {
             let item = note.object as? AVPlayerItem
             MainActor.assumeIsolated { self?.trackEnded(item) }
         }
-        systemObservers.append(NotificationCenter.default.addObserver(
-            forName: AVPlayerItem.failedToPlayToEndTimeNotification, object: nil, queue: .main
-        ) { [weak self] note in
-            let item = note.object as? AVPlayerItem
-            MainActor.assumeIsolated { self?.itemFailed(item) }
-        })
         itemObserver = avPlayer.publisher(for: \.currentItem).receive(on: DispatchQueue.main).sink { [weak self] item in
             MainActor.assumeIsolated { self?.engineMoved(to: item) }
         }
@@ -929,13 +923,6 @@ final class Player {
         guard let item, item === preloaded?.item, item === avPlayer.currentItem, item !== playingItem,
               item.status != .failed else { return }
         advance(auto: true)
-    }
-
-    /// The playing stream broke off (an expired URL, a dropped connection): fetch it again and go on
-    /// from where it stopped. Downloaded files fall back in `watchLocal`.
-    private func itemFailed(_ item: AVPlayerItem?) {
-        guard let item, item === playingItem, let c = current, !isOffline, !loading else { return }
-        start(c, resumeAt: position)
     }
 
     private func refillIfNeeded() {
