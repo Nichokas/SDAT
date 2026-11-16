@@ -33,6 +33,13 @@ android {
     }
 }
 
+androidComponents {
+    onVariants { variant ->
+        // SDAT's own PlaneGeometry, so the Discover scenes lay out the plane exactly as the app does.
+        variant.sources.kotlin?.addStaticSourceDirectory(rootDir.resolve("../../sdat-android/app/src/shared/kotlin").canonicalPath)
+    }
+}
+
 dependencies {
     implementation(platform(libs.compose.bom))
     implementation(libs.compose.material3)

@@ -7,6 +7,8 @@ on:
     paths:
       - "benchmarks/android-glass/**"
       - "sdat-android/gradle/libs.versions.toml"
+      - "sdat-android/gradle/wrapper/**"
+      - "sdat-android/app/src/shared/**"
       - ".github/workflows/benchmark-android.yml"
   workflow_dispatch:
 
@@ -47,7 +49,8 @@ jobs:
           cache-read-only: ${{ github.ref != 'refs/heads/main' }}
       - name: Unit tests and release APK
         working-directory: benchmarks/android-glass
-        run: ./gradlew testDebugUnitTest assembleRelease
+        # SDAT's own Gradle wrapper, so the benchmark builds with the same Gradle as the app.
+        run: ../../sdat-android/gradlew testDebugUnitTest assembleRelease
       - uses: actions/upload-artifact@v4
         with:
           name: sdat-glass-benchmark

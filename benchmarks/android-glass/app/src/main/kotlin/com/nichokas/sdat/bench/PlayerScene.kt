@@ -3,11 +3,11 @@ package com.nichokas.sdat.bench
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -17,8 +17,10 @@ import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.rememberPagerState
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -38,8 +40,8 @@ import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.dp
 import coil3.compose.AsyncImage
 import io.github.neoruaa.glasmio.core.IosTypography
-import io.github.neoruaa.glasmio.glass.GlassSurface
 import io.github.neoruaa.glasmio.glass.GlasmioBackdropHost
+import io.github.neoruaa.glasmio.glass.GlassSurface
 import io.github.neoruaa.glasmio.ui.GlasmioSlider
 import java.io.File
 import kotlin.math.roundToInt
@@ -76,9 +78,18 @@ internal fun Player(covers: List<File>, images: ImageCounter, seconds: State<Flo
 
 @Composable
 private fun NowPlaying(art: File, images: ImageCounter, seconds: State<Float>) {
-    Column(Modifier.fillMaxSize().statusBarsPadding().padding(24.dp), horizontalAlignment = Alignment.CenterHorizontally) {
-        val px = (320 * LocalDensity.current.density).roundToInt()
-        AsyncImage(cover(art, px, false, images), null, Modifier.fillMaxWidth().aspectRatio(1f).shadow(28.dp, RoundedCornerShape(16.dp)).clip(RoundedCornerShape(16.dp)), contentScale = ContentScale.Crop)
+    // SDAT's PlayerSheet layout: the cover takes the height the controls leave, and a short window scrolls instead.
+    BoxWithConstraints(Modifier.fillMaxSize().statusBarsPadding()) {
+    val compact = maxHeight < 560.dp
+    Column(
+        Modifier.fillMaxSize().then(if (compact) Modifier.verticalScroll(rememberScrollState()) else Modifier).padding(horizontal = 24.dp).padding(top = 24.dp, bottom = 12.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+    ) {
+        BoxWithConstraints(if (compact) Modifier.fillMaxWidth().height(200.dp) else Modifier.weight(1f).fillMaxWidth(), contentAlignment = Alignment.Center) {
+            val side = minOf(maxWidth, maxHeight)
+            val px = (side.value * LocalDensity.current.density).roundToInt()
+            AsyncImage(cover(art, px, false, images), null, Modifier.size(side).shadow(28.dp, RoundedCornerShape(16.dp)).clip(RoundedCornerShape(16.dp)), contentScale = ContentScale.Crop)
+        }
         Text("Track title", style = IosTypography.title3, color = Color.White, modifier = Modifier.padding(top = 24.dp))
         Text("Artist", style = IosTypography.body, color = Color.White.copy(alpha = 0.6f))
         Spacer(Modifier.height(14.dp))
@@ -90,6 +101,7 @@ private fun NowPlaying(art: File, images: ImageCounter, seconds: State<Float>) {
         Spacer(Modifier.height(16.dp))
         // A pulse like the cover's play/pause spring, so the page redraws every frame.
         Box(Modifier.size(8.dp).graphicsLayer { val s = 1f + 0.3f * sin(seconds.value * 6f); scaleX = s; scaleY = s }.background(Color.White, CircleShape))
+    }
     }
 }
 
