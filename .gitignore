@@ -6,3 +6,6 @@
 /sdat-android/app/src/main/jniLibs/
 /sdat-android/app/build/
 __pycache__/
+
+# Artifacts downloaded by scripts/depot-run.sh
+/out/

@@ -55,7 +55,7 @@ jobs:
         with:
           shared-key: core
           # PRs restore main's cache but do not save their own (keeps the 10 GB quota for main).
-          save-if: ${{ github.ref == 'refs/heads/main' }}
+          save-if: ${{ github.ref == 'refs/heads/main' && github.event_name != 'api' }}
       - name: Test core and FFI
         run: cargo test -p tonearm-core -p tonearm-ffi --locked
   desktop:
@@ -71,7 +71,7 @@ jobs:
       - uses: Swatinem/rust-cache@v2
         with:
           shared-key: desktop-fedora
-          save-if: ${{ github.ref == 'refs/heads/main' }}
+          save-if: ${{ github.ref == 'refs/heads/main' && github.event_name != 'api' }}
       # `cargo test` builds the whole crate, so a separate `cargo check` only compiled it twice.
       - name: Test desktop app (migration and other unit tests)
         run: cargo test -p sdat-desktop --locked
