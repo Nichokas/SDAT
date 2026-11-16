@@ -739,7 +739,7 @@ final class Player {
         let exact = exactResume
         exactResume = false
         // Same track (a quality change, say): its old stream plays on if the new one fails.
-        let previous = current?.id == track.id ? playingItem : nil
+        let previous = current?.id == track.id ? playingItem.map { (item: $0, stream: stream) } : nil
         adopt(track, stream: nil)
         loading = true
         position = resumeAt
@@ -798,8 +798,12 @@ final class Player {
                 guard !Task.isCancelled else { return }
                 loading = false; loadResumeAt = nil
                 self.error = friendlyMessage(error)
-                if let previous, avPlayer.items().contains(previous) {
-                    playingItem = previous
+                if let previous, avPlayer.items().contains(previous.item) {
+                    playingItem = previous.item
+                    stream = previous.stream
+                    position = livePosition
+                    updateNowPlaying()
+                    schedulePreload()
                 } else {
                     // Another track's item would play on unseen, and its end is ignored: drop it.
                     // Paused, and play retries.
