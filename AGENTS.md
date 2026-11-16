@@ -17,10 +17,11 @@ Notes for coding agents working on SDAT, a TIDAL player for Fedora (GTK), iPhone
 
 - `scripts/setup-dev-vm.sh` provisions a fresh Ubuntu 25.10+ machine with every toolchain below (Rust, Android SDK/NDK, Swift, xtool, GTK dev packages).
 - Run `scripts/setup-sccache.sh` once per machine: it enables sccache and points Cargo at one shared target directory (`~/.cache/cargo-target`), so worktrees neither recompile dependencies nor each keep GBs in `target/`. Cargo locks that directory, so builds from different worktrees run one at a time. Scripts must ask `cargo metadata` for the target directory, never assume `./target`.
+- Agents run builds and test suites on Depot, not on this machine: `scripts/depot-run.sh android` (Gradle build, lint, unit tests, release build; the debug APKs land in `out/depot/<run>/`) and `scripts/depot-run.sh rust [core|desktop]`. It runs the `.depot/workflows/` file against the working tree, unpushed changes included. Use the local commands below only when Depot is unreachable or for a quick `cargo check`.
 - Dev builds carry only line tables for our crates and no debug info for dependencies, to keep the shared target small. For full debug info of our crates run with `CARGO_PROFILE_DEV_DEBUG=2`; dependencies stay without it unless you remove the `[profile.dev.package."*"]` override locally.
 - Core: `cargo test -p tonearm-core -p tonearm-ffi --locked`
 - Desktop: `cargo test -p sdat-desktop --locked` (needs gtk4, libadwaita, gstreamer, libsecret devel packages).
-- iOS: `sdat-mobile/scripts/build-rust.sh` rebuilds `libtonearm_ffi.a` and the Swift bindings; run it after any core change. The owner builds and installs iOS apps himself: never run `xtool dev`.
+- iOS: `sdat-mobile/scripts/build-rust.sh` rebuilds `libtonearm_ffi.a` and the Swift bindings; run it after any core change. It cannot run on Depot (the iOS SDK comes from Apple's Xcode.xip, and Depot CI has no macOS runners), so verify core changes with `scripts/depot-run.sh rust` and leave the iOS build to the PR's `ios-build.yml`. The owner builds and installs iOS apps himself: never run `xtool dev`.
 - Android: `scripts/build-rust-android.sh` (cargo-ndk, NDK 27) runs from Gradle; in `sdat-android/`: `./gradlew assembleDebug lintDebug testDebugUnitTest`.
 
 ## CI (`.github/workflows/`)
