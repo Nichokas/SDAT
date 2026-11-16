@@ -138,4 +138,9 @@ class StatsTest {
         assertEquals(scenes.size, scenes.toSet().size)
         assertTrue(runCatching { Scene(Page.Album, Glass.None) }.isFailure)
     }
+
+    @Test fun aSub60HzDisplayPassesNoScene() {
+        val run = Run(Scene(Page.Collection, Glass.Live), 1, stats(List(58) { frame(5.0, interval = 17.2) }, seconds = 1.0), 0.0, 0, 0, 0, 0)
+        assertEquals(0, score(listOf(run), refreshHz = 58f).passing)
+    }
 }

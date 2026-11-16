@@ -1,12 +1,9 @@
 package com.nichokas.sdat.bench
 
-import android.app.ActivityManager
 import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Intent
-import android.os.Build
 import android.os.Bundle
-import android.os.PowerManager
 import android.util.Log
 import android.view.WindowManager
 import androidx.activity.ComponentActivity
@@ -41,20 +38,9 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import androidx.lifecycle.Lifecycle
-import androidx.lifecycle.LifecycleEventObserver
 import java.io.File
-import java.text.SimpleDateFormat
-import java.util.Date
-import java.util.Locale
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.delay
-import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.withContext
-
-private const val WARMUP_MS = 2_000L
-private const val MEASURE_MS = 6_000L
-private const val REPORT_LAG_MS = 300L
 
 private sealed interface Phase {
     data object Ready : Phase
@@ -84,52 +70,14 @@ class MainActivity : ComponentActivity() {
         var covers by remember { mutableStateOf<List<Cover>?>(null) }
         var current by remember { mutableStateOf<Pair<Scene, String>?>(null) }
         LaunchedEffect(Unit) {
-            val files = withContext(Dispatchers.Default) { covers(File(cacheDir, "covers")) }
-            covers = files
-            val power = getSystemService(PowerManager::class.java)
-            val runs = mutableListOf<Run>()
-            val total = rounds * scenes.size
-            var reruns = 0
-            // A scene measured while the app is paused (Home, Back, screen off) draws nothing; it is measured again.
-            var paused = false
-            val observer = LifecycleEventObserver { _, event -> if (event == Lifecycle.Event.ON_PAUSE) paused = true }
-            lifecycle.addObserver(observer)
-            try {
-                FrameRecorder(window).use { recorder ->
-                    for (round in 1..rounds) {
-                        // Each round starts further along the list, so heat and caches favour no scene.
-                        val order = scenes.indices.map { scenes[(it + (round - 1) * scenes.size / 3) % scenes.size] }
-                        for (scene in order) {
-                            var attempt = 0
-                            while (true) {
-                                lifecycle.currentStateFlow.first { it.isAtLeast(Lifecycle.State.RESUMED) }
-                                paused = false
-                                current = scene to "${runs.size + 1}/$total · round $round" + if (attempt > 0) " · retry $attempt" else ""
-                                val run = measure(scene, round, recorder, power)
-                                if (!paused) {
-                                    runs += run
-                                    break
-                                }
-                                attempt++
-                                reruns++
-                            }
-                        }
-                    }
-                }
-            } finally {
-                lifecycle.removeObserver(observer)
-            }
+            covers = withContext(Dispatchers.Default) { covers(File(cacheDir, "covers")) }
+            val measured = benchmark(this@MainActivity, images, rounds) { scene, label -> current = scene to label }
             current = null
-            val device = device()
-            val text = report(device, runs, rounds, reruns)
+            val device = device(this@MainActivity)
+            val text = report(device, measured.runs, rounds, measured.reruns)
             Log.i("SdatBench", text)
-            val file = withContext(Dispatchers.IO) {
-                runCatching {
-                    val stamp = SimpleDateFormat("yyyyMMdd-HHmmss", Locale.US).format(Date())
-                    File(getExternalFilesDir("results"), "bench-$stamp.txt").apply { writeText(text) }
-                }.getOrNull()
-            }
-            onDone(Phase.Done(text, score(runs, device.refreshHz), file))
+            val file = withContext(Dispatchers.IO) { save(this@MainActivity, text) }
+            onDone(Phase.Done(text, score(measured.runs, device.refreshHz), file))
         }
         val files = covers
         val shown = current
@@ -142,44 +90,6 @@ class MainActivity : ComponentActivity() {
             key(shown) { SceneView(shown.first, files, images) }
             Text(shown.second, color = Color.White, fontSize = 11.sp, modifier = Modifier.safeDrawingPadding().padding(4.dp).background(Color.Black.copy(alpha = 0.5f)).padding(horizontal = 4.dp))
         }
-    }
-
-    private suspend fun measure(scene: Scene, round: Int, recorder: FrameRecorder, power: PowerManager): Run {
-        val thermalStart = power.currentThermalStatus
-        images.loaded = 0
-        images.failed = 0
-        val load = CpuLoad(scene.busyCores)
-        try {
-            recorder.drain()
-            val warmStart = System.nanoTime()
-            delay(WARMUP_MS)
-            val start = System.nanoTime()
-            delay(MEASURE_MS)
-            val end = System.nanoTime()
-            // Reports arrive on their own thread after their frame, so the window is cut by vsync time once the last are in.
-            delay(REPORT_LAG_MS)
-            val frames = recorder.drain()
-            val warmupWorstMs = (frames.filter { it.vsyncNs in warmStart until start }.maxOfOrNull { it.totalNs } ?: 0) / 1e6
-            val stats = stats(frames, (end - start) / 1e9, start, end)
-            return Run(scene, round, stats, warmupWorstMs, thermalStart, power.currentThermalStatus, images.loaded, images.failed)
-        } finally {
-            load.stop()
-        }
-    }
-
-    private fun device(): Device {
-        val memory = ActivityManager.MemoryInfo().also { getSystemService(ActivityManager::class.java).getMemoryInfo(it) }
-        val metrics = resources.displayMetrics
-        return Device(
-            name = "${Build.MANUFACTURER} ${Build.MODEL}",
-            soc = "${Build.SOC_MANUFACTURER} ${Build.SOC_MODEL}",
-            android = "${Build.VERSION.RELEASE} (API ${Build.VERSION.SDK_INT})",
-            ramGb = memory.totalMem / 1e9,
-            lowRam = getSystemService(ActivityManager::class.java).isLowRamDevice,
-            refreshHz = display.refreshRate,
-            screen = "${metrics.widthPixels}x${metrics.heightPixels} @${metrics.densityDpi} dpi",
-            glasmio = BuildConfig.GLASMIO,
-        )
     }
 
     @Composable
@@ -228,19 +138,3 @@ class MainActivity : ComponentActivity() {
     }
 }
 
-/** Busy threads standing in for audio decoding, a download and the core's network work beside the UI. */
-private class CpuLoad(threads: Int) {
-    @Volatile private var running = true
-    private val workers = List(threads) {
-        Thread {
-            var x = 1L
-            while (running) x = x * 6364136223846793005L + 1442695040888963407L
-            if (x == 42L) Log.v("SdatBench", "unreachable")
-        }.apply { isDaemon = true; start() }
-    }
-
-    fun stop() {
-        running = false
-        workers.forEach { it.join() }
-    }
-}

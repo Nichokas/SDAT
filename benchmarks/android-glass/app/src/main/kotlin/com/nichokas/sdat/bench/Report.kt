@@ -25,6 +25,9 @@ private fun List<Double>.spread() = if (size < 2) "" else " (${min().f()}-${max(
 /** Meets 60 fps: at least 57 frames a second, and at most 5% of frames slower than a 60 Hz frame. A slower display never does. */
 fun meets60(fps: Double, over60: Double) = fps >= 57.0 && over60 <= 5.0
 
+/** Below this rate a display cannot show 60 fps, however fast the app draws. */
+const val MIN_60_HZ = 59f
+
 /**
  * One scene across rounds: its median fps, and its 1% low, the rate shown during its slowest 1% of frames
  * (1000 / p99 of the time between frames, capped at the display's rate).
@@ -44,7 +47,7 @@ fun score(runs: List<Run>, refreshHz: Float) = Score(
         val p99 = group.map { it.stats.p99IntervalMs }.median()
         // No interval at all means nothing was drawn, the worst a scene can do.
         val low1 = if (p99 > 0) minOf(refreshHz.toDouble(), 1000 / p99) else 0.0
-        SceneScore(scene.label, fps, low1, meets60(fps, group.map { it.stats.over60Percent }.median()))
+        SceneScore(scene.label, fps, low1, refreshHz >= MIN_60_HZ && meets60(fps, group.map { it.stats.over60Percent }.median()))
     },
     refreshHz,
 )
@@ -56,7 +59,7 @@ fun report(device: Device, runs: List<Run>, rounds: Int, reruns: Int = 0): Strin
     appendLine("${device.name} · ${device.soc} · Android ${device.android}")
     appendLine("RAM ${device.ramGb.f()} GB${if (device.lowRam) " (low-RAM device)" else ""} · ${device.screen} · ${device.refreshHz.toDouble().f(0)} Hz")
     appendLine("Glasmio ${device.glasmio} · $rounds round(s), medians with (min-max) across rounds")
-    if (device.refreshHz < 59) appendLine("This display runs below 60 Hz, so no scene can reach 60 fps on it.")
+    if (device.refreshHz < MIN_60_HZ) appendLine("This display runs below 60 Hz, so no scene can reach 60 fps on it.")
     if (reruns > 0) appendLine("$reruns scene(s) were measured again after the app left the foreground.")
     appendLine()
     val score = score(runs, device.refreshHz)
