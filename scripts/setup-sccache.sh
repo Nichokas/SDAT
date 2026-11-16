@@ -20,6 +20,8 @@ config="$cargo_home/config.toml"
 mkdir -p "$cargo_home" "$target_dir"
 touch "$config"
 
+python3 -c 'import tomllib' 2>/dev/null || { echo "python3 3.11 or newer is required to read $config." >&2; exit 1; }
+
 # tomllib knows every spelling of a key (bare, quoted, dotted, inline table); a regex does not.
 # Prints "no-build", "unset", or "set" followed by the current value.
 build_key_state() {

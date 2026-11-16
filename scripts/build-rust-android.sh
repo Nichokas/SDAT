@@ -14,7 +14,7 @@ mkdir -p "$target"
 # One lock per target directory: another worktree must not rebuild the shared archive between our build and our reads of it.
 if command -v flock >/dev/null; then
   exec 9>"$target/.sdat-build.lock"; flock 9
-elif [ "$target" != "$root/target" ]; then
+elif [ "$target" != "$(pwd -P)/target" ]; then
   echo "flock is required to share $target between worktrees; install util-linux or unset build.target-dir." >&2; exit 1
 fi
 # 16 KB page alignment is required for apps targeting Android 15+ on arm64.

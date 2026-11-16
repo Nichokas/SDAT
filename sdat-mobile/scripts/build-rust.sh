@@ -12,7 +12,7 @@ mkdir -p "$target"
 # One lock per target directory: another worktree must not rebuild the shared archive between our build and our reads of it.
 if command -v flock >/dev/null; then
   exec 9>"$target/.sdat-build.lock"; flock 9
-elif [ "$target" != "$core/target" ]; then
+elif [ "$target" != "$(pwd -P)/target" ]; then
   echo "flock is required to share $target between worktrees; install util-linux or unset build.target-dir." >&2; exit 1
 fi
 # On Linux, link Apple dylibs (iroh-relay) with clang + ld64.lld.
