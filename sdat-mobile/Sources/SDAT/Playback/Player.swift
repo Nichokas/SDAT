@@ -576,6 +576,7 @@ final class Player {
         let far = abs(livePosition - host.secs) > Self.liveResumeWindow
         resumeAfterInterruption = false
         systemPaused = false
+        pausedByUser = false
         try? AVAudioSession.sharedInstance().setActive(true)
         isPlaying = true
         updateNowPlaying()
