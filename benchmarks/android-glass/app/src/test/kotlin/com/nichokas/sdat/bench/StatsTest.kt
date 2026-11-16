@@ -94,9 +94,17 @@ class StatsTest {
     @Test fun lostReportsCountInTheWindowTheyFellIn() {
         // A report 100 ms after the last one hid 4 lost reports, at 20, 40, 60 and 80 ms. The window starts at 50 ms.
         val f = Frame(10, 0, 0, 0, 16_600_000, vsyncNs = 100_000_000, intervalNs = 100_000_000, dropped = 4)
-        val (frames, lost) = window(listOf(f), start = 50_000_000, end = 200_000_000)
-        assertEquals(1, frames.size)
-        assertEquals(2, lost)
+        val s = stats(listOf(f), seconds = 1.0, start = 50_000_000, end = 200_000_000)
+        assertEquals(1, s.frames)
+        assertEquals(2, s.lostReports)
+    }
+
+    @Test fun aStallLostJustBeforeTheEndStaysInThatWindow() {
+        // Smooth frames to 1 s, then a 1.1 s gap hiding 4 frames 220 ms apart; its report lands at 2.1 s, after the window ends at 2 s.
+        val smooth = (1..60).map { i -> Frame(5_000_000, 0, 0, 0, 16_600_000, vsyncNs = i * 16_666_667L, intervalNs = 16_666_667) }
+        val stall = Frame(5_000_000, 0, 0, 0, 16_600_000, vsyncNs = 2_100_000_000, intervalNs = 1_100_000_000, dropped = 4)
+        val s = stats(smooth + stall, seconds = 2.0, start = 0, end = 2_000_000_000)
+        assertEquals(220.0, s.p99IntervalMs, 0.01)
     }
 
     @Test fun noReportedStageNamesNoLimiter() {
@@ -114,6 +122,6 @@ class StatsTest {
 
     @Test fun reportsLostBeforeTheFirstReportAreNotPlaced() {
         val first = Frame(10, 0, 0, 0, 16_600_000, vsyncNs = 100_000_000, intervalNs = 0, dropped = 3)
-        assertEquals(0, window(listOf(first), start = 0, end = 200_000_000).second)
+        assertEquals(0, stats(listOf(first), seconds = 1.0, start = 0, end = 200_000_000).lostReports)
     }
 }

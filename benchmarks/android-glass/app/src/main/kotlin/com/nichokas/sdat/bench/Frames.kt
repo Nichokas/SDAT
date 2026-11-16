@@ -56,31 +56,37 @@ data class Stats(
 fun limiter(ui: Double?, render: Double?, gpu: Double?): Limiter? =
     listOf(Limiter.UiThread to ui, Limiter.RenderThread to render, Limiter.Gpu to gpu).filter { it.second != null }.maxByOrNull { it.second!! }?.first
 
+/** A drawn frame's vsync and the time since the frame before it, reported or rebuilt from a lost report. */
+private data class Tick(val vsyncNs: Long, val intervalNs: Long)
+
 /**
- * The frames whose vsync falls in [start, end), and how many lost reports fell in it too. Lost reports are placed
- * evenly across the gap that hid them, so one lost just before a boundary counts on its own side.
+ * Every drawn frame, reported or not. A report says how many reports were lost since the one before it, so those
+ * frames lie between the two vsyncs and are rebuilt evenly across that gap. The first report has no previous vsync,
+ * so reports lost before it cannot be placed and are left out.
  */
-fun window(frames: List<Frame>, start: Long, end: Long): Pair<List<Frame>, Int> {
-    // The first report has no previous vsync, so reports lost before it cannot be placed and are left out.
-    val lost = frames.filter { it.intervalNs > 0 }.sumOf { f -> (1..f.dropped).count { k -> f.vsyncNs - f.intervalNs * k / (f.dropped + 1) in start until end } }
-    return frames.filter { it.vsyncNs in start until end } to lost
+private fun ticks(frames: List<Frame>): List<Tick> = frames.flatMap { f ->
+    if (f.intervalNs <= 0) listOf(Tick(f.vsyncNs, 0))
+    else (f.dropped downTo 0).map { k -> Tick(f.vsyncNs - f.intervalNs / (f.dropped + 1) * k, f.intervalNs / (f.dropped + 1)) }
 }
 
 /** Nearest-rank percentile of an ascending list. */
 fun percentile(sorted: List<Long>, p: Double): Long =
     if (sorted.isEmpty()) 0 else sorted[(ceil(p / 100 * sorted.size).toInt() - 1).coerceIn(0, sorted.lastIndex)]
 
-fun stats(frames: List<Frame>, seconds: Double, lostReports: Int = frames.sumOf { it.dropped }): Stats {
+/**
+ * The window [start, end) of [frames], cut by vsync time: durations come from the reports in it, the rate and the
+ * time between frames from every frame drawn in it, lost reports included.
+ */
+fun stats(frames: List<Frame>, seconds: Double, start: Long = Long.MIN_VALUE, end: Long = Long.MAX_VALUE): Stats {
+    val ticks = ticks(frames).filter { it.vsyncNs in start until end }
+    @Suppress("NAME_SHADOWING") val frames = frames.filter { it.vsyncNs in start until end }
     fun stage(of: (Frame) -> Long) = frames.map(of).filter { it >= 0 }.sorted().let { if (it.isEmpty()) null else percentile(it, 90.0) / 1e6 }
-    // An interval that spans lost reports is shared evenly by the frames in it, so a gap is neither dropped nor
-    // charged to one frame.
-    val intervals = frames.filter { it.intervalNs > 0 }.flatMap { f -> List(f.dropped + 1) { f.intervalNs / (f.dropped + 1) } }.sorted()
+    val intervals = ticks.map { it.intervalNs }.filter { it > 0 }.sorted()
     fun share(test: (Frame) -> Boolean) = if (frames.isEmpty()) 0.0 else 100.0 * frames.count(test) / frames.size
     val total = frames.map { it.totalNs }.sorted()
     return Stats(
         frames = frames.size,
-        // A dropped report is a frame that was drawn but not reported, so it still counts toward the rate.
-        fps = if (seconds > 0) (frames.size + lostReports) / seconds else 0.0,
+        fps = if (seconds > 0) ticks.size / seconds else 0.0,
         p50Ms = percentile(total, 50.0) / 1e6,
         p90Ms = percentile(total, 90.0) / 1e6,
         p99Ms = percentile(total, 99.0) / 1e6,
@@ -91,7 +97,7 @@ fun stats(frames: List<Frame>, seconds: Double, lostReports: Int = frames.sumOf 
         uiP90Ms = stage { it.uiNs },
         renderP90Ms = stage { it.renderNs },
         gpuP90Ms = stage { it.gpuNs },
-        lostReports = lostReports,
+        lostReports = ticks.size - frames.size,
     )
 }
 
