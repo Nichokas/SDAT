@@ -4520,6 +4520,72 @@ public func FfiConverterTypeArtistRef_lower(_ value: ArtistRef) -> RustBuffer {
 }
 
 
+public struct Country: Equatable, Hashable {
+    /**
+     * ISO 3166-1 alpha-2, e.g. `ES`.
+     */
+    public var code: String
+    /**
+     * English name.
+     */
+    public var name: String
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(
+        /**
+         * ISO 3166-1 alpha-2, e.g. `ES`.
+         */code: String, 
+        /**
+         * English name.
+         */name: String) {
+        self.code = code
+        self.name = name
+    }
+
+    
+
+    
+}
+
+#if compiler(>=6)
+extension Country: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeCountry: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> Country {
+        return
+            try Country(
+                code: FfiConverterString.read(from: &buf), 
+                name: FfiConverterString.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: Country, into buf: inout [UInt8]) {
+        FfiConverterString.write(value.code, into: &buf)
+        FfiConverterString.write(value.name, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeCountry_lift(_ buf: RustBuffer) throws -> Country {
+    return try FfiConverterTypeCountry.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeCountry_lower(_ value: Country) -> RustBuffer {
+    return FfiConverterTypeCountry.lower(value)
+}
+
+
 public struct DiagEvent: Equatable, Hashable {
     /**
      * Strictly increasing; pass the last one seen to `diag_events` for what came after.
@@ -7785,6 +7851,30 @@ fileprivate struct FfiConverterOptionTypeAlbumRef: FfiConverterRustBuffer {
 #if swift(>=5.8)
 @_documentation(visibility: private)
 #endif
+fileprivate struct FfiConverterOptionTypeCountry: FfiConverterRustBuffer {
+    typealias SwiftType = Country?
+
+    public static func write(_ value: SwiftType, into buf: inout [UInt8]) {
+        guard let value = value else {
+            writeInt(&buf, Int8(0))
+            return
+        }
+        writeInt(&buf, Int8(1))
+        FfiConverterTypeCountry.write(value, into: &buf)
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> SwiftType {
+        switch try readInt(&buf) as Int8 {
+        case 0: return nil
+        case 1: return try FfiConverterTypeCountry.read(from: &buf)
+        default: throw UniffiInternalError.unexpectedOptionalTag
+        }
+    }
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
 fileprivate struct FfiConverterOptionTypeGain: FfiConverterRustBuffer {
     typealias SwiftType = Gain?
 
@@ -8068,6 +8158,31 @@ fileprivate struct FfiConverterSequenceTypeArtistRef: FfiConverterRustBuffer {
         seq.reserveCapacity(Int(len))
         for _ in 0 ..< len {
             seq.append(try FfiConverterTypeArtistRef.read(from: &buf))
+        }
+        return seq
+    }
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+fileprivate struct FfiConverterSequenceTypeCountry: FfiConverterRustBuffer {
+    typealias SwiftType = [Country]
+
+    public static func write(_ value: [Country], into buf: inout [UInt8]) {
+        let len = Int32(value.count)
+        writeInt(&buf, len)
+        for item in value {
+            FfiConverterTypeCountry.write(item, into: &buf)
+        }
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> [Country] {
+        let len: Int32 = try readInt(&buf)
+        var seq = [Country]()
+        seq.reserveCapacity(Int(len))
+        for _ in 0 ..< len {
+            seq.append(try FfiConverterTypeCountry.read(from: &buf))
         }
         return seq
     }
@@ -8468,6 +8583,55 @@ public func startDeviceLogin()async throws  -> DeviceLogin  {
             liftFunc: FfiConverterTypeDeviceLogin_lift,
             errorHandler: FfiConverterTypeFfiError_lift
         )
+}
+/**
+ * What automatic resolves to: the account's country, else the IP's; `None`
+ * when neither is known or TIDAL isn't listed there.
+ */
+public func automaticCountry()async  -> Country?  {
+    return
+        try!  await uniffiRustCallAsync(
+            rustFutureFunc: {
+                uniffi_tonearm_ffi_fn_func_automatic_country(
+                )
+            },
+            pollFunc: ffi_tonearm_ffi_rust_future_poll_rust_buffer,
+            completeFunc: ffi_tonearm_ffi_rust_future_complete_rust_buffer,
+            freeFunc: ffi_tonearm_ffi_rust_future_free_rust_buffer,
+            liftFunc: FfiConverterOptionTypeCountry.lift,
+            errorHandler: nil
+            
+        )
+}
+/**
+ * Countries where TIDAL is available, sorted by code.
+ */
+public func countries() -> [Country]  {
+    return try!  FfiConverterSequenceTypeCountry.lift(try! rustCall() {
+        uniffiCallStatus in
+    uniffi_tonearm_ffi_fn_func_countries(uniffiCallStatus
+    )
+})
+}
+/**
+ * The user's choice, `None` for automatic.
+ */
+public func preferredCountry() -> String?  {
+    return try!  FfiConverterOptionString.lift(try! rustCall() {
+        uniffiCallStatus in
+    uniffi_tonearm_ffi_fn_func_preferred_country(uniffiCallStatus
+    )
+})
+}
+/**
+ * Saves the choice (`None` = automatic); pages loaded afterwards use it.
+ */
+public func setPreferredCountry(code: String?)  {try! rustCall() {
+        uniffiCallStatus in
+    uniffi_tonearm_ffi_fn_func_set_preferred_country(
+        FfiConverterOptionString.lower(code),uniffiCallStatus
+    )
+}
 }
 /**
  * Empties the log and the log files, the previous run's included.
@@ -9113,6 +9277,18 @@ private let initializationResult: InitializationResult = {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_tonearm_ffi_checksum_func_start_device_login() != 8078) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_tonearm_ffi_checksum_func_automatic_country() != 54933) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_tonearm_ffi_checksum_func_countries() != 10870) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_tonearm_ffi_checksum_func_preferred_country() != 33325) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_tonearm_ffi_checksum_func_set_preferred_country() != 51587) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_tonearm_ffi_checksum_func_diag_clear() != 4936) {

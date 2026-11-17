@@ -681,8 +681,6 @@ fn country_row() -> adw::ComboRow {
             return;
         }
         crate::country::set_preferred(code);
-        api::client::reset_country_code();
-        crate::cache::clear();
         crate::router::invalidate_kept_pages();
     });
     row

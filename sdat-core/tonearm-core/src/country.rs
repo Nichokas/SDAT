@@ -37,8 +37,11 @@ pub fn preferred() -> Option<String> {
     path().and_then(|p| std::fs::read_to_string(p).ok()).and_then(|s| parse(&s))
 }
 
-/// Saves the choice (`None` = automatic).
+/// Saves the choice (`None` = automatic) and drops the cached country and
+/// lists, so the next request uses it.
 pub fn set_preferred(code: Option<&str>) {
+    crate::api::reset_country_code();
+    crate::cache::clear();
     let Some(p) = path() else { return };
     let r = match code {
         Some(c) => p.parent().map_or(Ok(()), std::fs::create_dir_all).and_then(|()| std::fs::write(&p, c)),

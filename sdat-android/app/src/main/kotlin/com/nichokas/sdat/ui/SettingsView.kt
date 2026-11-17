@@ -14,6 +14,7 @@ import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -37,6 +38,7 @@ import com.nichokas.sdat.core.CrashReporting
 import com.nichokas.sdat.core.Downloads
 import com.nichokas.sdat.core.Fmt
 import com.nichokas.sdat.core.Preferences
+import com.nichokas.sdat.core.Region
 import com.nichokas.sdat.core.Route
 import com.nichokas.sdat.core.Secrets
 import com.nichokas.sdat.core.Session
@@ -79,6 +81,7 @@ fun SettingsView(session: Session, prefs: Preferences, secrets: Secrets, crashRe
     var hasListenBrainz by remember { mutableStateOf(secrets.get(Secrets.LISTENBRAINZ_TOKEN) != null) }
     var browserOpened by rememberSaveable { mutableStateOf(false) }
     val destructive = GlasmioTheme.colors.destructive
+    LaunchedEffect(Unit) { Region.loadAutomatic() }
 
     // iOS finishes the Last.fm handshake when its Safari sheet closes; here, when the browser hands back.
     // Reads the state live: the browser can pause the app before a recomposition would restart a keyed effect.
@@ -197,6 +200,12 @@ fun SettingsView(session: Session, prefs: Preferences, secrets: Secrets, crashRe
                     }
                 }
             }
+        }
+        item {
+            Section("TIDAL") {
+                GlasmioListRow("Country / Region", detail = Region.label, showTopSeparator = false, onClick = { Chrome.push(Route.Country) })
+            }
+            GlasmioGroupedTableFooter("Catalogue region for TIDAL requests. Applies to pages you open next.")
         }
         item {
             Section("Developer") {

@@ -886,6 +886,29 @@ uint64_t uniffi_tonearm_ffi_fn_func_start_device_login(void
     
 );
 #endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_TONEARM_FFI_FN_FUNC_AUTOMATIC_COUNTRY
+#define UNIFFI_FFIDEF_UNIFFI_TONEARM_FFI_FN_FUNC_AUTOMATIC_COUNTRY
+uint64_t uniffi_tonearm_ffi_fn_func_automatic_country(void
+    
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_TONEARM_FFI_FN_FUNC_COUNTRIES
+#define UNIFFI_FFIDEF_UNIFFI_TONEARM_FFI_FN_FUNC_COUNTRIES
+RustBuffer uniffi_tonearm_ffi_fn_func_countries(RustCallStatus *_Nonnull out_status
+    
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_TONEARM_FFI_FN_FUNC_PREFERRED_COUNTRY
+#define UNIFFI_FFIDEF_UNIFFI_TONEARM_FFI_FN_FUNC_PREFERRED_COUNTRY
+RustBuffer uniffi_tonearm_ffi_fn_func_preferred_country(RustCallStatus *_Nonnull out_status
+    
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_TONEARM_FFI_FN_FUNC_SET_PREFERRED_COUNTRY
+#define UNIFFI_FFIDEF_UNIFFI_TONEARM_FFI_FN_FUNC_SET_PREFERRED_COUNTRY
+void uniffi_tonearm_ffi_fn_func_set_preferred_country(RustBuffer code, RustCallStatus *_Nonnull out_status
+);
+#endif
 #ifndef UNIFFI_FFIDEF_UNIFFI_TONEARM_FFI_FN_FUNC_DIAG_CLEAR
 #define UNIFFI_FFIDEF_UNIFFI_TONEARM_FFI_FN_FUNC_DIAG_CLEAR
 void uniffi_tonearm_ffi_fn_func_diag_clear(RustCallStatus *_Nonnull out_status
@@ -1421,6 +1444,30 @@ uint16_t uniffi_tonearm_ffi_checksum_func_session_changed(void
 #ifndef UNIFFI_FFIDEF_UNIFFI_TONEARM_FFI_CHECKSUM_FUNC_START_DEVICE_LOGIN
 #define UNIFFI_FFIDEF_UNIFFI_TONEARM_FFI_CHECKSUM_FUNC_START_DEVICE_LOGIN
 uint16_t uniffi_tonearm_ffi_checksum_func_start_device_login(void
+    
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_TONEARM_FFI_CHECKSUM_FUNC_AUTOMATIC_COUNTRY
+#define UNIFFI_FFIDEF_UNIFFI_TONEARM_FFI_CHECKSUM_FUNC_AUTOMATIC_COUNTRY
+uint16_t uniffi_tonearm_ffi_checksum_func_automatic_country(void
+    
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_TONEARM_FFI_CHECKSUM_FUNC_COUNTRIES
+#define UNIFFI_FFIDEF_UNIFFI_TONEARM_FFI_CHECKSUM_FUNC_COUNTRIES
+uint16_t uniffi_tonearm_ffi_checksum_func_countries(void
+    
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_TONEARM_FFI_CHECKSUM_FUNC_PREFERRED_COUNTRY
+#define UNIFFI_FFIDEF_UNIFFI_TONEARM_FFI_CHECKSUM_FUNC_PREFERRED_COUNTRY
+uint16_t uniffi_tonearm_ffi_checksum_func_preferred_country(void
+    
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_TONEARM_FFI_CHECKSUM_FUNC_SET_PREFERRED_COUNTRY
+#define UNIFFI_FFIDEF_UNIFFI_TONEARM_FFI_CHECKSUM_FUNC_SET_PREFERRED_COUNTRY
+uint16_t uniffi_tonearm_ffi_checksum_func_set_preferred_country(void
     
 );
 #endif

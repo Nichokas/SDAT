@@ -126,6 +126,7 @@ fun eraseAll(context: Context, session: Session, prefs: Preferences, secrets: Se
     crashReporting.reset()
     diagClear()
     Vault.forget()
+    Region.select(null)
     eraseScope.launch(Dispatchers.IO) {
         // diagClear emptied the diagnostics files; the core keeps diag.log open, so its directory stays.
         val diag = File(context.filesDir, "diag")
