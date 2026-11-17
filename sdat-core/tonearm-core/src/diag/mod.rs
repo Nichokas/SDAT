@@ -7,6 +7,7 @@ use std::cell::Cell;
 use std::fmt;
 use std::io::Write as _;
 use std::ops::{Deref, DerefMut};
+use std::panic::AssertUnwindSafe;
 use std::path::PathBuf;
 use std::sync::{Mutex, MutexGuard, Once, OnceLock, PoisonError};
 use std::time::Instant;
@@ -151,7 +152,8 @@ impl Global {
             return;
         }
         let _reset = ResetInSink;
-        sink.on_event(event);
+        // A panicking sink must not unwind into the code that logged; the panic hook has already recorded it.
+        let _ = std::panic::catch_unwind(AssertUnwindSafe(|| sink.on_event(event)));
     }
 }
 
@@ -293,7 +295,7 @@ pub fn report(extra: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::panic::{AssertUnwindSafe, catch_unwind};
+    use std::panic::catch_unwind;
 
     static SENT: Mutex<Vec<Event>> = Mutex::new(Vec::new());
 
@@ -301,6 +303,7 @@ mod tests {
 
     impl Sink for Collect {
         fn on_event(&self, event: &Event) {
+            assert!(!event.message.contains("diag-test-sink-panics"), "the sink failed");
             SENT.lock().unwrap_or_else(PoisonError::into_inner).push(event.clone());
         }
     }
@@ -353,6 +356,16 @@ mod tests {
         assert_eq!(bounded("short", MAX_TEXT_BYTES), "short");
         assert!(bounded(&"t".repeat(1 << 20), MAX_TARGET_BYTES).len() <= MAX_TARGET_BYTES);
         assert!(bounded(&"token=a ".repeat(32), MAX_TARGET_BYTES).len() <= MAX_TARGET_BYTES);
+    }
+
+    #[test]
+    fn a_panicking_sink_does_not_reach_the_caller() {
+        setup();
+        record(Level::Warn, "test", "diag-test-sink-panics", None);
+        assert_eq!(stored("diag-test-sink-panics").len(), 1);
+        assert_eq!(stored("the sink failed").len(), 1, "the sink's own panic is recorded");
+        record(Level::Warn, "test", "diag-test-after-sink-panic", None);
+        assert_eq!(sent("diag-test-after-sink-panic").len(), 1);
     }
 
     #[test]
