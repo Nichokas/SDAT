@@ -243,8 +243,12 @@ class Playback(context: Context, private val prefs: Preferences, secrets: Secret
                 val t = track ?: return fail(e.errorCodeName)
                 // Counts deep sleep, which uptime skips: the expiry follows a pause of hours.
                 val now = SystemClock.elapsedRealtime()
-                if (!refetchDue(refetched, t.id, now)) return fail(e.errorCodeName)
-                refetched = t.id to now
+                // A broken download spends no budget: a new play picks the same file again, and only its online stream
+                // can help.
+                if (!offline) {
+                    if (!refetchDue(refetched, t.id, now)) return fail(e.errorCodeName)
+                    refetched = t.id to now
+                }
                 restart(t, position, online = true, play = player.playWhenReady || aligning)
             }
         })
