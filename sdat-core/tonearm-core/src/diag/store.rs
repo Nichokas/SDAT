@@ -20,8 +20,9 @@ const MAX_TARGET_BYTES: usize = 256;
 
 /// The first part of `text` that can matter, so redacting a huge message does not copy all of it. A secret
 /// cut here keeps its key and is still redacted to the end; one whose key is cut is dropped with the rest.
+/// It keeps one character (up to 4 bytes) past the limit, so [`truncated`] sees the cut and marks it.
 pub(super) fn clip(text: &str) -> &str {
-    &text[..text.floor_char_boundary(MAX_TEXT_BYTES + 1)]
+    &text[..text.floor_char_boundary(MAX_TEXT_BYTES + 4)]
 }
 
 fn truncated(mut text: String, max: usize) -> String {
@@ -272,6 +273,7 @@ mod tests {
     fn one_huge_event_is_cut_to_fit_the_file() {
         let tmp = TempDir::new("huge");
         let mut store = Store::new(Some(tmp.0.clone()));
+        assert!(truncated(clip(&"é".repeat(20_000)).to_owned(), MAX_TEXT_BYTES).ends_with("…(truncated)"));
         info(&mut store, &"é".repeat(MAX_FILE_BYTES as usize));
         store.push(Level::Info, &"t".repeat(MAX_FILE_BYTES as usize), "short".to_owned(), None);
         assert!(store.since(0)[1].target.len() < MAX_TARGET_BYTES + 32);
