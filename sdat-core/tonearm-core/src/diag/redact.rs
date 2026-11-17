@@ -24,25 +24,10 @@ const KEYS: [&str; 14] = [
 /// Short keys that also end longer words (`zipcode`, `disk`, `x_tidal_token`): matched only at a word start.
 const WORD_KEYS: [&str; 3] = ["token", "code", "sk"];
 
-/// The end of a bare value starting at `i`: whitespace, `&`, or a quote (plain, or escaped as in a
-/// debug-printed string) that closes the text around the value, which is one followed by the end, whitespace
-/// or closing punctuation. Any other character, a quote inside a password included, is redacted with it.
-fn bare_end(s: &[u8], mut i: usize) -> usize {
-    while i < s.len() {
-        let b = s[i];
-        let quote_len = match (b, s.get(i + 1)) {
-            (b'"' | b'\'', _) => 1,
-            (b'\\', Some(b'"' | b'\'')) => 2,
-            _ => 0,
-        };
-        let closes = quote_len > 0
-            && s.get(i + quote_len).is_none_or(|&n| n.is_ascii_whitespace() || matches!(n, b',' | b';' | b')' | b']' | b'}' | b'&' | b'>'));
-        if b.is_ascii_whitespace() || b == b'&' || closes {
-            break;
-        }
-        i += 1;
-    }
-    i
+/// The end of a bare value starting at `i`: whitespace or `&`. Any other character may be part of a
+/// password, so quotes and punctuation are redacted with it, even when they closed the text around it.
+fn bare_end(s: &[u8], i: usize) -> usize {
+    skip(s, i, |b| !b.is_ascii_whitespace() && b != b'&')
 }
 
 fn is_blank(b: u8) -> bool {
@@ -58,7 +43,8 @@ fn skip(s: &[u8], mut i: usize, f: impl Fn(u8) -> bool) -> usize {
 
 /// A quoted value whose opening quote (`"` or `'`) is at `i`: its range without the quotes. Inside a debug-printed
 /// string the quote is `\"` and every character of the value is escaped once more, so one level of
-/// escaping is undone before looking for the value's own closing quote.
+/// escaping is undone before looking for the value's own closing quote. A closing quote that something
+/// other than whitespace or punctuation follows may be inside the password: the rest is redacted as a bare value.
 fn quoted(s: &[u8], i: usize) -> Option<(usize, usize)> {
     let escaped = s[i] == b'\\';
     let open = if escaped { i + 1 } else { i };
@@ -80,6 +66,9 @@ fn quoted(s: &[u8], i: usize) -> Option<(usize, usize)> {
         end += width;
     }
     let end = end.min(s.len());
+    let after = end + if escaped { 2 } else { 1 };
+    let closes = s.get(after).is_none_or(|&b| b.is_ascii_whitespace() || b",;:)]}&>\\".contains(&b));
+    let end = if closes { end } else { bare_end(s, after) };
     (start < end).then_some((start, end))
 }
 
@@ -255,9 +244,13 @@ mod tests {
         assert_eq!(redact("password=\\hunter2 next"), "password=<redacted> next");
         assert_eq!(redact("password=abc'def&x=1"), "password=<redacted>&x=1");
         assert_eq!(redact(r#"password=a"b'c next"#), "password=<redacted> next");
-        assert_eq!(redact("msg='password=abc', x"), "msg='password=<redacted>', x");
+        // A closing quote right after the value is redacted too: it could as well be part of the password.
+        assert_eq!(redact("msg='password=abc', x"), "msg='password=<redacted> x");
+        assert_eq!(redact(r#"password=abc",def next"#), "password=<redacted> next");
+        assert_eq!(redact("password='abc'def&x=1"), "password='<redacted>&x=1");
+        assert_eq!(redact(r#"{"password":"abc"}"#), r#"{"password":"<redacted>"}"#);
         assert_eq!(redact("Authorization: \\xyz\nnext"), "Authorization: <redacted>\nnext");
-        assert_eq!(redact(r#"msg: "password=abc\" ok""#), r#"msg: "password=<redacted>\" ok""#);
+        assert_eq!(redact(r#"msg: "password=abc\" ok""#), r#"msg: "password=<redacted> ok""#);
     }
 
     #[test]

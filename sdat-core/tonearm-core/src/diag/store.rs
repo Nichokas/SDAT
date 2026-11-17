@@ -16,10 +16,11 @@ const LOCK: &str = "diag.lock";
 /// Longest message or backtrace kept, so one huge event (an error page logged whole) neither overflows
 /// [`MAX_FILE_BYTES`] nor holds the buffer's memory.
 const MAX_TEXT_BYTES: usize = 32 * 1024;
+const MAX_TARGET_BYTES: usize = 256;
 
-fn truncated(mut text: String) -> String {
-    if text.len() > MAX_TEXT_BYTES {
-        text.truncate(text.floor_char_boundary(MAX_TEXT_BYTES));
+fn truncated(mut text: String, max: usize) -> String {
+    if text.len() > max {
+        text.truncate(text.floor_char_boundary(max));
         text.push_str(" …(truncated)");
         text.shrink_to_fit();
     }
@@ -103,9 +104,9 @@ impl Store {
             seq: self.next_seq,
             at_ms: chrono::Utc::now().timestamp_millis(),
             level,
-            target: target.to_owned(),
-            message: truncated(message),
-            backtrace: backtrace.map(truncated),
+            target: truncated(target.to_owned(), MAX_TARGET_BYTES),
+            message: truncated(message, MAX_TEXT_BYTES),
+            backtrace: backtrace.map(|b| truncated(b, MAX_TEXT_BYTES)),
         };
         self.next_seq += 1;
         if let Some(file) = self.file.as_mut() {
@@ -266,6 +267,8 @@ mod tests {
         let tmp = TempDir::new("huge");
         let mut store = Store::new(Some(tmp.0.clone()));
         info(&mut store, &"é".repeat(MAX_FILE_BYTES as usize));
+        store.push(Level::Info, &"t".repeat(MAX_FILE_BYTES as usize), "short".to_owned(), None);
+        assert!(store.since(0)[1].target.len() < MAX_TARGET_BYTES + 32);
         let message = &store.since(0)[0].message;
         assert!(message.len() < MAX_TEXT_BYTES + 32 && message.ends_with("…(truncated)"));
         assert!(message.capacity() < MAX_TEXT_BYTES + 32, "{}", message.capacity());
