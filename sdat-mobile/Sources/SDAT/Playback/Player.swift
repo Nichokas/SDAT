@@ -208,10 +208,14 @@ final class Player {
 
     func playNext(_ track: Track) { playNext([track]) }
 
-    /// With nothing playing the list starts from its first track.
+    /// With nothing playing the list plays in order from its first track, shuffle or not, like Add to Queue.
     func playNext(_ tracks: [Track]) {
         defer { persist() }
-        if current == nil { play(tracks); return }
+        if current == nil, let first = tracks.first {
+            play([first])
+            userQueue = Array(tracks.dropFirst())
+            return
+        }
         userQueue.insert(contentsOf: tracks, at: 0)
         invalidatePreload()
     }
