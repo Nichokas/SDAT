@@ -2,6 +2,8 @@
 # make-vendor.sh VERSION [OUTDIR]
 # Build sdat-desktop-VERSION-vendor.tar.xz (`cargo vendor` of tag desktop-vVERSION's
 # Cargo.lock) so the RPM build can run offline. Deterministic tar.
+# The archive also carries `sentry-dsn`, the $SENTRY_DSN of this run (empty when unset), which the spec
+# exports as SENTRY_DSN for the build. A DSN is public by design: it ships inside every client.
 set -euo pipefail
 VERSION="${1:?usage: make-vendor.sh VERSION [OUTDIR]}"; VERSION="${VERSION#v}"
 OUTDIR="$(realpath -m "${2:-.}")"
@@ -12,5 +14,6 @@ curl -fsSL "https://github.com/${REPO}/archive/refs/tags/desktop-v${VERSION}.tar
 cd "$work"/*/
 cargo vendor --locked --versioned-dirs vendor >/dev/null
 out="$OUTDIR/sdat-desktop-${VERSION}-vendor.tar.xz"
-tar --sort=name --mtime='2000-01-01 00:00Z' --owner=0 --group=0 --numeric-owner -cJf "$out" vendor
+printf '%s' "${SENTRY_DSN:-}" > sentry-dsn
+tar --sort=name --mtime='2000-01-01 00:00Z' --owner=0 --group=0 --numeric-owner -cJf "$out" vendor sentry-dsn
 echo "$out"

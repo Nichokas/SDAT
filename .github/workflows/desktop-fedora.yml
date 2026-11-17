@@ -16,6 +16,9 @@ name: Desktop Fedora auto-update
       tag:
         type: string
         required: true
+    secrets:
+      SENTRY_DSN_DESKTOP:
+        required: false
   pull_request:
     paths:
       - "sdat-desktop/packaging/fedora/**"
@@ -65,6 +68,8 @@ jobs:
         env:
           # A release builds exactly its own tag, not the newest one.
           RELEASE_TAG: ${{ github.event_name == 'release' && github.event.release.tag_name || inputs.tag || '' }}
+          # Goes into the vendor archive for the COPR build; empty when the secret is unset (no crash reports).
+          SENTRY_DSN: ${{ secrets.SENTRY_DSN_DESKTOP }}
           VERSION: ${{ needs.detect-version.outputs.is_new == 'true' && needs.detect-version.outputs.version || needs.detect-version.outputs.current }}
         run: |
           set -euo pipefail

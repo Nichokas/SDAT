@@ -15,7 +15,9 @@ The RPM is `sdat-desktop` (binary `/usr/bin/sdat-desktop`). It obsoletes and pro
   `desktop-vVERSION` with `cargo build --release -p sdat-desktop`, offline from a
   `cargo vendor` archive.
 - `make-vendor.sh VERSION` creates `sdat-desktop-VERSION-vendor.tar.xz`, uploaded as an
-  asset of GitHub release `desktop-vVERSION`.
+  asset of GitHub release `desktop-vVERSION`. The archive also holds `sentry-dsn`, the
+  value of the repo secret `SENTRY_DSN_DESKTOP` (empty when unset); the spec exports it as
+  `SENTRY_DSN` for the build. Empty or missing, the app is built without crash reports.
 - `.github/workflows/desktop-fedora.yml` (repo root): on a published `desktop-v*`
   release (or daily / manually) bumps the spec, uploads the vendor asset, commits and
   triggers COPR. On PRs it smoke-builds the RPM from the checkout.
