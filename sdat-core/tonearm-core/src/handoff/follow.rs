@@ -8,7 +8,7 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use super::Cmd;
-use crate::diag::net::send;
+use crate::api::send;
 
 /// Each connection is cut after this long and reopened, so a dead one is
 /// noticed (the server sends a keepalive about every 15 s). It also bounds
