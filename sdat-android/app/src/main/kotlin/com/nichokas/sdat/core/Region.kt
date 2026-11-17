@@ -27,7 +27,7 @@ object Region {
 
     fun select(code: String?) {
         setPreferredCountry(code)
-        preferred = code
+        preferred = preferredCountry()
     }
 
     suspend fun loadAutomatic() {

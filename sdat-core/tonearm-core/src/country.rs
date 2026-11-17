@@ -37,11 +37,9 @@ pub fn preferred() -> Option<String> {
     path().and_then(|p| std::fs::read_to_string(p).ok()).and_then(|s| parse(&s))
 }
 
-/// Saves the choice (`None` = automatic) and drops the cached country and
-/// lists, so the next request uses it.
+/// Saves the choice (`None` = automatic), then drops the cached country and
+/// lists, so the next request uses it. A failed save keeps both.
 pub fn set_preferred(code: Option<&str>) {
-    crate::api::reset_country_code();
-    crate::cache::clear();
     let Some(p) = path() else { return };
     let r = match code {
         Some(c) => p.parent().map_or(Ok(()), std::fs::create_dir_all).and_then(|()| std::fs::write(&p, c)),
@@ -52,7 +50,10 @@ pub fn set_preferred(code: Option<&str>) {
     };
     if let Err(e) = r {
         log::warn!("saving country preference failed error={e}");
+        return;
     }
+    crate::api::reset_country_code();
+    crate::cache::clear();
 }
 
 /// Index into the combo model: 0 = Automatic, then `COUNTRIES` in order.

@@ -51,7 +51,7 @@ struct SettingsView: View {
             Section {
                 Picker("Country / Region", selection: Binding(
                     get: { country },
-                    set: { country = $0; setPreferredCountry(code: $0) }
+                    set: { setPreferredCountry(code: $0); country = preferredCountry() }
                 )) {
                     Text(automatic.map { "Automatic (\($0.name))" } ?? "Automatic").tag(String?.none)
                     ForEach(countries(), id: \.code) { c in Text("\(c.name) (\(c.code))").tag(Optional(c.code)) }
