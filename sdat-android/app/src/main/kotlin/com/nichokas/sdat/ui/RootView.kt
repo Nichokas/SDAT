@@ -85,7 +85,11 @@ fun RootView(session: Session, playback: Playback, prefs: Preferences, secrets: 
         return GlasmioBackdropHost(
             modifier = Modifier.fillMaxSize(),
             sampledContent = { Box(Modifier.fillMaxSize().background(colors.groupedBackground)) },
-            overlayContent = { LoginView(session) },
+            overlayContent = {
+                LoginView(session)
+                // Here too, so a fresh install is asked before sign-in.
+                if (crashReporting.shouldAsk) CrashReportsPrompt(crashReporting)
+            },
         )
     }
     // A fresh sign-in warms the caches before the shell, and with it Discover's first load, starts.
@@ -187,7 +191,7 @@ private fun Toast(text: String?, modifier: Modifier) {
     }
 }
 
-/** Asked once, the first time the main UI shows; only an answer closes it. */
+/** Asked once, on the first launch; only an answer closes it. */
 @Composable
 private fun CrashReportsPrompt(crashReporting: CrashReporting) {
     GlasmioAlertDialog(
