@@ -35,6 +35,9 @@ class PlaybackService : MediaSessionService() {
         val open = PendingIntent.getActivity(this, 0, Intent(this, MainActivity::class.java), PendingIntent.FLAG_IMMUTABLE)
         val session = MediaSession.Builder(this, playback.sessionPlayer).setSessionActivity(open).setCallback(Callback(playback)).build()
         this.session = session
+        // A restored queue is idle until played; by default an idle player gets no notification, and with it no lock
+        // screen controls, before its first prepare.
+        setShowNotificationForIdlePlayer(SHOW_NOTIFICATION_FOR_IDLE_PLAYER_ALWAYS)
         // iOS syncRemote: the button follows the playing track and its favourite state.
         scope.launch {
             snapshotFlow { playback.track?.id?.let { it to Favs.known(it) } }.collect { now ->

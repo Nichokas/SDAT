@@ -117,11 +117,29 @@ class Playback(context: Context, private val prefs: Preferences, secrets: Secret
 
     /** What the MediaSession drives: the player, with next/previous going through this queue (ExoPlayer holds only
      * the current track and the preloaded one). */
-    val sessionPlayer: Player = object : ForwardingSimpleBasePlayer(player) {
+    inner class SessionPlayer : ForwardingSimpleBasePlayer(player) {
+        /** For changes ExoPlayer never sees: the restored queue landing, a seek or a new track before its stream. */
+        fun refresh() = invalidateState()
+
+        // A track ExoPlayer holds no item for (a restored queue) is shown paused at its saved second, so controllers
+        // can start it; handlePrepare fetches the stream then.
         override fun getState(): State {
             val state = super.getState()
-            if (state.playlist.isEmpty()) return state
-            return state.buildUpon().setAvailableCommands(state.availableCommands.buildUpon().addAll(*queueCommands).build()).build()
+            val commands = state.availableCommands.buildUpon().addAll(*queueCommands)
+            if (!state.timeline.isEmpty) return state.buildUpon().setAvailableCommands(commands.build()).build()
+            val t = track ?: return state
+            // Never handed to ExoPlayer, which throws building a source for an item without a URI.
+            val item = MediaItemData.Builder(t.id)
+                .setMediaItem(MediaItem.Builder().setMediaId(t.id).setMediaMetadata(metadata(t)).build())
+                .setDurationUs(if (duration > 0) (duration * 1_000_000).toLong() else C.TIME_UNSET)
+                .setIsSeekable(true)
+                .build()
+            return state.buildUpon()
+                .setPlaylist(listOf(item))
+                .setCurrentMediaItemIndex(0)
+                .setContentPositionMs((position * 1000).toLong())
+                .setAvailableCommands(commands.add(Player.COMMAND_SEEK_IN_CURRENT_MEDIA_ITEM).build())
+                .build()
         }
 
         override fun handleSeek(mediaItemIndex: Int, positionMs: Long, seekCommand: Int): ListenableFuture<*> {
@@ -148,9 +166,9 @@ class Playback(context: Context, private val prefs: Preferences, secrets: Secret
             return Futures.immediateVoidFuture()
         }
 
-        // The session prepares a stopped player when play is pressed. Stopped means the stream failed or a controller
-        // stopped it; the item left in the player may still be the previous track's stream, so the current track
-        // starts again where it was.
+        // The session prepares a stopped player when play is pressed. Stopped means the stream failed, a controller
+        // stopped it or nothing was loaded yet (a restored queue); the item left in the player may still be the
+        // previous track's stream, so the current track starts again where it was.
         override fun handlePrepare(): ListenableFuture<*> {
             if (!fetching) track?.let { start(it, play = player.playWhenReady, resumeAt = position) }
             return Futures.immediateVoidFuture()
@@ -168,6 +186,8 @@ class Playback(context: Context, private val prefs: Preferences, secrets: Secret
         }
     }
 
+    val sessionPlayer = SessionPlayer()
+
     private val restore = scope.launch {
         val saved = saver.load()
         restoring = false
@@ -181,6 +201,7 @@ class Playback(context: Context, private val prefs: Preferences, secrets: Secret
         position = maxOf(0.0, minOf(state.position, if (duration > 0) duration - 1 else state.position))
         pendingMixes?.let(::resumeInfinite)
         pendingMixes = null
+        sessionPlayer.refresh()
     }
 
     init {
@@ -657,6 +678,7 @@ class Playback(context: Context, private val prefs: Preferences, secrets: Secret
     private val endless get() = infinite != null || awaitingMixes
 
     private fun persist() {
+        sessionPlayer.refresh()
         if (restoring) return
         saver.save(queue, endless, position)
         onChange?.invoke()
