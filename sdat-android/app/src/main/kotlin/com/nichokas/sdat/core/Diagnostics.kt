@@ -111,13 +111,17 @@ fun recordShownError(error: Throwable) {
             diagRecord(
                 if (expected) DiagLevel.WARN else DiagLevel.ERROR,
                 "app",
-                diagSummary(error),
+                // The UI call site, as on iOS: it tells apart, and groups in Sentry, errors whose summary is the same.
+                "${diagSummary(error)} at ${callSite()}",
                 // A backtrace makes Sentry treat the event as a report, so only the unexpected ones carry it.
                 if (expected) null else error.stackTrace.joinToString("\n") { "\tat $it" },
             )
         }
     }
 }
+
+/** The caller of [friendlyMessage]: frames 0 to 2 are [callSite], [recordShownError] and [friendlyMessage] (R8 inlining can shift it by a frame). */
+private fun callSite(): String = Throwable().stackTrace.getOrNull(3)?.let { "${it.className}.${it.methodName}(${it.fileName}:${it.lineNumber})" } ?: "unknown"
 
 /**
  * Kind and status only: error details can hold request URLs or response bodies, and the log goes to logcat and,
