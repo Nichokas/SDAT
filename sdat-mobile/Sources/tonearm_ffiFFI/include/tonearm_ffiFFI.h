@@ -271,6 +271,13 @@ typedef void (*UniffiCallbackInterfaceTokenStoreMethod1)(uint64_t, RustBuffer* _
     );
 
 #endif
+#ifndef UNIFFI_FFIDEF_CALLBACK_INTERFACE_DIAG_SINK_METHOD0
+#define UNIFFI_FFIDEF_CALLBACK_INTERFACE_DIAG_SINK_METHOD0
+typedef void (*UniffiCallbackInterfaceDiagSinkMethod0)(uint64_t, RustBuffer, void* _Nonnull, 
+        RustCallStatus *_Nonnull uniffiCallStatus
+    );
+
+#endif
 #ifndef UNIFFI_FFIDEF_CALLBACK_INTERFACE_HANDOFF_OBSERVER_METHOD0
 #define UNIFFI_FFIDEF_CALLBACK_INTERFACE_HANDOFF_OBSERVER_METHOD0
 typedef void (*UniffiCallbackInterfaceHandoffObserverMethod0)(uint64_t, RustBuffer, void* _Nonnull, 
@@ -324,6 +331,15 @@ typedef struct UniffiVTableCallbackInterfaceTokenStore {
     UniffiCallbackInterfaceTokenStoreMethod0 _Nonnull refreshToken;
     UniffiCallbackInterfaceTokenStoreMethod1 _Nonnull userId;
 } UniffiVTableCallbackInterfaceTokenStore;
+
+#endif
+#ifndef UNIFFI_FFIDEF_V_TABLE_CALLBACK_INTERFACE_DIAG_SINK
+#define UNIFFI_FFIDEF_V_TABLE_CALLBACK_INTERFACE_DIAG_SINK
+typedef struct UniffiVTableCallbackInterfaceDiagSink {
+    UniffiCallbackInterfaceFree _Nonnull uniffiFree;
+    UniffiCallbackInterfaceClone _Nonnull uniffiClone;
+    UniffiCallbackInterfaceDiagSinkMethod0 _Nonnull onEvent;
+} UniffiVTableCallbackInterfaceDiagSink;
 
 #endif
 #ifndef UNIFFI_FFIDEF_V_TABLE_CALLBACK_INTERFACE_HANDOFF_OBSERVER
@@ -446,6 +462,26 @@ RustBuffer uniffi_tonearm_ffi_fn_method_tokenstore_refresh_token(uint64_t ptr, R
 #ifndef UNIFFI_FFIDEF_UNIFFI_TONEARM_FFI_FN_METHOD_TOKENSTORE_USER_ID
 #define UNIFFI_FFIDEF_UNIFFI_TONEARM_FFI_FN_METHOD_TOKENSTORE_USER_ID
 RustBuffer uniffi_tonearm_ffi_fn_method_tokenstore_user_id(uint64_t ptr, RustCallStatus *_Nonnull out_status
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_TONEARM_FFI_FN_CLONE_DIAGSINK
+#define UNIFFI_FFIDEF_UNIFFI_TONEARM_FFI_FN_CLONE_DIAGSINK
+uint64_t uniffi_tonearm_ffi_fn_clone_diagsink(uint64_t handle, RustCallStatus *_Nonnull out_status
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_TONEARM_FFI_FN_FREE_DIAGSINK
+#define UNIFFI_FFIDEF_UNIFFI_TONEARM_FFI_FN_FREE_DIAGSINK
+void uniffi_tonearm_ffi_fn_free_diagsink(uint64_t handle, RustCallStatus *_Nonnull out_status
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_TONEARM_FFI_FN_INIT_CALLBACK_VTABLE_DIAGSINK
+#define UNIFFI_FFIDEF_UNIFFI_TONEARM_FFI_FN_INIT_CALLBACK_VTABLE_DIAGSINK
+void uniffi_tonearm_ffi_fn_init_callback_vtable_diagsink(const UniffiVTableCallbackInterfaceDiagSink* _Nonnull vtable
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_TONEARM_FFI_FN_METHOD_DIAGSINK_ON_EVENT
+#define UNIFFI_FFIDEF_UNIFFI_TONEARM_FFI_FN_METHOD_DIAGSINK_ON_EVENT
+void uniffi_tonearm_ffi_fn_method_diagsink_on_event(uint64_t ptr, RustBuffer event, RustCallStatus *_Nonnull out_status
 );
 #endif
 #ifndef UNIFFI_FFIDEF_UNIFFI_TONEARM_FFI_FN_CLONE_HANDOFF
@@ -847,6 +883,60 @@ void uniffi_tonearm_ffi_fn_func_session_changed(RustCallStatus *_Nonnull out_sta
 #ifndef UNIFFI_FFIDEF_UNIFFI_TONEARM_FFI_FN_FUNC_START_DEVICE_LOGIN
 #define UNIFFI_FFIDEF_UNIFFI_TONEARM_FFI_FN_FUNC_START_DEVICE_LOGIN
 uint64_t uniffi_tonearm_ffi_fn_func_start_device_login(void
+    
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_TONEARM_FFI_FN_FUNC_DIAG_CLEAR
+#define UNIFFI_FFIDEF_UNIFFI_TONEARM_FFI_FN_FUNC_DIAG_CLEAR
+void uniffi_tonearm_ffi_fn_func_diag_clear(RustCallStatus *_Nonnull out_status
+    
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_TONEARM_FFI_FN_FUNC_DIAG_EVENTS
+#define UNIFFI_FFIDEF_UNIFFI_TONEARM_FFI_FN_FUNC_DIAG_EVENTS
+RustBuffer uniffi_tonearm_ffi_fn_func_diag_events(uint64_t since, RustCallStatus *_Nonnull out_status
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_TONEARM_FFI_FN_FUNC_DIAG_INIT
+#define UNIFFI_FFIDEF_UNIFFI_TONEARM_FFI_FN_FUNC_DIAG_INIT
+void uniffi_tonearm_ffi_fn_func_diag_init(RustBuffer dir, RustBuffer sink, RustCallStatus *_Nonnull out_status
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_TONEARM_FFI_FN_FUNC_DIAG_MARK
+#define UNIFFI_FFIDEF_UNIFFI_TONEARM_FFI_FN_FUNC_DIAG_MARK
+void uniffi_tonearm_ffi_fn_func_diag_mark(RustBuffer note, RustCallStatus *_Nonnull out_status
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_TONEARM_FFI_FN_FUNC_DIAG_PREVIOUS_SESSION
+#define UNIFFI_FFIDEF_UNIFFI_TONEARM_FFI_FN_FUNC_DIAG_PREVIOUS_SESSION
+RustBuffer uniffi_tonearm_ffi_fn_func_diag_previous_session(RustCallStatus *_Nonnull out_status
+    
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_TONEARM_FFI_FN_FUNC_DIAG_RECORD
+#define UNIFFI_FFIDEF_UNIFFI_TONEARM_FFI_FN_FUNC_DIAG_RECORD
+void uniffi_tonearm_ffi_fn_func_diag_record(RustBuffer level, RustBuffer target, RustBuffer message, RustBuffer backtrace, RustCallStatus *_Nonnull out_status
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_TONEARM_FFI_FN_FUNC_DIAG_REPORT
+#define UNIFFI_FFIDEF_UNIFFI_TONEARM_FFI_FN_FUNC_DIAG_REPORT
+RustBuffer uniffi_tonearm_ffi_fn_func_diag_report(RustBuffer extra, RustCallStatus *_Nonnull out_status
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_TONEARM_FFI_FN_FUNC_DIAG_SET_VERBOSE
+#define UNIFFI_FFIDEF_UNIFFI_TONEARM_FFI_FN_FUNC_DIAG_SET_VERBOSE
+void uniffi_tonearm_ffi_fn_func_diag_set_verbose(int8_t on, RustCallStatus *_Nonnull out_status
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_TONEARM_FFI_FN_FUNC_DIAG_STATS
+#define UNIFFI_FFIDEF_UNIFFI_TONEARM_FFI_FN_FUNC_DIAG_STATS
+RustBuffer uniffi_tonearm_ffi_fn_func_diag_stats(RustCallStatus *_Nonnull out_status
+    
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_TONEARM_FFI_FN_FUNC_DIAG_VERBOSE
+#define UNIFFI_FFIDEF_UNIFFI_TONEARM_FFI_FN_FUNC_DIAG_VERBOSE
+int8_t uniffi_tonearm_ffi_fn_func_diag_verbose(RustCallStatus *_Nonnull out_status
     
 );
 #endif
@@ -1334,6 +1424,66 @@ uint16_t uniffi_tonearm_ffi_checksum_func_start_device_login(void
     
 );
 #endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_TONEARM_FFI_CHECKSUM_FUNC_DIAG_CLEAR
+#define UNIFFI_FFIDEF_UNIFFI_TONEARM_FFI_CHECKSUM_FUNC_DIAG_CLEAR
+uint16_t uniffi_tonearm_ffi_checksum_func_diag_clear(void
+    
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_TONEARM_FFI_CHECKSUM_FUNC_DIAG_EVENTS
+#define UNIFFI_FFIDEF_UNIFFI_TONEARM_FFI_CHECKSUM_FUNC_DIAG_EVENTS
+uint16_t uniffi_tonearm_ffi_checksum_func_diag_events(void
+    
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_TONEARM_FFI_CHECKSUM_FUNC_DIAG_INIT
+#define UNIFFI_FFIDEF_UNIFFI_TONEARM_FFI_CHECKSUM_FUNC_DIAG_INIT
+uint16_t uniffi_tonearm_ffi_checksum_func_diag_init(void
+    
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_TONEARM_FFI_CHECKSUM_FUNC_DIAG_MARK
+#define UNIFFI_FFIDEF_UNIFFI_TONEARM_FFI_CHECKSUM_FUNC_DIAG_MARK
+uint16_t uniffi_tonearm_ffi_checksum_func_diag_mark(void
+    
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_TONEARM_FFI_CHECKSUM_FUNC_DIAG_PREVIOUS_SESSION
+#define UNIFFI_FFIDEF_UNIFFI_TONEARM_FFI_CHECKSUM_FUNC_DIAG_PREVIOUS_SESSION
+uint16_t uniffi_tonearm_ffi_checksum_func_diag_previous_session(void
+    
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_TONEARM_FFI_CHECKSUM_FUNC_DIAG_RECORD
+#define UNIFFI_FFIDEF_UNIFFI_TONEARM_FFI_CHECKSUM_FUNC_DIAG_RECORD
+uint16_t uniffi_tonearm_ffi_checksum_func_diag_record(void
+    
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_TONEARM_FFI_CHECKSUM_FUNC_DIAG_REPORT
+#define UNIFFI_FFIDEF_UNIFFI_TONEARM_FFI_CHECKSUM_FUNC_DIAG_REPORT
+uint16_t uniffi_tonearm_ffi_checksum_func_diag_report(void
+    
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_TONEARM_FFI_CHECKSUM_FUNC_DIAG_SET_VERBOSE
+#define UNIFFI_FFIDEF_UNIFFI_TONEARM_FFI_CHECKSUM_FUNC_DIAG_SET_VERBOSE
+uint16_t uniffi_tonearm_ffi_checksum_func_diag_set_verbose(void
+    
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_TONEARM_FFI_CHECKSUM_FUNC_DIAG_STATS
+#define UNIFFI_FFIDEF_UNIFFI_TONEARM_FFI_CHECKSUM_FUNC_DIAG_STATS
+uint16_t uniffi_tonearm_ffi_checksum_func_diag_stats(void
+    
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_TONEARM_FFI_CHECKSUM_FUNC_DIAG_VERBOSE
+#define UNIFFI_FFIDEF_UNIFFI_TONEARM_FFI_CHECKSUM_FUNC_DIAG_VERBOSE
+uint16_t uniffi_tonearm_ffi_checksum_func_diag_verbose(void
+    
+);
+#endif
 #ifndef UNIFFI_FFIDEF_UNIFFI_TONEARM_FFI_CHECKSUM_FUNC_HANDOFF_NEW_INSTALLATION_KEY
 #define UNIFFI_FFIDEF_UNIFFI_TONEARM_FFI_CHECKSUM_FUNC_HANDOFF_NEW_INSTALLATION_KEY
 uint16_t uniffi_tonearm_ffi_checksum_func_handoff_new_installation_key(void
@@ -1613,6 +1763,12 @@ uint16_t uniffi_tonearm_ffi_checksum_method_tokenstore_refresh_token(void
 #ifndef UNIFFI_FFIDEF_UNIFFI_TONEARM_FFI_CHECKSUM_METHOD_TOKENSTORE_USER_ID
 #define UNIFFI_FFIDEF_UNIFFI_TONEARM_FFI_CHECKSUM_METHOD_TOKENSTORE_USER_ID
 uint16_t uniffi_tonearm_ffi_checksum_method_tokenstore_user_id(void
+    
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_TONEARM_FFI_CHECKSUM_METHOD_DIAGSINK_ON_EVENT
+#define UNIFFI_FFIDEF_UNIFFI_TONEARM_FFI_CHECKSUM_METHOD_DIAGSINK_ON_EVENT
+uint16_t uniffi_tonearm_ffi_checksum_method_diagsink_on_event(void
     
 );
 #endif

@@ -17,6 +17,7 @@ use serde::de::DeserializeOwned;
 use serde::Deserialize;
 
 use super::{legacy, openapi};
+use crate::diag::net::send;
 
 pub const CLIENT_VERSION: &str = "2025.12.13";
 pub const UNAUTHENTICATED_CLIENT_ID: &str = "txNoH4kkV41MfH25";
@@ -84,7 +85,7 @@ fn token_request(form: &[(&str, &str)]) -> reqwest::Result<Response> {
 }
 
 fn token_request_with(client: &Client, form: &[(&str, &str)]) -> reqwest::Result<Response> {
-    client.post(format!("{}/v1/oauth2/token", crate::config::get().auth_base_url())).form(form).send()
+    send(client.post(format!("{}/v1/oauth2/token", crate::config::get().auth_base_url())).form(form))
 }
 
 fn fetch_access_token(cache: &Mutex<CachedToken>, form: &[(&str, &str)]) -> Result<String> {
@@ -132,10 +133,11 @@ pub fn fetch_country_code() -> Result<String> {
         #[serde(rename = "countryCode")]
         country_code: String,
     }
-    let resp = http()
-        .get(format!("{}/v1/country/context?countryCode=WW&locale=en_US&deviceType=BROWSER", crate::config::get().api_base_url()))
-        .header("x-tidal-token", client_id())
-        .send()?;
+    let resp = send(
+        http()
+            .get(format!("{}/v1/country/context?countryCode=WW&locale=en_US&deviceType=BROWSER", crate::config::get().api_base_url()))
+            .header("x-tidal-token", client_id()),
+    )?;
     if resp.status() != StatusCode::OK {
         bail_http!(resp.status().as_u16(), "unexpected status code: {}", resp.status().as_u16());
     }
@@ -150,11 +152,12 @@ fn session_country_code() -> Result<String> {
         country_code: String,
     }
     let Some(token) = user_access_token()? else { return Err(CoreError::NotSignedIn) };
-    let resp = http()
-        .get(format!("{}/v1/sessions", crate::config::get().api_base_url()))
-        .header("x-tidal-token", client_id())
-        .header("Authorization", format!("Bearer {token}"))
-        .send()?;
+    let resp = send(
+        http()
+            .get(format!("{}/v1/sessions", crate::config::get().api_base_url()))
+            .header("x-tidal-token", client_id())
+            .header("Authorization", format!("Bearer {token}")),
+    )?;
     if resp.status() != StatusCode::OK {
         bail_http!(resp.status().as_u16(), "unexpected status code: {}", resp.status().as_u16());
     }
@@ -263,7 +266,7 @@ fn request(method: Method, path: &str, query: &[(&str, String)]) -> Result<Reque
 }
 
 fn get_json<T: DeserializeOwned>(path: &str, query: &[(&str, String)]) -> Result<T> {
-    let resp = request(Method::GET, path, query)?.send()?;
+    let resp = send(request(Method::GET, path, query)?)?;
     if resp.status() != StatusCode::OK {
         bail_http!(resp.status().as_u16(), "unexpected status code: {}", resp.status().as_u16());
     }
@@ -323,7 +326,7 @@ fn jsonapi(rb: RequestBuilder, label: &str, path: &str, body: Option<&serde_json
     if let Some(b) = body {
         rb = rb.header("Content-Type", "application/vnd.api+json").body(b.to_string());
     }
-    let resp = rb.send()?;
+    let resp = send(rb)?;
     let status = resp.status();
     let bytes = resp.bytes()?;
     if !status.is_success() {
@@ -489,7 +492,7 @@ pub fn favourite_ids(user_id: &str, if_none_match: &str) -> Result<Option<(legac
     if !if_none_match.is_empty() {
         rb = rb.header("If-None-Match", if_none_match);
     }
-    let resp = rb.send()?;
+    let resp = send(rb)?;
     if resp.status() == StatusCode::NOT_MODIFIED {
         return Ok(None);
     }
@@ -516,9 +519,10 @@ pub fn favourite_add(user_id: &str, kind: &str, id: &str) -> Result<()> {
         "playlists" => "uuids",
         _ => "artistIds",
     };
-    let resp = request(Method::POST, &format!("/v1/users/{user_id}/favorites/{kind}"), &[])?
-        .form(&[(field, id), ("onArtifactNotFound", "FAIL")])
-        .send()?;
+    let resp = send(
+        request(Method::POST, &format!("/v1/users/{user_id}/favorites/{kind}"), &[])?
+            .form(&[(field, id), ("onArtifactNotFound", "FAIL")]),
+    )?;
     if resp.status() != StatusCode::OK {
         let t = resp.text().unwrap_or_default();
         bail!("error while adding {} to favourites: {t}", kind.trim_end_matches('s'));
@@ -528,7 +532,7 @@ pub fn favourite_add(user_id: &str, kind: &str, id: &str) -> Result<()> {
 
 pub fn favourite_remove(user_id: &str, kind: &str, id: &str) -> Result<()> {
     invalidate_favourites(kind);
-    let resp = request(Method::DELETE, &format!("/v1/users/{user_id}/favorites/{kind}/{id}"), &[])?.send()?;
+    let resp = send(request(Method::DELETE, &format!("/v1/users/{user_id}/favorites/{kind}/{id}"), &[])?)?;
     if resp.status() != StatusCode::OK {
         bail_http!(resp.status().as_u16(), "error while removing from favourites: {}", resp.status());
     }
@@ -566,7 +570,7 @@ pub fn own_playlists() -> Result<Vec<OwnPlaylist>> {
         if let Some(c) = cursor.take() {
             q.push(("page[cursor]", c));
         }
-        let resp = request(Method::GET, &openapi("/v2/playlists"), &q)?.send()?;
+        let resp = send(request(Method::GET, &openapi("/v2/playlists"), &q)?)?;
         if resp.status() != StatusCode::OK {
             bail_http!(resp.status().as_u16(), "unexpected status code: {}", resp.status().as_u16());
         }
@@ -587,10 +591,11 @@ pub fn add_items_body(track_ids: &[&str]) -> serde_json::Value {
 
 /// Appends a track to one of the user's playlists.
 pub fn playlist_add_track(playlist_id: &str, track_id: &str) -> Result<()> {
-    let resp = request(Method::POST, &openapi(&format!("/v2/playlists/{playlist_id}/relationships/items")), &[])?
-        .header("Content-Type", "application/vnd.api+json")
-        .body(add_items_body(&[track_id]).to_string())
-        .send()?;
+    let resp = send(
+        request(Method::POST, &openapi(&format!("/v2/playlists/{playlist_id}/relationships/items")), &[])?
+            .header("Content-Type", "application/vnd.api+json")
+            .body(add_items_body(&[track_id]).to_string()),
+    )?;
     crate::cache::invalidate(&crate::cache::playlist_key(playlist_id));
     if !resp.status().is_success() {
         bail_http!(resp.status().as_u16(), "error while adding track to playlist: {}", resp.status().as_u16());
@@ -620,10 +625,11 @@ pub fn playlist_remove_track(playlist_id: &str, track_id: &str) -> Result<()> {
         }
     };
     let body = serde_json::json!({ "data": [{ "type": "tracks", "id": track_id, "meta": { "itemId": item_id } }] });
-    let resp = request(Method::DELETE, &openapi(&format!("/v2/playlists/{playlist_id}/relationships/items")), &[])?
-        .header("Content-Type", "application/vnd.api+json")
-        .body(body.to_string())
-        .send()?;
+    let resp = send(
+        request(Method::DELETE, &openapi(&format!("/v2/playlists/{playlist_id}/relationships/items")), &[])?
+            .header("Content-Type", "application/vnd.api+json")
+            .body(body.to_string()),
+    )?;
     crate::cache::invalidate(&crate::cache::playlist_key(playlist_id));
     if !resp.status().is_success() {
         bail_http!(resp.status().as_u16(), "error while removing track from playlist: {}", resp.status().as_u16());
@@ -710,7 +716,7 @@ pub fn feed_activities(user_id: &str) -> Result<Vec<legacy::Activity>> {
 }
 
 pub fn feed_seen(user_id: &str) -> Result<()> {
-    let resp = request(Method::PUT, "/v2/feed/activities/seen", &[("userId", user_id.into())])?.send()?;
+    let resp = send(request(Method::PUT, "/v2/feed/activities/seen", &[("userId", user_id.into())])?)?;
     if resp.status() != StatusCode::OK {
         bail_http!(resp.status().as_u16(), "unexpected status code: {}", resp.status().as_u16());
     }
@@ -718,7 +724,7 @@ pub fn feed_seen(user_id: &str) -> Result<()> {
 }
 
 pub fn favourite_mix_add(id: &str) -> Result<()> {
-    let resp = request(Method::PUT, "/v2/favorites/mixes/add", &[])?.form(&[("mixIds", id), ("onArtifactNotFound", "FAIL")]).send()?;
+    let resp = send(request(Method::PUT, "/v2/favorites/mixes/add", &[])?.form(&[("mixIds", id), ("onArtifactNotFound", "FAIL")]))?;
     if resp.status() != StatusCode::OK {
         bail!("error while adding mix to favourites: {}", resp.text().unwrap_or_default());
     }
@@ -726,7 +732,7 @@ pub fn favourite_mix_add(id: &str) -> Result<()> {
 }
 
 pub fn favourite_mix_remove(id: &str) -> Result<()> {
-    let resp = request(Method::PUT, "/v2/favorites/mixes/remove", &[("mixIds", id.into())])?.send()?;
+    let resp = send(request(Method::PUT, "/v2/favorites/mixes/remove", &[("mixIds", id.into())])?)?;
     if resp.status() != StatusCode::OK {
         bail_http!(resp.status().as_u16(), "error while removing mix from favourites: {}", resp.status());
     }
@@ -742,7 +748,7 @@ pub fn favourite_mix_ids(cursor: &str, if_none_match: &str) -> Result<(legacy::F
     if !if_none_match.is_empty() {
         rb = rb.header("If-None-Match", if_none_match);
     }
-    let resp = rb.send()?;
+    let resp = send(rb)?;
     if resp.status() != StatusCode::OK {
         bail!("error while retrieving favourite mix IDs: {}", resp.text().unwrap_or_default());
     }
@@ -796,10 +802,11 @@ struct TokenError {
 const SCOPE: &str = "r_usr w_usr w_sub";
 
 pub fn request_device_linking_challenge() -> Result<DeviceLinkingChallenge> {
-    let resp = http()
-        .post(format!("{}/v1/oauth2/device_authorization", crate::config::get().auth_base_url()))
-        .form(&[("client_id", client_id()), ("scope", SCOPE)])
-        .send()?;
+    let resp = send(
+        http()
+            .post(format!("{}/v1/oauth2/device_authorization", crate::config::get().auth_base_url()))
+            .form(&[("client_id", client_id()), ("scope", SCOPE)]),
+    )?;
     if resp.status() != StatusCode::OK {
         bail_http!(resp.status().as_u16(), "failed to get token: {}", resp.status());
     }
@@ -882,11 +889,12 @@ mod net_tests {
     #[test]
     #[ignore = "network"]
     fn country_code_live() {
-        let r = super::http()
-            .get(format!("{}/v1/country/context?countryCode=WW&locale=en_US&deviceType=BROWSER", crate::config::get().api_base_url()))
-            .header("x-tidal-token", super::client_id())
-            .send()
-            .unwrap();
+        let r = crate::diag::net::send(
+            super::http()
+                .get(format!("{}/v1/country/context?countryCode=WW&locale=en_US&deviceType=BROWSER", crate::config::get().api_base_url()))
+                .header("x-tidal-token", super::client_id()),
+        )
+        .unwrap();
         eprintln!("status {} url {}", r.status(), r.url());
         eprintln!("{}", r.text().unwrap());
     }

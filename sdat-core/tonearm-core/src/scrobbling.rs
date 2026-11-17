@@ -8,6 +8,7 @@ use std::collections::BTreeMap;
 use std::sync::OnceLock;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
+use crate::diag::net::send;
 use crate::error::{CoreError, CoreResult as Result};
 use md5::{Digest, Md5};
 use serde::Serialize;
@@ -147,12 +148,13 @@ pub fn listenbrainz_send(url: &str, token: &str, body: &str) {
         if let Some(t) = *next {
             std::thread::sleep(t.saturating_duration_since(std::time::Instant::now()));
         }
-        let resp = lb_http()
-            .post(format!("{url}/1/submit-listens"))
-            .header("Authorization", format!("Token {token}"))
-            .header("Content-Type", "application/json")
-            .body(body.to_owned())
-            .send();
+        let resp = send(
+            lb_http()
+                .post(format!("{url}/1/submit-listens"))
+                .header("Authorization", format!("Token {token}"))
+                .header("Content-Type", "application/json")
+                .body(body.to_owned()),
+        );
         let Ok(resp) = resp else {
             r = Err(resp.err());
             break;
@@ -220,9 +222,9 @@ pub fn lastfm_call(method: &str, extra: &[(&str, String)], post: bool, sign: boo
         p.insert("api_sig".into(), sig);
     }
     p.insert("format".into(), "json".into());
-    let resp = if post { http().post(LASTFM_API).form(&p).send()? } else { {
+    let resp = if post { send(http().post(LASTFM_API).form(&p))? } else { {
         let qs: Vec<String> = p.iter().map(|(k, v)| format!("{k}={}", urlencoding::encode(v))).collect();
-        http().get(format!("{LASTFM_API}?{}", qs.join("&"))).send()?
+        send(http().get(format!("{LASTFM_API}?{}", qs.join("&"))))?
     } };
     let v: serde_json::Value = resp.json()?;
     if let Some(code) = v.get("error").and_then(serde_json::Value::as_i64) {

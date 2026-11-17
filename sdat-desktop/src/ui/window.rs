@@ -729,7 +729,7 @@ fn about_dialog() -> adw::AboutDialog {
         ("Date and Time (chrono)", "© Kang Seonghoon and contributors https://github.com/chronotope/chrono", mit),
         ("Error Handling (anyhow)", "© David Tolnay https://github.com/dtolnay/anyhow", mit),
         ("MD5 (RustCrypto md-5)", "© RustCrypto Developers https://github.com/RustCrypto/hashes", mit),
-        ("Logging (log, env_logger)", "© The Rust Project Developers https://github.com/rust-cli/env_logger", mit),
+        ("Logging (log)", "© The Rust Project Developers https://github.com/rust-lang/log", mit),
     ] {
         a.add_legal_section(name, Some(copy), lic, None);
     }

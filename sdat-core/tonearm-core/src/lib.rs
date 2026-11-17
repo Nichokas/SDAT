@@ -12,6 +12,7 @@ pub mod auth;
 pub mod cache;
 pub mod config;
 pub mod country;
+pub mod diag;
 pub mod discover;
 pub mod explore;
 mod http;
