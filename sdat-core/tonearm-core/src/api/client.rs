@@ -912,6 +912,7 @@ mod tests {
             let _ = sock.read(&mut [0u8; 1024]);
             sock.write_all(b"HTTP/1.1 401 Unauthorized\r\nContent-Length: 0\r\nConnection: close\r\n\r\n").expect("write");
         });
+        let _sending = crate::diag::net::SENDING.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
         let far = std::time::Duration::from_secs(3600);
         *super::USER_TOKEN.lock().expect("lock") = super::CachedToken {
             token: "stale".into(),

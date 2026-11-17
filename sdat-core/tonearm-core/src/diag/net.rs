@@ -119,6 +119,10 @@ pub fn send(rb: RequestBuilder) -> reqwest::Result<Response> {
     outcome
 }
 
+/// The counters are process-wide: tests that send requests hold this, so each sees only its own.
+#[cfg(test)]
+pub(crate) static SENDING: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
 pub(super) fn snapshot() -> Vec<NetStat> {
     NetCategory::ALL
         .into_iter()
@@ -174,9 +178,9 @@ mod tests {
         snapshot().into_iter().find(|s| s.category == NetCategory::Other).expect("Other row")
     }
 
-    // The counters are process-wide, so this is the only test that sends requests.
     #[test]
     fn sending_counts_requests_failures_bytes_and_status() {
+        let _sending = SENDING.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
         let before = other();
         let client = reqwest::blocking::Client::new();
 
