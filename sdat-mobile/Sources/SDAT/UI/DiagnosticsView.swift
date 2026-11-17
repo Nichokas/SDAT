@@ -156,7 +156,7 @@ struct DiagnosticsView: View {
                 set: { diag.setConsent($0 ? .allowed : .denied) }
             ))
         } header: { Text("Crash reports") } footer: {
-            Text("If SDAT crashes or hits an error, a report goes to the developer so it can be fixed. It has the error, a stack trace, the app version, and the device model and iOS version, but no account details.")
+            Text("If SDAT crashes or hits an error, a report goes to the developer so it can be fixed. It has the error, a stack trace, recent log entries, the app version, and the device model and iOS version, but no account details.")
         }
     }
 
