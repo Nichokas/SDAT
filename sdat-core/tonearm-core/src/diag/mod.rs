@@ -19,7 +19,7 @@ mod redact;
 mod report;
 mod store;
 
-pub use net::{NetCategory, NetStat};
+pub use net::{NetCategory, NetStat, send};
 
 use store::Store;
 
@@ -198,6 +198,8 @@ pub fn init(dir: Option<PathBuf>, sink: Option<Box<dyn Sink>>) {
 /// log file nor holds the buffer's memory.
 const MAX_TEXT_BYTES: usize = 32 * 1024;
 const MAX_TARGET_BYTES: usize = 256;
+/// How long the panic hook waits for the sink to take a panic event.
+const SINK_WAIT: std::time::Duration = std::time::Duration::from_secs(2);
 
 /// `text` redacted and cut to `max` bytes, marked when anything was cut. Only the first `max` bytes are
 /// redacted, so a huge message costs one bounded pass: a secret cut there keeps its key and is redacted to
@@ -222,7 +224,8 @@ enum Via {
     /// [`record`] and [`mark`].
     App,
     /// The panic hook. The sink gets the event on its own thread, because a sink that panicked inside the
-    /// hook would abort the process, also for a panic that was about to be caught.
+    /// hook would abort the process, also for a panic that was about to be caught. The hook waits for it
+    /// (bounded), so the event reaches the sink before a panic in a `GLib` callback aborts the process.
     PanicHook,
 }
 
@@ -247,7 +250,15 @@ fn ingest(level: Level, target: &str, message: &str, backtrace: Option<String>, 
         global.notify(&event);
     } else if !IN_SINK.get() {
         // A panic in the sink itself is stored but not sent back to it, or a sink that always panics would loop.
-        let _ = std::thread::Builder::new().name("diag-sink".into()).spawn(move || global.notify(&event));
+        let (done, wait) = std::sync::mpsc::channel();
+        let spawned = std::thread::Builder::new().name("diag-sink".into()).spawn(move || {
+            global.notify(&event);
+            let _ = done.send(());
+        });
+        if spawned.is_ok() {
+            // Bounded: a sink waiting for a lock the panicking thread holds must not hang the app.
+            let _ = wait.recv_timeout(SINK_WAIT);
+        }
     }
 }
 
@@ -349,11 +360,7 @@ mod tests {
         assert_eq!(events[0].level, Level::Error);
         assert_eq!(events[0].target, "panic");
         assert!(events[0].backtrace.as_deref().is_some_and(|b| !b.is_empty()));
-        let deadline = Instant::now() + std::time::Duration::from_secs(5);
-        while sent("diag-test-panic-1").is_empty() && Instant::now() < deadline {
-            std::thread::yield_now();
-        }
-        assert_eq!(sent("diag-test-panic-1").len(), 1);
+        assert_eq!(sent("diag-test-panic-1").len(), 1, "delivered before the panic unwinds");
     }
 
     #[test]
@@ -388,10 +395,6 @@ mod tests {
         assert_eq!(sent("diag-test-after-sink-panic").len(), 1);
         // The sink panics again on this panic's event, on its own thread: the test process must survive it.
         assert!(catch_unwind(|| panic!("diag-test-sink-panics in the hook")).is_err());
-        let deadline = Instant::now() + std::time::Duration::from_secs(5);
-        while stored("the sink failed").len() < 2 && Instant::now() < deadline {
-            std::thread::yield_now();
-        }
         assert_eq!(stored("the sink failed").len(), 2);
     }
 

@@ -98,7 +98,8 @@ fn record(c: &Counter, elapsed_ms: u64, outcome: &reqwest::Result<Response>) {
 }
 
 /// `RequestBuilder::send` that also counts the request under its host's category for the diagnostics report.
-pub(crate) fn send(rb: RequestBuilder) -> reqwest::Result<Response> {
+/// Every HTTP request of the core and the apps goes through here.
+pub fn send(rb: RequestBuilder) -> reqwest::Result<Response> {
     let (client, request) = rb.build_split();
     let request = match request {
         Ok(request) => request,

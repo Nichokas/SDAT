@@ -44,7 +44,8 @@ fn insert(url: &str, t: &gdk::Texture) {
 }
 
 fn fetch_bytes(url: &str) -> anyhow::Result<Vec<u8>> {
-    let resp = reqwest::blocking::get(url)?;
+    static CLIENT: std::sync::LazyLock<reqwest::blocking::Client> = std::sync::LazyLock::new(reqwest::blocking::Client::new);
+    let resp = tonearm_core::diag::send(CLIENT.get(url))?;
     if !resp.status().is_success() {
         anyhow::bail!("failed to fetch image: {}", resp.status());
     }
