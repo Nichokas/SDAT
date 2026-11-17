@@ -18,6 +18,15 @@
       "category": "entertainment",
       "versions": [
         {
+          "version": "2.3.0",
+          "buildVersion": "15",
+          "date": "2026-11-17T11:49:50Z",
+          "localizedDescription": "## What's Changed\n* Android: keep a played Play Next track in the queue so Previous and Next find it again by @Nichokas in https://github.com/Nichokas/SDAT/pull/162\n* iOS: remove the Listen Together scan button from My Collection by @Nichokas in https://github.com/Nichokas/SDAT/pull/163\n* Android: Diagnostics screen and Sentry crash reports by @Nichokas in https://github.com/Nichokas/SDAT/pull/166\n* iOS: Diagnostics screen and Sentry crash reports by @Nichokas in https://github.com/Nichokas/SDAT/pull/165\n* Desktop: Diagnostics page and Sentry crash reports by @Nichokas in https://github.com/Nichokas/SDAT/pull/167\n\n\n**Full Changelog**: https://github.com/Nichokas/SDAT/compare/v2.2.0...v2.3.0",
+          "downloadURL": "https://github.com/Nichokas/SDAT/releases/download/v2.3.0/SDAT-v2.3.0-unsigned.ipa",
+          "size": 77216447,
+          "minOSVersion": "26.0"
+        },
+        {
           "version": "2.2.0",
           "buildVersion": "14",
           "date": "2026-11-17T07:06:01Z",
@@ -117,11 +126,11 @@
           "minOSVersion": "26.0"
         }
       ],
-      "version": "2.2.0",
-      "versionDate": "2026-11-17T07:06:01Z",
-      "versionDescription": "## What's Changed\n* Benchmarks: Android glass benchmark APK for low-end phones by @Nichokas in https://github.com/Nichokas/SDAT/pull/153\n* iOS: stream only the best HLS variant so a queued track does not replay from the start by @Nichokas in https://github.com/Nichokas/SDAT/pull/160\n* Core: diagnostics log with panics, network and process stats by @Nichokas in https://github.com/Nichokas/SDAT/pull/159\n\n\n**Full Changelog**: https://github.com/Nichokas/SDAT/compare/v2.1.0...v2.2.0",
-      "downloadURL": "https://github.com/Nichokas/SDAT/releases/download/v2.2.0/SDAT-v2.2.0-unsigned.ipa",
-      "size": 28932953
+      "version": "2.3.0",
+      "versionDate": "2026-11-17T11:49:50Z",
+      "versionDescription": "## What's Changed\n* Android: keep a played Play Next track in the queue so Previous and Next find it again by @Nichokas in https://github.com/Nichokas/SDAT/pull/162\n* iOS: remove the Listen Together scan button from My Collection by @Nichokas in https://github.com/Nichokas/SDAT/pull/163\n* Android: Diagnostics screen and Sentry crash reports by @Nichokas in https://github.com/Nichokas/SDAT/pull/166\n* iOS: Diagnostics screen and Sentry crash reports by @Nichokas in https://github.com/Nichokas/SDAT/pull/165\n* Desktop: Diagnostics page and Sentry crash reports by @Nichokas in https://github.com/Nichokas/SDAT/pull/167\n\n\n**Full Changelog**: https://github.com/Nichokas/SDAT/compare/v2.2.0...v2.3.0",
+      "downloadURL": "https://github.com/Nichokas/SDAT/releases/download/v2.3.0/SDAT-v2.3.0-unsigned.ipa",
+      "size": 77216447
     }
   ],
   "news": []
