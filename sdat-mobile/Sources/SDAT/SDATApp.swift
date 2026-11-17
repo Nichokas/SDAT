@@ -40,6 +40,13 @@ struct SDATApp: App {
             .sheet(isPresented: Binding(get: { showLive },
                                         set: { if !$0 { live.showSheet = false } })) { LiveSheet() }
             .onOpenURL { url in if session.signedIn { live.open(url.absoluteString) } }
+            // On the root, so a fresh install is asked before sign-in too.
+            .alert("Send crash reports?", isPresented: Binding(get: { diagnostics.needsPrompt }, set: { _ in })) {
+                Button("Send reports") { diagnostics.setConsent(.allowed) }
+                Button("Don't send") { diagnostics.setConsent(.denied) }
+            } message: {
+                Text("If SDAT crashes or hits an error, send a report to the developer so it can be fixed. Reports include the error, a stack trace and the app version, but no account details. You can change this in Settings > Diagnostics.")
+            }
             .preferredColorScheme(.dark)
             .tint(.blue)
         }

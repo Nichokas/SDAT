@@ -13,7 +13,6 @@ let chromeLog = Logger(subsystem: "com.nichokas.SDAT", category: "chrome")
 struct RootView: View {
     @Environment(Player.self) private var player
     @Environment(Chrome.self) private var chrome
-    @State private var diag = Diagnostics.shared
 
     var body: some View {
         @Bindable var chrome = chrome
@@ -45,12 +44,6 @@ struct RootView: View {
             Button("OK", role: .cancel) {}
         } message: {
             Text(player.error ?? "")
-        }
-        .alert("Send crash reports?", isPresented: Binding(get: { diag.needsPrompt }, set: { _ in })) {
-            Button("Send reports") { diag.setConsent(.allowed) }
-            Button("Don't send") { diag.setConsent(.denied) }
-        } message: {
-            Text("If SDAT crashes or hits an error, send a report to the developer so it can be fixed. Reports include the error, a stack trace and the app version, but no account details. You can change this in Settings > Diagnostics.")
         }
         .onAppear { chromeLog.notice("root appeared \(Date().timeIntervalSince(launchStart), format: .fixed(precision: 3)) s after first use") }
         .task { await OwnPlaylists.shared.load() }
