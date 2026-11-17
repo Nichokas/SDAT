@@ -91,7 +91,7 @@ fn key_value(s: &[u8], after_key: usize, is_code: bool) -> Option<(usize, usize)
         i = skip(s, i, |b| b == b'\\');
         i += usize::from(matches!(s.get(i), Some(b'"' | b'\'')));
     }
-    i = skip(s, i, |b| b.is_ascii_whitespace());
+    i = if quoted_key { skip_json_space(s, i) } else { skip(s, i, |b| b.is_ascii_whitespace()) };
     let sep = *s.get(i)?;
     if sep != b'=' && sep != b':' {
         return None;
@@ -181,7 +181,11 @@ pub(super) fn redact(text: &str) -> Cow<'_, str> {
     let mut out = String::new();
     let (mut copied, mut i) = (0, 0);
     while i < s.len() {
-        if let Some((start, end)) = secret_at(s, l, i) {
+        // Keys start with an ASCII letter and every range ends at an ASCII delimiter or the end of the text,
+        // so `start` and `end` are always char boundaries of `text`.
+        if s[i].is_ascii()
+            && let Some((start, end)) = secret_at(s, l, i)
+        {
             out.push_str(&text[copied..start]);
             out.push_str(REDACTED);
             copied = end;
@@ -227,6 +231,7 @@ mod tests {
         assert_eq!(redact("password=hunter2"), "password=<redacted>");
         assert_eq!(redact("password=\nstatus: ok"), "password=\nstatus: ok");
         assert_eq!(redact("password=\n\"next message\""), "password=\n\"next message\"");
+        assert_eq!(redact(r#"body: "{\"password\"\n: \"hunter2\"}""#), r#"body: "{\"password\"\n: \"<redacted>\"}""#);
         assert_eq!(
             redact(r#"body: "{\"access_token\":\n  \"secret\"}""#),
             r#"body: "{\"access_token\":\n  \"<redacted>\"}""#

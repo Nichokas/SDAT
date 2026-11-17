@@ -104,10 +104,9 @@ pub fn send(rb: RequestBuilder) -> reqwest::Result<Response> {
     let request = match request {
         Ok(request) => request,
         Err(e) => {
-            let other = &COUNTERS[NetCategory::Other.index()];
-            other.requests.fetch_add(1, Relaxed);
-            other.failures.fetch_add(1, Relaxed);
-            return Err(e);
+            let outcome = Err(e);
+            record(&COUNTERS[NetCategory::Other.index()], 0, &outcome);
+            return outcome;
         }
     };
     let counter = &COUNTERS[classify(request.url().host_str()).index()];
