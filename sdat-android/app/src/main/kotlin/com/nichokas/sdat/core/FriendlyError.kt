@@ -1,10 +1,32 @@
 package com.nichokas.sdat.core
 
 import java.io.IOException
+import uniffi.tonearm_ffi.DiagLevel
 import uniffi.tonearm_ffi.FfiException
+import uniffi.tonearm_ffi.diagRecord
 
-/** Human-readable text for any error shown in the UI (never the raw FfiException dump). */
-fun friendlyMessage(error: Throwable): String = when (error) {
+/**
+ * Human-readable text for any error shown in the UI (never the raw FfiException dump). Also logs the error to the
+ * diagnostics: a warning for the usual failures (offline, TIDAL refusing), an error, which Sentry gets, for the rest.
+ */
+fun friendlyMessage(error: Throwable): String {
+    if (error !is FfiException.Cancelled) {
+        val expected = error is FfiException.NotSignedIn || error is FfiException.Network || error is FfiException.Http ||
+            error is FfiException.LastFm || error is DownloadFailure || error is IOException
+        runCatching {
+            diagRecord(
+                if (expected) DiagLevel.WARN else DiagLevel.ERROR,
+                "app",
+                "${error.javaClass.simpleName}: ${error.message}",
+                // A backtrace makes Sentry treat the event as a report, so only the unexpected ones carry it.
+                if (expected) null else error.stackTraceToString(),
+            )
+        }
+    }
+    return message(error)
+}
+
+private fun message(error: Throwable): String = when (error) {
     is FfiException.NotSignedIn -> "You're signed out. Sign in to TIDAL again."
     is FfiException.Network -> "Can't reach TIDAL. Check your connection."
     is FfiException.Http -> when (val status = error.status.toInt()) {
