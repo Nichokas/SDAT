@@ -29,6 +29,7 @@ import androidx.navigation3.runtime.NavEntry
 import com.nichokas.sdat.core.AppTab
 import com.nichokas.sdat.core.Boot
 import com.nichokas.sdat.core.Chrome
+import com.nichokas.sdat.core.CrashReporting
 import com.nichokas.sdat.core.Destination
 import com.nichokas.sdat.core.Discover
 import com.nichokas.sdat.core.Downloads
@@ -66,7 +67,7 @@ internal val tabItems = AppTab.entries.map { GlasmioTabItem(it, it.label, it.sym
 
 /** Login until signed in, then one back stack per tab under the bottom chrome and the toast. */
 @Composable
-fun RootView(session: Session, playback: Playback, prefs: Preferences, secrets: Secrets) {
+fun RootView(session: Session, playback: Playback, prefs: Preferences, secrets: Secrets, crashReporting: CrashReporting) {
     LaunchedEffect(session.signedIn) {
         if (!session.signedIn) {
             playback.stop()
@@ -96,7 +97,7 @@ fun RootView(session: Session, playback: Playback, prefs: Preferences, secrets: 
                 TabStack(nav.tab, nav.stack) { route ->
                     when (route) {
                         null -> TabRoot(nav.tab, session, playback)
-                        Route.Settings -> SettingsView(session, prefs, secrets, playback::setStreamingQuality, playback::setPreloadNext, onBack = Chrome::pop)
+                        Route.Settings -> SettingsView(session, prefs, secrets, crashReporting, playback::setStreamingQuality, playback::setPreloadNext, onBack = Chrome::pop)
                         is Route.Explore -> ExploreView(route.path, route.title)
                         is Route.Album -> AlbumView(route.id)
                         is Route.Playlist -> PlaylistView(route.id)

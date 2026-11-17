@@ -52,7 +52,7 @@ class MainActivity : ComponentActivity() {
             GlasmioTheme(typography = glasmioTypography(inter)) {
                 GlasmioIconProvider {
                     val app = application as SdatApp
-                    CompositionLocalProvider(LocalTrackPlayer provides app.playback) { RootView(app.session, app.playback, app.prefs, app.secrets) }
+                    CompositionLocalProvider(LocalTrackPlayer provides app.playback) { RootView(app.session, app.playback, app.prefs, app.secrets, app.crashReporting) }
                 }
             }
         }

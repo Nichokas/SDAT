@@ -33,6 +33,7 @@ import androidx.core.net.toUri
 import androidx.lifecycle.compose.LifecycleResumeEffect
 import com.nichokas.sdat.R
 import com.nichokas.sdat.core.Chrome
+import com.nichokas.sdat.core.CrashReporting
 import com.nichokas.sdat.core.Downloads
 import com.nichokas.sdat.core.Fmt
 import com.nichokas.sdat.core.Preferences
@@ -66,7 +67,7 @@ import uniffi.tonearm_ffi.lastfmUsername
 
 /** iOS SettingsView: same sections, rows and confirmations. */
 @Composable
-fun SettingsView(session: Session, prefs: Preferences, secrets: Secrets, setQuality: (Quality) -> Unit, setPreload: (Boolean) -> Unit, onBack: () -> Unit) {
+fun SettingsView(session: Session, prefs: Preferences, secrets: Secrets, crashReporting: CrashReporting, setQuality: (Quality) -> Unit, setPreload: (Boolean) -> Unit, onBack: () -> Unit) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     var confirmLogout by remember { mutableStateOf(false) }
@@ -215,7 +216,7 @@ fun SettingsView(session: Session, prefs: Preferences, secrets: Secrets, setQual
 
     if (confirmErase) {
         Confirm("Erase all app data?", "This cannot be undone.", "Erase everything", onDismiss = { confirmErase = false }) {
-            eraseAll(context, session, prefs, secrets)
+            eraseAll(context, session, prefs, secrets, crashReporting)
         }
     }
     if (confirmLogout) {

@@ -17,6 +17,9 @@ on:
         required: true
       ANDROID_KEY_PASSWORD:
         required: true
+      # Optional: without it the APK never starts Sentry.
+      SENTRY_DSN_ANDROID:
+        required: false
 
 permissions:
   contents: write
@@ -81,6 +84,7 @@ jobs:
           SDAT_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
           SDAT_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
           SDAT_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+          SENTRY_DSN: ${{ secrets.SENTRY_DSN_ANDROID }}
         run: ./gradlew assembleRelease
       - name: Remove the keystore
         if: always()

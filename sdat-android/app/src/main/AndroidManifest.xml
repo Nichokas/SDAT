@@ -26,6 +26,8 @@
         android:label="SDAT"
         android:supportsRtl="true"
         android:theme="@android:style/Theme.Material.NoActionBar">
+        <!-- Sentry starts from code, and only after the user agrees to send crash reports. -->
+        <meta-data android:name="io.sentry.auto-init" android:value="false" />
         <activity
             android:name=".MainActivity"
             android:exported="true"
