@@ -26,6 +26,16 @@
         android:label="SDAT"
         android:supportsRtl="true"
         android:theme="@android:style/Theme.Material.NoActionBar">
+        <!-- Sentry starts from code, and only after the user agrees to send crash reports. -->
+        <meta-data android:name="io.sentry.auto-init" android:value="false" />
+        <!-- Shares the diagnostics report as a file from cacheDir/reports. -->
+        <provider
+            android:name="androidx.core.content.FileProvider"
+            android:authorities="${applicationId}.files"
+            android:exported="false"
+            android:grantUriPermissions="true">
+            <meta-data android:name="android.support.FILE_PROVIDER_PATHS" android:resource="@xml/shared_files" />
+        </provider>
         <activity
             android:name=".MainActivity"
             android:exported="true"

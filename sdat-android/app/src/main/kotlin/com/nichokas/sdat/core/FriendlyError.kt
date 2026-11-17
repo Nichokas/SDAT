@@ -3,8 +3,13 @@ package com.nichokas.sdat.core
 import java.io.IOException
 import uniffi.tonearm_ffi.FfiException
 
-/** Human-readable text for any error shown in the UI (never the raw FfiException dump). */
-fun friendlyMessage(error: Throwable): String = when (error) {
+/** Human-readable text for any error shown in the UI (never the raw FfiException dump); also logs it, see [recordShownError]. */
+fun friendlyMessage(error: Throwable): String {
+    recordShownError(error)
+    return message(error)
+}
+
+private fun message(error: Throwable): String = when (error) {
     is FfiException.NotSignedIn -> "You're signed out. Sign in to TIDAL again."
     is FfiException.Network -> "Can't reach TIDAL. Check your connection."
     is FfiException.Http -> when (val status = error.status.toInt()) {

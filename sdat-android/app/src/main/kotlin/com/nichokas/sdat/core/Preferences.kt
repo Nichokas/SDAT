@@ -4,10 +4,12 @@ import android.content.Context
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.core.content.edit
+import java.io.File
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.MainScope
 import kotlinx.coroutines.launch
 import uniffi.tonearm_ffi.Quality
+import uniffi.tonearm_ffi.diagClear
 import uniffi.tonearm_ffi.handoffNewInstallationKey
 
 /** Picker order, keys and copy as on iOS. */
@@ -46,6 +48,7 @@ class Preferences(context: Context) {
     private val lastFm = mutableStateOf(false)
     private val listenBrainz = mutableStateOf(false)
     private val liveDelay = mutableIntStateOf(0)
+    private val crash = mutableStateOf(CrashReports.Unset)
 
     var streamingQuality: Quality
         get() = quality.value
@@ -68,6 +71,10 @@ class Preferences(context: Context) {
         get() = liveDelay.intValue
         set(ms) { liveDelay.intValue = ms; d.edit { putInt("liveExtraLatencyMsV2", ms) } }
 
+    var crashReports: CrashReports
+        get() = crash.value
+        set(c) { crash.value = c; d.edit { if (c.key == null) remove("crash_reports") else putString("crash_reports", c.key) } }
+
     /** This install as a player of the TIDAL account (Handoff), made once. */
     val handoffInstallationKey: String
         get() = d.getString("handoffInstallationKey", null)
@@ -82,6 +89,7 @@ class Preferences(context: Context) {
         lastFm.value = d.getBoolean("scrobbleLastFm", false)
         listenBrainz.value = d.getBoolean("scrobbleListenBrainz", false)
         liveDelay.intValue = d.getInt("liveExtraLatencyMsV2", 0)
+        crash.value = CrashReports.of(d.getString("crash_reports", null))
     }
 
     fun clear() { d.edit(commit = true) { clear() }; load() }
@@ -111,12 +119,16 @@ private val eraseScope = MainScope()
  * Erase all app data: TIDAL session, Last.fm and ListenBrainz tokens, their Keystore key, settings, caches and stored files.
  * Signs out first, so nothing in the core still uses the files when they go.
  */
-fun eraseAll(context: Context, session: Session, prefs: Preferences, secrets: Secrets) {
+fun eraseAll(context: Context, session: Session, prefs: Preferences, secrets: Secrets, crashReporting: CrashReporting) {
     session.signOut()
     secrets.clear()
     prefs.clear()
+    crashReporting.reset()
+    diagClear()
     Vault.forget()
     eraseScope.launch(Dispatchers.IO) {
-        listOf(context.cacheDir, context.filesDir).forEach { dir -> dir.listFiles()?.forEach { it.deleteRecursively() } }
+        // diagClear emptied the diagnostics files; the core keeps diag.log open, so its directory stays.
+        val diag = File(context.filesDir, "diag")
+        listOf(context.cacheDir, context.filesDir).forEach { dir -> dir.listFiles()?.filter { it != diag }?.forEach { it.deleteRecursively() } }
     }
 }

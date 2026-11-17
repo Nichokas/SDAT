@@ -36,15 +36,24 @@ android {
             keyPassword = providers.environmentVariable("SDAT_KEY_PASSWORD").get()
         }
     }
+    // Only the release workflow sets SENTRY_DSN; without it the app never starts Sentry and hides its consent prompt.
+    val sentryDsn = providers.environmentVariable("SENTRY_DSN").orElse("").get().replace("\"", "")
     buildTypes {
+        debug {
+            buildConfigField("String", "SENTRY_DSN", "\"\"")
+        }
         release {
+            buildConfigField("String", "SENTRY_DSN", "\"$sentryDsn\"")
             signingConfig = release
             isMinifyEnabled = true
             isShrinkResources = true
             proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
         }
     }
-    buildFeatures { compose = true }
+    buildFeatures {
+        compose = true
+        buildConfig = true
+    }
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_21
         targetCompatibility = JavaVersion.VERSION_21
@@ -117,6 +126,7 @@ dependencies {
     implementation(libs.media3.session)
     implementation(libs.jna) { artifact { type = "aar" } }
     implementation(libs.zxing.core)
+    implementation(libs.sentry.android.core)
     testImplementation(libs.junit)
     // android.jar only stubs org.json; the APK uses the platform copy.
     testImplementation(libs.org.json)

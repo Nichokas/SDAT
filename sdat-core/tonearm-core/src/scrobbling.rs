@@ -171,10 +171,10 @@ pub fn listenbrainz_send(url: &str, token: &str, body: &str) {
     }
     let r = r.map_err(|e| e.map_or_else(|| "no response".to_string(), |e| e.to_string()));
     match r {
-        Err(e) => log::error!("failed to send request to listenbrainz: {e}"),
+        Err(e) => log::warn!("failed to send request to listenbrainz: {e}"),
         Ok(r) if !r.status().is_success() => {
             let s = r.status();
-            log::error!("listenbrainz returned non-200 status code status={s} body={}", r.text().unwrap_or_default());
+            log::warn!("listenbrainz returned non-200 status code status={s}");
         }
         _ => {}
     }
@@ -280,7 +280,7 @@ pub fn lastfm_configured(enabled: bool, sk: &str) -> bool {
     match lastfm_self_name(sk) {
         Ok(_) => true,
         Err(e) => {
-            log::error!("error while fetching user error={e:#}");
+            log::warn!("error while fetching user error={e:#}");
             false
         }
     }

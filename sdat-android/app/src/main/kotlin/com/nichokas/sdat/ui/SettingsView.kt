@@ -33,6 +33,7 @@ import androidx.core.net.toUri
 import androidx.lifecycle.compose.LifecycleResumeEffect
 import com.nichokas.sdat.R
 import com.nichokas.sdat.core.Chrome
+import com.nichokas.sdat.core.CrashReporting
 import com.nichokas.sdat.core.Downloads
 import com.nichokas.sdat.core.Fmt
 import com.nichokas.sdat.core.Preferences
@@ -66,7 +67,7 @@ import uniffi.tonearm_ffi.lastfmUsername
 
 /** iOS SettingsView: same sections, rows and confirmations. */
 @Composable
-fun SettingsView(session: Session, prefs: Preferences, secrets: Secrets, setQuality: (Quality) -> Unit, setPreload: (Boolean) -> Unit, onBack: () -> Unit) {
+fun SettingsView(session: Session, prefs: Preferences, secrets: Secrets, crashReporting: CrashReporting, setQuality: (Quality) -> Unit, setPreload: (Boolean) -> Unit, onBack: () -> Unit) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     var confirmLogout by remember { mutableStateOf(false) }
@@ -199,7 +200,8 @@ fun SettingsView(session: Session, prefs: Preferences, secrets: Secrets, setQual
         }
         item {
             Section("Developer") {
-                GlasmioListRow("Erase all app data", titleColor = destructive, showTopSeparator = false, showDisclosure = false, onClick = { confirmErase = true })
+                GlasmioListRow("Diagnostics", showTopSeparator = false, onClick = { Chrome.push(Route.Diagnostics) })
+                GlasmioListRow("Erase all app data", titleColor = destructive, showDisclosure = false, onClick = { confirmErase = true })
             }
             GlasmioGroupedTableFooter("Signs out and deletes the TIDAL session, Last.fm and ListenBrainz tokens, settings, caches and stored files.")
         }
@@ -215,7 +217,7 @@ fun SettingsView(session: Session, prefs: Preferences, secrets: Secrets, setQual
 
     if (confirmErase) {
         Confirm("Erase all app data?", "This cannot be undone.", "Erase everything", onDismiss = { confirmErase = false }) {
-            eraseAll(context, session, prefs, secrets)
+            eraseAll(context, session, prefs, secrets, crashReporting)
         }
     }
     if (confirmLogout) {
@@ -224,13 +226,13 @@ fun SettingsView(session: Session, prefs: Preferences, secrets: Secrets, setQual
 }
 
 @Composable
-private fun Section(title: String, content: @Composable () -> Unit) {
+internal fun Section(title: String, content: @Composable () -> Unit) {
     GlasmioSectionTitle(title)
     GlasmioGroupedList { content() }
 }
 
 @Composable
-private fun ToggleRow(title: String, checked: Boolean, onChange: (Boolean) -> Unit, first: Boolean = false) {
+internal fun ToggleRow(title: String, checked: Boolean, onChange: (Boolean) -> Unit, first: Boolean = false) {
     GlasmioListRow(title, showTopSeparator = !first, trailing = { GlasmioSwitch(checked, onChange) })
 }
 

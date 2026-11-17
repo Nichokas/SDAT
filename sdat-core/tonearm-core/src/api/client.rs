@@ -186,7 +186,7 @@ pub fn country_code() -> String {
             c
         }
         Err(e) => {
-            log::error!("Failed to fetch country code, defaulting to WW: {e}");
+            log::warn!("Failed to fetch country code, defaulting to WW: {e}");
             "WW".into()
         }
     };

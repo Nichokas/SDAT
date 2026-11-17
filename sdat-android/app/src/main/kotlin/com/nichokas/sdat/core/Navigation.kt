@@ -13,6 +13,7 @@ sealed interface Route {
     data object CollectionPlaylists : Route
     data object Downloads : Route
     data object Settings : Route
+    data object Diagnostics : Route
 }
 
 /** A pushed page. The id keeps two pushes of the same route apart, so each keeps its own saved state. */
@@ -27,7 +28,8 @@ data class NavState(
     val stack: List<Destination> get() = stacks[tab].orEmpty()
     val top: Route? get() = stack.lastOrNull()?.route
     val inDetail: Boolean get() = stack.isNotEmpty()
-    val inSettings: Boolean get() = top == Route.Settings
+    /** Settings and the page it opens: the floating chrome stays away from both. */
+    val inSettings: Boolean get() = top == Route.Settings || top == Route.Diagnostics
 
     /** Every tab's root and every page pushed on any tab. */
     val pages: Set<PageKey>
@@ -75,6 +77,7 @@ private fun Route.fields(): List<String> = when (this) {
     Route.CollectionPlaylists -> listOf("collectionPlaylists", "", "")
     Route.Downloads -> listOf("downloads", "", "")
     Route.Settings -> listOf("settings", "", "")
+    Route.Diagnostics -> listOf("diagnostics", "", "")
 }
 
 private fun route(kind: String, a: String, b: String): Route = when (kind) {
@@ -88,5 +91,6 @@ private fun route(kind: String, a: String, b: String): Route = when (kind) {
     "collectionPlaylists" -> Route.CollectionPlaylists
     "downloads" -> Route.Downloads
     "settings" -> Route.Settings
+    "diagnostics" -> Route.Diagnostics
     else -> error("Unknown saved route $kind")
 }

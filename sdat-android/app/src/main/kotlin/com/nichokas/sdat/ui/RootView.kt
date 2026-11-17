@@ -25,10 +25,12 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.window.DialogProperties
 import androidx.navigation3.runtime.NavEntry
 import com.nichokas.sdat.core.AppTab
 import com.nichokas.sdat.core.Boot
 import com.nichokas.sdat.core.Chrome
+import com.nichokas.sdat.core.CrashReporting
 import com.nichokas.sdat.core.Destination
 import com.nichokas.sdat.core.Discover
 import com.nichokas.sdat.core.Downloads
@@ -47,6 +49,10 @@ import io.github.neoruaa.glasmio.glass.GlassSurface
 import io.github.neoruaa.glasmio.icons.SfSymbol
 import io.github.neoruaa.glasmio.scaffold.navigation.GlasmioNavDisplay
 import io.github.neoruaa.glasmio.scaffold.navigation.GlasmioNavHeaderMotion
+import io.github.neoruaa.glasmio.ui.GlasmioAlertButtonLayout
+import io.github.neoruaa.glasmio.ui.GlasmioAlertButtonRole
+import io.github.neoruaa.glasmio.ui.GlasmioAlertButtonSpec
+import io.github.neoruaa.glasmio.ui.GlasmioAlertDialog
 import io.github.neoruaa.glasmio.ui.GlasmioTabItem
 
 private val AppTab.label get() = when (this) {
@@ -66,7 +72,7 @@ internal val tabItems = AppTab.entries.map { GlasmioTabItem(it, it.label, it.sym
 
 /** Login until signed in, then one back stack per tab under the bottom chrome and the toast. */
 @Composable
-fun RootView(session: Session, playback: Playback, prefs: Preferences, secrets: Secrets) {
+fun RootView(session: Session, playback: Playback, prefs: Preferences, secrets: Secrets, crashReporting: CrashReporting) {
     LaunchedEffect(session.signedIn) {
         if (!session.signedIn) {
             playback.stop()
@@ -79,7 +85,11 @@ fun RootView(session: Session, playback: Playback, prefs: Preferences, secrets: 
         return GlasmioBackdropHost(
             modifier = Modifier.fillMaxSize(),
             sampledContent = { Box(Modifier.fillMaxSize().background(colors.groupedBackground)) },
-            overlayContent = { LoginView(session) },
+            overlayContent = {
+                LoginView(session)
+                // Here too, so a fresh install is asked before sign-in.
+                if (crashReporting.shouldAsk) CrashReportsPrompt(crashReporting)
+            },
         )
     }
     // A fresh sign-in warms the caches before the shell, and with it Discover's first load, starts.
@@ -96,7 +106,8 @@ fun RootView(session: Session, playback: Playback, prefs: Preferences, secrets: 
                 TabStack(nav.tab, nav.stack) { route ->
                     when (route) {
                         null -> TabRoot(nav.tab, session, playback)
-                        Route.Settings -> SettingsView(session, prefs, secrets, playback::setStreamingQuality, playback::setPreloadNext, onBack = Chrome::pop)
+                        Route.Settings -> SettingsView(session, prefs, secrets, crashReporting, playback::setStreamingQuality, playback::setPreloadNext, onBack = Chrome::pop)
+                        Route.Diagnostics -> DiagnosticsView(crashReporting, onBack = Chrome::pop)
                         is Route.Explore -> ExploreView(route.path, route.title)
                         is Route.Album -> AlbumView(route.id)
                         is Route.Playlist -> PlaylistView(route.id)
@@ -127,6 +138,7 @@ fun RootView(session: Session, playback: Playback, prefs: Preferences, secrets: 
             Chrome.playlistPickerTrack?.let { PlaylistPicker(it) { Chrome.playlistPickerTrack = null } }
             if (Live.showSheet) LiveSheet()
             if (Live.showScanner) ScannerSheet { Live.showScanner = false }
+            if (crashReporting.shouldAsk) CrashReportsPrompt(crashReporting)
             Toast(Chrome.toast, Modifier.align(Alignment.TopCenter))
             BootLoaderFadeOut()
         },
@@ -177,4 +189,20 @@ private fun Toast(text: String?, modifier: Modifier) {
             }
         }
     }
+}
+
+/** Asked once, on the first launch; only an answer closes it. */
+@Composable
+private fun CrashReportsPrompt(crashReporting: CrashReporting) {
+    GlasmioAlertDialog(
+        onDismissRequest = {},
+        title = "Send crash reports?",
+        message = "If SDAT crashes or hits an error, send a report to the developer so it can be fixed. Reports include the error, a stack trace, recent log entries, the app version, and the device model and Android version, but no account details. You can change this in Settings > Diagnostics.",
+        buttonLayout = GlasmioAlertButtonLayout.Stacked,
+        properties = DialogProperties(dismissOnBackPress = false, dismissOnClickOutside = false, usePlatformDefaultWidth = false),
+        buttons = listOf(
+            GlasmioAlertButtonSpec("Send reports", { crashReporting.allow(true) }),
+            GlasmioAlertButtonSpec("Don't send", { crashReporting.allow(false) }, GlasmioAlertButtonRole.Cancel),
+        ),
+    )
 }

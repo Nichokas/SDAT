@@ -83,6 +83,7 @@ class NavigationTest {
         assertTrue(nav.inSettings)
         assertFalse(nav.push(Route.Downloads).inSettings)
         assertFalse(nav.pop().inSettings)
+        assertTrue(nav.push(Route.Diagnostics).inSettings)
     }
 
     @Test
@@ -90,7 +91,7 @@ class NavigationTest {
         val routes = listOf(
             Route.Album("a"), Route.Playlist("p"), Route.Artist("r"), Route.Explore("pages/x", "Moods, \"and\" more"),
             Route.CollectionTracks, Route.CollectionAlbums, Route.CollectionArtists, Route.CollectionPlaylists,
-            Route.Downloads, Route.Settings,
+            Route.Downloads, Route.Settings, Route.Diagnostics,
         )
         var nav = routes.take(5).fold(NavState()) { n, r -> n.push(r) }.pop()
             .select(AppTab.Collection)
@@ -101,7 +102,7 @@ class NavigationTest {
 
         assertEquals(AppTab.Search, restored.tab)
         for (tab in AppTab.entries) assertEquals(nav.stackOf(tab), restored.stackOf(tab))
-        assertEquals(9, nav.stackOf(AppTab.Discover).size + nav.stackOf(AppTab.Collection).size)
+        assertEquals(10, nav.stackOf(AppTab.Discover).size + nav.stackOf(AppTab.Collection).size)
         assertEquals(nav.push(Route.Downloads).stack, restored.push(Route.Downloads).stack)
     }
 
