@@ -112,7 +112,6 @@ class Playback(context: Context, private val prefs: Preferences, secrets: Secret
         private set
     val progress get() = progress(position, duration)
     private var ticker: Job? = null
-    /** The track and time of the last stream refetched after a player error. */
     private var refetched: Pair<String, Long>? = null
 
     /** What the MediaSession drives: the player, with next/previous going through this queue (ExoPlayer holds only
@@ -121,8 +120,6 @@ class Playback(context: Context, private val prefs: Preferences, secrets: Secret
         /** For changes ExoPlayer never sees: the restored queue landing, a seek or a new track before its stream. */
         fun refresh() = invalidateState()
 
-        // A track ExoPlayer holds no item for (a restored queue) is shown paused at its saved second, so controllers
-        // can start it; handlePrepare fetches the stream then.
         override fun getState(): State {
             val state = super.getState()
             val commands = state.availableCommands.buildUpon().addAll(*queueCommands)
@@ -236,9 +233,6 @@ class Playback(context: Context, private val prefs: Preferences, secrets: Secret
                 if (state == Player.STATE_ENDED) if (liveFollowing) player.pause() else advance(auto = true)
             }
 
-            // An expired URL or a downloaded copy that won't play: a fresh online stream goes on from the same second,
-            // playing or paused as it was. A guest still aligning has the player parked paused, so the new item
-            // aligns again like a fresh start.
             override fun onPlayerError(e: PlaybackException) {
                 val t = track ?: return fail(e.errorCodeName)
                 // Counts deep sleep, which uptime skips: the expiry follows a pause of hours.
@@ -249,6 +243,7 @@ class Playback(context: Context, private val prefs: Preferences, secrets: Secret
                     if (!refetchDue(refetched, t.id, now)) return fail(e.errorCodeName)
                     refetched = t.id to now
                 }
+                // A guest still aligning has the player parked paused, so the new item aligns again like a fresh start.
                 restart(t, position, online = true, play = player.playWhenReady || aligning)
             }
         })
@@ -591,7 +586,6 @@ class Playback(context: Context, private val prefs: Preferences, secrets: Secret
         }
     }
 
-    /** Paused, so the UI never shows playing over a dead player; a tap retries at [position]. */
     private fun fail(message: String) {
         cancelLive()
         loadResumeAtMs = null
@@ -1055,8 +1049,7 @@ internal fun tapAction(unprepared: Boolean, ended: Boolean, playWhenReady: Boole
     else -> Tap.Resume
 }
 
-/** A failed stream gets one fresh URL per track per [RETRY_WINDOW_MS]: a dead URL fails again within seconds, an
- * expired one hours later. [last] is the track and time of the previous refetch. */
+/** A dead URL fails again within seconds, an expired one hours later. */
 internal fun refetchDue(last: Pair<String, Long>?, trackId: String, now: Long) =
     last == null || last.first != trackId || now - last.second >= RETRY_WINDOW_MS
 
