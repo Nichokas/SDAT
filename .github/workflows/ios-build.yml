@@ -32,6 +32,9 @@ on:
       tag:
         type: string
         required: true
+    secrets:
+      SENTRY_DSN_IOS:
+        required: false
 
 permissions:
   contents: write
