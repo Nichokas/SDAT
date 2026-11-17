@@ -33,6 +33,17 @@ fn is_blank(b: u8) -> bool {
     b == b' ' || b == b'\t'
 }
 
+/// Whitespace, and the escaped `\n`, `\r` and `\t` of a debug-printed string.
+fn skip_json_space(s: &[u8], mut i: usize) -> usize {
+    loop {
+        match (s.get(i), s.get(i + 1)) {
+            (Some(b), _) if b.is_ascii_whitespace() => i += 1,
+            (Some(b'\\'), Some(b'n' | b'r' | b't')) => i += 2,
+            _ => return i,
+        }
+    }
+}
+
 fn skip(s: &[u8], mut i: usize, f: impl Fn(u8) -> bool) -> usize {
     while i < s.len() && f(s[i]) {
         i += 1;
@@ -85,15 +96,15 @@ fn key_value(s: &[u8], after_key: usize, is_code: bool) -> Option<(usize, usize)
     if sep != b'=' && sep != b':' {
         return None;
     }
-    let value = skip(s, i + 1, |b| b.is_ascii_whitespace());
-    if matches!(s.get(value), Some(b'"' | b'\'' | b'\\'))
-        && let Some((start, end)) = quoted(s, value)
+    // JSON may put a value on the next line, also escaped as `\n` in a debug-printed string; after `password=`
+    // a new line is the next message, not the value.
+    i = if quoted_key { skip_json_space(s, i + 1) } else { skip(s, i + 1, is_blank) };
+    if matches!(s.get(i), Some(b'"' | b'\'' | b'\\'))
+        && let Some((start, end)) = quoted(s, i)
     {
         // After an unquoted key (a query string, a form body) the quotes may be part of the password itself.
-        return Some((start, if quoted_key { end } else { end.max(bare_end(s, value)) }));
+        return Some((start, if quoted_key { end } else { end.max(bare_end(s, i)) }));
     }
-    // JSON may put a value on the next line; after `password=` a new line is the next message, not the value.
-    i = if quoted_key { value } else { skip(s, i + 1, is_blank) };
     if is_code && (sep == b':' || quoted_key) {
         return None;
     }
@@ -215,6 +226,11 @@ mod tests {
         assert_eq!(redact("Authorization:\nToken secret\nnext"), "Authorization:\n<redacted>\nnext");
         assert_eq!(redact("password=hunter2"), "password=<redacted>");
         assert_eq!(redact("password=\nstatus: ok"), "password=\nstatus: ok");
+        assert_eq!(redact("password=\n\"next message\""), "password=\n\"next message\"");
+        assert_eq!(
+            redact(r#"body: "{\"access_token\":\n  \"secret\"}""#),
+            r#"body: "{\"access_token\":\n  \"<redacted>\"}""#
+        );
         assert_eq!(redact("Authorization:\nnext operation succeeded"), "Authorization:\nnext operation succeeded");
         assert_eq!(redact("Bearer secret"), "Bearer <redacted>");
     }
