@@ -112,14 +112,31 @@ class Playback(context: Context, private val prefs: Preferences, secrets: Secret
         private set
     val progress get() = progress(position, duration)
     private var ticker: Job? = null
+    private var refetched: Pair<String, Long>? = null
 
     /** What the MediaSession drives: the player, with next/previous going through this queue (ExoPlayer holds only
      * the current track and the preloaded one). */
-    val sessionPlayer: Player = object : ForwardingSimpleBasePlayer(player) {
+    inner class SessionPlayer : ForwardingSimpleBasePlayer(player) {
+        /** For changes ExoPlayer never sees: the restored queue landing, a seek or a new track before its stream. */
+        fun refresh() = invalidateState()
+
         override fun getState(): State {
             val state = super.getState()
-            if (state.playlist.isEmpty()) return state
-            return state.buildUpon().setAvailableCommands(state.availableCommands.buildUpon().addAll(*queueCommands).build()).build()
+            val commands = state.availableCommands.buildUpon().addAll(*queueCommands)
+            if (!state.timeline.isEmpty) return state.buildUpon().setAvailableCommands(commands.build()).build()
+            val t = track ?: return state
+            // Never handed to ExoPlayer, which throws building a source for an item without a URI.
+            val item = MediaItemData.Builder(t.id)
+                .setMediaItem(MediaItem.Builder().setMediaId(t.id).setMediaMetadata(metadata(t)).build())
+                .setDurationUs(if (duration > 0) (duration * 1_000_000).toLong() else C.TIME_UNSET)
+                .setIsSeekable(true)
+                .build()
+            return state.buildUpon()
+                .setPlaylist(listOf(item))
+                .setCurrentMediaItemIndex(0)
+                .setContentPositionMs((position * 1000).toLong())
+                .setAvailableCommands(commands.add(Player.COMMAND_SEEK_IN_CURRENT_MEDIA_ITEM).build())
+                .build()
         }
 
         override fun handleSeek(mediaItemIndex: Int, positionMs: Long, seekCommand: Int): ListenableFuture<*> {
@@ -146,9 +163,9 @@ class Playback(context: Context, private val prefs: Preferences, secrets: Secret
             return Futures.immediateVoidFuture()
         }
 
-        // The session prepares a stopped player when play is pressed. Stopped means the stream failed or a controller
-        // stopped it; the item left in the player may still be the previous track's stream, so the current track
-        // starts again where it was.
+        // The session prepares a stopped player when play is pressed. Stopped means the stream failed, a controller
+        // stopped it or nothing was loaded yet (a restored queue); the item left in the player may still be the
+        // previous track's stream, so the current track starts again where it was.
         override fun handlePrepare(): ListenableFuture<*> {
             if (!fetching) track?.let { start(it, play = player.playWhenReady, resumeAt = position) }
             return Futures.immediateVoidFuture()
@@ -166,6 +183,8 @@ class Playback(context: Context, private val prefs: Preferences, secrets: Secret
         }
     }
 
+    val sessionPlayer = SessionPlayer()
+
     private val restore = scope.launch {
         val saved = saver.load()
         restoring = false
@@ -179,6 +198,7 @@ class Playback(context: Context, private val prefs: Preferences, secrets: Secret
         position = maxOf(0.0, minOf(state.position, if (duration > 0) duration - 1 else state.position))
         pendingMixes?.let(::resumeInfinite)
         pendingMixes = null
+        sessionPlayer.refresh()
     }
 
     init {
@@ -214,13 +234,17 @@ class Playback(context: Context, private val prefs: Preferences, secrets: Secret
             }
 
             override fun onPlayerError(e: PlaybackException) {
-                val t = track
-                // A downloaded copy that won't play falls back to the online stream, from where it stopped. A guest
-                // still aligning has the player parked paused, so the online item aligns again like a fresh start.
-                if (offline && t != null) return restart(t, player.currentPosition / 1000.0, online = true, play = player.playWhenReady || aligning)
-                cancelLive()
-                loadResumeAtMs = null
-                error = e.errorCodeName
+                val t = track ?: return fail(e.errorCodeName)
+                // Counts deep sleep, which uptime skips: the expiry follows a pause of hours.
+                val now = SystemClock.elapsedRealtime()
+                // A broken download spends no budget: a new play picks the same file again, and only its online stream
+                // can help.
+                if (!offline) {
+                    if (!refetchDue(refetched, t.id, now)) return fail(e.errorCodeName)
+                    refetched = t.id to now
+                }
+                // A guest still aligning has the player parked paused, so the new item aligns again like a fresh start.
+                restart(t, position, online = true, play = player.playWhenReady || aligning)
             }
         })
     }
@@ -556,12 +580,17 @@ class Playback(context: Context, private val prefs: Preferences, secrets: Secret
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
-                error = e.message ?: e.javaClass.simpleName
                 fetching = false
-                aligning = false
-                loadResumeAtMs = null
+                fail(e.message ?: e.javaClass.simpleName)
             }
         }
+    }
+
+    private fun fail(message: String) {
+        cancelLive()
+        loadResumeAtMs = null
+        error = message
+        player.playWhenReady = false
     }
 
     /** A preloaded track the player moved on to by itself: it becomes the current one without a new fetch. */
@@ -647,6 +676,7 @@ class Playback(context: Context, private val prefs: Preferences, secrets: Secret
     private val endless get() = infinite != null || awaitingMixes
 
     private fun persist() {
+        sessionPlayer.refresh()
         if (restoring) return
         saver.save(queue, endless, position)
         onChange?.invoke()
@@ -1018,3 +1048,9 @@ internal fun tapAction(unprepared: Boolean, ended: Boolean, playWhenReady: Boole
     playWhenReady -> Tap.Pause
     else -> Tap.Resume
 }
+
+/** A dead URL fails again within seconds, an expired one hours later. */
+internal fun refetchDue(last: Pair<String, Long>?, trackId: String, now: Long) =
+    last == null || last.first != trackId || now - last.second >= RETRY_WINDOW_MS
+
+internal const val RETRY_WINDOW_MS = 60_000L

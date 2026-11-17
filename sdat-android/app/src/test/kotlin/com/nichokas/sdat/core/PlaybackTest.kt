@@ -22,6 +22,19 @@ class PlaybackTest {
         assertEquals(Tap.Resume, tapAction(unprepared = false, ended = false, playWhenReady = false))
     }
 
+    @Test fun refetchesTheFirstFailureOfEachTrack() {
+        assertTrue(refetchDue(null, "a", now = 5_000))
+        assertTrue(refetchDue("b" to 5_000L, "a", now = 5_000))
+    }
+
+    @Test fun showsAFailureRightAfterARefetchOfTheSameTrack() {
+        assertFalse(refetchDue("a" to 5_000L, "a", now = 5_000 + RETRY_WINDOW_MS - 1))
+    }
+
+    @Test fun refetchesTheSameTrackAgainOnceTheWindowPassed() {
+        assertTrue(refetchDue("a" to 5_000L, "a", now = 5_000 + RETRY_WINDOW_MS))
+    }
+
     @Test fun progressIsPositionOverDurationCappedAtOne() {
         assertEquals(0.25, progress(30.0, 120.0), 1e-9)
         assertEquals(1.0, progress(130.0, 120.0), 1e-9)
