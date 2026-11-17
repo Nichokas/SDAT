@@ -224,8 +224,9 @@ impl<'de> Deserialize<'de> for Item2 {
             item_type::PLAYLIST => p(raw).map(ItemData::Playlist),
             item_type::TRACK => p(raw).map(ItemData::Track),
             item_type::ALBUM => p(raw).map(ItemData::Album),
+            // TIDAL pages also carry types we don't show (VIDEO, TRACK_CREDITS, ...); readers skip Unknown.
             other => {
-                log::error!("Unknown item type item_type={other}");
+                log::debug!("Skipping unsupported item type item_type={other}");
                 None
             }
         }
