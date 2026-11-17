@@ -67,6 +67,11 @@ final class Diagnostics {
                 options.enableCaptureFailedRequests = false
                 options.sessionReplay.sessionSampleRate = 0
                 options.sessionReplay.onErrorSampleRate = 0
+                // Sentry fills the user with an install id when the app sets none.
+                options.beforeSend = { event in
+                    event.user = nil
+                    return event
+                }
             }
         } else {
             SentrySDK.close()

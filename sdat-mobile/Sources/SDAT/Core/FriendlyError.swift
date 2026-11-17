@@ -2,8 +2,10 @@ import Foundation
 
 /// Human-readable text for any error shown in the UI (never the raw FfiError dump).
 func friendlyMessage(_ error: Error, file: StaticString = #fileID, line: UInt = #line) -> String {
-    diagRecord(level: diagLevel(for: error), target: "app", message: "\(diagSummary(error)) at \(file):\(line)",
-               backtrace: nil)
+    let level = diagLevel(for: error)
+    // Frames only, and only for the unexpected errors, which become Sentry reports.
+    diagRecord(level: level, target: "app", message: "\(diagSummary(error)) at \(file):\(line)",
+               backtrace: level == .error ? Thread.callStackSymbols.joined(separator: "\n") : nil)
     guard let e = error as? FfiError else {
         if (error as? URLError) != nil { return "Can't reach TIDAL. Check your connection." }
         return "Something went wrong. Please try again."
@@ -30,6 +32,9 @@ func friendlyMessage(_ error: Error, file: StaticString = #fileID, line: UInt = 
 /// breadcrumbs, while anything else is reported as an error.
 private func diagLevel(for error: Error) -> DiagLevel {
     if error is URLError { return .warn }
+    // A Rust panic surfaces as the generated, fileprivate UniffiInternalError; the core's panic hook already
+    // reported it with its own backtrace.
+    if (error as NSError).domain.hasSuffix("UniffiInternalError") { return .warn }
     switch error as? FfiError {
     case .Network?, .Cancelled?, .NotSignedIn?, .LastFm?: return .warn
     case .Http(let status, _)? where status < 500: return .warn

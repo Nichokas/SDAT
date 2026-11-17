@@ -45,7 +45,7 @@ struct SDATApp: App {
                 Button("Send reports") { diagnostics.setConsent(.allowed) }
                 Button("Don't send") { diagnostics.setConsent(.denied) }
             } message: {
-                Text("If SDAT crashes or hits an error, send a report to the developer so it can be fixed. Reports include the error, a stack trace and the app version, but no account details. You can change this in Settings > Diagnostics.")
+                Text("If SDAT crashes or hits an error, send a report to the developer so it can be fixed. Reports include the error, a stack trace, the app version, and the device model and iOS version, but no account details. You can change this in Settings > Diagnostics.")
             }
             .preferredColorScheme(.dark)
             .tint(.blue)
