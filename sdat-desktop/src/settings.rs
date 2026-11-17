@@ -150,25 +150,26 @@ impl Consent {
     }
 }
 
+const CRASH_REPORTS: &str = "crash-reports";
+
+/// An older installed schema has no such key, and reading a missing key aborts the process.
+pub fn crash_reports_supported() -> bool {
+    general().settings_schema().is_some_and(|s| s.has_key(CRASH_REPORTS))
+}
 pub fn crash_reports() -> Consent {
-    const KEY: &str = "crash-reports";
-    let s = general();
-    // An older installed schema has no such key, and reading a missing key aborts the process.
-    if !s.settings_schema().is_some_and(|s| s.has_key(KEY)) {
+    if !crash_reports_supported() {
         return Consent::Unset;
     }
-    match s.string(KEY).as_str() {
+    match general().string(CRASH_REPORTS).as_str() {
         "allowed" => Consent::Allowed,
         "denied" => Consent::Denied,
         _ => Consent::Unset,
     }
 }
 pub fn set_crash_reports(c: Consent) {
-    if !general().settings_schema().is_some_and(|s| s.has_key("crash-reports")) {
-        log::warn!("the installed settings schema has no crash-reports; the choice is not kept");
-        return;
+    if crash_reports_supported() {
+        warn_on_err(CRASH_REPORTS, general().set_string(CRASH_REPORTS, c.as_str()));
     }
-    warn_on_err("crash-reports", general().set_string("crash-reports", c.as_str()));
 }
 pub fn window_width() -> i32 {
     general().int("window-width")

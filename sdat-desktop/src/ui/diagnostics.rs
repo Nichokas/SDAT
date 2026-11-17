@@ -398,7 +398,7 @@ fn crash_reports(test_error: &adw::ActionRow) -> adw::PreferencesGroup {
     let group = adw::PreferencesGroup::builder().title(tr("Crash reports")).build();
     let row = adw::SwitchRow::builder()
         .title(tr("Send crash reports"))
-        .subtitle(tr("If SDAT crashes or hits an error, send a report to the developer. Reports include the error, a stack trace, the app version and the OS version, but no account details."))
+        .subtitle(tr("If SDAT crashes or hits an error, send a report to the developer. Reports include the error, a stack trace, recent log entries, the app version and the OS version, but no account details."))
         .active(settings::crash_reports() == Consent::Allowed)
         .build();
     let test_error = test_error.downgrade();
@@ -419,7 +419,7 @@ pub fn ask_consent_once(window: &adw::ApplicationWindow) {
     }
     let ad = adw::AlertDialog::new(
         Some(&tr("Send crash reports?")),
-        Some(&tr("If SDAT crashes or hits an error, send a report to the developer so it can be fixed. Reports include the error, a stack trace, the app version and the OS version, but no account details. You can change this in Settings > Diagnostics.")),
+        Some(&tr("If SDAT crashes or hits an error, send a report to the developer so it can be fixed. Reports include the error, a stack trace, recent log entries, the app version and the OS version, but no account details. You can change this in Settings > Diagnostics.")),
     );
     ad.add_response("deny", &tr("Don't send"));
     ad.add_response("allow", &tr("Send reports"));

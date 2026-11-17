@@ -22,9 +22,10 @@ fn dsn() -> Option<&'static str> {
     DSN.map(str::trim).filter(|d| !d.is_empty())
 }
 
-/// Whether this build can send reports at all. When it cannot, the prompt and the switch stay hidden.
+/// Whether this build can send reports at all and keep the user's answer. When not, the prompt and the switch
+/// stay hidden.
 pub fn available() -> bool {
-    dsn().is_some()
+    dsn().is_some() && settings::crash_reports_supported()
 }
 
 pub fn running() -> bool {

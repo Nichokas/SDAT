@@ -996,7 +996,7 @@ async fn lastfm_configure(window: Option<adw::ApplicationWindow>) -> anyhow::Res
                 settings::set_lastfm_token(&sk);
                 let name = api::run(move || crate::scrobbling::lastfm_self_name(&sk)).await;
                 break name.map(|n| {
-                    log::info!("Last.fm configured username={n}");
+                    log::info!("Last.fm configured");
                     Some(n)
                 });
             }
