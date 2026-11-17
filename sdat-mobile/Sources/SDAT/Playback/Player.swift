@@ -206,10 +206,13 @@ final class Player {
         invalidatePreload()
     }
 
-    func playNext(_ track: Track) {
+    func playNext(_ track: Track) { playNext([track]) }
+
+    /// With nothing playing the list starts from its first track.
+    func playNext(_ tracks: [Track]) {
         defer { persist() }
-        if current == nil { play([track]); return }
-        userQueue.insert(track, at: 0)
+        if current == nil { play(tracks); return }
+        userQueue.insert(contentsOf: tracks, at: 0)
         invalidatePreload()
     }
 
@@ -245,7 +248,9 @@ final class Player {
         defer { persist() }
         guard let i = index else { return }
         let offset = i + 1
+        let mirrored = original == queue
         queue.move(fromOffsets: IndexSet(from.map { $0 + offset }), toOffset: to + offset)
+        if mirrored { original = queue }
         invalidatePreload()
     }
 
@@ -253,6 +258,7 @@ final class Player {
         defer { persist() }
         guard let i = index else { return }
         queue.remove(atOffsets: IndexSet(offsets.map { $0 + i + 1 }))
+        original = original.keeping(queue, by: \.id)
         invalidatePreload()
     }
 
@@ -997,7 +1003,7 @@ final class Player {
 
     @ObservationIgnored private var queueVersion = 0
     @ObservationIgnored private var savedQueueVersion = -1
-    @ObservationIgnored private var savedQueueOffset = 0
+    @ObservationIgnored private var savedQueueRange = 0..<0
     @ObservationIgnored private var queueID = 0
 
     /// Cheap: the small state file every call; the queue file only when the queues changed.
@@ -1008,20 +1014,19 @@ final class Player {
         guard let c = current else { PlaybackStore.clear(); savedQueueVersion = -1; return }
         let e = DiscoverCache.encode
         let endless = infinite != nil || restoredInfinite
-        if queueVersion != savedQueueVersion {
+        if queueVersion != savedQueueVersion || !(index.map { savedQueueRange.contains($0) } ?? true) {
             let w = PlaybackStore.window(count: queue.count, index: index, endless: endless)
-            // Original order: same window when it mirrors the queue (unshuffled / endless),
-            // else capped prefix (only used to un-shuffle).
-            let orig = original == queue ? Array(original[w]) : Array(original.prefix(PlaybackStore.maxSaved))
+            // The window's tracks in their unshuffled order, so turning shuffle off after a restart finds the current one.
+            let orig = original.keeping(queue[w], by: \.id)
             queueID &+= 1
             PlaybackStore.saveQueue(.init(queue: e(Array(queue[w])), original: e(orig),
                                           userQueue: e(Array(userQueue.prefix(PlaybackStore.maxSaved))),
                                           infinite: endless, sourceTitle: sourceTitle, id: queueID))
             savedQueueVersion = queueVersion
-            savedQueueOffset = w.lowerBound
+            savedQueueRange = w
         }
         let rm: String = switch repeatMode { case .off: "off"; case .all: "all"; case .one: "one" }
-        PlaybackStore.saveState(.init(current: e([c])[0], index: index.map { $0 - savedQueueOffset },
+        PlaybackStore.saveState(.init(current: e([c])[0], index: index.map { $0 - savedQueueRange.lowerBound },
                                       position: position, repeatMode: rm, shuffle: shuffle, queueID: queueID))
     }
 
@@ -1292,6 +1297,17 @@ final class Player {
 
 extension Array {
     subscript(safe i: Int) -> Element? { indices.contains(i) ? self[i] : nil }
+
+    /// The elements also in `other`, in this array's order: as many of each id as `other` has.
+    func keeping<ID: Hashable>(_ other: some Sequence<Element>, by id: (Element) -> ID) -> [Element] {
+        var left: [ID: Int] = [:]
+        for e in other { left[id(e), default: 0] += 1 }
+        return filter { e in
+            guard let n = left[id(e)], n > 0 else { return false }
+            left[id(e)] = n - 1
+            return true
+        }
+    }
 }
 
 extension Player {
@@ -1302,7 +1318,7 @@ extension Player {
         avPlayer.pause(); avPlayer.removeAllItems()
         resumeAfterInterruption = false
         recentIDs = []; recentOrder = []
-        savedQueueVersion = -1; savedQueueOffset = 0
+        savedQueueVersion = -1; savedQueueRange = 0..<0
         preloaded = nil; playingItem = nil; infinite = nil
         queue = []; original = []; userQueue = []; index = nil; current = nil
         isPlaying = false; loading = false; loadResumeAt = nil; position = 0; duration = 0; stream = nil; sourceTitle = nil
