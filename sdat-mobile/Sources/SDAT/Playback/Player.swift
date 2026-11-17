@@ -24,7 +24,7 @@ final class Player {
     /// Releases the audio session after a pause so iOS can suspend the app.
     @ObservationIgnored private var releaseTask: Task<Void, Never>?
     /// How long a paused player keeps the audio session (and the background audio grant).
-    private static let idleRelease: Duration = .seconds(60)
+    private static let idleRelease: Duration = .seconds(10 * 60)
     /// Fetching the current track's stream.
     private(set) var loading = false
     private(set) var position: Double = 0
