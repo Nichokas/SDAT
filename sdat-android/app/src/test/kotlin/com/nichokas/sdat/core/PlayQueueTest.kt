@@ -49,7 +49,7 @@ class PlayQueueTest {
         assertFalse(q.append(listOf("x", "y")))
         assertEquals("y", q.advance(manual = true))
         assertTrue(q.append(listOf("y", "z")))
-        assertEquals(listOf("a", "b", "z"), q.tracks)
+        assertEquals(listOf("a", "y", "b", "z"), q.tracks)
     }
 
     @Test fun appendSkipsPlayNextTracksAlreadyPlayed() {
@@ -168,6 +168,61 @@ class PlayQueueTest {
         assertEquals("a", q.current)
     }
 
+    @Test fun aPlayNextTrackPlaysAgainAfterPreviousThenNext() {
+        val q = queue()
+        q.play(listOf("a", "b", "c"), startAt = 1)
+        q.playNext(listOf("x"))
+        assertEquals("x", q.advance(manual = true))
+        assertEquals("b", q.previous())
+        assertEquals("x", q.advance(manual = true))
+        assertEquals("c", q.advance(manual = true))
+        assertEquals("x", q.previous())
+        assertEquals("b", q.previous())
+    }
+
+    @Test fun aPlayNextTrackOnTheFirstTrackGoesBackToIt() {
+        val q = queue()
+        q.play(listOf("a", "b"))
+        q.playNext(listOf("x"))
+        assertEquals("x", q.advance(manual = true))
+        assertEquals("a", q.previous())
+        assertEquals("x", q.advance(manual = true))
+    }
+
+    @Test fun aJumpedToUserTrackPlaysAgainAfterPreviousThenNext() {
+        val q = queue()
+        q.play(listOf("a", "b"))
+        q.addToQueue(listOf("x", "y"))
+        assertEquals("y", q.jumpToUser(1))
+        assertEquals("a", q.previous())
+        assertEquals("y", q.advance(manual = true))
+        assertEquals("b", q.advance(manual = true))
+    }
+
+    @Test fun shuffleOffKeepsAPlayNextTrackAfterTheTrackItFollowed() {
+        val q = queue()
+        q.playShuffled(abcd)
+        val before = q.current!!
+        q.playNext(listOf("x"))
+        assertEquals("x", q.advance(manual = true))
+        assertEquals(before, q.previous())
+        assertEquals("x", q.advance(manual = true))
+        q.setShuffle(false, reorder = true)
+        assertEquals(abcd.toMutableList().apply { add(indexOf(before) + 1, "x") }, q.tracks)
+        assertEquals("x", q.current)
+        assertEquals(before, q.previous())
+    }
+
+    @Test fun restoreOfAQueueSavedWithThePlayNextTrackOutsideTheBaseQueue() {
+        val q = queue()
+        q.play(listOf("a", "b", "c"), startAt = 1)
+        q.restore(q.saved(id = 1, endless = false), SavedState(1, "x", 1, 0.0, Repeat.Off, shuffle = false))
+        assertEquals("x", q.current)
+        assertEquals(listOf("a", "b", "x", "c"), q.tracks)
+        assertEquals("b", q.previous())
+        assertEquals("x", q.advance(manual = true))
+    }
+
     @Test fun previousAfterARestoreGoesToTheTrackBefore() {
         val q = queue()
         q.play(listOf("a", "b", "c"), startAt = 1)
@@ -196,11 +251,11 @@ class PlayQueueTest {
         q.playNext(listOf("z"))
         assertEquals(listOf("z", "x", "y"), q.userQueue)
         assertEquals("z", q.advance(manual = true))
-        assertEquals(0, q.index)
+        assertEquals(1, q.index)
         assertEquals("x", q.advance(manual = true))
         assertEquals("y", q.advance(manual = true))
         assertEquals("b", q.advance(manual = true))
-        assertEquals(1, q.index)
+        assertEquals(listOf("a", "z", "x", "y", "b", "c", "d"), q.tracks)
     }
 
     @Test fun insertUserPlacesTheTrackAtTheOffsetAndClampsOutOfRange() {
@@ -253,13 +308,13 @@ class PlayQueueTest {
         q.addToQueue(listOf("z"))
         assertEquals("y", q.jumpToUser(1))
         assertEquals(listOf("z"), q.userQueue)
-        assertEquals(0, q.index)
+        assertEquals(1, q.index)
         q.removeUser(0)
         assertEquals(emptyList<String>(), q.userQueue)
         q.removeUpNext(0)
         assertEquals(listOf("c", "d"), q.upNext)
         assertEquals("d", q.jumpToUpNext(1))
-        assertEquals(2, q.index)
+        assertEquals(3, q.index)
     }
 
     @Test fun aRemovedTrackStaysRemovedWhenShuffleTurnsOff() {
