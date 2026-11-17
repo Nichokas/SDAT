@@ -43,7 +43,7 @@ private fun diagSummary(error: Throwable): String = when (error) {
     is FfiException.LastFm -> "Last.fm error ${error.code}"
     is FfiException -> "Other error"
     is InternalException -> "Rust panic, reported by the core"
-    is DownloadFailure -> "Download failed: ${error.message}"
+    is DownloadFailure -> "Download failed"
     else -> error.javaClass.name
 }
 
