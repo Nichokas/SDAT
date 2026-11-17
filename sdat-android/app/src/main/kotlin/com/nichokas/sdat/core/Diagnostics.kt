@@ -120,8 +120,11 @@ fun recordShownError(error: Throwable) {
     }
 }
 
-/** The caller of [friendlyMessage]: frames 0 to 2 are [callSite], [recordShownError] and [friendlyMessage] (R8 inlining can shift it by a frame). */
-private fun callSite(): String = Throwable().stackTrace.getOrNull(3)?.let { "${it.className}.${it.methodName}(${it.fileName}:${it.lineNumber})" } ?: "unknown"
+/**
+ * The caller of [friendlyMessage]: frames 0 to 2 are [callSite], [recordShownError] and [friendlyMessage] (R8 inlining
+ * can shift it by a frame). No line number: it would move with every edit and split one error across Sentry issues.
+ */
+private fun callSite(): String = Throwable().stackTrace.getOrNull(3)?.let { "${it.className}.${it.methodName}" } ?: "unknown"
 
 /**
  * Kind and status only: error details can hold request URLs or response bodies, and the log goes to logcat and,
