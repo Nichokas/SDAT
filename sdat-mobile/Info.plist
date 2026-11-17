@@ -29,6 +29,8 @@
 	<string>SDAT uses the camera to scan Listen Together invitations.</string>
 	<key>NSLocalNetworkUsageDescription</key>
 	<string>SDAT connects directly to nearby devices for Listen Together.</string>
+	<key>SentryDSN</key>
+	<string></string>
 	<key>UIBackgroundModes</key>
 	<array>
 		<string>audio</string>
