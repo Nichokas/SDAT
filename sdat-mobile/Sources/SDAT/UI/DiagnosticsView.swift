@@ -1,4 +1,5 @@
 import SwiftUI
+import UniformTypeIdentifiers
 import UIKit
 
 private enum LogFilter: String, CaseIterable, Identifiable {
@@ -22,7 +23,6 @@ struct DiagnosticsView: View {
     @State private var events: [DiagEvent] = []
     @State private var filter = LogFilter.all
     @State private var verbose = diagVerbose()
-    @State private var report = ""
     @State private var previous = ""
     @State private var markerText = ""
     @State private var addingMarker = false
@@ -135,7 +135,8 @@ struct DiagnosticsView: View {
             if !previous.isEmpty {
                 Button("Previous session") { showPrevious = true }
             }
-            ShareLink("Share report", item: report)
+            ShareLink("Share report", item: DiagReport(header: Self.reportHeader),
+                      preview: SharePreview("SDAT diagnostics report"))
             if diag.sentryRunning {
                 Button("Send test error") {
                     diagRecord(level: .error, target: "diagnostics", message: "Test error from Diagnostics",
@@ -165,7 +166,6 @@ struct DiagnosticsView: View {
         stats = diagStats()
         let fresh = diagEvents(since: events.last?.seq ?? 0)
         if !fresh.isEmpty { events = Array((events + fresh).suffix(2000)) }
-        report = diagReport(extra: Self.reportHeader)
     }
 
     // MARK: Formatting
@@ -200,6 +200,17 @@ struct DiagnosticsView: View {
         let (h, m, sec) = (s / 3600, s % 3600 / 60, s % 60)
         if h > 0 { return "\(h) h \(m) min" }
         return m > 0 ? "\(m) min \(sec) s" : "\(sec) s"
+    }
+}
+
+/// Built only when the user actually shares it: the full report formats every logged event.
+private struct DiagReport: Transferable {
+    let header: String
+
+    static var transferRepresentation: some TransferRepresentation {
+        DataRepresentation(exportedContentType: .plainText) { report in
+            Data(diagReport(extra: report.header).utf8)
+        }
     }
 }
 
