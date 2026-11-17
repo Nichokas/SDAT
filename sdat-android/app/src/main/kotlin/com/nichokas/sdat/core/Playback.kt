@@ -112,6 +112,8 @@ class Playback(context: Context, private val prefs: Preferences, secrets: Secret
         private set
     val progress get() = progress(position, duration)
     private var ticker: Job? = null
+    /** The track and time of the last stream refetched after a player error. */
+    private var refetched: Pair<String, Long>? = null
 
     /** What the MediaSession drives: the player, with next/previous going through this queue (ExoPlayer holds only
      * the current track and the preloaded one). */
@@ -213,14 +215,16 @@ class Playback(context: Context, private val prefs: Preferences, secrets: Secret
                 if (state == Player.STATE_ENDED) if (liveFollowing) player.pause() else advance(auto = true)
             }
 
+            // An expired URL or a downloaded copy that won't play: a fresh online stream goes on from the same second,
+            // playing or paused as it was. A guest still aligning has the player parked paused, so the new item
+            // aligns again like a fresh start.
             override fun onPlayerError(e: PlaybackException) {
-                val t = track
-                // A downloaded copy that won't play falls back to the online stream, from where it stopped. A guest
-                // still aligning has the player parked paused, so the online item aligns again like a fresh start.
-                if (offline && t != null) return restart(t, player.currentPosition / 1000.0, online = true, play = player.playWhenReady || aligning)
-                cancelLive()
-                loadResumeAtMs = null
-                error = e.errorCodeName
+                val t = track ?: return fail(e.errorCodeName)
+                // Counts deep sleep, which uptime skips: the expiry follows a pause of hours.
+                val now = SystemClock.elapsedRealtime()
+                if (!refetchDue(refetched, t.id, now)) return fail(e.errorCodeName)
+                refetched = t.id to now
+                restart(t, position, online = true, play = player.playWhenReady || aligning)
             }
         })
     }
@@ -556,12 +560,18 @@ class Playback(context: Context, private val prefs: Preferences, secrets: Secret
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
-                error = e.message ?: e.javaClass.simpleName
                 fetching = false
-                aligning = false
-                loadResumeAtMs = null
+                fail(e.message ?: e.javaClass.simpleName)
             }
         }
+    }
+
+    /** Paused, so the UI never shows playing over a dead player; a tap retries at [position]. */
+    private fun fail(message: String) {
+        cancelLive()
+        loadResumeAtMs = null
+        error = message
+        player.playWhenReady = false
     }
 
     /** A preloaded track the player moved on to by itself: it becomes the current one without a new fetch. */
