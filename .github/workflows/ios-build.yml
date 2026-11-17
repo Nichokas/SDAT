@@ -123,8 +123,20 @@ jobs:
           xtool dev build -c release --ipa
           ipa="$(find xtool -name '*.ipa' | head -1)"
           test -n "$ipa"
+          # xtool embeds a static framework whose binary is a universal archive (Sentry's arm64 + arm64e),
+          # though it is already linked into the app; signers such as Feather then fail on it.
+          tmp="$(mktemp -d)"
+          unzip -q "$ipa" -d "$tmp"
+          for fw in "$tmp"/Payload/*.app/Frameworks/*.framework; do
+            [ -e "$fw" ] || continue
+            if file "$fw/$(basename "$fw" .framework)" | grep -q 'ar archive'; then
+              echo "Dropping static $(basename "$fw")"
+              rm -rf "$fw"
+            fi
+          done
+          rmdir "$tmp"/Payload/*.app/Frameworks 2>/dev/null || true
           mkdir -p "$GITHUB_WORKSPACE/out"
-          cp "$ipa" "$GITHUB_WORKSPACE/out/SDAT-unsigned.ipa"
+          (cd "$tmp" && zip -qry "$GITHUB_WORKSPACE/out/SDAT-unsigned.ipa" Payload)
           unzip -l "$GITHUB_WORKSPACE/out/SDAT-unsigned.ipa" | grep -E 'Payload/[^/]+\.app/' | head -5
 
       - name: Upload artifact
