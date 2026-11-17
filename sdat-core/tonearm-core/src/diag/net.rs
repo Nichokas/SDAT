@@ -104,8 +104,11 @@ pub fn send(rb: RequestBuilder) -> reqwest::Result<Response> {
     let request = match request {
         Ok(request) => request,
         Err(e) => {
+            // No request was sent. The error knows the URL only when it was the URL that failed.
+            log::warn!("HTTP request could not be built: {e}");
+            let category = classify(e.url().and_then(reqwest::Url::host_str));
             let outcome = Err(e);
-            record(&COUNTERS[NetCategory::Other.index()], 0, &outcome);
+            record(&COUNTERS[category.index()], 0, &outcome);
             return outcome;
         }
     };

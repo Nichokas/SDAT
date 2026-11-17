@@ -232,6 +232,8 @@ mod tests {
         assert_eq!(redact("password=\nstatus: ok"), "password=\nstatus: ok");
         assert_eq!(redact("password=\n\"next message\""), "password=\n\"next message\"");
         assert_eq!(redact(r#"body: "{\"password\"\n: \"hunter2\"}""#), r#"body: "{\"password\"\n: \"<redacted>\"}""#);
+        assert_eq!(redact(r#"msg: "password=\nhunter2 x""#), r#"msg: "password=<redacted> x""#);
+        assert_eq!(redact(r#"msg: "token: \n\"abc\"""#), r#"msg: "token: <redacted>"#);
         assert_eq!(
             redact(r#"body: "{\"access_token\":\n  \"secret\"}""#),
             r#"body: "{\"access_token\":\n  \"<redacted>\"}""#
