@@ -39,3 +39,6 @@ glib-build-tools = "0.22.8"
 [lints]
 workspace = true
 
+[dev-dependencies]
+sentry = { version = "0.49.6", default-features = false, features = ["test", "reqwest", "rustls"] }
+

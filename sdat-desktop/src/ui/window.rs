@@ -61,10 +61,10 @@ fn spawn_logged(what: &'static str, fut: impl std::future::Future<Output = anyho
 
 // ------------------------------------------------------------------ version
 
-const COMMIT: &str = env!("TONEARM_COMMIT");
+pub(crate) const COMMIT: &str = env!("TONEARM_COMMIT");
 /// Set by packagers (`TONEARM_VERSION=1.0.0 cargo build --release`), like Go's
 /// `-ldflags -X ui.Version=…`. When set, the build is a release: no "devel" stripes.
-const VERSION: Option<&str> = option_env!("TONEARM_VERSION");
+pub(crate) const VERSION: Option<&str> = option_env!("TONEARM_VERSION");
 
 fn describe_parts(commit: &str) -> Option<(String, String, String)> {
     let re = regex::Regex::new(r"^(.*)-(\d+)-g([0-9a-f]{7})").expect("valid version regex");

@@ -5,6 +5,7 @@
 
 mod api;
 mod cache;
+mod diagnostics;
 mod handoff;
 mod imgutil;
 mod live;
@@ -66,7 +67,7 @@ fn on_activate(app: &adw::Application) {
 }
 
 fn main() -> glib::ExitCode {
-    tonearm_core::diag::init(Some(glib::user_config_dir().join(settings::CONFIG_DIR_NAME)), None);
+    tonearm_core::diag::init(Some(glib::user_config_dir().join(settings::CONFIG_DIR_NAME)), Some(diagnostics::sink()));
     // One level for everything: per-crate directives are ignored, and debug or trace means our own crates.
     if let Ok(value) = std::env::var("RUST_LOG") {
         match value.trim().parse::<log::LevelFilter>() {
@@ -76,6 +77,7 @@ fn main() -> glib::ExitCode {
     }
     ensure_schema();
     migrate::run();
+    diagnostics::apply();
     tonearm_core::config::install(Box::new(settings::GSettingsConfig));
     tonearm_core::auth::install(Box::new(secrets::KeyringTokens));
 
