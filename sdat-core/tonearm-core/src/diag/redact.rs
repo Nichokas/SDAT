@@ -5,15 +5,14 @@ use std::borrow::Cow;
 const REDACTED: &str = "<redacted>";
 /// `Authorization` schemes: a value on the line after `Authorization:` is taken only when it starts with one.
 const SCHEMES: [&str; 4] = ["basic ", "bearer ", "digest ", "token "];
-const KEYS: [&str; 14] = [
+/// Each `_` is optional when matching, so the camelCase spellings (`refreshToken`, `deviceCode`) match too.
+const KEYS: [&str; 12] = [
     "access_token",
     "refresh_token",
     "client_secret",
     "session_key",
     "device_code",
     "user_code",
-    "devicecode",
-    "usercode",
     "password",
     "api_key",
     "api_sig",
@@ -136,11 +135,24 @@ fn secret_at(s: &[u8], lower: &[u8], i: usize) -> Option<(usize, usize)> {
     if rest.starts_with(b"authorization") {
         return header_value(s, i + "authorization".len());
     }
-    let key = KEYS.iter().find(|k| rest.starts_with(k.as_bytes()))?;
-    if WORD_KEYS.contains(key) && i > 0 && (lower[i - 1].is_ascii_alphanumeric() || lower[i - 1] == b'_') {
+    let (key, len) = KEYS.iter().find_map(|k| key_len(rest, k).map(|len| (*k, len)))?;
+    if WORD_KEYS.contains(&key) && i > 0 && (lower[i - 1].is_ascii_alphanumeric() || lower[i - 1] == b'_') {
         return None;
     }
-    key_value(s, i + key.len(), *key == "code")
+    key_value(s, i + len, key == "code")
+}
+
+/// How many bytes of `text` spell `key`, whose `_` may be left out.
+fn key_len(text: &[u8], key: &str) -> Option<usize> {
+    let mut i = 0;
+    for &k in key.as_bytes() {
+        match text.get(i) {
+            Some(&b) if b == k => i += 1,
+            _ if k == b'_' => {}
+            _ => return None,
+        }
+    }
+    Some(i)
 }
 
 /// Replaces the value of every credential in `text` with `<redacted>`: `access_token`, `refresh_token`,
@@ -207,6 +219,11 @@ mod tests {
         assert_eq!(redact("device_code=abc&user_code=XYZ"), "device_code=<redacted>&user_code=<redacted>");
         assert_eq!(redact(r#"{"deviceCode":"abc","userCode":"XYZ"}"#), r#"{"deviceCode":"<redacted>","userCode":"<redacted>"}"#);
         assert_eq!(redact(r#"{"device_code":"abc"}"#), r#"{"device_code":"<redacted>"}"#);
+        assert_eq!(
+            redact("LoginTokens(accessToken=a1, refreshToken=r1, userId=1)"),
+            "LoginTokens(accessToken=<redacted> refreshToken=<redacted> userId=1)"
+        );
+        assert_eq!(redact(r#"{"clientSecret":"c","sessionKey":"k"}"#), r#"{"clientSecret":"<redacted>","sessionKey":"<redacted>"}"#);
     }
 
     #[test]

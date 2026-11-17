@@ -201,11 +201,12 @@ const MAX_TARGET_BYTES: usize = 256;
 /// redacted, so a huge message costs one bounded pass: a secret cut there keeps its key and is redacted to
 /// the end, and one whose key is cut is dropped with the rest.
 fn bounded(text: &str, max: usize) -> String {
+    const MARK: &str = " …(truncated)";
     let cut = text.floor_char_boundary(max);
     let mut out = redact::redact(&text[..cut]).into_owned();
     if cut < text.len() || out.len() > max {
-        out.truncate(out.floor_char_boundary(max));
-        out.push_str(" …(truncated)");
+        out.truncate(out.floor_char_boundary(max - MARK.len()));
+        out.push_str(MARK);
         out.shrink_to_fit();
     }
     out
@@ -344,13 +345,14 @@ mod tests {
 
     #[test]
     fn a_cut_event_is_always_marked_and_bounded() {
-        let marked = |s: &String| s.ends_with("…(truncated)") && s.len() < MAX_TEXT_BYTES + 32 && s.capacity() < MAX_TEXT_BYTES + 32;
+        let marked = |s: &String| s.ends_with("…(truncated)") && s.len() <= MAX_TEXT_BYTES && s.capacity() < MAX_TEXT_BYTES + 32;
         // Redaction shrinks this one far below the limit; the cut must still show.
         assert!(marked(&bounded(&format!("password={}", "a".repeat(40_000)), MAX_TEXT_BYTES)));
         assert!(marked(&bounded(&"é".repeat(20_000), MAX_TEXT_BYTES)));
         assert!(marked(&bounded(&"token=a ".repeat(10_000), MAX_TEXT_BYTES)), "redaction grows it past the limit");
         assert_eq!(bounded("short", MAX_TEXT_BYTES), "short");
-        assert!(bounded(&"t".repeat(1 << 20), MAX_TARGET_BYTES).len() < MAX_TARGET_BYTES + 32);
+        assert!(bounded(&"t".repeat(1 << 20), MAX_TARGET_BYTES).len() <= MAX_TARGET_BYTES);
+        assert!(bounded(&"token=a ".repeat(32), MAX_TARGET_BYTES).len() <= MAX_TARGET_BYTES);
     }
 
     #[test]
