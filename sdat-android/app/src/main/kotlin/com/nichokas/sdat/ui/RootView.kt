@@ -25,6 +25,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.window.DialogProperties
 import androidx.navigation3.runtime.NavEntry
 import com.nichokas.sdat.core.AppTab
 import com.nichokas.sdat.core.Boot
@@ -48,6 +49,10 @@ import io.github.neoruaa.glasmio.glass.GlassSurface
 import io.github.neoruaa.glasmio.icons.SfSymbol
 import io.github.neoruaa.glasmio.scaffold.navigation.GlasmioNavDisplay
 import io.github.neoruaa.glasmio.scaffold.navigation.GlasmioNavHeaderMotion
+import io.github.neoruaa.glasmio.ui.GlasmioAlertButtonLayout
+import io.github.neoruaa.glasmio.ui.GlasmioAlertButtonRole
+import io.github.neoruaa.glasmio.ui.GlasmioAlertButtonSpec
+import io.github.neoruaa.glasmio.ui.GlasmioAlertDialog
 import io.github.neoruaa.glasmio.ui.GlasmioTabItem
 
 private val AppTab.label get() = when (this) {
@@ -128,6 +133,7 @@ fun RootView(session: Session, playback: Playback, prefs: Preferences, secrets: 
             Chrome.playlistPickerTrack?.let { PlaylistPicker(it) { Chrome.playlistPickerTrack = null } }
             if (Live.showSheet) LiveSheet()
             if (Live.showScanner) ScannerSheet { Live.showScanner = false }
+            if (crashReporting.shouldAsk) CrashReportsPrompt(crashReporting)
             Toast(Chrome.toast, Modifier.align(Alignment.TopCenter))
             BootLoaderFadeOut()
         },
@@ -178,4 +184,20 @@ private fun Toast(text: String?, modifier: Modifier) {
             }
         }
     }
+}
+
+/** Asked once, the first time the main UI shows; only an answer closes it. */
+@Composable
+private fun CrashReportsPrompt(crashReporting: CrashReporting) {
+    GlasmioAlertDialog(
+        onDismissRequest = {},
+        title = "Send crash reports?",
+        message = "If SDAT crashes or hits an error, send a report to the developer so it can be fixed. Reports include the error, a stack trace and the app version, but no account details. You can change this in Settings > Diagnostics.",
+        buttonLayout = GlasmioAlertButtonLayout.Stacked,
+        properties = DialogProperties(dismissOnBackPress = false, dismissOnClickOutside = false, usePlatformDefaultWidth = false),
+        buttons = listOf(
+            GlasmioAlertButtonSpec("Send reports", { crashReporting.allow(true) }),
+            GlasmioAlertButtonSpec("Don't send", { crashReporting.allow(false) }, GlasmioAlertButtonRole.Cancel),
+        ),
+    )
 }
