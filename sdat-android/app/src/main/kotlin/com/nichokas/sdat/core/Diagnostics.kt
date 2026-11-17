@@ -11,9 +11,13 @@ import io.sentry.SentryEvent
 import io.sentry.SentryLevel
 import io.sentry.android.core.SentryAndroid
 import io.sentry.protocol.Message
+import java.io.IOException
 import uniffi.tonearm_ffi.DiagEvent
 import uniffi.tonearm_ffi.DiagLevel
 import uniffi.tonearm_ffi.DiagSink
+import uniffi.tonearm_ffi.FfiException
+import uniffi.tonearm_ffi.InternalException
+import uniffi.tonearm_ffi.diagRecord
 
 /** Errors and panics are reported; warnings and marks only ride along as breadcrumbs. */
 fun DiagEvent.isReportable(): Boolean = level == DiagLevel.ERROR || backtrace != null
@@ -90,4 +94,43 @@ class SentryReporter(private val context: Context) : ErrorReporter {
     }
 
     override fun stop() = Sentry.close()
+}
+
+/**
+ * Logs an error the UI shows to the user: a warning for failures caused by the user's situation or a third party
+ * (offline, signed out, 4xx, Last.fm, downloads), an error, which Sentry gets, for the rest.
+ */
+fun recordShownError(error: Throwable) {
+    if (error !is FfiException.Cancelled) {
+        val expected = error is FfiException.NotSignedIn || error is FfiException.Network ||
+            (error is FfiException.Http && error.status.toInt() < 500) || error is FfiException.LastFm ||
+            error is DownloadFailure || error is IOException ||
+            // A Rust panic: the core's panic hook already reported it with its own backtrace.
+            error is InternalException
+        runCatching {
+            diagRecord(
+                if (expected) DiagLevel.WARN else DiagLevel.ERROR,
+                "app",
+                diagSummary(error),
+                // A backtrace makes Sentry treat the event as a report, so only the unexpected ones carry it.
+                if (expected) null else error.stackTrace.joinToString("\n") { "\tat $it" },
+            )
+        }
+    }
+}
+
+/**
+ * Kind and status only: error details can hold request URLs or response bodies, and the log goes to logcat and,
+ * with consent, Sentry. The backtrace above is frames only for the same reason.
+ */
+private fun diagSummary(error: Throwable): String = when (error) {
+    is FfiException.NotSignedIn -> "Not signed in"
+    is FfiException.Network -> "Network error"
+    is FfiException.Http -> "HTTP ${error.status}"
+    is FfiException.Decode -> "Unexpected response"
+    is FfiException.LastFm -> "Last.fm error ${error.code}"
+    is FfiException -> "Other error"
+    is InternalException -> "Rust panic, reported by the core"
+    is DownloadFailure -> "Download failed"
+    else -> error.javaClass.name
 }
