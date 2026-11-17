@@ -29,9 +29,17 @@ pub fn preferred_country() -> Option<String> {
 }
 
 /// Saves the choice (`None` = automatic); pages loaded afterwards use it.
+/// A code not in [`countries`] is ignored.
 #[uniffi::export]
 pub fn set_preferred_country(code: Option<String>) {
-    country::set_preferred(code.as_deref().and_then(country::parse).as_deref());
+    match code {
+        None => country::set_preferred(None),
+        Some(c) => {
+            if let Some(c) = country::parse(&c) {
+                country::set_preferred(Some(&c));
+            }
+        }
+    }
 }
 
 /// What automatic resolves to: the account's country, else the IP's; `None`

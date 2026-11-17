@@ -8625,6 +8625,7 @@ public func preferredCountry() -> String?  {
 }
 /**
  * Saves the choice (`None` = automatic); pages loaded afterwards use it.
+ * A code not in [`countries`] is ignored.
  */
 public func setPreferredCountry(code: String?)  {try! rustCall() {
         uniffiCallStatus in
@@ -9288,7 +9289,7 @@ private let initializationResult: InitializationResult = {
     if (uniffi_tonearm_ffi_checksum_func_preferred_country() != 33325) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_tonearm_ffi_checksum_func_set_preferred_country() != 51587) {
+    if (uniffi_tonearm_ffi_checksum_func_set_preferred_country() != 28247) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_tonearm_ffi_checksum_func_diag_clear() != 4936) {
