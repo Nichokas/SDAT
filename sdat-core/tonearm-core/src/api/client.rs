@@ -7,7 +7,7 @@
 //! All functions are blocking; UI code runs them on a worker thread.
 
 use std::sync::{Mutex, OnceLock};
-use std::time::{Duration, Instant};
+use std::time::{Duration, Instant, SystemTime};
 
 use crate::error::{bail, bail_http, Context, CoreError, CoreResult as Result};
 use base64::Engine;
@@ -17,7 +17,6 @@ use serde::de::DeserializeOwned;
 use serde::Deserialize;
 
 use super::{legacy, openapi};
-use crate::diag::net::send;
 
 pub const CLIENT_VERSION: &str = "2025.12.13";
 pub const UNAUTHENTICATED_CLIENT_ID: &str = "txNoH4kkV41MfH25";
@@ -50,7 +49,9 @@ fn http() -> &'static Client {
 #[derive(Default)]
 struct CachedToken {
     token: String,
-    expiry: Option<Instant>,
+    /// Both clocks, expired once either passes: `Instant` stops while an iPhone sleeps
+    /// (`CLOCK_UPTIME_RAW`), and the wall clock can be set back.
+    expiry: Option<(Instant, SystemTime)>,
     /// Bumped by a reset, so a request started before it can't store its token.
     generation: u64,
 }
@@ -58,7 +59,7 @@ struct CachedToken {
 impl CachedToken {
     fn valid(&self) -> Option<String> {
         match self.expiry {
-            Some(e) if !self.token.is_empty() && Instant::now() < e => Some(self.token.clone()),
+            Some((mono, wall)) if !self.token.is_empty() && Instant::now() < mono && SystemTime::now() < wall => Some(self.token.clone()),
             _ => None,
         }
     }
@@ -70,8 +71,23 @@ static COUNTRY: std::sync::Mutex<Option<String>> = std::sync::Mutex::new(None);
 
 /// Forget the cached user access token (after sign-in/out).
 pub fn reset_user_token() {
-    let mut t = USER_TOKEN.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+    reset(&USER_TOKEN);
+}
+
+fn reset(cache: &Mutex<CachedToken>) {
+    let mut t = cache.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
     *t = CachedToken { generation: t.generation + 1, ..CachedToken::default() };
+}
+
+/// [`crate::diag::net::send`] that forgets the cached access tokens on a 401, so the next
+/// request gets new ones even when both expiry clocks were fooled (a sleep and a clock change).
+pub(crate) fn send(rb: RequestBuilder) -> reqwest::Result<Response> {
+    let resp = crate::diag::net::send(rb)?;
+    if resp.status() == StatusCode::UNAUTHORIZED {
+        reset(&USER_TOKEN);
+        reset(&OPENAPI_TOKEN);
+    }
+    Ok(resp)
 }
 
 #[derive(Deserialize)]
@@ -104,7 +120,8 @@ fn fetch_access_token(cache: &Mutex<CachedToken>, form: &[(&str, &str)]) -> Resu
     let t: AccessToken = resp.json()?;
     let mut c = cache.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
     if c.generation == generation {
-        *c = CachedToken { token: t.access_token.clone(), expiry: Some(Instant::now() + Duration::from_secs(t.expires_in)), generation };
+        let ttl = Duration::from_secs(t.expires_in);
+        *c = CachedToken { token: t.access_token.clone(), expiry: Some((Instant::now() + ttl, SystemTime::now() + ttl)), generation };
     }
     Ok(t.access_token)
 }
@@ -883,6 +900,29 @@ mod tests {
         assert_eq!(super::client_id().len(), 16);
         assert!(!super::client_secret().is_empty());
         assert_eq!(super::query_escape("a b/c"), "a+b%2Fc");
+    }
+
+    #[test]
+    fn unauthorized_response_forgets_the_cached_token() {
+        use std::io::{Read, Write};
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").expect("bind");
+        let addr = listener.local_addr().expect("addr");
+        std::thread::spawn(move || {
+            let (mut sock, _) = listener.accept().expect("accept");
+            let _ = sock.read(&mut [0u8; 1024]);
+            sock.write_all(b"HTTP/1.1 401 Unauthorized\r\nContent-Length: 0\r\nConnection: close\r\n\r\n").expect("write");
+        });
+        let _sending = crate::diag::net::SENDING.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        let far = std::time::Duration::from_secs(3600);
+        *super::USER_TOKEN.lock().expect("lock") = super::CachedToken {
+            token: "stale".into(),
+            expiry: Some((std::time::Instant::now() + far, std::time::SystemTime::now() + far)),
+            generation: 0,
+        };
+        assert_eq!(super::cached_user_token().as_deref(), Some("stale"));
+        let resp = super::send(super::http().get(format!("http://{addr}/"))).expect("send");
+        assert_eq!(resp.status(), reqwest::StatusCode::UNAUTHORIZED);
+        assert_eq!(super::cached_user_token(), None, "a 401 drops the token so the next request refreshes");
     }
 }
 
