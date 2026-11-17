@@ -205,7 +205,7 @@ fn bounded(text: &str, max: usize) -> String {
     let cut = text.floor_char_boundary(max);
     let mut out = redact::redact(&text[..cut]).into_owned();
     if cut < text.len() || out.len() > max {
-        out.truncate(out.floor_char_boundary(max - MARK.len()));
+        out.truncate(out.floor_char_boundary(max.saturating_sub(MARK.len())));
         out.push_str(MARK);
         out.shrink_to_fit();
     }
