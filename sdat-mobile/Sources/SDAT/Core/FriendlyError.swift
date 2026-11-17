@@ -26,12 +26,12 @@ func friendlyMessage(_ error: Error, file: StaticString = #fileID, line: UInt = 
     }
 }
 
-/// Offline, cancelled, signed-out and 4xx errors are expected: they stay in the log and become Sentry
+/// Offline, cancelled, signed-out, Last.fm and 4xx errors are expected: they stay in the log and become Sentry
 /// breadcrumbs, while anything else is reported as an error.
 private func diagLevel(for error: Error) -> DiagLevel {
     if error is URLError { return .warn }
     switch error as? FfiError {
-    case .Network?, .Cancelled?, .NotSignedIn?: return .warn
+    case .Network?, .Cancelled?, .NotSignedIn?, .LastFm?: return .warn
     case .Http(let status, _)? where status < 500: return .warn
     default: return .error
     }
