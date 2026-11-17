@@ -18,7 +18,10 @@ import uniffi.tonearm_ffi.DiagSink
 /** Errors and panics are reported; warnings and marks only ride along as breadcrumbs. */
 fun DiagEvent.isReportable(): Boolean = level == DiagLevel.ERROR || backtrace != null
 
-/** Gets the core's events on any thread: every one goes to logcat, and to Sentry while it runs. It must never throw. */
+/**
+ * Gets the core's warnings, errors, marks and panics on any thread: each goes to logcat, and to Sentry while it runs.
+ * It must never throw.
+ */
 object DiagLog : DiagSink {
     override fun onEvent(event: DiagEvent) {
         runCatching {
@@ -69,6 +72,15 @@ class SentryReporter(private val context: Context) : ErrorReporter {
             o.isEnableAutoSessionTracking = false
             o.isAttachScreenshot = false
             o.isAttachViewHierarchy = false
+            // Only the core's own warnings ride along with a report, not the SDK's automatic trail.
+            o.isEnableActivityLifecycleBreadcrumbs = false
+            o.isEnableAppLifecycleBreadcrumbs = false
+            o.isEnableSystemEventBreadcrumbs = false
+            o.isEnableAppComponentBreadcrumbs = false
+            o.isEnableNetworkEventBreadcrumbs = false
+            o.isEnableUserInteractionBreadcrumbs = false
+            // The SDK fills in a per-install id; the consent text promises nothing that identifies the user.
+            o.setBeforeSend { event, _ -> event.apply { user = null } }
         }
     }
 
