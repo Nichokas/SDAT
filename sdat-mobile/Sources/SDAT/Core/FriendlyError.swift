@@ -2,7 +2,9 @@ import Foundation
 
 /// Human-readable text for any error shown in the UI (never the raw FfiError dump).
 func friendlyMessage(_ error: Error) -> String {
-    diagRecord(level: diagLevel(for: error), target: "app", message: String(describing: error), backtrace: nil)
+    // A URLError's description carries the full failing URL, which can be a signed stream link.
+    let detail = (error as? URLError).map { "URLError \($0.code.rawValue)" } ?? String(describing: error)
+    diagRecord(level: diagLevel(for: error), target: "app", message: detail, backtrace: nil)
     guard let e = error as? FfiError else {
         if (error as? URLError) != nil { return "Can't reach TIDAL. Check your connection." }
         return "Something went wrong. Please try again."
