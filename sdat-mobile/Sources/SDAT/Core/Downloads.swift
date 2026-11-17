@@ -416,6 +416,12 @@ final class Downloads {
         return (nil, nil)
     }
 
+    /// The best variant's media playlist when `url` is an HLS master playlist, else nil.
+    static func bestVariantURL(of url: String) async -> URL? {
+        guard let (text, base) = try? await playlist(url, .shared), text.contains("#EXT-X-STREAM-INF") else { return nil }
+        return bestVariant(text, base: base)?.url
+    }
+
     /// Downloads with 3 attempts (backoff 1 s, 2 s).
     private static func get(_ u: URL, _ net: URLSession) async throws -> Data {
         var last: Error = URLError(.unknown)
