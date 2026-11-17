@@ -45,6 +45,7 @@ object Discover {
         if (tracks.isEmpty()) tracks = withContext(Dispatchers.IO) { cache.load() }
         val hadCache = tracks.isNotEmpty()
         val pool = CoverPool()
+        var cutShort = false
         try {
             mixes = homeMixes()
             Shuffle(mixes).use { source ->
@@ -54,8 +55,8 @@ object Discover {
                     } catch (e: CancellationException) {
                         throw e
                     } catch (e: Exception) {
-                        // A refresh cut short by the network keeps what arrived.
                         if (pool.tracks.isEmpty()) throw e
+                        cutShort = true
                         return@use
                     }
                     pool.add(batch)
@@ -65,7 +66,9 @@ object Discover {
                     if (pool.tracks.size >= POOL_TARGET) return@use
                 }
             }
-            loaded = pool.tracks.isNotEmpty()
+            // A refresh cut short by the network shows what arrived, but keeps the saved pool and is retried on the
+            // next load.
+            loaded = pool.tracks.isNotEmpty() && !cutShort
             if (loaded) pool.tracks.toList().let { withContext(Dispatchers.IO) { cache.save(it, epoch) } }
             if (pool.tracks.isEmpty() && !hadCache) error = "Your home mixes have no covers yet."
         } catch (e: CancellationException) {

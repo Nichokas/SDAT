@@ -166,7 +166,7 @@ impl InfiniteShuffle {
     }
 
     /// At least `min` new tracks unless every source and seed is exhausted
-    /// (then fewer, possibly none). A source or seed that fails is skipped
+    /// or failed (then fewer, possibly none). A source or seed that fails is skipped
     /// for this call and kept for the next; a call that failed without
     /// finding any track returns the error, so an outage is not mistaken
     /// for the end of the shuffle.
