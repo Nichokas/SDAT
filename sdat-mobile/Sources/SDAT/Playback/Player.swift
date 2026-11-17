@@ -633,10 +633,10 @@ final class Player {
         invalidatePreload()
     }
 
-    /// Re-requests the current track's manifest after a quality change, keeping the position.
+    /// A track not loaded yet (restored, or a failed start) fetches the new quality on its first play.
     func reloadQuality() {
-        guard let t = current else { return }
-        start(t, resumeAt: position)
+        guard let t = current, !needsStart, !isOffline else { return }
+        start(t, resumeAt: position, autoplay: isPlaying || (loading && !pausedByUser))
     }
 
     // MARK: internals
