@@ -122,7 +122,7 @@ pub fn entry_row(dialog: &adw::PreferencesDialog) -> adw::ActionRow {
 }
 
 struct Live {
-    dialog: adw::PreferencesDialog,
+    dialog: glib::WeakRef<adw::PreferencesDialog>,
     uptime: adw::ActionRow,
     cpu: adw::ActionRow,
     memory: adw::ActionRow,
@@ -160,8 +160,9 @@ impl Live {
     }
 
     fn rebuild_list(&self) {
-        while let Some(child) = self.list.first_child() {
-            self.list.remove(&child);
+        // Rows only: the placeholder is a child of the list as well.
+        while let Some(row) = self.list.row_at_index(0) {
+            self.list.remove(&row);
         }
         let filter = LevelFilter::from_index(self.filter.selected());
         for event in self.events.borrow().iter().rev().filter(|e| filter.passes(e.level)).take(SHOWN_EVENTS) {
@@ -180,7 +181,7 @@ impl Live {
         if event.backtrace.is_some() {
             row.set_activatable(true);
             with_chevron(&row);
-            let (d, text) = (self.dialog.downgrade(), event.to_string());
+            let (d, text) = (self.dialog.clone(), event.to_string());
             row.connect_activated(move |_| {
                 if let Some(d) = d.upgrade() {
                     present_text(&d, &tr("Stack trace"), &text);
@@ -244,7 +245,7 @@ fn page(dialog: &adw::PreferencesDialog) -> adw::NavigationPage {
     prefs.add(&log);
 
     let live = Rc::new(Live {
-        dialog: dialog.clone(),
+        dialog: dialog.downgrade(),
         uptime,
         cpu,
         memory,
@@ -255,8 +256,12 @@ fn page(dialog: &adw::PreferencesDialog) -> adw::NavigationPage {
         last_seq: Cell::new(0),
         stale: Cell::new(true),
     });
-    let l = Rc::clone(&live);
-    filter.connect_selected_notify(move |_| l.rebuild_list());
+    let l = Rc::downgrade(&live);
+    filter.connect_selected_notify(move |_| {
+        if let Some(l) = l.upgrade() {
+            l.rebuild_list();
+        }
+    });
 
     let test_error = action_row(&tr("Send test error"), &tr("Records an error and sends it, to check that reports arrive"));
     test_error.connect_activated({
@@ -393,7 +398,7 @@ fn crash_reports(test_error: &adw::ActionRow) -> adw::PreferencesGroup {
     let group = adw::PreferencesGroup::builder().title(tr("Crash reports")).build();
     let row = adw::SwitchRow::builder()
         .title(tr("Send crash reports"))
-        .subtitle(tr("If SDAT crashes or hits an error, send a report to the developer. Reports include the error, a stack trace and the app version, but no account details."))
+        .subtitle(tr("If SDAT crashes or hits an error, send a report to the developer. Reports include the error, a stack trace, the app version and the OS version, but no account details."))
         .active(settings::crash_reports() == Consent::Allowed)
         .build();
     let test_error = test_error.downgrade();
@@ -414,7 +419,7 @@ pub fn ask_consent_once(window: &adw::ApplicationWindow) {
     }
     let ad = adw::AlertDialog::new(
         Some(&tr("Send crash reports?")),
-        Some(&tr("If SDAT crashes or hits an error, send a report to the developer so it can be fixed. Reports include the error, a stack trace and the app version, but no account details. You can change this in Settings > Diagnostics.")),
+        Some(&tr("If SDAT crashes or hits an error, send a report to the developer so it can be fixed. Reports include the error, a stack trace, the app version and the OS version, but no account details. You can change this in Settings > Diagnostics.")),
     );
     ad.add_response("deny", &tr("Don't send"));
     ad.add_response("allow", &tr("Send reports"));

@@ -135,6 +135,12 @@ impl Sink for SentrySink {
                 level: sentry::Level::Error,
                 ..Default::default()
             });
+            // The panic hook aborts right after this returns, before the transport thread could send.
+            if event.target == "panic"
+                && let Some(client) = hub.client()
+            {
+                client.flush(Some(FLUSH));
+            }
         } else {
             main.add_breadcrumb(Breadcrumb {
                 category: Some(event.target.clone()),
