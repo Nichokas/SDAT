@@ -42,7 +42,7 @@ struct LiveSheet: View {
                 Section {
                     QRCode(text: invite).frame(maxWidth: .infinity).padding(.vertical, 8)
                     ShareLink(item: invite) { Label("Share link", systemImage: "square.and.arrow.up") }
-                } footer: { Text("Friends scan this from My Collection.") }
+                } footer: { Text("Friends scan this from Listen Together.") }
             }
             Section {
                 Toggle("Allow guests to control playback", isOn: Binding(
