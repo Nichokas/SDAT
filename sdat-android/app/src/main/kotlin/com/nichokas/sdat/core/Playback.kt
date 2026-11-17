@@ -1018,3 +1018,10 @@ internal fun tapAction(unprepared: Boolean, ended: Boolean, playWhenReady: Boole
     playWhenReady -> Tap.Pause
     else -> Tap.Resume
 }
+
+/** A failed stream gets one fresh URL per track per [RETRY_WINDOW_MS]: a dead URL fails again within seconds, an
+ * expired one hours later. [last] is the track and time of the previous refetch. */
+internal fun refetchDue(last: Pair<String, Long>?, trackId: String, now: Long) =
+    last == null || last.first != trackId || now - last.second >= RETRY_WINDOW_MS
+
+internal const val RETRY_WINDOW_MS = 60_000L
