@@ -81,9 +81,8 @@ struct DiscoverView: View {
                 let batch: [Track]
                 do {
                     batch = try await source.nextBatch(min: hadCache || !pool.isEmpty ? 80 : 30)
-                } catch {
+                } catch let e where !pool.isEmpty && !(e is CancellationError) {
                     // A refresh cut short by the network keeps what arrived.
-                    if pool.isEmpty { throw error }
                     break
                 }
                 for t in batch {
