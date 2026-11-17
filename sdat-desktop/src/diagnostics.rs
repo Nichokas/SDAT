@@ -18,8 +18,9 @@ const FLUSH: Duration = Duration::from_secs(2);
 
 static CLIENT: Mutex<Option<Arc<sentry::Client>>> = Mutex::new(None);
 
+/// A DSN that does not parse counts as none, so the prompt and the switch never offer reports that cannot go out.
 fn dsn() -> Option<&'static str> {
-    DSN.map(str::trim).filter(|d| !d.is_empty())
+    DSN.map(str::trim).filter(|d| d.parse::<sentry::types::Dsn>().is_ok())
 }
 
 /// Whether this build can send reports at all and keep the user's answer. When not, the prompt and the switch
@@ -60,23 +61,23 @@ pub fn report_header() -> String {
 /// Makes Sentry match the stored consent: started when this build has a DSN and reports are allowed,
 /// closed otherwise. Calling it again changes nothing.
 pub fn apply() {
-    let wanted = available() && settings::crash_reports() == Consent::Allowed;
-    match (wanted, dsn()) {
-        (true, Some(dsn)) => open(dsn),
+    sync(settings::crash_reports());
+}
+
+/// Acts on the answer itself, not on what was stored: a failed save must not keep reports going after a no.
+pub fn set_consent(consent: Consent) {
+    settings::set_crash_reports(consent);
+    sync(consent);
+}
+
+fn sync(consent: Consent) {
+    match dsn() {
+        Some(dsn) if consent == Consent::Allowed && settings::crash_reports_supported() => open(dsn),
         _ => close(),
     }
 }
 
-pub fn set_consent(consent: Consent) {
-    settings::set_crash_reports(consent);
-    apply();
-}
-
 fn open(dsn: &str) {
-    if dsn.parse::<sentry::types::Dsn>().is_err() {
-        log::warn!("the Sentry DSN of this build is not valid; crash reports stay off");
-        return;
-    }
     // Defaults on purpose: no default PII, no tracing, no sessions. The `panic` and `contexts` features of the
     // sentry crate are off: the diag panic hook already reports panics, and contexts would send the host name.
     let options = sentry::ClientOptions::new().dsn(dsn).release(format!("sdat-desktop@{}", app_version())).environment("production");
