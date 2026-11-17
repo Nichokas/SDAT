@@ -1,5 +1,6 @@
 use std::backtrace::Backtrace;
 use std::io::Write;
+use std::sync::atomic::{AtomicBool, Ordering};
 
 use log::{LevelFilter, Log, Metadata, Record};
 
@@ -43,10 +44,21 @@ fn install_panic_hook() {
     }));
 }
 
+static OWNS_LOGGER: AtomicBool = AtomicBool::new(false);
+
+/// Whether `log` records reach diagnostics; only then is the `log` max level ours to change.
+pub(super) fn owns_logger() -> bool {
+    OWNS_LOGGER.load(Ordering::Relaxed)
+}
+
 pub(super) fn install() {
-    // Another logger installed first keeps its place; the panic hook and the buffer still work.
-    let _ = log::set_logger(&LOGGER);
-    log::set_max_level(LevelFilter::Info);
+    // Another logger installed first keeps its place and its level; panics and `record` still work.
+    if log::set_logger(&LOGGER).is_ok() {
+        OWNS_LOGGER.store(true, Ordering::Relaxed);
+        log::set_max_level(LevelFilter::Info);
+    } else {
+        ingest(Level::Warn, "diag", "another log logger was installed first: log records do not reach diagnostics", None, true);
+    }
     install_panic_hook();
 }
 
