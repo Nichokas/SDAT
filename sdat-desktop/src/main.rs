@@ -64,6 +64,7 @@ fn on_activate(app: &adw::Application) {
         log::error!("Secret service health check failed title={} fatal={}", err.title, err.fatal);
         ui::window::present_secret_service_error(&window, &err);
     }
+    ui::diagnostics::ask_consent_once(&window);
 }
 
 fn main() -> glib::ExitCode {

@@ -806,6 +806,7 @@ fn present_preferences(window: &adw::ApplicationWindow) {
                 &[entry_row(&tr("Default Page"), &gen_s, "default-page").upcast_ref(), history.upcast_ref()],
             ),
             group(&tr("TIDAL Settings"), &tr("TIDAL-specific settings for advanced users"), &[country_row().upcast_ref(), base.upcast_ref()]),
+            group(&tr("Diagnostics"), "", &[crate::ui::diagnostics::entry_row(&d).upcast_ref()]),
         ],
     ));
 
