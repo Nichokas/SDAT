@@ -1,10 +1,9 @@
 import Foundation
 
 /// Human-readable text for any error shown in the UI (never the raw FfiError dump).
-func friendlyMessage(_ error: Error) -> String {
-    // A URLError's description carries the full failing URL, which can be a signed stream link.
-    let detail = (error as? URLError).map { "URLError \($0.code.rawValue)" } ?? String(describing: error)
-    diagRecord(level: diagLevel(for: error), target: "app", message: detail, backtrace: nil)
+func friendlyMessage(_ error: Error, file: StaticString = #fileID, line: UInt = #line) -> String {
+    diagRecord(level: diagLevel(for: error), target: "app", message: "\(diagSummary(error)) at \(file):\(line)",
+               backtrace: nil)
     guard let e = error as? FfiError else {
         if (error as? URLError) != nil { return "Can't reach TIDAL. Check your connection." }
         return "Something went wrong. Please try again."
@@ -35,5 +34,26 @@ private func diagLevel(for error: Error) -> DiagLevel {
     case .Network?, .Cancelled?, .NotSignedIn?: return .warn
     case .Http(let status, _)? where status < 500: return .warn
     default: return .error
+    }
+}
+
+/// Kind and status only: error details can hold request URLs or response bodies, and the log goes to
+/// os_log and, with consent, Sentry.
+private func diagSummary(_ error: Error) -> String {
+    switch error {
+    case let e as URLError: return "URLError \(e.code.rawValue)"
+    case let e as FfiError:
+        switch e {
+        case .NotSignedIn: return "Not signed in"
+        case .Network: return "Network error"
+        case .Http(let status, _): return "HTTP \(status)"
+        case .Decode: return "Unexpected response"
+        case .LastFm(let code, _): return "Last.fm error \(code)"
+        case .Cancelled: return "Cancelled"
+        case .Other: return "Other error"
+        }
+    default:
+        let ns = error as NSError
+        return "\(ns.domain) \(ns.code)"
     }
 }
