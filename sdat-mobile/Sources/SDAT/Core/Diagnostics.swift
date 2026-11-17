@@ -1,5 +1,6 @@
 import Foundation
 import Observation
+import os
 import OSLog
 import Sentry
 
@@ -48,6 +49,7 @@ final class Diagnostics {
         let want = available && consent == .allowed
         guard want != sentryRunning else { return }
         if want {
+            defer { DiagnosticsSink.reporting.withLock { $0 = true } }
             let version = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "dev"
             let dsn = dsn
             SentrySDK.start { options in
@@ -74,16 +76,21 @@ final class Diagnostics {
                 }
             }
         } else {
+            // Before closing, so no event can slip in while the SDK shuts down.
+            DiagnosticsSink.reporting.withLock { $0 = false }
             SentrySDK.close()
         }
         sentryRunning = want
     }
 }
 
-/// Forwards the core's events to Sentry and the system log. Called from Rust on any thread, so it holds no
-/// state and never throws. The core keeps this one sink for the whole run, so it checks
-/// `SentrySDK.isEnabled` on every event: consent given or withdrawn later takes effect at once.
+/// Forwards the core's events to Sentry and the system log. Called from Rust on any thread and never throws.
+/// The core keeps this one sink for the whole run, so it checks `reporting` on every event: consent given or
+/// withdrawn later takes effect at once.
 final class DiagnosticsSink: DiagSink, Sendable {
+    /// True only while Sentry runs with the user's consent.
+    static let reporting = OSAllocatedUnfairLock(initialState: false)
+
     func onEvent(event: DiagEvent) {
         let log = Logger(subsystem: Bundle.main.bundleIdentifier ?? "com.nichokas.SDAT", category: event.target)
         switch event.level {
@@ -93,7 +100,7 @@ final class DiagnosticsSink: DiagSink, Sendable {
         case .debug, .trace: log.debug("\(event.message, privacy: .public)")
         }
 
-        guard SentrySDK.isEnabled else { return }
+        guard Self.reporting.withLock({ $0 }) else { return }
         if event.level == .error || event.backtrace != nil {
             let sentryEvent = Event(level: .error)
             sentryEvent.message = SentryMessage(formatted: event.message)
