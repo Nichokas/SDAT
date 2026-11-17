@@ -200,7 +200,8 @@ fun SettingsView(session: Session, prefs: Preferences, secrets: Secrets, crashRe
         }
         item {
             Section("Developer") {
-                GlasmioListRow("Erase all app data", titleColor = destructive, showTopSeparator = false, showDisclosure = false, onClick = { confirmErase = true })
+                GlasmioListRow("Diagnostics", showTopSeparator = false, onClick = { Chrome.push(Route.Diagnostics) })
+                GlasmioListRow("Erase all app data", titleColor = destructive, showDisclosure = false, onClick = { confirmErase = true })
             }
             GlasmioGroupedTableFooter("Signs out and deletes the TIDAL session, Last.fm and ListenBrainz tokens, settings, caches and stored files.")
         }
@@ -225,13 +226,13 @@ fun SettingsView(session: Session, prefs: Preferences, secrets: Secrets, crashRe
 }
 
 @Composable
-private fun Section(title: String, content: @Composable () -> Unit) {
+internal fun Section(title: String, content: @Composable () -> Unit) {
     GlasmioSectionTitle(title)
     GlasmioGroupedList { content() }
 }
 
 @Composable
-private fun ToggleRow(title: String, checked: Boolean, onChange: (Boolean) -> Unit, first: Boolean = false) {
+internal fun ToggleRow(title: String, checked: Boolean, onChange: (Boolean) -> Unit, first: Boolean = false) {
     GlasmioListRow(title, showTopSeparator = !first, trailing = { GlasmioSwitch(checked, onChange) })
 }
 
