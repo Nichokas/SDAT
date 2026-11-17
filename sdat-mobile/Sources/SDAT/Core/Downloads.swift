@@ -416,10 +416,21 @@ final class Downloads {
         return (nil, nil)
     }
 
-    /// The best variant's media playlist when `url` is an HLS master playlist, else nil.
+    /// The best variant's media playlist when `url` is an HLS master playlist, else nil. One quick
+    /// try: playback falls back to `url` rather than wait.
     static func bestVariantURL(of url: String) async -> URL? {
-        guard let (text, base) = try? await playlist(url, .shared), text.contains("#EXT-X-STREAM-INF") else { return nil }
+        guard let (text, base) = await quickPlaylist(url), text.contains("#EXT-X-STREAM-INF") else { return nil }
         return bestVariant(text, base: base)?.url
+    }
+
+    private static func quickPlaylist(_ url: String) async -> (String, URL?)? {
+        if url.hasPrefix("data:") { return try? await playlist(url, .shared) }
+        guard let u = URL(string: url), !u.isFileURL,
+              let (d, r) = try? await URLSession.shared.data(for: URLRequest(url: u, timeoutInterval: 5)),
+              (r as? HTTPURLResponse).map({ (200..<300).contains($0.statusCode) }) ?? false,
+              let text = String(data: d, encoding: .utf8) else { return nil }
+        // Relative variant paths are relative to where a redirect led.
+        return (text, r.url ?? u)
     }
 
     /// Downloads with 3 attempts (backoff 1 s, 2 s).
