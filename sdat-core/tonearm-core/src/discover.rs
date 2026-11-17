@@ -58,15 +58,14 @@ pub fn track_radio_source(track_id: &str) -> Result<Option<PageSource>> {
     Ok(service::get_track_radio(track_id)?.map(|r| paginator_source(service::get_playlist_tracks(&r.id))))
 }
 
-/// A source opened on its first turn (`None` from `open` = empty source).
-fn lazy(open: impl FnOnce() -> Result<Option<PageSource>> + Send + 'static) -> PageSource {
-    let mut open = Some(open);
-    let mut inner: Option<PageSource> = None;
+/// A source opened on its first turn (`None` from `open` = empty source); a failed open is retried on the next.
+fn lazy(mut open: impl FnMut() -> Result<Option<PageSource>> + Send + 'static) -> PageSource {
+    let mut inner: Option<Option<PageSource>> = None;
     Box::new(move || {
-        if let Some(f) = open.take() {
-            inner = f()?;
+        if inner.is_none() {
+            inner = Some(open()?);
         }
-        match inner.as_mut() {
+        match inner.as_mut().and_then(Option::as_mut) {
             Some(next) => next(),
             None => Ok(None),
         }
@@ -142,7 +141,14 @@ impl InfiniteShuffle {
             sources.push(lazy(|| {
                 Ok(random_favourite(&state::ARTISTS)?.map(|id| {
                     let mut once = Some(id);
-                    Box::new(move || once.take().map(|id| crate::explore::get_artist_overview(&id).map(|o| o.1)).transpose()) as PageSource
+                    Box::new(move || match &once {
+                        Some(id) => {
+                            let top = crate::explore::get_artist_overview(id)?.1;
+                            once = None;
+                            Ok(Some(top))
+                        }
+                        None => Ok(None),
+                    }) as PageSource
                 }))
             }));
             sources.push(lazy(|| match random_favourite(&state::TRACKS)? {
@@ -160,16 +166,26 @@ impl InfiniteShuffle {
     }
 
     /// At least `min` new tracks unless every source and seed is exhausted
-    /// (then fewer, possibly none). Failing sources are dropped and logged.
+    /// or failed (then fewer, possibly none). A source or seed that fails is skipped
+    /// for this call and kept for the next; a call that failed without
+    /// finding any track returns the error, so an outage is not mistaken
+    /// for the end of the shuffle.
     pub fn next_batch(&mut self, min: usize) -> Result<Vec<Track>> {
         let mut out = Vec::new();
+        let mut failed_sources = Vec::new();
+        let mut failed_seeds = Vec::new();
+        let mut error = None;
         while out.len() < min {
             let Some(mut src) = self.sources.pop_front() else {
                 let Some(seed) = self.seeds.pop_front() else { break };
                 match (self.radio)(&seed) {
                     Ok(Some(next)) => self.sources.push_back(Source { next, buffer: vec![], done: false }),
                     Ok(None) => {}
-                    Err(e) => log::warn!("shuffle: radio of {seed} failed: {e}"),
+                    Err(e) => {
+                        log::warn!("shuffle: radio of {seed} failed: {e}");
+                        failed_seeds.push(seed);
+                        error = Some(e);
+                    }
                 }
                 continue;
             };
@@ -183,6 +199,8 @@ impl InfiniteShuffle {
                     Ok(None) => src.done = true,
                     Err(e) => {
                         log::warn!("shuffle: source failed: {e}");
+                        failed_sources.push(src);
+                        error = Some(e);
                         continue;
                     }
                 }
@@ -193,7 +211,7 @@ impl InfiniteShuffle {
             {
                 if self.seen.insert(t.id().to_string()) {
                     self.picked += 1;
-                    if self.picked.is_multiple_of(SEED_EVERY) && self.seeds.len() < MAX_SEEDS {
+                    if self.picked.is_multiple_of(SEED_EVERY) && self.seeds.len() + failed_seeds.len() < MAX_SEEDS {
                         self.seeds.push_back(t.id().to_string());
                     }
                     out.push(t);
@@ -204,13 +222,22 @@ impl InfiniteShuffle {
                 self.sources.push_back(src);
             }
         }
-        Ok(out)
+        self.sources.extend(failed_sources);
+        self.seeds.extend(failed_seeds);
+        match error {
+            Some(e) if out.is_empty() => Err(e),
+            _ => Ok(out),
+        }
     }
 }
 
 #[cfg(test)]
 mod tests {
+    use std::sync::Arc;
+    use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
+
     use super::*;
+    use crate::error::CoreError;
     use crate::model::TrackInfo;
 
     fn track(id: &str) -> Track {
@@ -262,11 +289,84 @@ mod tests {
         assert!(ids.iter().any(|i| i.starts_with('r')), "radio songs follow the exhausted mix: {ids:?}");
     }
 
+    /// Fails while `down` is set, then serves `inner`.
+    fn flaky(down: &Arc<AtomicBool>, mut inner: PageSource) -> PageSource {
+        let down = Arc::clone(down);
+        Box::new(move || if down.load(Ordering::SeqCst) { Err(CoreError::Network("down".into())) } else { inner() })
+    }
+
     #[test]
-    fn failing_source_is_dropped() {
-        let bad: PageSource = Box::new(|| Err(crate::error::CoreError::Network("down".into())));
+    fn failing_source_does_not_block_the_others() {
+        let bad: PageSource = Box::new(|| Err(CoreError::Network("down".into())));
         let mut s = InfiniteShuffle::new(vec![bad, source("a", 1, 3)], Box::new(|_| Ok(None)));
         assert_eq!(s.next_batch(3).expect("batch").len(), 3);
+    }
+
+    #[test]
+    fn outage_is_an_error_and_sources_recover_after_it() {
+        let down = Arc::new(AtomicBool::new(true));
+        let opened = lazy({
+            let down = Arc::clone(&down);
+            move || if down.load(Ordering::SeqCst) { Err(CoreError::Network("down".into())) } else { Ok(Some(source("l", 1, 3))) }
+        });
+        let mut s = InfiniteShuffle::new(vec![flaky(&down, source("a", 1, 3)), opened], Box::new(|_| Ok(None)));
+        assert!(s.next_batch(3).is_err(), "an outage is not an exhausted source");
+        down.store(false, Ordering::SeqCst);
+        let ids: Vec<String> = s.next_batch(6).expect("batch").iter().map(|t| t.id().to_string()).collect();
+        assert_eq!(ids.len(), 6, "both sources serve again: {ids:?}");
+        assert!(ids.iter().any(|i| i.starts_with('l')), "the lazy source opens after a failed open: {ids:?}");
+    }
+
+    #[test]
+    fn failed_radio_keeps_its_seed() {
+        let down = Arc::new(AtomicBool::new(true));
+        let radio_down = Arc::clone(&down);
+        let mut s = InfiniteShuffle::new(
+            vec![source("a", 1, 4)],
+            Box::new(move |_| if radio_down.load(Ordering::SeqCst) { Err(CoreError::Network("down".into())) } else { Ok(Some(source("r", 1, 4))) }),
+        );
+        assert_eq!(s.next_batch(4).expect("batch").len(), 4);
+        assert!(s.next_batch(4).is_err(), "only failed radios left");
+        down.store(false, Ordering::SeqCst);
+        assert!(s.next_batch(4).expect("batch").iter().all(|t| t.id().starts_with('r')), "the seed's radio plays once it works");
+    }
+
+    #[test]
+    fn offline_batch_tries_each_source_and_seed_once() {
+        let source_calls = Arc::new(AtomicUsize::new(0));
+        let radio_calls = Arc::new(AtomicUsize::new(0));
+        let (sc, rc) = (Arc::clone(&source_calls), Arc::clone(&radio_calls));
+        let failing: PageSource = Box::new(move || {
+            sc.fetch_add(1, Ordering::SeqCst);
+            Err(CoreError::Network("down".into()))
+        });
+        let mut s = InfiniteShuffle::new(
+            vec![failing],
+            Box::new(move |_| {
+                rc.fetch_add(1, Ordering::SeqCst);
+                Err(CoreError::Network("down".into()))
+            }),
+        );
+        s.seeds.extend(["s1".to_string(), "s2".to_string()]);
+        assert!(s.next_batch(10).is_err());
+        assert_eq!(source_calls.load(Ordering::SeqCst), 1, "source tried once");
+        assert_eq!(radio_calls.load(Ordering::SeqCst), 2, "each seed tried once");
+        assert!(s.next_batch(10).is_err());
+        assert_eq!(source_calls.load(Ordering::SeqCst), 2, "retried on the next call");
+    }
+
+    #[test]
+    fn failed_seeds_count_towards_the_seed_cap() {
+        let calls = AtomicUsize::new(0);
+        let mut s = InfiniteShuffle::new(
+            vec![source("a", 1, 8)],
+            Box::new(move |_| {
+                if calls.fetch_add(1, Ordering::SeqCst) == 0 { Err(CoreError::Network("down".into())) } else { Ok(Some(source("r", 1, 100))) }
+            }),
+        );
+        assert_eq!(s.next_batch(8).expect("batch").len(), 8);
+        assert_eq!(s.next_batch(100).expect("batch").len(), 100);
+        assert!(s.seeds.len() <= MAX_SEEDS, "{} seeds", s.seeds.len());
     }
 
     #[test]

@@ -45,18 +45,30 @@ object Discover {
         if (tracks.isEmpty()) tracks = withContext(Dispatchers.IO) { cache.load() }
         val hadCache = tracks.isNotEmpty()
         val pool = CoverPool()
+        var cutShort = false
         try {
             mixes = homeMixes()
             Shuffle(mixes).use { source ->
                 repeat(10) {
-                    pool.add(source.nextBatch(if (hadCache || pool.tracks.isNotEmpty()) 80u else 30u))
+                    val batch = try {
+                        source.nextBatch(if (hadCache || pool.tracks.isNotEmpty()) 80u else 30u)
+                    } catch (e: CancellationException) {
+                        throw e
+                    } catch (e: Exception) {
+                        if (pool.tracks.isEmpty()) throw e
+                        cutShort = true
+                        return@use
+                    }
+                    pool.add(batch)
                     // The plane's layout depends on the pool size, so only the first covers and the
                     // final pool are published: tiles on screen change at most once, as on iOS.
                     if (tracks.isEmpty()) tracks = pool.tracks.toList()
                     if (pool.tracks.size >= POOL_TARGET) return@use
                 }
             }
-            loaded = pool.tracks.isNotEmpty()
+            // A refresh cut short by the network shows what arrived, but keeps the saved pool and is retried on the
+            // next load.
+            loaded = pool.tracks.isNotEmpty() && !cutShort
             if (loaded) pool.tracks.toList().let { withContext(Dispatchers.IO) { cache.save(it, epoch) } }
             if (pool.tracks.isEmpty() && !hadCache) error = "Your home mixes have no covers yet."
         } catch (e: CancellationException) {

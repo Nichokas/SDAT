@@ -78,7 +78,14 @@ struct DiscoverView: View {
             var pool: [Track] = []
             var ids = Set<String>(), albums = Set<String>(), covers = Set<String>()
             for _ in 0..<10 {
-                for t in try await source.nextBatch(min: hadCache || !pool.isEmpty ? 80 : 30) {
+                let batch: [Track]
+                do {
+                    batch = try await source.nextBatch(min: hadCache || !pool.isEmpty ? 80 : 30)
+                } catch where !pool.isEmpty && !Task.isCancelled {
+                    // A refresh cut short by the network keeps what arrived.
+                    break
+                }
+                for t in batch {
                     guard let a = t.album, let c = a.coverUrl else { continue }
                     if ids.insert(t.id).inserted, albums.insert(a.id).inserted, covers.insert(c).inserted { pool.append(t) }
                 }
@@ -86,9 +93,8 @@ struct DiscoverView: View {
                 if !hadCache, tracks.isEmpty, !pool.isEmpty { tracks = pool }
                 if pool.count >= 320 { break }
             }
-            // Sources that fail are skipped, not thrown: a refresh cut short by the network
-            // ends with few or no covers, and saving it would open the next launch on a few
-            // covers repeated.
+            // A refresh cut short by the network can end with few covers, and saving it would
+            // open the next launch on a few covers repeated.
             if pool.count >= Boot.targetCovers {
                 DiscoverCache.save(pool)
                 upcoming = pool
