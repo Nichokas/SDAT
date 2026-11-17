@@ -22,6 +22,16 @@
 			<summary>Handoff installation key</summary>
 			<description>Identifies this install as a player of the TIDAL account, to continue playback on other devices</description>
 		</key>
+		<key name="crash-reports" type="s">
+			<choices>
+				<choice value="unset"/>
+				<choice value="allowed"/>
+				<choice value="denied"/>
+			</choices>
+			<default>'unset'</default>
+			<summary>Crash reports</summary>
+			<description>Whether errors and crashes are sent to the developer. Stays unset until the user answers the first-launch prompt</description>
+		</key>
     	<key name="window-height" type="i">
     		<default>920</default>
     		<summary>Window Height</summary>
