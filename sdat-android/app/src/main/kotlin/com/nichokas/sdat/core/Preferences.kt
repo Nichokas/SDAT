@@ -4,10 +4,12 @@ import android.content.Context
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.core.content.edit
+import java.io.File
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.MainScope
 import kotlinx.coroutines.launch
 import uniffi.tonearm_ffi.Quality
+import uniffi.tonearm_ffi.diagClear
 import uniffi.tonearm_ffi.handoffNewInstallationKey
 
 /** Picker order, keys and copy as on iOS. */
@@ -122,8 +124,11 @@ fun eraseAll(context: Context, session: Session, prefs: Preferences, secrets: Se
     secrets.clear()
     prefs.clear()
     crashReporting.reset()
+    diagClear()
     Vault.forget()
     eraseScope.launch(Dispatchers.IO) {
-        listOf(context.cacheDir, context.filesDir).forEach { dir -> dir.listFiles()?.forEach { it.deleteRecursively() } }
+        // diagClear emptied the diagnostics files; the core keeps diag.log open, so its directory stays.
+        val diag = File(context.filesDir, "diag")
+        listOf(context.cacheDir, context.filesDir).forEach { dir -> dir.listFiles()?.filter { it != diag }?.forEach { it.deleteRecursively() } }
     }
 }
