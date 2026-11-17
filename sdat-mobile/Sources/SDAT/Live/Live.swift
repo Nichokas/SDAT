@@ -441,7 +441,8 @@ final class Live {
         // Reload also when our copy ended (host repeating the same song).
         if player.current?.id != trackId || (!player.liveHasItem && !player.loading) {
             guard switching != trackId else { return }
-            if let l = loaded, l.id == trackId, Date().timeIntervalSince(l.at) < Self.reloadInterval { return }
+            // Only a reload of the track already here is limited: the host may come back to a track within the interval.
+            if player.current?.id == trackId, let l = loaded, l.id == trackId, Date().timeIntervalSince(l.at) < Self.reloadInterval { return }
             switching = trackId
             let gen = generation
             Task {

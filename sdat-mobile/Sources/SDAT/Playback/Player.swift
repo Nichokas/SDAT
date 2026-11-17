@@ -821,11 +821,14 @@ final class Player {
     private func streamFailed(_ item: AVPlayerItem) {
         guard item === playingItem, let t = current else { return }
         let now = Date()
-        guard Self.refetchDue(refetched, t.id, now: now) else {
-            fail(item.error.map { friendlyMessage($0) } ?? "This track can't be played right now.")
-            return
+        // A broken download spends no budget: a new play picks the same file again, and only its online stream can help.
+        if !isOffline {
+            guard Self.refetchDue(refetched, t.id, now: now) else {
+                fail(item.error.map { friendlyMessage($0) } ?? "This track can't be played right now.")
+                return
+            }
+            refetched = (t.id, now)
         }
-        refetched = (t.id, now)
         // While a start loads, `position` follows the engine, not where the start was meant to begin.
         restart(t, at: loadResumeAt ?? position)
     }
