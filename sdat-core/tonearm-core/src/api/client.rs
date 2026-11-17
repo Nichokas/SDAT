@@ -7,7 +7,7 @@
 //! All functions are blocking; UI code runs them on a worker thread.
 
 use std::sync::{Mutex, OnceLock};
-use std::time::{Duration, Instant};
+use std::time::{Duration, Instant, SystemTime};
 
 use crate::error::{bail, bail_http, Context, CoreError, CoreResult as Result};
 use base64::Engine;
@@ -50,7 +50,9 @@ fn http() -> &'static Client {
 #[derive(Default)]
 struct CachedToken {
     token: String,
-    expiry: Option<Instant>,
+    /// Wall clock: `Instant` stops while an iPhone sleeps (`CLOCK_UPTIME_RAW`), so a
+    /// token cached before a long background stretch would look valid long after it expired.
+    expiry: Option<SystemTime>,
     /// Bumped by a reset, so a request started before it can't store its token.
     generation: u64,
 }
@@ -58,7 +60,7 @@ struct CachedToken {
 impl CachedToken {
     fn valid(&self) -> Option<String> {
         match self.expiry {
-            Some(e) if !self.token.is_empty() && Instant::now() < e => Some(self.token.clone()),
+            Some(e) if !self.token.is_empty() && SystemTime::now() < e => Some(self.token.clone()),
             _ => None,
         }
     }
@@ -104,7 +106,7 @@ fn fetch_access_token(cache: &Mutex<CachedToken>, form: &[(&str, &str)]) -> Resu
     let t: AccessToken = resp.json()?;
     let mut c = cache.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
     if c.generation == generation {
-        *c = CachedToken { token: t.access_token.clone(), expiry: Some(Instant::now() + Duration::from_secs(t.expires_in)), generation };
+        *c = CachedToken { token: t.access_token.clone(), expiry: Some(SystemTime::now() + Duration::from_secs(t.expires_in)), generation };
     }
     Ok(t.access_token)
 }
