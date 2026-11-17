@@ -32,9 +32,11 @@ func friendlyMessage(_ error: Error, file: StaticString = #fileID, line: UInt = 
 /// breadcrumbs, while anything else is reported as an error.
 private func diagLevel(for error: Error) -> DiagLevel {
     if error is URLError { return .warn }
-    // A Rust panic surfaces as the generated, fileprivate UniffiInternalError; the core's panic hook already
-    // reported it with its own backtrace.
-    if (error as NSError).domain.hasSuffix("UniffiInternalError") { return .warn }
+    // A Rust panic surfaces as the generated, fileprivate `UniffiInternalError.rustPanic`; the core's panic hook
+    // already reported it with its own backtrace. The type's other cases are binding bugs and stay errors.
+    if (error as NSError).domain.hasSuffix("UniffiInternalError"), String(describing: error).hasPrefix("rustPanic(") {
+        return .warn
+    }
     switch error as? FfiError {
     case .Network?, .Cancelled?, .NotSignedIn?, .LastFm?: return .warn
     case .Http(let status, _)? where status < 500: return .warn

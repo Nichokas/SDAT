@@ -58,6 +58,8 @@ final class Diagnostics {
                 options.environment = "production"
                 options.sendDefaultPii = false
                 options.tracesSampleRate = 0
+                // Sessions carry the install id that beforeSend strips from events.
+                options.enableAutoSessionTracking = false
                 options.enableAutoPerformanceTracing = false
                 options.enableUserInteractionTracing = false
                 options.attachScreenshot = false
