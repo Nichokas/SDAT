@@ -53,6 +53,8 @@ suspend fun benchmark(activity: ComponentActivity, rounds: Int, show: (Shown) ->
                     while (true) {
                         activity.lifecycle.currentStateFlow.first { it.isAtLeast(Lifecycle.State.RESUMED) }
                         paused = CompletableDeferred()
+                        // The wait can resume a dispatch after the state changed, so a pause in between went to the old signal.
+                        if (!activity.lifecycle.currentState.isAtLeast(Lifecycle.State.RESUMED)) continue
                         // A counter per attempt, so a late image callback from another scene cannot change this one's count.
                         val shown = Shown(scene, "${runs.size + 1}/$total · round $round" + if (attempt > 0) " · retry $attempt" else "", ImageCounter())
                         show(shown)
