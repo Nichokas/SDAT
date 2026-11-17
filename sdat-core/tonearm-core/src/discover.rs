@@ -210,7 +210,11 @@ impl InfiniteShuffle {
 
 #[cfg(test)]
 mod tests {
+    use std::sync::Arc;
+    use std::sync::atomic::{AtomicBool, Ordering};
+
     use super::*;
+    use crate::error::CoreError;
     use crate::model::TrackInfo;
 
     fn track(id: &str) -> Track {
@@ -262,11 +266,46 @@ mod tests {
         assert!(ids.iter().any(|i| i.starts_with('r')), "radio songs follow the exhausted mix: {ids:?}");
     }
 
+    /// Fails while `down` is set, then serves `inner`.
+    fn flaky(down: &Arc<AtomicBool>, mut inner: PageSource) -> PageSource {
+        let down = Arc::clone(down);
+        Box::new(move || if down.load(Ordering::SeqCst) { Err(CoreError::Network("down".into())) } else { inner() })
+    }
+
     #[test]
-    fn failing_source_is_dropped() {
-        let bad: PageSource = Box::new(|| Err(crate::error::CoreError::Network("down".into())));
+    fn failing_source_does_not_block_the_others() {
+        let bad: PageSource = Box::new(|| Err(CoreError::Network("down".into())));
         let mut s = InfiniteShuffle::new(vec![bad, source("a", 1, 3)], Box::new(|_| Ok(None)));
         assert_eq!(s.next_batch(3).expect("batch").len(), 3);
+    }
+
+    #[test]
+    fn outage_is_an_error_and_sources_recover_after_it() {
+        let down = Arc::new(AtomicBool::new(true));
+        let opened = lazy({
+            let down = Arc::clone(&down);
+            move || if down.load(Ordering::SeqCst) { Err(CoreError::Network("down".into())) } else { Ok(Some(source("l", 1, 3))) }
+        });
+        let mut s = InfiniteShuffle::new(vec![flaky(&down, source("a", 1, 3)), opened], Box::new(|_| Ok(None)));
+        assert!(s.next_batch(3).is_err(), "an outage is not an exhausted source");
+        down.store(false, Ordering::SeqCst);
+        let ids: Vec<String> = s.next_batch(6).expect("batch").iter().map(|t| t.id().to_string()).collect();
+        assert_eq!(ids.len(), 6, "both sources serve again: {ids:?}");
+        assert!(ids.iter().any(|i| i.starts_with('l')), "the lazy source opens after a failed open: {ids:?}");
+    }
+
+    #[test]
+    fn failed_radio_keeps_its_seed() {
+        let down = Arc::new(AtomicBool::new(true));
+        let radio_down = Arc::clone(&down);
+        let mut s = InfiniteShuffle::new(
+            vec![source("a", 1, 4)],
+            Box::new(move |_| if radio_down.load(Ordering::SeqCst) { Err(CoreError::Network("down".into())) } else { Ok(Some(source("r", 1, 4))) }),
+        );
+        assert_eq!(s.next_batch(4).expect("batch").len(), 4);
+        assert!(s.next_batch(4).is_err(), "only failed radios left");
+        down.store(false, Ordering::SeqCst);
+        assert!(s.next_batch(4).expect("batch").iter().all(|t| t.id().starts_with('r')), "the seed's radio plays once it works");
     }
 
     #[test]
