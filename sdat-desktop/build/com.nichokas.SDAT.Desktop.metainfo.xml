@@ -48,6 +48,9 @@
   <url type="vcs-browser">https://github.com/Nichokas/SDAT</url>
 
   <releases>
+    <release version="2.2.0" date="2026-11-17">
+        <url type="details">https://github.com/Nichokas/SDAT/releases/tag/desktop-v2.2.0</url>
+    </release>
     <release version="2.1.0" date="2026-11-17">
         <url type="details">https://github.com/Nichokas/SDAT/releases/tag/desktop-v2.1.0</url>
     </release>
