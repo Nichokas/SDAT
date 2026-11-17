@@ -332,6 +332,30 @@ mod tests {
     }
 
     #[test]
+    fn offline_batch_tries_each_source_and_seed_once() {
+        let source_calls = Arc::new(AtomicUsize::new(0));
+        let radio_calls = Arc::new(AtomicUsize::new(0));
+        let (sc, rc) = (Arc::clone(&source_calls), Arc::clone(&radio_calls));
+        let failing: PageSource = Box::new(move || {
+            sc.fetch_add(1, Ordering::SeqCst);
+            Err(CoreError::Network("down".into()))
+        });
+        let mut s = InfiniteShuffle::new(
+            vec![failing],
+            Box::new(move |_| {
+                rc.fetch_add(1, Ordering::SeqCst);
+                Err(CoreError::Network("down".into()))
+            }),
+        );
+        s.seeds.extend(["s1".to_string(), "s2".to_string()]);
+        assert!(s.next_batch(10).is_err());
+        assert_eq!(source_calls.load(Ordering::SeqCst), 1, "source tried once");
+        assert_eq!(radio_calls.load(Ordering::SeqCst), 2, "each seed tried once");
+        assert!(s.next_batch(10).is_err());
+        assert_eq!(source_calls.load(Ordering::SeqCst), 2, "retried on the next call");
+    }
+
+    #[test]
     fn failed_seeds_count_towards_the_seed_cap() {
         let calls = AtomicUsize::new(0);
         let mut s = InfiniteShuffle::new(
