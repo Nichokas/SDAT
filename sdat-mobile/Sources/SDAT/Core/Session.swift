@@ -68,12 +68,18 @@ final class Session {
         await Downloads.shared.removeAll()
         Keychain.wipe()
         if let id = Bundle.main.bundleIdentifier { UserDefaults.standard.removePersistentDomain(forName: id) }
+        Diagnostics.shared.setConsent(.unset)
+        // Empties the diagnostics log and the previous session; the core keeps diag.log open, so its directory stays.
+        diagClear()
         URLCache.shared.removeAllCachedResponses()
         ImageStore.shared.clear()
         let fm = FileManager.default
         for dir in [FileManager.SearchPathDirectory.cachesDirectory, .applicationSupportDirectory, .documentDirectory] {
             for base in fm.urls(for: dir, in: .userDomainMask) {
-                for f in (try? fm.contentsOfDirectory(at: base, includingPropertiesForKeys: nil)) ?? [] { try? fm.removeItem(at: f) }
+                for f in (try? fm.contentsOfDirectory(at: base, includingPropertiesForKeys: nil)) ?? []
+                where !(dir == .applicationSupportDirectory && f.lastPathComponent == "diag") {
+                    try? fm.removeItem(at: f)
+                }
             }
         }
         for f in (try? fm.contentsOfDirectory(at: fm.temporaryDirectory, includingPropertiesForKeys: nil)) ?? [] { try? fm.removeItem(at: f) }

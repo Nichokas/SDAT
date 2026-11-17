@@ -46,6 +46,10 @@ struct SettingsView: View {
                 if prefs.scrobbleListenBrainz { listenBrainzRow }
             }
 
+            Section("Diagnostics") {
+                NavigationLink(value: Route.diagnostics) { Text("Diagnostics") }
+            }
+
             Section {
                 Button("Erase all app data", role: .destructive) { confirmErase = true }
             } header: { Text("Developer") } footer: {

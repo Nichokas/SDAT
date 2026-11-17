@@ -32,6 +32,9 @@ on:
       tag:
         type: string
         required: true
+    secrets:
+      SENTRY_DSN_IOS:
+        required: false
 
 permissions:
   contents: write
@@ -99,6 +102,19 @@ jobs:
 
       - name: Install xtool
         run: brew install xtool-org/tap/xtool && xtool --version
+
+      # Only for release builds: PR, branch and dispatch builds keep the empty DSN, so the app never starts Sentry.
+      - name: Set the Sentry DSN
+        if: env.RELEASE_TAG != '' && github.event_name != 'pull_request'
+        env:
+          SENTRY_DSN: ${{ secrets.SENTRY_DSN_IOS }}
+        run: |
+          set -euo pipefail
+          if [ -z "$SENTRY_DSN" ]; then
+            echo "::warning::SENTRY_DSN_IOS is not set; this build ships without crash reports."
+            exit 0
+          fi
+          plutil -replace SentryDSN -string "$SENTRY_DSN" sdat-mobile/Info.plist
 
       - name: Build unsigned .ipa
         working-directory: sdat-mobile

@@ -317,6 +317,7 @@ extension View {
                 case .downloads: DownloadsView()
                 case .artist(let id): ArtistView(id: id)
                 case .settings: SettingsView()
+                case .diagnostics: DiagnosticsView()
                 case .collectionTracks: PagedTracks(title: "Tracks", pager: collectionTracks(), favourites: true)
                 case .collectionAlbums: PagedAlbums(title: "Albums", pager: collectionAlbums())
                 case .collectionArtists: PagedArtists(title: "Artists", pager: collectionArtists())

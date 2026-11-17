@@ -7,6 +7,7 @@ enum Route: Hashable {
     case playlist(String)
     case artist(String)
     case settings
+    case diagnostics
     case downloads
     case collectionTracks, collectionAlbums, collectionArtists, collectionPlaylists
     case explore(path: String, title: String)
@@ -42,7 +43,7 @@ final class Chrome {
 
     var path: [Route] { paths[tab] ?? [] }
     var inDetail: Bool { !path.isEmpty }
-    var inSettings: Bool { path.last == .settings }
+    var inSettings: Bool { path.last == .settings || path.last == .diagnostics }
 
     func binding(_ tab: AppTab) -> Binding<[Route]> {
         Binding(get: { self.paths[tab] ?? [] }, set: { self.paths[tab] = $0 })
