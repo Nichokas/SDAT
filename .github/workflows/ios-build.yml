@@ -123,9 +123,29 @@ jobs:
           xtool dev build -c release --ipa
           ipa="$(find xtool -name '*.ipa' | head -1)"
           test -n "$ipa"
+          # xtool embeds a static framework whose binary is a universal archive (Sentry's arm64 + arm64e),
+          # though it is already linked into the app; signers such as Feather then fail on it.
+          tmp="$(mktemp -d)"
+          unzip -q "$ipa" -d "$tmp"
+          app="$(echo "$tmp"/Payload/*.app)"
+          exe="$app/$(plutil -extract CFBundleExecutable raw "$app/Info.plist")"
+          for fw in "$app"/Frameworks/*.framework; do
+            [ -e "$fw" ] || continue
+            name="$(basename "$fw" .framework)"
+            # grep without -q reads all input, so pipefail never sees a SIGPIPE from the writer.
+            if file "$fw/$name" | grep 'ar archive' >/dev/null; then
+              if otool -L "$exe" | grep -F "/$name.framework/" >/dev/null; then
+                echo "::error::$name.framework is an archive but the app loads it"
+                exit 1
+              fi
+              echo "Dropping static $name.framework"
+              rm -rf "$fw"
+            fi
+          done
+          rmdir "$app/Frameworks" 2>/dev/null || true
           mkdir -p "$GITHUB_WORKSPACE/out"
-          cp "$ipa" "$GITHUB_WORKSPACE/out/SDAT-unsigned.ipa"
-          unzip -l "$GITHUB_WORKSPACE/out/SDAT-unsigned.ipa" | grep -E 'Payload/[^/]+\.app/' | head -5
+          (cd "$tmp" && zip -qry "$GITHUB_WORKSPACE/out/SDAT-unsigned.ipa" .)
+          unzip -l "$GITHUB_WORKSPACE/out/SDAT-unsigned.ipa" | awk '/Payload\/[^\/]+\.app\// && n++ < 5'
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
