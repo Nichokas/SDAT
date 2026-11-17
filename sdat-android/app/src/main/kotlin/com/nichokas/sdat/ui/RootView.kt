@@ -197,7 +197,7 @@ private fun CrashReportsPrompt(crashReporting: CrashReporting) {
     GlasmioAlertDialog(
         onDismissRequest = {},
         title = "Send crash reports?",
-        message = "If SDAT crashes or hits an error, send a report to the developer so it can be fixed. Reports include the error, a stack trace, the app version, and the device model and Android version, but no account details. You can change this in Settings > Diagnostics.",
+        message = "If SDAT crashes or hits an error, send a report to the developer so it can be fixed. Reports include the error, a stack trace, recent log entries, the app version, and the device model and Android version, but no account details. You can change this in Settings > Diagnostics.",
         buttonLayout = GlasmioAlertButtonLayout.Stacked,
         properties = DialogProperties(dismissOnBackPress = false, dismissOnClickOutside = false, usePlatformDefaultWidth = false),
         buttons = listOf(
