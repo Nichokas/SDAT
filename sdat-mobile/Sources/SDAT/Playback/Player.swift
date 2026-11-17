@@ -212,7 +212,7 @@ final class Player {
     func playNext(_ tracks: [Track]) {
         defer { persist() }
         if current == nil, let first = tracks.first {
-            userQueue = Array(tracks.dropFirst())
+            userQueue.insert(contentsOf: tracks.dropFirst(), at: 0)
             play([first])
             return
         }
