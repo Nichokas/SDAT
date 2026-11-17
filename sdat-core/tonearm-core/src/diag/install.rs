@@ -4,7 +4,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 
 use log::{LevelFilter, Log, Metadata, Record};
 
-use super::{Level, ingest, redact};
+use super::{Level, Via, ingest, redact};
 
 /// Crates whose debug and trace output verbose mode keeps; the rest (hyper, rustls, iroh) would flood the buffer.
 const OWN_CRATES: [&str; 3] = ["tonearm_core", "tonearm_ffi", "sdat_desktop"];
@@ -26,7 +26,7 @@ impl Log for Logger {
 
     fn log(&self, record: &Record) {
         if self.enabled(record.metadata()) {
-            ingest(record.level().into(), record.target(), &record.args().to_string(), None, true);
+            ingest(record.level().into(), record.target(), &record.args().to_string(), None, Via::Logger);
         }
     }
 
@@ -40,7 +40,7 @@ fn install_panic_hook() {
     std::panic::set_hook(Box::new(|info| {
         let message = info.to_string();
         let _ = writeln!(std::io::stderr(), "{}", redact::redact(&message));
-        ingest(Level::Error, "panic", &message, Some(Backtrace::force_capture().to_string()), false);
+        ingest(Level::Error, "panic", &message, Some(Backtrace::force_capture().to_string()), Via::PanicHook);
     }));
 }
 

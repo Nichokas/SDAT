@@ -214,8 +214,20 @@ fn bounded(text: &str, max: usize) -> String {
     out
 }
 
+/// Where an event comes from, which decides how it is echoed and handed to the sink.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Via {
+    /// The `log` logger: also echoed to stderr.
+    Logger,
+    /// [`record`] and [`mark`].
+    App,
+    /// The panic hook. The sink gets the event on its own thread, because a sink that panicked inside the
+    /// hook would abort the process, also for a panic that was about to be caught.
+    PanicHook,
+}
+
 /// The one path every event takes, so redaction happens before anything is stored, written or sent.
-fn ingest(level: Level, target: &str, message: &str, backtrace: Option<String>, echo: bool) {
+fn ingest(level: Level, target: &str, message: &str, backtrace: Option<String>, via: Via) {
     let Some(global) = GLOBAL.get() else { return };
     let target = bounded(target, MAX_TARGET_BYTES);
     let message = bounded(message, MAX_TEXT_BYTES);
@@ -224,25 +236,29 @@ fn ingest(level: Level, target: &str, message: &str, backtrace: Option<String>, 
     let (copy, line) = {
         let Some(mut store) = global.lock() else { return };
         let event = store.push(level, &target, message, backtrace);
-        (notify.then(|| event.clone()), echo.then(|| event.to_string()))
+        (notify.then(|| event.clone()), (via == Via::Logger).then(|| event.to_string()))
     };
     if let Some(line) = line {
         // Not `eprintln!`: it panics when stderr is closed, and logging must never fail the caller.
         let _ = writeln!(std::io::stderr(), "{line}");
     }
-    if let Some(event) = copy {
+    let Some(event) = copy else { return };
+    if via != Via::PanicHook {
         global.notify(&event);
+    } else if !IN_SINK.get() {
+        // A panic in the sink itself is stored but not sent back to it, or a sink that always panics would loop.
+        let _ = std::thread::Builder::new().name("diag-sink".into()).spawn(move || global.notify(&event));
     }
 }
 
 /// Adds an event from the app (a caught Kotlin or Swift exception, say) to the same log.
 pub fn record(level: Level, target: &str, message: &str, backtrace: Option<String>) {
-    ingest(level, target, message, backtrace, false);
+    ingest(level, target, message, backtrace, Via::App);
 }
 
 /// Puts a note in the log at this moment ("the track skipped now") and sends it to the sink.
 pub fn mark(note: &str) {
-    ingest(Level::Info, MARK_TARGET, note, None, false);
+    ingest(Level::Info, MARK_TARGET, note, None, Via::App);
 }
 
 /// The events after `seq`, oldest first.
@@ -333,6 +349,10 @@ mod tests {
         assert_eq!(events[0].level, Level::Error);
         assert_eq!(events[0].target, "panic");
         assert!(events[0].backtrace.as_deref().is_some_and(|b| !b.is_empty()));
+        let deadline = Instant::now() + std::time::Duration::from_secs(5);
+        while sent("diag-test-panic-1").is_empty() && Instant::now() < deadline {
+            std::thread::yield_now();
+        }
         assert_eq!(sent("diag-test-panic-1").len(), 1);
     }
 
@@ -366,6 +386,13 @@ mod tests {
         assert_eq!(stored("the sink failed").len(), 1, "the sink's own panic is recorded");
         record(Level::Warn, "test", "diag-test-after-sink-panic", None);
         assert_eq!(sent("diag-test-after-sink-panic").len(), 1);
+        // The sink panics again on this panic's event, on its own thread: the test process must survive it.
+        assert!(catch_unwind(|| panic!("diag-test-sink-panics in the hook")).is_err());
+        let deadline = Instant::now() + std::time::Duration::from_secs(5);
+        while stored("the sink failed").len() < 2 && Instant::now() < deadline {
+            std::thread::yield_now();
+        }
+        assert_eq!(stored("the sink failed").len(), 2);
     }
 
     #[test]
