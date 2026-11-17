@@ -132,8 +132,9 @@ jobs:
           for fw in "$app"/Frameworks/*.framework; do
             [ -e "$fw" ] || continue
             name="$(basename "$fw" .framework)"
-            if file "$fw/$name" | grep -q 'ar archive'; then
-              if otool -L "$exe" | grep -q "/$name.framework/"; then
+            # grep without -q reads all input, so pipefail never sees a SIGPIPE from the writer.
+            if file "$fw/$name" | grep 'ar archive' >/dev/null; then
+              if otool -L "$exe" | grep -F "/$name.framework/" >/dev/null; then
                 echo "::error::$name.framework is an archive but the app loads it"
                 exit 1
               fi
@@ -144,7 +145,7 @@ jobs:
           rmdir "$app/Frameworks" 2>/dev/null || true
           mkdir -p "$GITHUB_WORKSPACE/out"
           (cd "$tmp" && zip -qry "$GITHUB_WORKSPACE/out/SDAT-unsigned.ipa" .)
-          unzip -l "$GITHUB_WORKSPACE/out/SDAT-unsigned.ipa" | grep -E 'Payload/[^/]+\.app/' | head -5
+          unzip -l "$GITHUB_WORKSPACE/out/SDAT-unsigned.ipa" | awk '/Payload\/[^\/]+\.app\// && n++ < 5'
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
