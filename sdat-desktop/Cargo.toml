@@ -31,10 +31,14 @@ serde = { version = "1.0.229", features = ["derive"] }
 serde_json = "1.0.154"
 urlencoding = "2.1.3"
 zbus = "5"
+sentry = { version = "0.49.6", default-features = false, features = ["reqwest", "rustls"] }
 
 [build-dependencies]
 glib-build-tools = "0.22.8"
 
 [lints]
 workspace = true
+
+[dev-dependencies]
+sentry = { version = "0.49.6", default-features = false, features = ["test", "reqwest", "rustls"] }
 

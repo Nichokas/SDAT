@@ -5,6 +5,7 @@
 
 mod api;
 mod cache;
+mod diagnostics;
 mod handoff;
 mod imgutil;
 mod live;
@@ -63,10 +64,11 @@ fn on_activate(app: &adw::Application) {
         log::error!("Secret service health check failed title={} fatal={}", err.title, err.fatal);
         ui::window::present_secret_service_error(&window, &err);
     }
+    ui::diagnostics::ask_consent_once(&window);
 }
 
 fn main() -> glib::ExitCode {
-    tonearm_core::diag::init(Some(glib::user_config_dir().join(settings::CONFIG_DIR_NAME)), None);
+    tonearm_core::diag::init(Some(glib::user_config_dir().join(settings::CONFIG_DIR_NAME)), Some(diagnostics::sink()));
     // One level for everything: per-crate directives are ignored, and debug or trace means our own crates.
     if let Ok(value) = std::env::var("RUST_LOG") {
         match value.trim().parse::<log::LevelFilter>() {
@@ -76,6 +78,7 @@ fn main() -> glib::ExitCode {
     }
     ensure_schema();
     migrate::run();
+    diagnostics::apply();
     tonearm_core::config::install(Box::new(settings::GSettingsConfig));
     tonearm_core::auth::install(Box::new(secrets::KeyringTokens));
 
@@ -101,6 +104,7 @@ fn main() -> glib::ExitCode {
         handoff::stop();
         // Detach before the process ends, or other devices list this one for 90 s.
         tonearm_core::handoff::wait_detached(std::time::Duration::from_secs(2));
+        diagnostics::close();
     });
     app.connect_activate(on_activate);
     app.connect_command_line(|app, cmd| {

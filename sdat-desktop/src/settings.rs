@@ -132,6 +132,45 @@ pub fn handoff_installation_key() -> Option<String> {
         }
     }
 }
+/// Whether errors and crashes may be sent to the developer. `Unset` until the first-launch prompt is answered.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Consent {
+    Unset,
+    Allowed,
+    Denied,
+}
+
+impl Consent {
+    fn as_str(self) -> &'static str {
+        match self {
+            Self::Unset => "unset",
+            Self::Allowed => "allowed",
+            Self::Denied => "denied",
+        }
+    }
+}
+
+const CRASH_REPORTS: &str = "crash-reports";
+
+/// An older installed schema has no such key, and reading a missing key aborts the process.
+pub fn crash_reports_supported() -> bool {
+    general().settings_schema().is_some_and(|s| s.has_key(CRASH_REPORTS))
+}
+pub fn crash_reports() -> Consent {
+    if !crash_reports_supported() {
+        return Consent::Unset;
+    }
+    match general().string(CRASH_REPORTS).as_str() {
+        "allowed" => Consent::Allowed,
+        "denied" => Consent::Denied,
+        _ => Consent::Unset,
+    }
+}
+pub fn set_crash_reports(c: Consent) {
+    if crash_reports_supported() {
+        warn_on_err(CRASH_REPORTS, general().set_string(CRASH_REPORTS, c.as_str()));
+    }
+}
 pub fn window_width() -> i32 {
     general().int("window-width")
 }

@@ -61,10 +61,10 @@ fn spawn_logged(what: &'static str, fut: impl std::future::Future<Output = anyho
 
 // ------------------------------------------------------------------ version
 
-const COMMIT: &str = env!("TONEARM_COMMIT");
+pub(crate) const COMMIT: &str = env!("TONEARM_COMMIT");
 /// Set by packagers (`TONEARM_VERSION=1.0.0 cargo build --release`), like Go's
 /// `-ldflags -X ui.Version=…`. When set, the build is a release: no "devel" stripes.
-const VERSION: Option<&str> = option_env!("TONEARM_VERSION");
+pub(crate) const VERSION: Option<&str> = option_env!("TONEARM_VERSION");
 
 fn describe_parts(commit: &str) -> Option<(String, String, String)> {
     let re = regex::Regex::new(r"^(.*)-(\d+)-g([0-9a-f]{7})").expect("valid version regex");
@@ -806,6 +806,7 @@ fn present_preferences(window: &adw::ApplicationWindow) {
                 &[entry_row(&tr("Default Page"), &gen_s, "default-page").upcast_ref(), history.upcast_ref()],
             ),
             group(&tr("TIDAL Settings"), &tr("TIDAL-specific settings for advanced users"), &[country_row().upcast_ref(), base.upcast_ref()]),
+            group(&tr("Diagnostics"), "", &[crate::ui::diagnostics::entry_row(&d).upcast_ref()]),
         ],
     ));
 
@@ -995,7 +996,7 @@ async fn lastfm_configure(window: Option<adw::ApplicationWindow>) -> anyhow::Res
                 settings::set_lastfm_token(&sk);
                 let name = api::run(move || crate::scrobbling::lastfm_self_name(&sk)).await;
                 break name.map(|n| {
-                    log::info!("Last.fm configured username={n}");
+                    log::info!("Last.fm configured");
                     Some(n)
                 });
             }

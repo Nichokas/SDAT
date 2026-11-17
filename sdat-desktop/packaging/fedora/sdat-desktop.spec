@@ -5,7 +5,8 @@
 #   Source0: GitHub tag tarball of the SDAT monorepo (desktop-v%%{version}).
 #   Source1: `cargo vendor` archive for the same tag, produced by
 #            sdat-desktop/packaging/fedora/make-vendor.sh and attached to GitHub
-#            release desktop-v%%{version}. The RPM build runs fully offline.
+#            release desktop-v%%{version}. The RPM build runs fully offline. It also holds `sentry-dsn`,
+#            the Sentry DSN for crash reports (empty, or missing in a hand-made archive: reports are off).
 #
 # Replaces the old tonearm-rs package; still conflicts with nichokas/tonearm (Go),
 # which ships the legacy dev.dergs.Tonearm schema we also install for migration.
@@ -74,7 +75,11 @@ CFG
 %build
 export TONEARM_VERSION=%{version}
 export TONEARM_COMMIT=v%{version}
-export RUSTFLAGS="%{?build_rustflags}"
+# Repo-relative paths in panic messages and stack traces, not the build directory of this machine.
+export RUSTFLAGS="%{?build_rustflags} --remap-path-prefix=$PWD="
+if [ -s sentry-dsn ]; then
+    export SENTRY_DSN="$(cat sentry-dsn)"
+fi
 # A developer-wide Cargo target-dir (scripts/setup-sccache.sh) must not move the output %install reads.
 export CARGO_TARGET_DIR=target
 cargo build --release --offline --frozen -p sdat-desktop

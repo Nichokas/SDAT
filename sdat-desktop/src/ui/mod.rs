@@ -2,6 +2,7 @@
 //! fluent widget helpers that replace schwifty.
 
 pub mod components;
+pub mod diagnostics;
 pub mod dsl;
 pub mod accels;
 pub mod window;

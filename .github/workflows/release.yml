@@ -137,6 +137,8 @@ jobs:
     uses: ./.github/workflows/desktop-fedora.yml
     with:
       tag: ${{ needs.bump.outputs.desktop }}
+    secrets:
+      SENTRY_DSN_DESKTOP: ${{ secrets.SENTRY_DSN_DESKTOP }}
 
   ios:
     needs: [bump, release]
