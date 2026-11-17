@@ -14,6 +14,8 @@ struct SettingsView: View {
     @State private var listenBrainzToken = ""
     @State private var confirmErase = false
     @State private var hasListenBrainz = Keychain.get("listenbrainz.token") != nil
+    @State private var country = preferredCountry()
+    @State private var automatic: Country?
 
     var body: some View {
         @Bindable var prefs = prefs
@@ -46,6 +48,19 @@ struct SettingsView: View {
                 if prefs.scrobbleListenBrainz { listenBrainzRow }
             }
 
+            Section {
+                Picker("Country / Region", selection: Binding(
+                    get: { country },
+                    set: { setPreferredCountry(code: $0); country = preferredCountry() }
+                )) {
+                    Text(automatic.map { "Automatic (\($0.name))" } ?? "Automatic").tag(String?.none)
+                    ForEach(countries(), id: \.code) { c in Text("\(c.name) (\(c.code))").tag(Optional(c.code)) }
+                }
+                .pickerStyle(.navigationLink)
+            } header: { Text("TIDAL") } footer: {
+                Text("Catalogue region for TIDAL requests. Automatic uses your account's country, or your location's when signed out. Applies to pages you open next.")
+            }
+
             Section("Diagnostics") {
                 NavigationLink(value: Route.diagnostics) { Text("Diagnostics") }
             }
@@ -63,6 +78,7 @@ struct SettingsView: View {
         }
         .navigationTitle("Settings")
         .navigationBarTitleDisplayMode(.inline)
+        .task { automatic = await automaticCountry() }
         .sheet(item: $safariURL, onDismiss: finishLastFm) { u in SafariView(url: u.url).ignoresSafeArea() }
         .confirmationDialog("Erase all app data?", isPresented: $confirmErase, titleVisibility: .visible) {
             Button("Erase everything", role: .destructive) { session.eraseAll() }

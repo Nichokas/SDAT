@@ -14,6 +14,7 @@ sealed interface Route {
     data object Downloads : Route
     data object Settings : Route
     data object Diagnostics : Route
+    data object Country : Route
 }
 
 /** A pushed page. The id keeps two pushes of the same route apart, so each keeps its own saved state. */
@@ -28,8 +29,8 @@ data class NavState(
     val stack: List<Destination> get() = stacks[tab].orEmpty()
     val top: Route? get() = stack.lastOrNull()?.route
     val inDetail: Boolean get() = stack.isNotEmpty()
-    /** Settings and the page it opens: the floating chrome stays away from both. */
-    val inSettings: Boolean get() = top == Route.Settings || top == Route.Diagnostics
+    /** Settings and the pages it opens: the floating chrome stays away from them. */
+    val inSettings: Boolean get() = top == Route.Settings || top == Route.Diagnostics || top == Route.Country
 
     /** Every tab's root and every page pushed on any tab. */
     val pages: Set<PageKey>
@@ -78,6 +79,7 @@ private fun Route.fields(): List<String> = when (this) {
     Route.Downloads -> listOf("downloads", "", "")
     Route.Settings -> listOf("settings", "", "")
     Route.Diagnostics -> listOf("diagnostics", "", "")
+    Route.Country -> listOf("country", "", "")
 }
 
 private fun route(kind: String, a: String, b: String): Route = when (kind) {
@@ -92,5 +94,6 @@ private fun route(kind: String, a: String, b: String): Route = when (kind) {
     "downloads" -> Route.Downloads
     "settings" -> Route.Settings
     "diagnostics" -> Route.Diagnostics
+    "country" -> Route.Country
     else -> error("Unknown saved route $kind")
 }

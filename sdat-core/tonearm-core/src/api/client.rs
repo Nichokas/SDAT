@@ -164,12 +164,14 @@ fn session_country_code() -> Result<String> {
     Ok(resp.json::<R>()?.country_code)
 }
 
-/// Country used for requests: the user's preference, else the account's session
-/// country, else the IP-based context (Go used only the latter, which can be wrong).
+/// Country used for requests: the user's preference, else [`automatic_country_code`].
 pub fn country_code() -> String {
-    if let Some(c) = crate::country::preferred() {
-        return c;
-    }
+    crate::country::preferred().unwrap_or_else(automatic_country_code)
+}
+
+/// The account's session country, else the IP-based context (Go used only the
+/// latter, which can be wrong), else `WW`. Cached until [`reset_country_code`].
+pub fn automatic_country_code() -> String {
     let lock = || COUNTRY.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
     if let Some(c) = lock().clone() {
         return c;

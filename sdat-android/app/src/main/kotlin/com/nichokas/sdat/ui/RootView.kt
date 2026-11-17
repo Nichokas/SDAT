@@ -108,6 +108,7 @@ fun RootView(session: Session, playback: Playback, prefs: Preferences, secrets: 
                         null -> TabRoot(nav.tab, session, playback)
                         Route.Settings -> SettingsView(session, prefs, secrets, crashReporting, playback::setStreamingQuality, playback::setPreloadNext, onBack = Chrome::pop)
                         Route.Diagnostics -> DiagnosticsView(crashReporting, onBack = Chrome::pop)
+                        Route.Country -> CountryView(onBack = Chrome::pop)
                         is Route.Explore -> ExploreView(route.path, route.title)
                         is Route.Album -> AlbumView(route.id)
                         is Route.Playlist -> PlaylistView(route.id)
