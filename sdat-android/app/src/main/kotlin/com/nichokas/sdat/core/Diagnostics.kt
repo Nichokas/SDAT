@@ -80,7 +80,12 @@ class SentryReporter(private val context: Context) : ErrorReporter {
             o.isEnableNetworkEventBreadcrumbs = false
             o.isEnableUserInteractionBreadcrumbs = false
             // The SDK fills in a per-install id; the consent text promises nothing that identifies the user.
-            o.setBeforeSend { event, _ -> event.apply { user = null } }
+            o.setBeforeSend { event, _ ->
+                event.apply {
+                    user = null
+                    contexts.device?.id = null
+                }
+            }
         }
     }
 
