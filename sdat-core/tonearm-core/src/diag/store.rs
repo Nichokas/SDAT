@@ -21,6 +21,7 @@ fn truncated(mut text: String) -> String {
     if text.len() > MAX_TEXT_BYTES {
         text.truncate(text.floor_char_boundary(MAX_TEXT_BYTES));
         text.push_str(" …(truncated)");
+        text.shrink_to_fit();
     }
     text
 }
@@ -267,6 +268,7 @@ mod tests {
         info(&mut store, &"é".repeat(MAX_FILE_BYTES as usize));
         let message = &store.since(0)[0].message;
         assert!(message.len() < MAX_TEXT_BYTES + 32 && message.ends_with("…(truncated)"));
+        assert!(message.capacity() < MAX_TEXT_BYTES + 32, "{}", message.capacity());
         let current = fs::metadata(tmp.0.join(CURRENT)).expect("diag.log").len();
         assert!(current < MAX_FILE_BYTES, "{current}");
     }

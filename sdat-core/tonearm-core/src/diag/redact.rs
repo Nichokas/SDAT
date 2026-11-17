@@ -3,6 +3,8 @@
 use std::borrow::Cow;
 
 const REDACTED: &str = "<redacted>";
+/// `Authorization` schemes: a value on the line after `Authorization:` is taken only when it starts with one.
+const SCHEMES: [&str; 4] = ["basic ", "bearer ", "digest ", "token "];
 const KEYS: [&str; 14] = [
     "access_token",
     "refresh_token",
@@ -22,21 +24,29 @@ const KEYS: [&str; 14] = [
 /// Short keys that also end longer words (`zipcode`, `disk`, `x_tidal_token`): matched only at a word start.
 const WORD_KEYS: [&str; 3] = ["token", "code", "sk"];
 
-/// The end of a bare value starting at `i`: whitespace, `&`, a quote, or the escaped quote that closes a
-/// debug-printed string. Other punctuation (`,`, `)`, a lone backslash) may be part of a password and
-/// is redacted with it.
+/// The end of a bare value starting at `i`: whitespace, `&`, or a quote (plain, or escaped as in a
+/// debug-printed string) that closes the text around the value, which is one followed by the end, whitespace
+/// or closing punctuation. Any other character, a quote inside a password included, is redacted with it.
 fn bare_end(s: &[u8], mut i: usize) -> usize {
     while i < s.len() {
         let b = s[i];
-        if b.is_ascii_whitespace()
-            || matches!(b, b'&' | b'"' | b'\'')
-            || (b == b'\\' && matches!(s.get(i + 1), Some(b'"' | b'\'')))
-        {
+        let quote_len = match (b, s.get(i + 1)) {
+            (b'"' | b'\'', _) => 1,
+            (b'\\', Some(b'"' | b'\'')) => 2,
+            _ => 0,
+        };
+        let closes = quote_len > 0
+            && s.get(i + quote_len).is_none_or(|&n| n.is_ascii_whitespace() || matches!(n, b',' | b';' | b')' | b']' | b'}' | b'&' | b'>'));
+        if b.is_ascii_whitespace() || b == b'&' || closes {
             break;
         }
         i += 1;
     }
     i
+}
+
+fn is_blank(b: u8) -> bool {
+    b == b' ' || b == b'\t'
 }
 
 fn skip(s: &[u8], mut i: usize, f: impl Fn(u8) -> bool) -> usize {
@@ -93,7 +103,8 @@ fn key_value(s: &[u8], after_key: usize, is_code: bool) -> Option<(usize, usize)
     {
         return Some(range);
     }
-    i = value;
+    // JSON may put a value on the next line; after `password=` a new line is the next message, not the value.
+    i = if quoted_key { value } else { skip(s, i + 1, is_blank) };
     if is_code && (sep == b':' || quoted_key) {
         return None;
     }
@@ -118,7 +129,9 @@ fn header_value(s: &[u8], after_key: usize) -> Option<(usize, usize)> {
     {
         return Some(range);
     }
-    i = value;
+    let has_scheme =
+        SCHEMES.iter().any(|scheme| s.get(value..value + scheme.len()).is_some_and(|p| p.eq_ignore_ascii_case(scheme.as_bytes())));
+    i = if has_scheme { value } else { skip(s, i + 1, is_blank) };
     let end = skip(s, i, |b| b != b'\n' && b != b'\r');
     (end > i).then_some((i, end))
 }
@@ -194,6 +207,8 @@ mod tests {
         assert_eq!(redact("{\"password\":\n  123456}"), "{\"password\":\n  <redacted>}");
         assert_eq!(redact("Authorization:\nToken secret\nnext"), "Authorization:\n<redacted>\nnext");
         assert_eq!(redact("password=hunter2"), "password=<redacted>");
+        assert_eq!(redact("password=\nstatus: ok"), "password=\nstatus: ok");
+        assert_eq!(redact("Authorization:\nnext operation succeeded"), "Authorization:\nnext operation succeeded");
         assert_eq!(redact("Bearer secret"), "Bearer <redacted>");
     }
 
@@ -238,6 +253,9 @@ mod tests {
         assert_eq!(redact("password=abc,secret;x) next"), "password=<redacted> next");
         assert_eq!(redact("password=abc\\hunter2<x> next"), "password=<redacted> next");
         assert_eq!(redact("password=\\hunter2 next"), "password=<redacted> next");
+        assert_eq!(redact("password=abc'def&x=1"), "password=<redacted>&x=1");
+        assert_eq!(redact(r#"password=a"b'c next"#), "password=<redacted> next");
+        assert_eq!(redact("msg='password=abc', x"), "msg='password=<redacted>', x");
         assert_eq!(redact("Authorization: \\xyz\nnext"), "Authorization: <redacted>\nnext");
         assert_eq!(redact(r#"msg: "password=abc\" ok""#), r#"msg: "password=<redacted>\" ok""#);
     }

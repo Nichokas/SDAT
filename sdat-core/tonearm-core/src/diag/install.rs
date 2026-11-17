@@ -1,8 +1,9 @@
 use std::backtrace::Backtrace;
+use std::io::Write;
 
 use log::{LevelFilter, Log, Metadata, Record};
 
-use super::{Level, ingest};
+use super::{Level, ingest, redact};
 
 /// Crates whose debug and trace output verbose mode keeps; the rest (hyper, rustls, iroh) would flood the buffer.
 const OWN_CRATES: [&str; 3] = ["tonearm_core", "tonearm_ffi", "sdat_desktop"];
@@ -31,14 +32,14 @@ impl Log for Logger {
     fn flush(&self) {}
 }
 
-/// Records panics, backtrace included, then runs the hook that was installed before. `GLib` callbacks
-/// abort on a panic (it cannot unwind through C), so the event is already written when the process dies.
+/// Records panics, backtrace included, and prints them to stderr in place of the default hook, which would
+/// print the message unredacted. `GLib` callbacks abort on a panic (it cannot unwind through C), so the
+/// event is already written when the process dies.
 fn install_panic_hook() {
-    let previous = std::panic::take_hook();
-    std::panic::set_hook(Box::new(move |info| {
-        let backtrace = Backtrace::force_capture().to_string();
-        ingest(Level::Error, "panic", &info.to_string(), Some(backtrace), false);
-        previous(info);
+    std::panic::set_hook(Box::new(|info| {
+        let message = info.to_string();
+        let _ = writeln!(std::io::stderr(), "{}", redact::redact(&message));
+        ingest(Level::Error, "panic", &message, Some(Backtrace::force_capture().to_string()), false);
     }));
 }
 
