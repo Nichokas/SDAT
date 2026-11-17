@@ -58,15 +58,14 @@ pub fn track_radio_source(track_id: &str) -> Result<Option<PageSource>> {
     Ok(service::get_track_radio(track_id)?.map(|r| paginator_source(service::get_playlist_tracks(&r.id))))
 }
 
-/// A source opened on its first turn (`None` from `open` = empty source).
-fn lazy(open: impl FnOnce() -> Result<Option<PageSource>> + Send + 'static) -> PageSource {
-    let mut open = Some(open);
-    let mut inner: Option<PageSource> = None;
+/// A source opened on its first turn (`None` from `open` = empty source); a failed open is retried on the next.
+fn lazy(mut open: impl FnMut() -> Result<Option<PageSource>> + Send + 'static) -> PageSource {
+    let mut inner: Option<Option<PageSource>> = None;
     Box::new(move || {
-        if let Some(f) = open.take() {
-            inner = f()?;
+        if inner.is_none() {
+            inner = Some(open()?);
         }
-        match inner.as_mut() {
+        match inner.as_mut().and_then(Option::as_mut) {
             Some(next) => next(),
             None => Ok(None),
         }
@@ -142,7 +141,14 @@ impl InfiniteShuffle {
             sources.push(lazy(|| {
                 Ok(random_favourite(&state::ARTISTS)?.map(|id| {
                     let mut once = Some(id);
-                    Box::new(move || once.take().map(|id| crate::explore::get_artist_overview(&id).map(|o| o.1)).transpose()) as PageSource
+                    Box::new(move || match &once {
+                        Some(id) => {
+                            let top = crate::explore::get_artist_overview(id)?.1;
+                            once = None;
+                            Ok(Some(top))
+                        }
+                        None => Ok(None),
+                    }) as PageSource
                 }))
             }));
             sources.push(lazy(|| match random_favourite(&state::TRACKS)? {
@@ -160,16 +166,26 @@ impl InfiniteShuffle {
     }
 
     /// At least `min` new tracks unless every source and seed is exhausted
-    /// (then fewer, possibly none). Failing sources are dropped and logged.
+    /// (then fewer, possibly none). A source or seed that fails is skipped
+    /// for this call and kept for the next; a call that failed without
+    /// finding any track returns the error, so an outage is not mistaken
+    /// for the end of the shuffle.
     pub fn next_batch(&mut self, min: usize) -> Result<Vec<Track>> {
         let mut out = Vec::new();
+        let mut failed_sources = Vec::new();
+        let mut failed_seeds = Vec::new();
+        let mut error = None;
         while out.len() < min {
             let Some(mut src) = self.sources.pop_front() else {
                 let Some(seed) = self.seeds.pop_front() else { break };
                 match (self.radio)(&seed) {
                     Ok(Some(next)) => self.sources.push_back(Source { next, buffer: vec![], done: false }),
                     Ok(None) => {}
-                    Err(e) => log::warn!("shuffle: radio of {seed} failed: {e}"),
+                    Err(e) => {
+                        log::warn!("shuffle: radio of {seed} failed: {e}");
+                        failed_seeds.push(seed);
+                        error = Some(e);
+                    }
                 }
                 continue;
             };
@@ -183,6 +199,8 @@ impl InfiniteShuffle {
                     Ok(None) => src.done = true,
                     Err(e) => {
                         log::warn!("shuffle: source failed: {e}");
+                        failed_sources.push(src);
+                        error = Some(e);
                         continue;
                     }
                 }
@@ -204,7 +222,12 @@ impl InfiniteShuffle {
                 self.sources.push_back(src);
             }
         }
-        Ok(out)
+        self.sources.extend(failed_sources);
+        self.seeds.extend(failed_seeds);
+        match error {
+            Some(e) if out.is_empty() => Err(e),
+            _ => Ok(out),
+        }
     }
 }
 
