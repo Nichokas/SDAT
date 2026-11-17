@@ -40,17 +40,18 @@ pub fn preferred() -> Option<String> {
 /// Saves the choice (`None` = automatic), then drops the cached country and
 /// lists, so the next request uses it. A failed save keeps both.
 pub fn set_preferred(code: Option<&str>) {
-    let Some(p) = path() else { return };
-    let r = match code {
-        Some(c) => p.parent().map_or(Ok(()), std::fs::create_dir_all).and_then(|()| std::fs::write(&p, c)),
-        None => match std::fs::remove_file(&p) {
-            Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(()),
-            r => r,
-        },
-    };
-    if let Err(e) = r {
-        log::warn!("saving country preference failed error={e}");
-        return;
+    if let Some(p) = path() {
+        let r = match code {
+            Some(c) => p.parent().map_or(Ok(()), std::fs::create_dir_all).and_then(|()| std::fs::write(&p, c)),
+            None => match std::fs::remove_file(&p) {
+                Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(()),
+                r => r,
+            },
+        };
+        if let Err(e) = r {
+            log::warn!("saving country preference failed error={e}");
+            return;
+        }
     }
     crate::api::reset_country_code();
     crate::cache::clear();
