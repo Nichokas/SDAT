@@ -3,7 +3,6 @@ package com.nichokas.sdat.ui
 import android.content.Context
 import android.content.Intent
 import android.os.Build
-import android.widget.Toast
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -20,6 +19,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -29,6 +29,7 @@ import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.unit.dp
+import androidx.core.content.FileProvider
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.repeatOnLifecycle
@@ -53,7 +54,11 @@ import io.github.neoruaa.glasmio.ui.GlasmioListRow
 import io.github.neoruaa.glasmio.ui.GlasmioMenu
 import io.github.neoruaa.glasmio.ui.GlasmioMenuItem
 import io.github.neoruaa.glasmio.ui.GlasmioSwitch
+import java.io.File
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import uniffi.tonearm_ffi.DiagEvent
 import uniffi.tonearm_ffi.DiagLevel
 import uniffi.tonearm_ffi.DiagStats
@@ -85,15 +90,19 @@ fun DiagnosticsView(crashReporting: CrashReporting, onBack: () -> Unit) {
     var verbose by remember { mutableStateOf(diagVerbose()) }
     var detail by remember { mutableStateOf<Detail?>(null) }
     var askMarker by remember { mutableStateOf(false) }
-    val previous = remember { diagPreviousSession() }
+    var previous by remember { mutableStateOf("") }
+    val scope = rememberCoroutineScope()
 
     // Polls only while the page is on screen: the effect leaves with the page, and repeatOnLifecycle with the app's foreground.
     val lifecycle = LocalLifecycleOwner.current.lifecycle
+    LaunchedEffect(Unit) { previous = withContext(Dispatchers.IO) { diagPreviousSession() } }
     LaunchedEffect(lifecycle) {
         lifecycle.repeatOnLifecycle(Lifecycle.State.STARTED) {
             while (true) {
-                stats = diagStats()
-                val fresh = diagEvents(events.firstOrNull()?.seq ?: 0uL)
+                // The first poll copies up to the core's whole log across FFI; keep it off the UI thread.
+                stats = withContext(Dispatchers.IO) { diagStats() }
+                val since = events.firstOrNull()?.seq ?: 0uL
+                val fresh = withContext(Dispatchers.IO) { diagEvents(since) }
                 if (fresh.isNotEmpty()) events = (fresh.asReversed() + events).take(KEPT_EVENTS)
                 delay(REFRESH_MS)
             }
@@ -160,7 +169,7 @@ fun DiagnosticsView(crashReporting: CrashReporting, onBack: () -> Unit) {
                 if (previous.isNotEmpty()) {
                     GlasmioListRow("Previous session", onClick = { detail = Detail("Previous session", previous) })
                 }
-                GlasmioListRow("Share report", showDisclosure = false, onClick = { shareReport(context) })
+                GlasmioListRow("Share report", showDisclosure = false, onClick = { scope.launch { shareReport(context) } })
                 if (crashReporting.running) {
                     GlasmioListRow("Send test error", showDisclosure = false, onClick = {
                         diagRecord(DiagLevel.ERROR, "diagnostics", "Test error from Diagnostics", Throwable().stackTraceToString())
@@ -175,7 +184,7 @@ fun DiagnosticsView(crashReporting: CrashReporting, onBack: () -> Unit) {
                 Section("Crash reports") {
                     ToggleRow("Send crash reports", crashReporting.consent == CrashReports.Allowed, crashReporting::allow, first = true)
                 }
-                GlasmioGroupedTableFooter("Sends the error, a stack trace and the app version to the developer when SDAT crashes or hits an error. No account details.")
+                GlasmioGroupedTableFooter("Sends the error, a stack trace, the app version, and the device model and Android version to the developer when SDAT crashes or hits an error. No account details.")
             }
         }
     }
@@ -260,13 +269,14 @@ private fun androidVersion() = "${Build.VERSION.RELEASE} (API ${Build.VERSION.SD
 
 private fun deviceName() = "${Build.MANUFACTURER} ${Build.MODEL}"
 
-private fun shareReport(context: Context) {
+/** As a file: a full log can exceed what an Intent extra may carry. */
+private suspend fun shareReport(context: Context) {
     val extra = "SDAT Android ${BuildConfig.VERSION_NAME}\nAndroid ${androidVersion()}\nDevice ${deviceName()}"
-    val send = Intent(Intent.ACTION_SEND).setType("text/plain").putExtra(Intent.EXTRA_TEXT, diagReport(extra))
-    // A very long log can exceed what one Intent may carry.
-    try {
-        context.startActivity(Intent.createChooser(send, null))
-    } catch (_: RuntimeException) {
-        Toast.makeText(context, "The report is too large to share", Toast.LENGTH_LONG).show()
+    val file = withContext(Dispatchers.IO) {
+        File(context.cacheDir, "reports").apply { mkdirs() }.resolve("sdat-diagnostics.txt").apply { writeText(diagReport(extra)) }
     }
+    val uri = FileProvider.getUriForFile(context, "${context.packageName}.files", file)
+    val send = Intent(Intent.ACTION_SEND).setType("text/plain").putExtra(Intent.EXTRA_STREAM, uri)
+        .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+    context.startActivity(Intent.createChooser(send, null))
 }
