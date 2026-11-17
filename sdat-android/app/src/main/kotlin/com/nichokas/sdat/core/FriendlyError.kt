@@ -3,6 +3,7 @@ package com.nichokas.sdat.core
 import java.io.IOException
 import uniffi.tonearm_ffi.DiagLevel
 import uniffi.tonearm_ffi.FfiException
+import uniffi.tonearm_ffi.InternalException
 import uniffi.tonearm_ffi.diagRecord
 
 /**
@@ -14,7 +15,9 @@ fun friendlyMessage(error: Throwable): String {
     if (error !is FfiException.Cancelled) {
         val expected = error is FfiException.NotSignedIn || error is FfiException.Network ||
             (error is FfiException.Http && error.status.toInt() < 500) || error is FfiException.LastFm ||
-            error is DownloadFailure || error is IOException
+            error is DownloadFailure || error is IOException ||
+            // A Rust panic: the core's panic hook already reported it with its own backtrace.
+            error is InternalException
         runCatching {
             diagRecord(
                 if (expected) DiagLevel.WARN else DiagLevel.ERROR,
@@ -39,6 +42,7 @@ private fun diagSummary(error: Throwable): String = when (error) {
     is FfiException.Decode -> "Unexpected response"
     is FfiException.LastFm -> "Last.fm error ${error.code}"
     is FfiException -> "Other error"
+    is InternalException -> "Rust panic, reported by the core"
     is DownloadFailure -> "Download failed: ${error.message}"
     else -> error.javaClass.name
 }
