@@ -64,7 +64,11 @@ final class Player {
     private var preloadTask: Task<Void, Never>?
     private var preloaded: (trackId: String, item: AVPlayerItem, stream: Stream)?
     /// The engine item of `current`: ends of other items are stale.
-    @ObservationIgnored private var playingItem: AVPlayerItem?
+    @ObservationIgnored private var playingItem: AVPlayerItem? {
+        didSet { if playingItem !== oldValue { watchFailure(playingItem) } }
+    }
+    @ObservationIgnored private var failureWatch: AnyCancellable?
+    @ObservationIgnored private var refetched: (id: String, at: Date)?
     @ObservationIgnored private var itemObserver: AnyCancellable?
     private var startedAt: Date?
     private var listened: Double = 0
@@ -373,7 +377,6 @@ final class Player {
         guard tracks.indices.contains(i) else { return }
         cancelLiveSeek()
         liveSeekEndedAt = nil
-        liveAligning = false
         recentIDs = []; recentOrder = []
         infinite = nil
         original = tracks
@@ -463,9 +466,6 @@ final class Player {
 
     /// Upper bound for aiming ahead of a slow drift seek.
     private static let liveMaxSeekLead: Double = 3
-    /// `start` is aligning a live item: a downloaded-file fallback must align
-    /// its replacement item too.
-    @ObservationIgnored private var liveAligning = false
 
     /// How far ahead of the host the item is parked while it buffers.
     private static let liveJoinLead: Double = 8
@@ -633,10 +633,10 @@ final class Player {
         invalidatePreload()
     }
 
-    /// Re-requests the current track's manifest after a quality change, keeping the position.
+    /// A track not loaded yet (restored, or a failed start) fetches the new quality on its first play.
     func reloadQuality() {
-        guard let t = current else { return }
-        start(t, resumeAt: position)
+        guard let t = current, !needsStart, !isOffline else { return }
+        start(t, resumeAt: position, autoplay: isPlaying || (loading && !pausedByUser))
     }
 
     // MARK: internals
@@ -740,7 +740,7 @@ final class Player {
         artwork = nil
     }
 
-    private func start(_ track: Track, resumeAt: Double = 0, autoplay: Bool = true) {
+    private func start(_ track: Track, resumeAt: Double = 0, autoplay: Bool = true, online: Bool = false) {
         needsStart = false
         holdAutoplay = false
         pausedByUser = !autoplay
@@ -760,23 +760,19 @@ final class Player {
         loadTask?.cancel()
         loadTask = Task {
             do {
-                let s = try await Self.source(track.id)
+                let s = try await online ? Self.online(track.id) : Self.source(track.id)
                 guard !Task.isCancelled, current?.id == track.id, let url = URL(string: s.url) else { return }
                 stream = s
                 avPlayer.removeAllItems()
                 let item = Self.makeItem(url)
                 avPlayer.insert(item, after: nil)
                 playingItem = item
-                if url.isFileURL { watchLocal(item, track: track) }
                 if liveFollowing && autoplay && liveTarget != nil {
                     // Following a playing host: start only with a healthy buffer
                     // and on time, so nothing needs correcting after the start.
-                    liveAligning = true
                     let playing = await liveAlign(item)
                     guard !Task.isCancelled, current?.id == track.id else { return }
-                    liveAligning = false
-                    // A failed download was replaced meanwhile: `watchLocal`
-                    // aligns the replacement and finishes the start.
+                    // Only a failure drops the item here; `streamFailed` recovers it.
                     guard avPlayer.currentItem === item else { return }
                     isPlaying = playing
                     loading = false
@@ -790,7 +786,6 @@ final class Player {
                     await avPlayer.seek(to: CMTime(seconds: resumeAt, preferredTimescale: 600),
                                         toleranceBefore: tol, toleranceAfter: tol)
                     // A newer start replaced this one during the seek: its item is not ours to play.
-                    // (A failed download's online replacement is still this start's, and plays below.)
                     guard !Task.isCancelled, starts == mine else { return }
                 }
                 try? AVAudioSession.sharedInstance().setActive(true)
@@ -806,48 +801,63 @@ final class Player {
                 afterStart(track)
             } catch {
                 guard !Task.isCancelled else { return }
-                loading = false; loadResumeAt = nil
-                self.error = friendlyMessage(error)
-                // An old item would play on with its end ignored: drop it. Paused, and play retries here.
-                avPlayer.pause(); avPlayer.removeAllItems()
-                isPlaying = false
-                needsStart = true
-                updateNowPlaying()
+                fail(friendlyMessage(error))
             }
         }
     }
 
-    /// A downloaded file that AVPlayer can't open falls back to the online stream.
-    private func watchLocal(_ item: AVPlayerItem, track: Track) {
-        Task { [weak self] in
-            for await st in item.publisher(for: \.status).values {
-                if st == .readyToPlay { return }
-                if st == .failed { break }
-            }
-            guard let self, self.avPlayer.currentItem === item, self.current?.id == track.id,
-                  let s = try? await Self.online(track.id),
-                  self.current?.id == track.id, let u = URL(string: s.url) else { return }
-            let at = self.position
-            self.stream = s
-            self.avPlayer.removeAllItems()
-            let replacement = Self.makeItem(u)
-            self.avPlayer.insert(replacement, after: nil)
-            self.playingItem = replacement
-            if self.liveFollowing, self.liveAligning, self.liveTarget != nil {
-                // Following a host: align the online item like a fresh start.
-                let playing = await self.liveAlign(replacement)
-                guard self.avPlayer.currentItem === replacement, self.current?.id == track.id else { return }
-                self.liveAligning = false
-                self.isPlaying = playing
-                self.loading = false
-                self.loadResumeAt = nil
-                self.liveSeekEndedAt = Date()
-                self.afterStart(track)
+    /// The status publisher emits the current value too, so an item that failed before it was watched counts.
+    private func watchFailure(_ item: AVPlayerItem?) {
+        failureWatch = item.map { item in
+            item.publisher(for: \.status).filter { $0 == .failed }.map { _ in }
+                .merge(with: NotificationCenter.default
+                    .publisher(for: AVPlayerItem.failedToPlayToEndTimeNotification, object: item).map { _ in })
+                .first()
+                .receive(on: DispatchQueue.main)
+                .sink { [weak self] in MainActor.assumeIsolated { self?.streamFailed(item) } }
+        }
+    }
+
+    private func streamFailed(_ item: AVPlayerItem) {
+        guard item === playingItem, let t = current else { return }
+        let now = Date()
+        // A broken download spends no budget: a new play picks the same file again, and only its online stream can help.
+        if !isOffline {
+            guard Self.refetchDue(refetched, t.id, now: now) else {
+                fail(item.error.map { friendlyMessage($0) } ?? "This track can't be played right now.")
                 return
             }
-            if at > 0 { await self.avPlayer.seek(to: CMTime(seconds: at, preferredTimescale: 600)) }
-            if self.isPlaying { self.avPlayer.play() }
+            refetched = (t.id, now)
         }
+        // While a start loads, `position` follows the engine, not where the start was meant to begin.
+        restart(t, at: loadResumeAt ?? position)
+    }
+
+    /// A dead URL fails again within seconds, an expired one hours later.
+    private static func refetchDue(_ last: (id: String, at: Date)?, _ id: String, now: Date) -> Bool {
+        guard let last else { return true }
+        return last.id != id || now.timeIntervalSince(last.at) >= retryWindow
+    }
+
+    private static let retryWindow: TimeInterval = 60
+
+    /// Still the same listen: its scrobble progress survives the new start.
+    private func restart(_ t: Track, at secs: Double) {
+        let kept = (listened, scrobbled, startedAt, artwork)
+        exactResume = true
+        // Not `isPlaying`: the rate observer may already have dropped it for the failure.
+        start(t, resumeAt: secs, autoplay: autoplayAfterEnd(), online: true)
+        (listened, scrobbled, startedAt, artwork) = kept
+    }
+
+    private func fail(_ message: String) {
+        loadTask?.cancel()
+        loading = false; loadResumeAt = nil
+        error = message
+        avPlayer.pause(); avPlayer.removeAllItems(); playingItem = nil
+        isPlaying = false
+        needsStart = true
+        updateNowPlaying()
     }
 
     private func afterStart(_ track: Track) {

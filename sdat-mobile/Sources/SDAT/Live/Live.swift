@@ -45,6 +45,7 @@ final class Live {
     // guest bookkeeping
     private var cache: [String: Track] = [:]
     private var switching: String?
+    private var loaded: (id: String, at: Date)?
     /// Guest: queue requests waiting for room in the command budget.
     private var outbox: [(ids: [String], next: Bool)] = []
     private var outboxFailures = 0
@@ -131,6 +132,7 @@ final class Live {
         outbox = []; outboxFailures = 0; outboxTask?.cancel(); outboxTask = nil
         dropGuestEnqueues()
         switching = nil
+        loaded = nil
         player.liveEnded()
         invite = nil; guests = []; upNext = []; reconnecting = false
         mode = m
@@ -439,6 +441,8 @@ final class Live {
         // Reload also when our copy ended (host repeating the same song).
         if player.current?.id != trackId || (!player.liveHasItem && !player.loading) {
             guard switching != trackId else { return }
+            // Only a reload of the track already here is limited: the host may come back to a track within the interval.
+            if player.current?.id == trackId, let l = loaded, l.id == trackId, Date().timeIntervalSince(l.at) < Self.reloadInterval { return }
             switching = trackId
             let gen = generation
             Task {
@@ -448,6 +452,7 @@ final class Live {
                 // Re-read the target: the host may have moved on while resolving.
                 guard let track, let now = self.guest?.target(latencyMs: latencyMs),
                       now.trackId == trackId else { return }
+                loaded = (trackId, Date())
                 // A system pause (call, headphones unplugged) also holds a new
                 // host track: it loads paused until the user or system resumes.
                 player.livePlay([track], index: 0, at: Double(now.positionMs) / 1000,
@@ -521,6 +526,7 @@ final class Live {
     private static let log = Logger(subsystem: "dev.sdat", category: "live")
     /// Quiet time after a start or a drift seek before measuring again.
     private static let seekSettle: TimeInterval = 3
+    private static let reloadInterval: TimeInterval = 5
     /// Latency change that triggers one realigning seek (smaller ones are jitter).
     private static let latencyRealignMs: Int64 = 300
 
