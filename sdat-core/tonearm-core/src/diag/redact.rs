@@ -102,8 +102,9 @@ fn key_value(s: &[u8], after_key: usize, is_code: bool) -> Option<(usize, usize)
         // A JSON number, `true` or `null` ends where the object or array goes on.
         end = i + s[i..end].iter().position(|b| matches!(b, b',' | b'}' | b']')).unwrap_or(end - i);
     }
-    // A flag such as `"hasAccessToken":true` says whether there is a secret, not what it is.
-    if matches!(&s[i..end], b"true" | b"false" | b"null") {
+    // A JSON flag such as `"hasAccessToken":true` says whether there is a secret, not what it is; a password
+    // would be the string `"true"`. After `password=` the same word may be the password itself.
+    if quoted_key && matches!(&s[i..end], b"true" | b"false" | b"null") {
         return None;
     }
     (end > i).then_some((i, end))
@@ -229,6 +230,7 @@ mod tests {
         );
         assert_eq!(redact(r#"{"clientSecret":"c","sessionKey":"k"}"#), r#"{"clientSecret":"<redacted>","sessionKey":"<redacted>"}"#);
         assert_eq!(redact(r#"{"hasAccessToken":true,"accessToken":"s"}"#), r#"{"hasAccessToken":true,"accessToken":"<redacted>"}"#);
+        assert_eq!(redact("password=true&x=1"), "password=<redacted>&x=1");
         assert_eq!(redact("épassword=x é"), "épassword=<redacted> é");
     }
 
