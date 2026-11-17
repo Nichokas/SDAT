@@ -815,7 +815,7 @@ final class Player {
                 if st == .failed { break }
             }
             guard let self, self.avPlayer.currentItem === item, self.current?.id == track.id,
-                  let s = try? await SDAT.stream(trackId: track.id, quality: Preferences.shared.streamingQuality),
+                  let s = try? await Self.online(track.id),
                   self.current?.id == track.id, let u = URL(string: s.url) else { return }
             let at = self.position
             self.stream = s
@@ -863,7 +863,16 @@ final class Player {
     /// Downloaded file when available (works offline), else a fresh HLS stream.
     private static func source(_ id: String) async throws -> Stream {
         if let s = Downloads.shared.localStream(id) { return s }
-        return try await SDAT.stream(trackId: id, quality: Preferences.shared.streamingQuality)
+        return try await online(id)
+    }
+
+    /// The stream's best variant only: given the master playlist, AVPlayer starts a queued item on a
+    /// lower variant and switches up while it plays, and a switch that changes the sample rate
+    /// (Hi-Res next to 44.1 kHz) replays the track from 0.
+    private static func online(_ id: String) async throws -> Stream {
+        var s = try await SDAT.stream(trackId: id, quality: Preferences.shared.streamingQuality)
+        if let u = await Downloads.bestVariantURL(of: s.url) { s.url = u.absoluteString }
+        return s
     }
 
     /// Prepares the next track's AVPlayerItem behind the current one (gapless-ish start).
