@@ -18,6 +18,15 @@
       "category": "entertainment",
       "versions": [
         {
+          "version": "2.3.2",
+          "buildVersion": "17",
+          "date": "2026-11-17T20:41:31Z",
+          "localizedDescription": "## What's Changed\n* Core: stop logging hidden TIDAL item types as errors by @Nichokas in https://github.com/Nichokas/SDAT/pull/173\n* Mobile: pick the TIDAL country in Settings, automatic by default by @Nichokas in https://github.com/Nichokas/SDAT/pull/174\n* iOS: build the dSYM and upload it to Sentry on releases by @Nichokas in https://github.com/Nichokas/SDAT/pull/175\n* iOS: keep the paused player in Now Playing for 10 minutes by @Nichokas in https://github.com/Nichokas/SDAT/pull/176\n\n\n**Full Changelog**: https://github.com/Nichokas/SDAT/compare/v2.3.1...v2.3.2",
+          "downloadURL": "https://github.com/Nichokas/SDAT/releases/download/v2.3.2/SDAT-v2.3.2-unsigned.ipa",
+          "size": 11751940,
+          "minOSVersion": "26.0"
+        },
+        {
           "version": "2.3.1",
           "buildVersion": "16",
           "date": "2026-11-17T13:33:16Z",
@@ -135,11 +144,11 @@
           "minOSVersion": "26.0"
         }
       ],
-      "version": "2.3.1",
-      "versionDate": "2026-11-17T13:33:16Z",
-      "versionDescription": "## What's Changed\n* iOS: fix the queue and shuffle bugs from the Android port review by @Nichokas in https://github.com/Nichokas/SDAT/pull/169\n* iOS: drop static frameworks from the .ipa so Feather can sign it by @Nichokas in https://github.com/Nichokas/SDAT/pull/170\n* Core: an outage no longer empties the endless shuffle for good by @Nichokas in https://github.com/Nichokas/SDAT/pull/168\n* iOS: refetch a failed stream once, and keep a paused track paused on a quality change by @Nichokas in https://github.com/Nichokas/SDAT/pull/171\n* Android: refetch a failed stream once, and show the restored track to media controllers by @Nichokas in https://github.com/Nichokas/SDAT/pull/172\n\n\n**Full Changelog**: https://github.com/Nichokas/SDAT/compare/v2.3.0...v2.3.1",
-      "downloadURL": "https://github.com/Nichokas/SDAT/releases/download/v2.3.1/SDAT-v2.3.1-unsigned.ipa",
-      "size": 11309306
+      "version": "2.3.2",
+      "versionDate": "2026-11-17T20:41:31Z",
+      "versionDescription": "## What's Changed\n* Core: stop logging hidden TIDAL item types as errors by @Nichokas in https://github.com/Nichokas/SDAT/pull/173\n* Mobile: pick the TIDAL country in Settings, automatic by default by @Nichokas in https://github.com/Nichokas/SDAT/pull/174\n* iOS: build the dSYM and upload it to Sentry on releases by @Nichokas in https://github.com/Nichokas/SDAT/pull/175\n* iOS: keep the paused player in Now Playing for 10 minutes by @Nichokas in https://github.com/Nichokas/SDAT/pull/176\n\n\n**Full Changelog**: https://github.com/Nichokas/SDAT/compare/v2.3.1...v2.3.2",
+      "downloadURL": "https://github.com/Nichokas/SDAT/releases/download/v2.3.2/SDAT-v2.3.2-unsigned.ipa",
+      "size": 11751940
     }
   ],
   "news": []
