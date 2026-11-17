@@ -35,6 +35,8 @@ on:
     secrets:
       SENTRY_DSN_IOS:
         required: false
+      SENTRY_AUTH_TOKEN:
+        required: false
 
 permissions:
   contents: write
@@ -87,6 +89,8 @@ jobs:
           set -euo pipefail
           app="$GITHUB_WORKSPACE/sdat-mobile"
           export IPHONEOS_DEPLOYMENT_TARGET=17.0
+          # Line tables let the dSYM resolve Rust frames to file and line; they stay out of the shipped binary.
+          export CARGO_PROFILE_RELEASE_DEBUG=line-tables-only
           export SDKROOT="$(xcrun -sdk iphoneos --show-sdk-path)"
           cargo rustc -p tonearm-ffi --lib --release --target aarch64-apple-ios --crate-type staticlib
           unset SDKROOT
@@ -143,15 +147,46 @@ jobs:
             fi
           done
           rmdir "$app/Frameworks" 2>/dev/null || true
+          echo "APP_EXE=$exe" >> "$GITHUB_ENV"
           mkdir -p "$GITHUB_WORKSPACE/out"
           (cd "$tmp" && zip -qry "$GITHUB_WORKSPACE/out/SDAT-unsigned.ipa" .)
           unzip -l "$GITHUB_WORKSPACE/out/SDAT-unsigned.ipa" | awk '/Payload\/[^\/]+\.app\// && n++ < 5'
+
+      # Sentry symbolicates crashes only with the dSYM whose UUID matches the shipped binary, and dsymutil can
+      # build it only while the object files and Rust archive of this build are still on disk.
+      - name: Make the dSYM
+        run: |
+          set -euo pipefail
+          dsym="$GITHUB_WORKSPACE/out/SDAT.app.dSYM"
+          dsymutil "$APP_EXE" -o "$dsym"
+          exe_uuid="$(dwarfdump --uuid "$APP_EXE")"
+          dsym_uuid="$(dwarfdump --uuid "$dsym")"
+          echo "$exe_uuid"
+          if [ "${exe_uuid%% (*}" != "${dsym_uuid%% (*}" ]; then
+            echo "::error::dSYM UUID differs from the app: $dsym_uuid"
+            exit 1
+          fi
+          # dsymutil only warns about missing object files, so check that both Swift and Rust sources made it in.
+          dwarfdump --show-sources "$dsym" > "$RUNNER_TEMP/dsym-sources.txt"
+          for src in /Sources/SDAT/ tonearm-core/src/; do
+            if ! grep -F "$src" "$RUNNER_TEMP/dsym-sources.txt" >/dev/null; then
+              echo "::error::The dSYM has no debug info for $src"
+              exit 1
+            fi
+          done
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
           name: SDAT-unsigned-ipa
           path: out/SDAT-unsigned.ipa
+          if-no-files-found: error
+
+      - name: Upload dSYM artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: SDAT-dSYM
+          path: out/SDAT.app.dSYM
           if-no-files-found: error
 
       - name: Attach to release
@@ -165,3 +200,24 @@ jobs:
           fi
           cp out/SDAT-unsigned.ipa "out/SDAT-$RELEASE_TAG-unsigned.ipa"
           gh release upload "$RELEASE_TAG" "out/SDAT-$RELEASE_TAG-unsigned.ipa" -R "$GITHUB_REPOSITORY" --clobber
+
+      # After the release asset, and never failing the job: a Sentry outage must not hold back the .ipa or Feather.
+      # The SDAT-dSYM artifact keeps the file for a manual `sentry-cli debug-files upload`.
+      - name: Upload the dSYM to Sentry
+        if: env.RELEASE_TAG != '' && github.event_name != 'pull_request'
+        continue-on-error: true
+        env:
+          SENTRY_AUTH_TOKEN: ${{ secrets.SENTRY_AUTH_TOKEN }}
+          SENTRY_ORG: ${{ vars.SENTRY_ORG }}
+          SENTRY_PROJECT: ${{ vars.SENTRY_PROJECT_IOS }}
+        run: |
+          set -euo pipefail
+          if [ -z "$SENTRY_AUTH_TOKEN" ] || [ -z "$SENTRY_ORG" ] || [ -z "$SENTRY_PROJECT" ]; then
+            echo "::warning::SENTRY_AUTH_TOKEN, SENTRY_ORG or SENTRY_PROJECT_IOS is not set; crashes of this build stay unsymbolicated."
+            exit 0
+          fi
+          cli="$RUNNER_TEMP/sentry-cli"
+          curl -fsSL -o "$cli" https://github.com/getsentry/sentry-cli/releases/download/3.8.2/sentry-cli-Darwin-arm64
+          echo "c80d92b6d34eb64fe7402f56cc7968fbb15aab1c763254ad428b55cc98ec7dcf  $cli" | shasum -a 256 -c
+          chmod +x "$cli"
+          "$cli" debug-files upload --include-sources --wait out/SDAT.app.dSYM

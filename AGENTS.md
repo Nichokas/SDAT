@@ -28,7 +28,7 @@ Notes for coding agents working on SDAT, a TIDAL player for Fedora (GTK), iPhone
 ## CI (`.github/workflows/`)
 
 - `rust.yml` – core and desktop tests (desktop in a Fedora container).
-- `ios-build.yml` – builds the unsigned `.ipa` on macOS; on `v*` tags attaches it to the release.
+- `ios-build.yml` – builds the unsigned `.ipa` and its dSYM on macOS; on `v*` tags attaches the `.ipa` to the release and uploads the dSYM to Sentry (`SENTRY_AUTH_TOKEN` secret, `SENTRY_ORG` and `SENTRY_PROJECT_IOS` variables).
 - `android-build.yml` – Gradle build, lint and unit tests.
 - `android-release.yml` – signed per-ABI release APKs for an `android-v*` release, called by `release.yml`.
 - `feather-source.yml` – after an iOS release, commits the `feather/source.json` update straight to main.
