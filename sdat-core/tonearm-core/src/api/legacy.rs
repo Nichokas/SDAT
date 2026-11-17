@@ -173,6 +173,7 @@ pub struct FavouritesIds {
 pub mod item_type {
     pub const ALBUM: &str = "ALBUM";
     pub const ARTIST: &str = "ARTIST";
+    pub const ARTIST_LINK: &str = "ARTIST_LINK";
     pub const DEEP_LINK: &str = "DEEP_LINK";
     pub const HORIZONTAL_LIST: &str = "HORIZONTAL_LIST";
     pub const HORIZONTAL_LIST_WITH_CONTEXT: &str = "HORIZONTAL_LIST_WITH_CONTEXT";
@@ -181,6 +182,8 @@ pub mod item_type {
     pub const SHORTCUT_LIST: &str = "SHORTCUT_LIST";
     pub const TRACK: &str = "TRACK";
     pub const TRACK_LIST: &str = "TRACK_LIST";
+    pub const TRACK_CREDITS: &str = "TRACK_CREDITS";
+    pub const VIDEO: &str = "VIDEO";
 }
 
 #[derive(Debug, Clone)]
@@ -224,8 +227,16 @@ impl<'de> Deserialize<'de> for Item2 {
             item_type::PLAYLIST => p(raw).map(ItemData::Playlist),
             item_type::TRACK => p(raw).map(ItemData::Track),
             item_type::ALBUM => p(raw).map(ItemData::Album),
+            // Types we deliberately don't show; readers skip Unknown. Anything else may be a new type worth supporting.
+            item_type::ARTIST_LINK | item_type::TRACK_CREDITS | item_type::VIDEO => None,
             other => {
-                log::error!("Unknown item type item_type={other}");
+                // Once per type: a page repeats it per item, which would bury every other diagnostic.
+                static WARNED: std::sync::Mutex<Vec<String>> = std::sync::Mutex::new(Vec::new());
+                let mut warned = WARNED.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+                if !warned.iter().any(|t| t == other) {
+                    log::warn!("Unknown item type item_type={other}");
+                    warned.push(other.to_string());
+                }
                 None
             }
         }
