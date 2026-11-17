@@ -13,26 +13,6 @@ const PREVIOUS: &str = "diag.prev.log";
 const ROTATED: &str = "diag.log.1";
 const PREVIOUS_ROTATED: &str = "diag.prev.log.1";
 const LOCK: &str = "diag.lock";
-/// Longest message or backtrace kept, so one huge event (an error page logged whole) neither overflows
-/// [`MAX_FILE_BYTES`] nor holds the buffer's memory.
-const MAX_TEXT_BYTES: usize = 32 * 1024;
-const MAX_TARGET_BYTES: usize = 256;
-
-/// The first part of `text` that can matter, so redacting a huge message does not copy all of it. A secret
-/// cut here keeps its key and is still redacted to the end; one whose key is cut is dropped with the rest.
-/// It keeps one character (up to 4 bytes) past the limit, so [`truncated`] sees the cut and marks it.
-pub(super) fn clip(text: &str) -> &str {
-    &text[..text.floor_char_boundary(MAX_TEXT_BYTES + 4)]
-}
-
-fn truncated(mut text: String, max: usize) -> String {
-    if text.len() > max {
-        text.truncate(text.floor_char_boundary(max));
-        text.push_str(" …(truncated)");
-        text.shrink_to_fit();
-    }
-    text
-}
 
 /// The event log: the last [`CAPACITY`] events in memory, and with a directory also a rotating text file.
 /// File errors are dropped on purpose: logging must never fail the app or log about itself.
@@ -111,9 +91,9 @@ impl Store {
             seq: self.next_seq,
             at_ms: chrono::Utc::now().timestamp_millis(),
             level,
-            target: truncated(target.to_owned(), MAX_TARGET_BYTES),
-            message: truncated(message, MAX_TEXT_BYTES),
-            backtrace: backtrace.map(|b| truncated(b, MAX_TEXT_BYTES)),
+            target: target.to_owned(),
+            message,
+            backtrace,
         };
         self.next_seq += 1;
         if let Some(file) = self.file.as_mut() {
@@ -267,21 +247,6 @@ mod tests {
         assert!(rotated > 0 && rotated <= MAX_FILE_BYTES, "{rotated}");
         assert!(current > 0 && current <= MAX_FILE_BYTES, "{current}");
         assert!(fs::read_to_string(tmp.0.join(CURRENT)).expect("diag.log").contains("1999 "));
-    }
-
-    #[test]
-    fn one_huge_event_is_cut_to_fit_the_file() {
-        let tmp = TempDir::new("huge");
-        let mut store = Store::new(Some(tmp.0.clone()));
-        assert!(truncated(clip(&"é".repeat(20_000)).to_owned(), MAX_TEXT_BYTES).ends_with("…(truncated)"));
-        info(&mut store, &"é".repeat(MAX_FILE_BYTES as usize));
-        store.push(Level::Info, &"t".repeat(MAX_FILE_BYTES as usize), "short".to_owned(), None);
-        assert!(store.since(0)[1].target.len() < MAX_TARGET_BYTES + 32);
-        let message = &store.since(0)[0].message;
-        assert!(message.len() < MAX_TEXT_BYTES + 32 && message.ends_with("…(truncated)"));
-        assert!(message.capacity() < MAX_TEXT_BYTES + 32, "{}", message.capacity());
-        let current = fs::metadata(tmp.0.join(CURRENT)).expect("diag.log").len();
-        assert!(current < MAX_FILE_BYTES, "{current}");
     }
 
     #[test]

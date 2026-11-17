@@ -192,12 +192,31 @@ pub fn init(dir: Option<PathBuf>, sink: Option<Box<dyn Sink>>) {
     }
 }
 
+/// Longest message or backtrace kept, so one huge event (an error page logged whole) neither overflows the
+/// log file nor holds the buffer's memory.
+const MAX_TEXT_BYTES: usize = 32 * 1024;
+const MAX_TARGET_BYTES: usize = 256;
+
+/// `text` redacted and cut to `max` bytes, marked when anything was cut. Only the first `max` bytes are
+/// redacted, so a huge message costs one bounded pass: a secret cut there keeps its key and is redacted to
+/// the end, and one whose key is cut is dropped with the rest.
+fn bounded(text: &str, max: usize) -> String {
+    let cut = text.floor_char_boundary(max);
+    let mut out = redact::redact(&text[..cut]).into_owned();
+    if cut < text.len() || out.len() > max {
+        out.truncate(out.floor_char_boundary(max));
+        out.push_str(" …(truncated)");
+        out.shrink_to_fit();
+    }
+    out
+}
+
 /// The one path every event takes, so redaction happens before anything is stored, written or sent.
 fn ingest(level: Level, target: &str, message: &str, backtrace: Option<String>, echo: bool) {
     let Some(global) = GLOBAL.get() else { return };
-    let target = redact::redact(store::clip(target));
-    let message = redact::redact(store::clip(message)).into_owned();
-    let backtrace = backtrace.map(|b| redact::redact(store::clip(&b)).into_owned());
+    let target = bounded(target, MAX_TARGET_BYTES);
+    let message = bounded(message, MAX_TEXT_BYTES);
+    let backtrace = backtrace.map(|b| bounded(&b, MAX_TEXT_BYTES));
     let notify = matches!(level, Level::Error | Level::Warn) || target == MARK_TARGET || target == PANIC_TARGET;
     let (copy, line) = {
         let Some(mut store) = global.lock() else { return };
@@ -321,6 +340,17 @@ mod tests {
         let event = stored("diag-test-huge").pop().expect("stored");
         assert!(event.message.len() < 33 * 1024);
         assert!(!event.message.contains("hunter"), "{}", &event.message[event.message.len() - 60..]);
+    }
+
+    #[test]
+    fn a_cut_event_is_always_marked_and_bounded() {
+        let marked = |s: &String| s.ends_with("…(truncated)") && s.len() < MAX_TEXT_BYTES + 32 && s.capacity() < MAX_TEXT_BYTES + 32;
+        // Redaction shrinks this one far below the limit; the cut must still show.
+        assert!(marked(&bounded(&format!("password={}", "a".repeat(40_000)), MAX_TEXT_BYTES)));
+        assert!(marked(&bounded(&"é".repeat(20_000), MAX_TEXT_BYTES)));
+        assert!(marked(&bounded(&"token=a ".repeat(10_000), MAX_TEXT_BYTES)), "redaction grows it past the limit");
+        assert_eq!(bounded("short", MAX_TEXT_BYTES), "short");
+        assert!(bounded(&"t".repeat(1 << 20), MAX_TARGET_BYTES).len() < MAX_TARGET_BYTES + 32);
     }
 
     #[test]
