@@ -38,7 +38,7 @@ pub fn preferred() -> Option<String> {
 }
 
 /// Saves the choice (`None` = automatic), then drops the cached country and
-/// lists, so the next request uses it. A failed save keeps both.
+/// lists, so the next request uses whatever the file now holds.
 pub fn set_preferred(code: Option<&str>) {
     if let Some(p) = path() {
         let r = match code {
@@ -50,7 +50,6 @@ pub fn set_preferred(code: Option<&str>) {
         };
         if let Err(e) = r {
             log::warn!("saving country preference failed error={e}");
-            return;
         }
     }
     crate::api::reset_country_code();
