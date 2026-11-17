@@ -95,7 +95,8 @@ fn bind(client: sentry::Client) {
     *slot = Some(client);
 }
 
-fn close() {
+/// Also at shutdown, so reports queued near exit still go out.
+pub fn close() {
     let Some(client) = CLIENT.lock().unwrap_or_else(PoisonError::into_inner).take() else { return };
     sentry::Hub::main().bind_client(None);
     // Not the client guard of `sentry::init`: its drop closes whatever client the dropping thread's hub holds.
