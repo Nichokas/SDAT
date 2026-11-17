@@ -213,7 +213,7 @@ struct DetailPage: View {
             }
             Menu {
                 Button("Play Next", systemImage: "text.line.first.and.arrowtriangle.forward") {
-                    if !Live.shared.userPlayNext(tracks) { for t in tracks.reversed() { player.playNext(t) } }
+                    if !Live.shared.userPlayNext(tracks) { player.playNext(tracks) }
                 }
                 Button("Add to Queue", systemImage: "text.line.last.and.arrowtriangle.forward") {
                     if !Live.shared.userEnqueue(tracks) { for t in tracks { player.addToQueue(t) } }
@@ -386,7 +386,7 @@ struct ArtistView: View {
                     if !top.isEmpty {
                         header("Top Tracks")
                         PlayShuffleButtons(
-                            play: { player.play(top, from: o.artist.name) },
+                            play: { if player.shuffle { player.setShuffle(false) }; player.play(top, from: o.artist.name) },
                             shuffle: { player.playShuffled(top, from: o.artist.name) },
                             compact: true
                         )
