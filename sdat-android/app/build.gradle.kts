@@ -99,6 +99,8 @@ androidComponents {
     onVariants { variant ->
         variant.sources.jniLibs?.addGeneratedSourceDirectory(buildRustCore, BuildRustCore::jniLibs)
         variant.sources.kotlin?.addGeneratedSourceDirectory(buildRustCore, BuildRustCore::bindings)
+        // Pure code that benchmarks/android-glass compiles too, so the benchmark lays out what the app does.
+        variant.sources.kotlin?.addStaticSourceDirectory("src/shared/kotlin")
     }
 }
 

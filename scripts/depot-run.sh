@@ -3,6 +3,7 @@
 # or test run does not use this machine's CPU. Waits for the result and downloads the artifacts to out/depot/.
 #   scripts/depot-run.sh android   # assembleDebug, lintDebug, unit tests and assembleRelease
 #   scripts/depot-run.sh rust      # core and desktop tests; add a job name (core, desktop) to run only that one
+#   scripts/depot-run.sh benchmark # the glass benchmark's unit tests and release APK (benchmarks/android-glass)
 # Needs the Depot CLI logged in (depot login). It cannot build iOS: Depot CI has no macOS runners.
 set -euo pipefail
 export PATH="$HOME/.depot/bin:$PATH"
@@ -15,7 +16,8 @@ shift || true
 case "$target" in
   android) workflow=android-build.yml; jobs=(build) ;;
   rust) workflow=rust.yml; jobs=("$@"); [ "${#jobs[@]}" -gt 0 ] || jobs=(core desktop) ;;
-  *) echo "usage: $0 android | rust [core|desktop]" >&2; exit 2 ;;
+  benchmark) workflow=benchmark-android.yml; jobs=(build) ;;
+  *) echo "usage: $0 android | rust [core|desktop] | benchmark" >&2; exit 2 ;;
 esac
 
 # depot ci run patches in tracked changes only, so a new file would be tested as missing and the run could still pass.
