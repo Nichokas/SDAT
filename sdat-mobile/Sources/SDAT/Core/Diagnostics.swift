@@ -76,7 +76,8 @@ final class Diagnostics {
 }
 
 /// Forwards the core's events to Sentry and the system log. Called from Rust on any thread, so it holds no
-/// state and never throws.
+/// state and never throws. The core keeps this one sink for the whole run, so it checks
+/// `SentrySDK.isEnabled` on every event: consent given or withdrawn later takes effect at once.
 final class DiagnosticsSink: DiagSink {
     func onEvent(event: DiagEvent) {
         let log = Logger(subsystem: Bundle.main.bundleIdentifier ?? "com.nichokas.SDAT", category: event.target)
