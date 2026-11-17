@@ -2,6 +2,8 @@ import SwiftUI
 
 @main
 struct SDATApp: App {
+    // First, so the diagnostics log starts before the other singletons do any work.
+    @State private var diagnostics = Diagnostics.shared
     @State private var session = Session.shared
     @State private var prefs = Preferences.shared
     @State private var boot = Boot.shared
