@@ -88,9 +88,10 @@ fn key_value(s: &[u8], after_key: usize, is_code: bool) -> Option<(usize, usize)
     }
     let value = skip(s, i + 1, |b| b.is_ascii_whitespace());
     if matches!(s.get(value), Some(b'"' | b'\'' | b'\\'))
-        && let Some(range) = quoted(s, value)
+        && let Some((start, end)) = quoted(s, value)
     {
-        return Some(range);
+        // After an unquoted key (a query string, a form body) the quotes may be part of the password itself.
+        return Some((start, if quoted_key { end } else { end.max(bare_end(s, value)) }));
     }
     // JSON may put a value on the next line; after `password=` a new line is the next message, not the value.
     i = if quoted_key { value } else { skip(s, i + 1, is_blank) };
@@ -248,6 +249,8 @@ mod tests {
         assert_eq!(redact("msg='password=abc', x"), "msg='password=<redacted> x");
         assert_eq!(redact(r#"password=abc",def next"#), "password=<redacted> next");
         assert_eq!(redact("password='abc'def&x=1"), "password='<redacted>&x=1");
+        assert_eq!(redact("password='abc',secret&x=1"), "password='<redacted>&x=1");
+        assert_eq!(redact(r#"password="p w" next"#), r#"password="<redacted>" next"#);
         assert_eq!(redact(r#"{"password":"abc"}"#), r#"{"password":"<redacted>"}"#);
         assert_eq!(redact("Authorization: \\xyz\nnext"), "Authorization: <redacted>\nnext");
         assert_eq!(redact(r#"msg: "password=abc\" ok""#), r#"msg: "password=<redacted> ok""#);
@@ -272,7 +275,7 @@ mod tests {
 
     #[test]
     fn single_quoted_values() {
-        assert_eq!(redact("password='hunter2' user='me'"), "password='<redacted>' user='me'");
+        assert_eq!(redact("password='hunter2' user='me'"), "password='<redacted> user='me'");
         assert_eq!(redact("{'access_token': 'a\\'b'}"), "{'access_token': '<redacted>'}");
     }
 

@@ -184,17 +184,20 @@ pub fn init(dir: Option<PathBuf>, sink: Option<Box<dyn Sink>>) {
         let _ = GLOBAL.set(Global { store: Mutex::new(Store::new(dir)), sink });
         install::install();
     });
+    // Outside `call_once`: these reach the sink, which may call back into `init`.
     if !first {
         log::warn!("diag::init called again; its directory and sink are ignored");
+    } else if !install::owns_logger() {
+        record(Level::Warn, "diag", "another log logger was installed first: log records do not reach diagnostics", None);
     }
 }
 
 /// The one path every event takes, so redaction happens before anything is stored, written or sent.
 fn ingest(level: Level, target: &str, message: &str, backtrace: Option<String>, echo: bool) {
     let Some(global) = GLOBAL.get() else { return };
-    let target = redact::redact(target);
-    let message = redact::redact(message).into_owned();
-    let backtrace = backtrace.map(|b| redact::redact(&b).into_owned());
+    let target = redact::redact(store::clip(target));
+    let message = redact::redact(store::clip(message)).into_owned();
+    let backtrace = backtrace.map(|b| redact::redact(store::clip(&b)).into_owned());
     let notify = matches!(level, Level::Error | Level::Warn) || target == MARK_TARGET || target == PANIC_TARGET;
     let (copy, line) = {
         let Some(mut store) = global.lock() else { return };
@@ -308,6 +311,16 @@ mod tests {
         assert_eq!(events[0].target, "panic");
         assert!(events[0].backtrace.as_deref().is_some_and(|b| !b.is_empty()));
         assert_eq!(sent("diag-test-panic-1").len(), 1);
+    }
+
+    #[test]
+    fn a_huge_message_is_clipped_and_a_secret_cut_by_the_clip_stays_redacted() {
+        setup();
+        let filler = "x".repeat(32 * 1024 - 20);
+        record(Level::Info, "test", &format!("diag-test-huge {filler} password=hunter2hunter2 {}", "y".repeat(1 << 20)), None);
+        let event = stored("diag-test-huge").pop().expect("stored");
+        assert!(event.message.len() < 33 * 1024);
+        assert!(!event.message.contains("hunter"), "{}", &event.message[event.message.len() - 60..]);
     }
 
     #[test]

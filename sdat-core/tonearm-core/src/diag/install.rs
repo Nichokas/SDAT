@@ -51,13 +51,11 @@ pub(super) fn owns_logger() -> bool {
     OWNS_LOGGER.load(Ordering::Relaxed)
 }
 
+/// Another logger installed first keeps its place and its level; panics and `record` still work.
 pub(super) fn install() {
-    // Another logger installed first keeps its place and its level; panics and `record` still work.
     if log::set_logger(&LOGGER).is_ok() {
         OWNS_LOGGER.store(true, Ordering::Relaxed);
         log::set_max_level(LevelFilter::Info);
-    } else {
-        ingest(Level::Warn, "diag", "another log logger was installed first: log records do not reach diagnostics", None, true);
     }
     install_panic_hook();
 }

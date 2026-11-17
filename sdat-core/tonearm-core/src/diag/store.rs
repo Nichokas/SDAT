@@ -18,6 +18,12 @@ const LOCK: &str = "diag.lock";
 const MAX_TEXT_BYTES: usize = 32 * 1024;
 const MAX_TARGET_BYTES: usize = 256;
 
+/// The first part of `text` that can matter, so redacting a huge message does not copy all of it. A secret
+/// cut here keeps its key and is still redacted to the end; one whose key is cut is dropped with the rest.
+pub(super) fn clip(text: &str) -> &str {
+    &text[..text.floor_char_boundary(MAX_TEXT_BYTES + 1)]
+}
+
 fn truncated(mut text: String, max: usize) -> String {
     if text.len() > max {
         text.truncate(text.floor_char_boundary(max));
