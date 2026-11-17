@@ -211,7 +211,7 @@ impl InfiniteShuffle {
             {
                 if self.seen.insert(t.id().to_string()) {
                     self.picked += 1;
-                    if self.picked.is_multiple_of(SEED_EVERY) && self.seeds.len() < MAX_SEEDS {
+                    if self.picked.is_multiple_of(SEED_EVERY) && self.seeds.len() + failed_seeds.len() < MAX_SEEDS {
                         self.seeds.push_back(t.id().to_string());
                     }
                     out.push(t);
@@ -234,7 +234,7 @@ impl InfiniteShuffle {
 #[cfg(test)]
 mod tests {
     use std::sync::Arc;
-    use std::sync::atomic::{AtomicBool, Ordering};
+    use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 
     use super::*;
     use crate::error::CoreError;
@@ -329,6 +329,20 @@ mod tests {
         assert!(s.next_batch(4).is_err(), "only failed radios left");
         down.store(false, Ordering::SeqCst);
         assert!(s.next_batch(4).expect("batch").iter().all(|t| t.id().starts_with('r')), "the seed's radio plays once it works");
+    }
+
+    #[test]
+    fn failed_seeds_count_towards_the_seed_cap() {
+        let calls = AtomicUsize::new(0);
+        let mut s = InfiniteShuffle::new(
+            vec![source("a", 1, 8)],
+            Box::new(move |_| {
+                if calls.fetch_add(1, Ordering::SeqCst) == 0 { Err(CoreError::Network("down".into())) } else { Ok(Some(source("r", 1, 100))) }
+            }),
+        );
+        assert_eq!(s.next_batch(8).expect("batch").len(), 8);
+        assert_eq!(s.next_batch(100).expect("batch").len(), 100);
+        assert!(s.seeds.len() <= MAX_SEEDS, "{} seeds", s.seeds.len());
     }
 
     #[test]

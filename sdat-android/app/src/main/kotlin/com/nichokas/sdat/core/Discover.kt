@@ -49,7 +49,16 @@ object Discover {
             mixes = homeMixes()
             Shuffle(mixes).use { source ->
                 repeat(10) {
-                    pool.add(source.nextBatch(if (hadCache || pool.tracks.isNotEmpty()) 80u else 30u))
+                    val batch = try {
+                        source.nextBatch(if (hadCache || pool.tracks.isNotEmpty()) 80u else 30u)
+                    } catch (e: CancellationException) {
+                        throw e
+                    } catch (e: Exception) {
+                        // A refresh cut short by the network keeps what arrived.
+                        if (pool.tracks.isEmpty()) throw e
+                        return@use
+                    }
+                    pool.add(batch)
                     // The plane's layout depends on the pool size, so only the first covers and the
                     // final pool are published: tiles on screen change at most once, as on iOS.
                     if (tracks.isEmpty()) tracks = pool.tracks.toList()
