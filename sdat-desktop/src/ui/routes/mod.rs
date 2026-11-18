@@ -119,6 +119,27 @@ mod pagination_tests {
     use super::should_fetch;
 
     #[test]
+    fn playback_drains_scrolled_pages_even_after_the_final_page() -> anyhow::Result<()> {
+        use crate::api::openapi::{LinksMeta, Relationships};
+        let mut pages = ["first", "second", "third", "last"].into_iter().peekable();
+        let mut paginator = super::Paginator::new(Box::new(move |_| {
+            let mut page = Relationships::default();
+            page.links.self_ = pages.next().expect("no fetch after EOF").into();
+            page.links.meta = Some(LinksMeta { next_cursor: pages.peek().map(|p| (*p).into()) });
+            Ok(page)
+        }), Box::new(|page| vec![page.links.self_.clone()]));
+
+        paginator.next_page()?; // Initial playback snapshot.
+        paginator.next_page()?; // Scroll ahead.
+        assert_eq!(super::next_queue_batch(&mut paginator, 1)?, (vec!["second".to_string()], true));
+        paginator.next_page()?;
+        paginator.next_page()?;
+        assert_eq!(super::next_queue_batch(&mut paginator, 2)?, (vec!["third".to_string(), "last".to_string()], false));
+        assert_eq!(super::next_queue_batch(&mut paginator, 4)?, (vec![], false));
+        Ok(())
+    }
+
+    #[test]
     fn fetches_only_when_close_to_the_end() {
         // 600px viewport at the top of 10000px of content: far from the end.
         assert!(!should_fetch(false, false, 0.0, 600.0, 10_000.0));
@@ -220,12 +241,14 @@ fn sync_from_paginator(list: &TrackList, p: &service::SharedPaginator<Track>) {
 /// appended to both the list and the play queue.
 fn play_whole_list_on_click(list: &TrackList, p: Option<SharedPaginator<Track>>, source: PlaybackSource) {
     list.set_list_click_handler(move |l, t, pos| {
+        let tracks = match &p {
+            Some(p) => p.lock().unwrap_or_else(std::sync::PoisonError::into_inner).items().to_vec(),
+            None => l.tracks(),
+        };
+        let initial_count = tracks.len();
+        let Some(generation) = player::play_list_from(source.clone(), tracks, t, pos) else { return };
         if let Some(p) = &p {
-            sync_from_paginator(l, p);
-        }
-        let Some(generation) = player::play_list_from(source.clone(), l.tracks(), t, pos) else { return };
-        if let Some(p) = &p {
-            player::set_list_feeder(generation, page_feeder(Some(l.downgrade()), std::sync::Arc::clone(p), generation));
+            player::set_list_feeder(generation, page_feeder(Some(l.downgrade()), std::sync::Arc::clone(p), generation, initial_count));
             if matches!(source, PlaybackSource::MyTracks) {
                 set_favourites_total(generation);
             }
@@ -243,19 +266,29 @@ fn set_favourites_total(generation: u64) {
     });
 }
 
+/// Scrolling may have loaded several pages since the queue last asked for tracks.
+fn next_queue_batch<T: Clone>(p: &mut Paginator<T>, queued: usize) -> anyhow::Result<(Vec<T>, bool)> {
+    let pending = p.items().get(queued..).ok_or_else(|| anyhow::anyhow!("playback offset {queued} exceeds the {} loaded tracks", p.items().len()))?;
+    let tracks = if pending.is_empty() && !p.is_consumed() {
+        p.next_page()?
+    } else {
+        pending.to_vec()
+    };
+    Ok((tracks, !p.is_consumed()))
+}
+
 /// A [`player::ListFeeder`] that loads the next page of `p`, shows it in the
 /// list (if still open) and appends it to the queue of list `generation`.
-fn page_feeder(list: Option<crate::ui::components::tracklist::WeakTrackList>, p: SharedPaginator<Track>, generation: u64) -> player::ListFeeder {
+fn page_feeder(list: Option<crate::ui::components::tracklist::WeakTrackList>, p: SharedPaginator<Track>, generation: u64, initial_count: usize) -> player::ListFeeder {
+    let queued = Rc::new(Cell::new(initial_count));
     Rc::new(move |done| {
-        let (list, p) = (list.clone(), std::sync::Arc::clone(&p));
+        let (list, p, queued) = (list.clone(), std::sync::Arc::clone(&p), Rc::clone(&queued));
         glib::spawn_future_local(async move {
-            if p.lock().unwrap_or_else(std::sync::PoisonError::into_inner).is_consumed() {
-                return done(false);
-            }
             let pp = std::sync::Arc::clone(&p);
-            let page = api::run(move || pp.lock().unwrap_or_else(std::sync::PoisonError::into_inner).next_page()).await;
-            let page = match page {
-                Ok(page) => page,
+            let offset = queued.get();
+            let batch = api::run(move || next_queue_batch(&mut pp.lock().unwrap_or_else(std::sync::PoisonError::into_inner), offset)).await;
+            let (page, more) = match batch {
+                Ok(batch) => batch,
                 Err(e) => {
                     log::error!("loading more of the playing list failed, keeping what we have error={e:#}");
                     return done(false);
@@ -265,7 +298,8 @@ fn page_feeder(list: Option<crate::ui::components::tracklist::WeakTrackList>, p:
                 sync_from_paginator(&l, &p);
             }
             let alive = player::extend_list(generation, &page);
-            done(alive && !p.lock().unwrap_or_else(std::sync::PoisonError::into_inner).is_consumed());
+            queued.set(offset + page.len());
+            done(alive && more);
         });
     })
 }
@@ -869,7 +903,9 @@ async fn my_collection() -> Response {
         }
         let Some(generation) = player::play_list_from(PlaybackSource::MyTracks, l.tracks(), t, pos) else { return };
         let p = service::shared(service::user_collection_tracks("me"));
-        player::set_list_feeder(generation, page_feeder(None, p, generation));
+        // The preview came from a separate request. Read page one in full so new
+        // favourites are included; the queue skips preview IDs, even played ones.
+        player::set_list_feeder(generation, page_feeder(None, p, generation, 0));
         set_favourites_total(generation);
     });
     let title = RowTitle::new().set_title(&tr("Tracks")).set_view_all_route("my-collection/tracks");
