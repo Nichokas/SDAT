@@ -903,6 +903,8 @@ async fn my_collection() -> Response {
         }
         let Some(generation) = player::play_list_from(PlaybackSource::MyTracks, l.tracks(), t, pos) else { return };
         let p = service::shared(service::user_collection_tracks("me"));
+        // The preview came from a separate request. Read page one in full so new
+        // favourites are included; the queue skips preview IDs, even played ones.
         player::set_list_feeder(generation, page_feeder(None, p, generation, 0));
         set_favourites_total(generation);
     });
