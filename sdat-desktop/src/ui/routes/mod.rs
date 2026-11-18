@@ -25,10 +25,10 @@ pub fn register() {
     router::register("playlist/:id", |a| playlist(a[0].clone()));
     router::register("feed", |_| feed());
     router::register("search", |_| async { search() });
-    router::register("search/:query/albums", |a| search_albums(a[0].clone()));
-    router::register("search/:query/artists", |a| search_artists(a[0].clone()));
-    router::register("search/:query/playlists", |a| search_playlists(a[0].clone()));
-    router::register("search/:query/tracks", |a| search_tracks(a[0].clone()));
+    register_search_filter("albums", search_albums);
+    register_search_filter("artists", search_artists);
+    register_search_filter("playlists", search_playlists);
+    register_search_filter("tracks", search_tracks);
     router::register("my-collection", |_| my_collection());
     router::register("my-collection/albums", |_| my_albums());
     router::register("my-collection/artists", |_| my_artists());
@@ -680,11 +680,27 @@ fn search_loading_view() -> gtk::Widget {
 
 const SEARCH_INCLUDES: [&str; 6] = ["topHits", "topHits.profileArt", "topHits.coverArt", "topHits.albums.coverArt", "topHits.albums.artists", "topHits.artists"];
 
+pub(crate) fn search_route(id: &str, kind: &str) -> String {
+    format!("search/{}/{kind}", urlencoding::encode(id))
+}
+
+fn register_search_filter<Fut>(kind: &str, handler: fn(String) -> Fut)
+where
+    Fut: std::future::Future<Output = Response> + 'static,
+{
+    router::register(&format!("search/:id/{kind}"), move |args| async move {
+        match urlencoding::decode(&args[0]) {
+            Ok(id) => handler(id.into_owned()).await,
+            Err(err) => Response::from_error(tr("Search"), err.into()),
+        }
+    });
+}
+
 fn top_hits(r: &api::openapi::SearchResultSingle) -> gtk::Widget {
-    let q = &r.data.id;
+    let id = &r.data.id;
     let hits = &r.data.relationships.top_hits.data;
     let artists = HorizontalList::new(&tr("Artists"));
-    artists.set_page_margin(40).set_view_all_route(&format!("search/{q}/artists"));
+    artists.set_page_margin(40).set_view_all_route(&search_route(id, "artists"));
     for a in r.included.artists(hits) {
         artists.append(&media_card::artist(&model::artist_from_openapi(&a)));
     }
@@ -694,16 +710,16 @@ fn top_hits(r: &api::openapi::SearchResultSingle) -> gtk::Widget {
     }
     tracks.play_all_on_click(|| PlaybackSource::List { title: tr("Search"), route: "search".into() });
     let albums = HorizontalList::new(&tr("Albums"));
-    albums.set_page_margin(40).set_view_all_route(&format!("search/{q}/albums"));
+    albums.set_page_margin(40).set_view_all_route(&search_route(id, "albums"));
     for a in r.included.albums(hits) {
         albums.append(&media_card::album(&model::album_from_openapi(&a)));
     }
     let playlists = HorizontalList::new(&tr("Playlists"));
-    playlists.set_page_margin(40).set_view_all_route(&format!("search/{q}/playlists"));
+    playlists.set_page_margin(40).set_view_all_route(&search_route(id, "playlists"));
     for p in r.included.playlists(hits) {
         playlists.append(&media_card::playlist(&model::playlist_from_openapi(&p)));
     }
-    let title = RowTitle::new().set_title(&tr("Tracks")).set_view_all_route(&format!("search/{q}/tracks"));
+    let title = RowTitle::new().set_title(&tr("Tracks")).set_view_all_route(&search_route(id, "tracks"));
     let tracks_box = vstack(&[title.widget.upcast_ref(), tracks.widget()]).hmargin(40);
     spacing(
         vstack(&[artists.widget.upcast_ref(), albums.widget.upcast_ref(), playlists.widget.upcast_ref(), tracks_box.upcast_ref(), spacer().upcast_ref()]),
@@ -790,7 +806,7 @@ async fn search_playlists(q: String) -> Response {
     }
 }
 async fn search_tracks(q: String) -> Response {
-    match paginated_tracklist_page(service::search_tracks(SearchTarget::ResultId(&q)), std_columns(), 40, None, Some(PlaybackSource::List { title: tr("Search"), route: format!("search/{q}/tracks") })).await {
+    match paginated_tracklist_page(service::search_tracks(SearchTarget::ResultId(&q)), std_columns(), 40, None, Some(PlaybackSource::List { title: tr("Search"), route: search_route(&q, "tracks") })).await {
         Ok((v, _)) => Response::new(tr("Search"), v),
         Err(e) => Response::from_error(tr("Search"), e),
     }

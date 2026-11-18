@@ -318,6 +318,16 @@ mod tests {
         assert_eq!(&c[1], "123");
         assert!(!re.is_match("album/123/x"));
     }
+
+    #[test]
+    fn search_route_captures_an_encoded_id_as_one_segment() {
+        crate::ui::routes::register();
+        let id = "result/%2F";
+        let path = crate::ui::routes::search_route(id, "tracks");
+        let (_, args) = find_handler(&path).expect("search handler");
+        assert_eq!(args, ["result%2F%252F"]);
+        assert_eq!(urlencoding::decode(&args[0]).unwrap(), id);
+    }
 }
 
 #[cfg(test)]
