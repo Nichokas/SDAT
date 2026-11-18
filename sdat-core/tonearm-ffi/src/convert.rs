@@ -84,6 +84,8 @@ pub struct Track {
     pub album: Option<AlbumRef>,
     #[uniffi(default = None)]
     pub bpm: Option<f64>,
+    #[uniffi(default = None)]
+    pub playlist_item_id: Option<String>,
 }
 
 impl From<&model::Track> for Track {
@@ -98,6 +100,7 @@ impl From<&model::Track> for Track {
             artists: t.artists.iter().map(ArtistRef::from).collect(),
             album: t.album.as_ref().map(AlbumRef::from),
             bpm: t.info.bpm,
+            playlist_item_id: t.playlist_item_id.clone(),
         }
     }
 }

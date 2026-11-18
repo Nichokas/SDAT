@@ -70,6 +70,17 @@ fn resolve_tracks(r: &openapi::Relationships) -> Vec<Track> {
     r.included.tracks(&r.data).iter().map(track_from_openapi).collect()
 }
 
+fn resolve_playlist_tracks(r: &openapi::Relationships) -> Vec<Track> {
+    r.data
+        .iter()
+        .filter_map(|item| {
+            let mut track = r.included.tracks(std::slice::from_ref(item)).first().map(track_from_openapi)?;
+            track.playlist_item_id = item.meta.as_ref().and_then(|meta| meta.get("itemId")?.as_str()).filter(|id| !id.is_empty()).map(str::to_owned);
+            Some(track)
+        })
+        .collect()
+}
+
 const TRACK_INCLUDES: [&str; 2] = ["items.artists.profileArt", "items.albums.coverArt"];
 
 pub fn get_album(id: &str) -> Result<Album> {
@@ -96,8 +107,9 @@ pub fn get_playlist_info(id: &str) -> Result<PlaylistInfo> {
 }
 pub fn get_playlist_tracks(id: &str) -> Paginator<Track> {
     let id = id.to_string();
-    Paginator::new(Box::new(move |c| api::playlist_items(&id, c, &TRACK_INCLUDES)), Box::new(resolve_tracks))
+    Paginator::new(Box::new(move |c| api::playlist_items(&id, c, &TRACK_INCLUDES)), Box::new(resolve_playlist_tracks))
 }
+
 pub fn get_track(id: &str) -> Result<Track> {
     Ok(track_from_openapi(&api::track(id, &["albums.coverArt", "artists.profileArt"])?))
 }
@@ -211,4 +223,43 @@ pub fn search_playlists(target: SearchTarget<'_>) -> Paginator<Playlist> {
     search_paginator(target, "playlists", &["playlists.coverArt"], |r| {
         r.included.playlists(&r.data).iter().map(playlist_from_openapi).collect()
     })
+}
+
+#[cfg(test)]
+mod playlist_tests {
+    use super::*;
+
+    #[test]
+    fn removes_selected_playlist_occurrence() {
+        let mut pager = Paginator::new(
+            Box::new(|cursor| {
+                let page = if cursor.is_empty() {
+                    r#"{
+                        "data":[{"id":"A","type":"tracks","meta":{"itemId":"a1"}},{"id":"B","type":"tracks"}],
+                        "included":[{"id":"A","type":"tracks"},{"id":"B","type":"tracks"}],
+                        "links":{"meta":{"nextCursor":"next"}}
+                    }"#
+                } else {
+                    r#"{
+                        "data":[
+                            {"id":"missing","type":"tracks","meta":{"itemId":"unavailable"}},
+                            {"id":"A","type":"tracks","meta":{"itemId":"a2"}},
+                            {"id":"C","type":"tracks","meta":{"itemId":"c1"}}
+                        ],
+                        "included":[{"id":"A","type":"tracks"},{"id":"C","type":"tracks"}],
+                        "links":{}
+                    }"#
+                };
+                Ok(serde_json::from_str(page)?)
+            }),
+            Box::new(resolve_playlist_tracks),
+        );
+        let tracks = pager.get_all().unwrap();
+        let item_ids: Vec<_> = tracks.iter().map(|track| track.playlist_item_id.as_deref()).collect();
+        assert_eq!(item_ids, [Some("a1"), None, Some("a2"), Some("c1")]);
+
+        let selected = tracks[2].playlist_item_id.as_deref();
+        let remaining: Vec<_> = tracks.iter().filter(|track| track.playlist_item_id.as_deref() != selected).map(Track::id).collect();
+        assert_eq!(remaining, ["A", "B", "C"]);
+    }
 }

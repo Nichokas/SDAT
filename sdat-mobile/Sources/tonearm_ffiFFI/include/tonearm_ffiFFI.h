@@ -1064,7 +1064,7 @@ uint64_t uniffi_tonearm_ffi_fn_func_recents(void
 #endif
 #ifndef UNIFFI_FFIDEF_UNIFFI_TONEARM_FFI_FN_FUNC_REMOVE_FROM_PLAYLIST
 #define UNIFFI_FFIDEF_UNIFFI_TONEARM_FFI_FN_FUNC_REMOVE_FROM_PLAYLIST
-uint64_t uniffi_tonearm_ffi_fn_func_remove_from_playlist(RustBuffer playlist_id, RustBuffer track_id
+uint64_t uniffi_tonearm_ffi_fn_func_remove_from_playlist(RustBuffer playlist_id, RustBuffer track_id, RustBuffer item_id
 );
 #endif
 #ifndef UNIFFI_FFIDEF_UNIFFI_TONEARM_FFI_FN_FUNC_SEARCH

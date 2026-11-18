@@ -6329,13 +6329,14 @@ public struct Track: Equatable, Hashable {
     public var artists: [ArtistRef]
     public var album: AlbumRef?
     public var bpm: Double?
+    public var playlistItemId: String?
 
     // Default memberwise initializers are never public by default, so we
     // declare one manually.
     public init(id: String, title: String, 
         /**
          * "(Remastered)" etc., empty if none.
-         */version: String, durationSecs: UInt32, explicit: Bool, streamable: Bool, artists: [ArtistRef], album: AlbumRef?, bpm: Double? = nil) {
+         */version: String, durationSecs: UInt32, explicit: Bool, streamable: Bool, artists: [ArtistRef], album: AlbumRef?, bpm: Double? = nil, playlistItemId: String? = nil) {
         self.id = id
         self.title = title
         self.version = version
@@ -6345,6 +6346,7 @@ public struct Track: Equatable, Hashable {
         self.artists = artists
         self.album = album
         self.bpm = bpm
+        self.playlistItemId = playlistItemId
     }
 
     
@@ -6371,7 +6373,8 @@ public struct FfiConverterTypeTrack: FfiConverterRustBuffer {
                 streamable: FfiConverterBool.read(from: &buf), 
                 artists: FfiConverterSequenceTypeArtistRef.read(from: &buf), 
                 album: FfiConverterOptionTypeAlbumRef.read(from: &buf), 
-                bpm: FfiConverterOptionDouble.read(from: &buf)
+                bpm: FfiConverterOptionDouble.read(from: &buf),
+                playlistItemId: FfiConverterOptionString.read(from: &buf)
         )
     }
 
@@ -6385,6 +6388,7 @@ public struct FfiConverterTypeTrack: FfiConverterRustBuffer {
         FfiConverterSequenceTypeArtistRef.write(value.artists, into: &buf)
         FfiConverterOptionTypeAlbumRef.write(value.album, into: &buf)
         FfiConverterOptionDouble.write(value.bpm, into: &buf)
+        FfiConverterOptionString.write(value.playlistItemId, into: &buf)
     }
 }
 
@@ -8971,13 +8975,13 @@ public func recents()async throws  -> [RecentItem]  {
         )
 }
 /**
- * Removes the first occurrence of a track from one of the user's playlists.
+ * Removes the selected track occurrence from one of the user's playlists.
  */
-public func removeFromPlaylist(playlistId: String, trackId: String)async throws   {
+public func removeFromPlaylist(playlistId: String, trackId: String, itemId: String)async throws   {
     return
         try  await uniffiRustCallAsync(
             rustFutureFunc: {
-                uniffi_tonearm_ffi_fn_func_remove_from_playlist(FfiConverterString.lower(playlistId),FfiConverterString.lower(trackId)
+                uniffi_tonearm_ffi_fn_func_remove_from_playlist(FfiConverterString.lower(playlistId),FfiConverterString.lower(trackId),FfiConverterString.lower(itemId)
                 )
             },
             pollFunc: ffi_tonearm_ffi_rust_future_poll_void,
@@ -9376,7 +9380,7 @@ private let initializationResult: InitializationResult = {
     if (uniffi_tonearm_ffi_checksum_func_recents() != 35214) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_tonearm_ffi_checksum_func_remove_from_playlist() != 43565) {
+    if (uniffi_tonearm_ffi_checksum_func_remove_from_playlist() != 46917) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_tonearm_ffi_checksum_func_search() != 43811) {

@@ -252,6 +252,8 @@ pub struct Track {
     pub info: TrackInfo,
     pub artists: Vec<ArtistInfo>,
     pub album: Option<AlbumInfo>,
+    /// Identifies this occurrence when the track was loaded from a playlist.
+    pub playlist_item_id: Option<String>,
 }
 
 impl Track {
@@ -459,6 +461,7 @@ pub fn track_from_openapi(t: &openapi::Track) -> Track {
         info: track_info_from_openapi(t),
         artists: t.included.artists(&t.data.relationships.artists.data).iter().map(artist_from_openapi).collect(),
         album: t.included.albums(&t.data.relationships.albums.data).first().map(album_info_from_openapi),
+        playlist_item_id: None,
     }
 }
 
@@ -545,6 +548,7 @@ pub fn track_from_v2(t: &legacy::TrackItemData) -> Track {
             released_at: t.album.release_date,
             cover: CoverSource::Ids { image: t.album.cover.clone(), video: t.album.video_cover.clone() },
         }),
+        playlist_item_id: None,
     }
 }
 
