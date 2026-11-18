@@ -245,10 +245,10 @@ pub async fn profile_picture_url() -> Result<Option<String>, FfiError> {
     .await
 }
 
-/// Removes the first occurrence of a track from one of the user's playlists.
+/// Removes the selected track occurrence from one of the user's playlists.
 #[uniffi::export]
-pub async fn remove_from_playlist(playlist_id: String, track_id: String) -> Result<(), FfiError> {
-    run(move || api::playlist_remove_track(&playlist_id, &track_id)).await
+pub async fn remove_from_playlist(playlist_id: String, track_id: String, item_id: String) -> Result<(), FfiError> {
+    run(move || api::playlist_remove_item(&playlist_id, &track_id, &item_id)).await
 }
 
 // ---- Recents and Explore

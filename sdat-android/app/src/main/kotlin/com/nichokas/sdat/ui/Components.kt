@@ -219,7 +219,7 @@ private val menuScope = MainScope()
 fun trackMenuItems(
     track: Track,
     ownPlaylistId: String? = null,
-    onRemoved: (() -> Unit)? = null,
+    onRemoved: ((String) -> Unit)? = null,
 ): List<GlasmioCascadingMenuItem> {
     val player = LocalTrackPlayer.current
     val fav = Favs.known(track.id) ?: false
@@ -233,12 +233,13 @@ fun trackMenuItems(
         }))
         add(GlasmioCascadingMenuItem("Add to Playlist…", "text.badge.plus", onClick = { Chrome.playlistPickerTrack = track }))
         addAll(downloadMenuItems(listOf(track)))
-        if (ownPlaylistId != null) {
+        val itemId = track.playlistItemId
+        if (ownPlaylistId != null && itemId != null) {
             add(GlasmioCascadingMenuItem("Remove from Playlist", "minus.circle", destructive = true, onClick = {
                 menuScope.launch {
                     try {
-                        removeFromPlaylist(ownPlaylistId, track.id)
-                        onRemoved?.invoke()
+                        removeFromPlaylist(ownPlaylistId, track.id, itemId)
+                        onRemoved?.invoke(itemId)
                         Chrome.flash("Removed from playlist")
                     } catch (e: CancellationException) {
                         throw e
@@ -278,7 +279,7 @@ fun TrackMenuRow(
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
     ownPlaylistId: String? = null,
-    onRemoved: (() -> Unit)? = null,
+    onRemoved: ((String) -> Unit)? = null,
     content: @Composable () -> Unit,
 ) {
     var bounds by remember { mutableStateOf<Rect?>(null) }

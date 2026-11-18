@@ -673,27 +673,11 @@ pub fn playlist_add_track(playlist_id: &str, track_id: &str) -> Result<()> {
     Ok(())
 }
 
-/// `meta.itemId` of the first entry of `track_id` in a page of playlist items.
-pub fn playlist_item_id(items: &[openapi::Relationship], track_id: &str) -> Option<String> {
-    items
-        .iter()
-        .filter(|r| r.id == track_id)
-        .find_map(|r| r.meta.as_ref()?.get("itemId")?.as_str().map(str::to_string))
-}
-
-/// Removes the first occurrence of a track from one of the user's playlists.
-pub fn playlist_remove_track(playlist_id: &str, track_id: &str) -> Result<()> {
-    let mut cursor = String::new();
-    let item_id = loop {
-        let page = playlist_items(playlist_id, &cursor, &[])?;
-        if let Some(id) = playlist_item_id(&page.data, track_id) {
-            break id;
-        }
-        match page.links.meta.and_then(|m| m.next_cursor) {
-            Some(c) if !c.is_empty() => cursor = c,
-            _ => bail!("track not found in playlist"),
-        }
-    };
+/// Removes a track occurrence identified by the playlist relationship's `meta.itemId`.
+pub fn playlist_remove_item(playlist_id: &str, track_id: &str, item_id: &str) -> Result<()> {
+    if item_id.is_empty() {
+        bail!("missing playlist item ID");
+    }
     let body = serde_json::json!({ "data": [{ "type": "tracks", "id": track_id, "meta": { "itemId": item_id } }] });
     let resp = send(
         request(Method::DELETE, &openapi(&format!("/v2/playlists/{playlist_id}/relationships/items")), &[])?
@@ -715,16 +699,6 @@ mod playlist_tests {
     fn reads_user_picture() {
         assert_eq!(user_picture_from(&serde_json::json!({"id":1,"picture":"ab-cd"})).as_deref(), Some("ab-cd"));
         assert_eq!(user_picture_from(&serde_json::json!({"id":1,"picture":null})), None);
-    }
-
-    #[test]
-    fn finds_playlist_item_id() {
-        let r: openapi::Relationships = serde_json::from_str(
-            r#"{"data":[{"id":"1","type":"tracks","meta":{"itemId":"x1"}},{"id":"2","type":"tracks","meta":{"itemId":"x2"}}],"links":{}}"#,
-        )
-        .expect("json");
-        assert_eq!(playlist_item_id(&r.data, "2").as_deref(), Some("x2"));
-        assert_eq!(playlist_item_id(&r.data, "3"), None);
     }
 
     #[test]

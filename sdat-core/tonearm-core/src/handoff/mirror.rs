@@ -406,7 +406,7 @@ mod tests {
     }
 
     fn track(id: &str) -> Track {
-        Track { info: TrackInfo { id: id.into(), duration: std::time::Duration::from_secs(200), ..TrackInfo::default() }, artists: vec![], album: None }
+        Track { info: TrackInfo { id: id.into(), duration: std::time::Duration::from_secs(200), ..TrackInfo::default() }, ..Track::default() }
     }
 
     fn head(rev: &str, current: &str, by: &str) -> Head {

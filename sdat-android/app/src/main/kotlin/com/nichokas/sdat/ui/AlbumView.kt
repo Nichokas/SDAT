@@ -132,11 +132,8 @@ private class PlaylistModel(private val id: String) : AutoCloseable {
         job = scope.launch { loadPlaylist(id) { update -> state = update(state) } }
     }
 
-    fun removed(t: Track) {
-        state = state.mapReady { p ->
-            val i = p.tracks.indexOfFirst { it.id == t.id }
-            if (i < 0) p else p.copy(tracks = p.tracks.toMutableList().apply { removeAt(i) })
-        }
+    fun removed(itemId: String) {
+        state = state.mapReady { p -> p.copy(tracks = p.tracks.filterNot { it.playlistItemId == itemId }) }
     }
 
     override fun close() = scope.cancel()

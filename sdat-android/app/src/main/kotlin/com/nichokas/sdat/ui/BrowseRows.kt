@@ -156,18 +156,18 @@ fun TrackItem(
     showCover: Boolean = true,
     numbered: Boolean = false,
     ownPlaylistId: String? = null,
-    onRemoved: ((Track) -> Unit)? = null,
+    onRemoved: ((String) -> Unit)? = null,
 ) {
     val player = LocalTrackPlayer.current
     val t = tracks[index]
-    TrackMenuRow(t, onClick = { player.play(tracks, index, source) }, ownPlaylistId = ownPlaylistId, onRemoved = { onRemoved?.invoke(t) }) {
+    TrackMenuRow(t, onClick = { player.play(tracks, index, source) }, ownPlaylistId = ownPlaylistId, onRemoved = onRemoved) {
         TrackRow(t, Modifier.padding(horizontal = ListGutter, vertical = 6.dp), showCover = showCover, number = if (numbered) index + 1 else null)
     }
 }
 
 /**
- * The first [limit] of [tracks] as [TrackItem]s. [keyPrefix] keeps the same track in two sections of one list apart,
- * and the index keeps duplicates apart, so a shifted row gets fresh menu state instead of another track's.
+ * The first [limit] of [tracks] as [TrackItem]s. [keyPrefix] keeps sections apart.
+ * Playlist item IDs retain the row's menu state when another occurrence is removed.
  */
 fun LazyListScope.trackItems(
     tracks: List<Track>,
@@ -177,9 +177,12 @@ fun LazyListScope.trackItems(
     showCover: Boolean = true,
     numbered: Boolean = false,
     ownPlaylistId: String? = null,
-    onRemoved: ((Track) -> Unit)? = null,
+    onRemoved: ((String) -> Unit)? = null,
 ) {
-    itemsIndexed(tracks.take(limit), key = { i, t -> "$keyPrefix:${t.id}#$i" }) { i, _ ->
+    itemsIndexed(tracks.take(limit), key = { i, t ->
+        val itemId = if (ownPlaylistId != null) t.playlistItemId else null
+        if (itemId != null) "$keyPrefix:item:$itemId" else "$keyPrefix:${t.id}#$i"
+    }) { i, _ ->
         TrackItem(tracks, i, source, showCover, numbered, ownPlaylistId, onRemoved)
     }
 }
