@@ -241,12 +241,14 @@ fn sync_from_paginator(list: &TrackList, p: &service::SharedPaginator<Track>) {
 /// appended to both the list and the play queue.
 fn play_whole_list_on_click(list: &TrackList, p: Option<SharedPaginator<Track>>, source: PlaybackSource) {
     list.set_list_click_handler(move |l, t, pos| {
+        let tracks = match &p {
+            Some(p) => p.lock().unwrap_or_else(std::sync::PoisonError::into_inner).items().to_vec(),
+            None => l.tracks(),
+        };
+        let initial_count = tracks.len();
+        let Some(generation) = player::play_list_from(source.clone(), tracks, t, pos) else { return };
         if let Some(p) = &p {
-            sync_from_paginator(l, p);
-        }
-        let Some(generation) = player::play_list_from(source.clone(), l.tracks(), t, pos) else { return };
-        if let Some(p) = &p {
-            player::set_list_feeder(generation, page_feeder(Some(l.downgrade()), std::sync::Arc::clone(p), generation, l.len()));
+            player::set_list_feeder(generation, page_feeder(Some(l.downgrade()), std::sync::Arc::clone(p), generation, initial_count));
             if matches!(source, PlaybackSource::MyTracks) {
                 set_favourites_total(generation);
             }
@@ -266,7 +268,7 @@ fn set_favourites_total(generation: u64) {
 
 /// Scrolling may have loaded several pages since the queue last asked for tracks.
 fn next_queue_batch<T: Clone>(p: &mut Paginator<T>, queued: usize) -> anyhow::Result<(Vec<T>, bool)> {
-    let pending = &p.items()[queued..];
+    let pending = p.items().get(queued..).ok_or_else(|| anyhow::anyhow!("playback offset {queued} exceeds the {} loaded tracks", p.items().len()))?;
     let tracks = if pending.is_empty() && !p.is_consumed() {
         p.next_page()?
     } else {
