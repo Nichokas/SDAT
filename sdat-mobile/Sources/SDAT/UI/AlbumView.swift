@@ -122,10 +122,16 @@ struct PlaylistView: View {
                     ownPlaylistId: own.contains(pl.id) ? pl.id : nil,
                     onRemoved: { t in if let i = tracks.firstIndex(where: { $0.id == t.id }) { tracks.remove(at: i) } },
                     paginationError: paginationError,
-                    onRetryMore: pager == nil ? nil : retryMore
+                    onRetryMore: pager == nil ? nil : retry
                 )
             } else if let error {
-                ContentUnavailableView("Couldn't load", systemImage: "wifi.exclamationmark", description: Text(error))
+                ContentUnavailableView {
+                    Label("Couldn't load", systemImage: "wifi.exclamationmark")
+                } description: {
+                    Text(error)
+                } actions: {
+                    Button("Retry", action: retry).buttonStyle(.glass)
+                }
             } else {
                 DetailSkeleton()
             }
@@ -144,15 +150,16 @@ struct PlaylistView: View {
         return []
     }
 
-    private func retryMore() {
+    private func retry() {
         guard !loadingMore else { return }
         paginationError = nil
         loadAttempt += 1
     }
 
     private func load() async {
-        guard !loadingMore, error == nil, paginationError == nil, pl == nil || pager != nil else { return }
+        guard !loadingMore, paginationError == nil, pl == nil || pager != nil else { return }
         loadingMore = true
+        error = nil
         defer { loadingMore = false }
         do {
             if pl == nil {
