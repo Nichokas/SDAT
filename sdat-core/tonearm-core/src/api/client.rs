@@ -319,6 +319,7 @@ fn discover_request_details(url: &reqwest::Url) -> Option<String> {
         ["v2", "tracks", _, "relationships", "radio"] => "/v2/tracks/{id}/relationships/radio",
         ["v2", "userCollectionTracks", _, "relationships", "items"] => "/v2/userCollectionTracks/{id}/relationships/items",
         ["v2", "artist", _] => "/v2/artist/{id}",
+        ["v2", "artists", _] => "/v2/artists/{id}",
         ["v1", "users", _, "favorites", "ids"] => "/v1/users/{id}/favorites/ids",
         _ => return None,
     };
@@ -952,6 +953,13 @@ mod tests {
             super::discover_request_details(&url).as_deref(),
             Some("GET /v2/userCollectionTracks/{id}/relationships/items countryCode=ES paginated=true"),
         );
+        for route in ["artist", "artists"] {
+            let url = url.join(&format!("/v2/{route}/private-id?countryCode=ES")).unwrap();
+            assert_eq!(
+                super::discover_request_details(&url).unwrap(),
+                format!("GET /v2/{route}/{{id}} countryCode=ES paginated=false"),
+            );
+        }
         assert_eq!(super::numeric_error_code(br#"{"subStatus":1001,"userMessage":"private"}"#), Some(1001));
         assert_eq!(super::numeric_error_code(br#"{"errors":[{"code":"123","detail":"private"}]}"#), Some(123));
         assert_eq!(super::numeric_error_code(br#"{"errors":[{"code":"private"}]}"#), None);
