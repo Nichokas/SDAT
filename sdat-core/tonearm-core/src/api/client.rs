@@ -290,12 +290,15 @@ fn request(method: Method, path: &str, query: &[(&str, String)]) -> Result<Reque
 }
 
 fn get_json<T: DeserializeOwned>(path: &str, query: &[(&str, String)]) -> Result<T> {
-    let resp = send(request(Method::GET, path, query)?)?;
+    decode_json(send(request(Method::GET, path, query)?)?, path)
+}
+
+fn decode_json<T: DeserializeOwned>(resp: Response, context: &str) -> Result<T> {
     if resp.status() != StatusCode::OK {
         return Err(read_http_error(resp));
     }
     let bytes = resp.bytes()?;
-    openapi::from_slice_lenient(&bytes).with_context(|| format!("decoding {path}"))
+    openapi::from_slice_lenient(&bytes).with_context(|| format!("decoding {context}"))
 }
 
 fn read_http_error(resp: Response) -> CoreError {
@@ -439,12 +442,16 @@ pub fn track(id: &str, include: &[&str]) -> Result<openapi::Track> {
 
 /// GET of a paginated relationship (`.../relationships/<x>`).
 pub fn relationship(path: &str, cursor: &str, include: &[&str]) -> Result<openapi::Relationships> {
+    get_json(&openapi(path), &relationship_q(cursor, include))
+}
+
+fn relationship_q(cursor: &str, include: &[&str]) -> Vec<(&'static str, String)> {
     let mut q = Vec::new();
     if !cursor.is_empty() {
         q.push(("page[cursor]", cursor.to_string()));
     }
     q.extend(include_q(include));
-    get_json(&openapi(path), &q)
+    q
 }
 
 pub fn album_items(id: &str, cursor: &str, include: &[&str]) -> Result<openapi::Relationships> {
@@ -471,34 +478,26 @@ pub fn user_collection_items_sorted(kind: &str, user_id: &str, cursor: &str, inc
     get_json(&openapi(&format!("/v2/userCollection{kind}/{user_id}/relationships/items")), &q)
 }
 
-fn query_escape(q: &str) -> String {
-    // Go's url.QueryEscape (spaces become '+')
-    urlencoding::encode(q).replace("%20", "+")
+fn search_json<T: DeserializeOwned>(path: &str, query: &[(&str, String)], operation: &str) -> Result<T> {
+    let resp = send(request(Method::GET, &openapi(path), query)?)?;
+    if resp.status() == StatusCode::BAD_REQUEST {
+        log::error!("TIDAL search {operation} failed: HTTP 400");
+    }
+    decode_json(resp, operation)
 }
 
 pub fn search(query: &str, include: &[&str]) -> Result<openapi::SearchResultSingle> {
     let mut q = vec![("filter[query]", query.to_string())];
-    q.push(("include", include.join(",")));
+    q.extend(include_q(include));
     // The endpoint returns `data` as an array (Go: Response[[]SearchResultData]); use its first entry.
-    let r: openapi::SearchResult = get_json(&openapi("/v2/searchResults"), &q)?;
+    let r: openapi::SearchResult = search_json("/v2/searchResults", &q, "lookup")?;
     Ok(openapi::first_search_result(r))
 }
-pub fn search_relationship(query: &str, kind: &str, cursor: &str, include: &[&str]) -> Result<openapi::Relationships> {
-    let r = relationship(&format!("/v2/searchResults/{}/relationships/{kind}", query_escape(query)), cursor, include);
-    if !matches!(r, Err(CoreError::Http { status: 400, .. })) {
-        return r;
-    }
-    // 400 fallbacks (only taken when the request already failed): a path-style
-    // escaped query (`%20`, not `+`), then the bare relationship include.
-    let path = format!("/v2/searchResults/{}/relationships/{kind}", urlencoding::encode(query));
-    log::warn!("search {kind}: 400, retrying with path-escaped query");
-    match relationship(&path, cursor, include) {
-        Err(CoreError::Http { status: 400, .. }) => {
-            log::warn!("search {kind}: 400 again, retrying with include={kind}");
-            relationship(&path, cursor, &[kind])
-        }
-        r => r,
-    }
+
+/// Fetches a page using the opaque resource ID returned by [`search`], not the search text.
+pub(crate) fn search_relationship(result_id: &str, kind: &str, cursor: &str, include: &[&str]) -> Result<openapi::Relationships> {
+    let path = format!("/v2/searchResults/{}/relationships/{kind}", urlencoding::encode(result_id));
+    search_json(&path, &relationship_q(cursor, include), kind)
 }
 
 /// Query for `GET /v2/trackManifests/{id}`.
@@ -973,7 +972,6 @@ mod tests {
     fn client_credentials_decode() {
         assert_eq!(super::client_id().len(), 16);
         assert!(!super::client_secret().is_empty());
-        assert_eq!(super::query_escape("a b/c"), "a+b%2Fc");
     }
 
     #[test]

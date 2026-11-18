@@ -1,13 +1,13 @@
 //! Port of `internal/services/tidal`: maps API responses to the domain model.
 
-use crate::error::{bail, CoreResult as Result};
+use crate::error::{bail, CoreError, CoreResult as Result};
 
 use crate::api::{self, openapi};
 use crate::model::{Track, track_from_openapi, Album, album_from_openapi, AlbumInfo, album_info_from_openapi, Artist, artist_page_from_v2, ArtistInfo, artist_from_openapi, Playlist, playlist_from_openapi, PlaylistInfo, playlist_info_from_openapi, TrackManifest, TrackQuality, manifest_from_openapi};
 
 pub const CURSOR_END: &str = "END_REACHED";
 
-type PageFn = Box<dyn Fn(&str) -> Result<openapi::Relationships> + Send + Sync>;
+type PageFn = Box<dyn FnMut(&str) -> Result<openapi::Relationships> + Send + Sync>;
 type ResolveFn<T> = Box<dyn Fn(&openapi::Relationships) -> Vec<T> + Send + Sync>;
 
 /// Cursor based paginator (paginatorOpenAPI). Blocking; share it behind
@@ -167,27 +167,48 @@ pub fn user_collection_playlists(user_id: &str) -> Paginator<Playlist> {
     })
 }
 
+/// The text to look up, or a search result ID already returned by TIDAL.
+#[derive(Debug)]
+pub enum SearchTarget<'a> {
+    Query(&'a str),
+    ResultId(&'a str),
+}
+
 fn search_paginator<T: Clone + 'static>(
-    query: &str,
+    target: SearchTarget<'_>,
     kind: &'static str,
     include: &'static [&'static str],
     resolve: fn(&openapi::Relationships) -> Vec<T>,
 ) -> Paginator<T> {
-    let q = query.to_string();
-    Paginator::new(Box::new(move |c| api::search_relationship(&q, kind, c, include)), Box::new(resolve))
+    let (query, mut result_id) = match target {
+        SearchTarget::Query(query) => (Some(query.to_owned()), String::new()),
+        SearchTarget::ResultId(id) => (None, id.to_owned()),
+    };
+    let fetch = move |cursor: &str| {
+        if result_id.is_empty() {
+            if let Some(query) = &query {
+                result_id = api::search(query, &[])?.data.id;
+            }
+            if result_id.is_empty() {
+                return Err(CoreError::Decode("TIDAL search returned no resource ID".into()));
+            }
+        }
+        api::search_relationship(&result_id, kind, cursor, include)
+    };
+    Paginator::new(Box::new(fetch), Box::new(resolve))
 }
 
-pub fn search_tracks(q: &str) -> Paginator<Track> {
-    search_paginator(q, "tracks", &["tracks.albums.coverArt", "tracks.albums.artists"], resolve_tracks)
+pub fn search_tracks(target: SearchTarget<'_>) -> Paginator<Track> {
+    search_paginator(target, "tracks", &["tracks.albums.coverArt", "tracks.albums.artists"], resolve_tracks)
 }
-pub fn search_albums(q: &str) -> Paginator<Album> {
-    search_paginator(q, "albums", &["albums.coverArt", "albums.artists"], |r| r.included.albums(&r.data).iter().map(album_from_openapi).collect())
+pub fn search_albums(target: SearchTarget<'_>) -> Paginator<Album> {
+    search_paginator(target, "albums", &["albums.coverArt", "albums.artists"], |r| r.included.albums(&r.data).iter().map(album_from_openapi).collect())
 }
-pub fn search_artists(q: &str) -> Paginator<ArtistInfo> {
-    search_paginator(q, "artists", &["artists.profileArt"], |r| r.included.artists(&r.data).iter().map(artist_from_openapi).collect())
+pub fn search_artists(target: SearchTarget<'_>) -> Paginator<ArtistInfo> {
+    search_paginator(target, "artists", &["artists.profileArt"], |r| r.included.artists(&r.data).iter().map(artist_from_openapi).collect())
 }
-pub fn search_playlists(q: &str) -> Paginator<Playlist> {
-    search_paginator(q, "playlists", &["playlists.coverArt"], |r| {
+pub fn search_playlists(target: SearchTarget<'_>) -> Paginator<Playlist> {
+    search_paginator(target, "playlists", &["playlists.coverArt"], |r| {
         r.included.playlists(&r.data).iter().map(playlist_from_openapi).collect()
     })
 }
