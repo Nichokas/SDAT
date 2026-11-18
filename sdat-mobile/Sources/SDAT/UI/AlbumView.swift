@@ -120,7 +120,7 @@ struct PlaylistView: View {
                     favourite: own.contains(pl.id) ? nil : (pl.isMix ? .mix : .playlist, pl.id),
                     numbered: false,
                     ownPlaylistId: own.contains(pl.id) ? pl.id : nil,
-                    onRemoved: { t in if let i = tracks.firstIndex(where: { $0.id == t.id }) { tracks.remove(at: i) } },
+                    onRemoved: { itemId in tracks.removeAll { $0.playlistItemId == itemId } },
                     paginationError: paginationError,
                     onRetryMore: pager == nil ? nil : retry
                 )
@@ -206,7 +206,7 @@ struct DetailPage: View {
     let favourite: (FavouriteKind, String)?
     let numbered: Bool
     let ownPlaylistId: String?
-    let onRemoved: (Track) -> Void
+    let onRemoved: (String) -> Void
     var paginationError: String? = nil
     var onRetryMore: (() -> Void)? = nil
     @Environment(Player.self) private var player
@@ -444,7 +444,7 @@ struct ArtistView: View {
                                     TrackRow(track: t, coverSize: 56).frame(minHeight: 72)
                                 }
                                 .buttonStyle(.plain)
-                                .trackMenu(t, ownPlaylistId: nil, onRemoved: {})
+                                .trackMenu(t)
                                 if i < top.count - 1 { Divider().padding(.leading, 68) }
                             }
                             .padding(.horizontal, 16)

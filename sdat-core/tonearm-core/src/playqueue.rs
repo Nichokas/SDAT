@@ -273,7 +273,7 @@ mod tests {
         let q = super::DurableQueue::default();
         q.set(vec![t("a"), t("b"), t("c")]);
         q.skip(1).unwrap();
-        q.extend(&[t("c"), t("d"), t("e")]);
+        q.extend(&[t("a"), t("b"), t("c"), t("d"), t("e")]);
         let ids: Vec<String> = q.entries().with(|v| v.iter().map(|x| x.id().to_string()).collect());
         assert_eq!(ids, ["b", "c", "d", "e"]);
         // restoring the order keeps the late tracks after the current one

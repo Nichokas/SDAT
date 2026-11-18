@@ -173,11 +173,8 @@ private class PlaylistModel(private val id: String) : AutoCloseable {
         state = state.mapReady { it.copy(loadingMore = false, paginationError = error) }
     }
 
-    fun removed(t: Track) {
-        state = state.mapReady { p ->
-            val i = p.tracks.indexOfFirst { it.id == t.id }
-            if (i < 0) p else p.copy(tracks = p.tracks.toMutableList().apply { removeAt(i) })
-        }
+    fun removed(itemId: String) {
+        state = state.mapReady { p -> p.copy(tracks = p.tracks.filterNot { it.playlistItemId == itemId }) }
     }
 
     private fun closePager() {

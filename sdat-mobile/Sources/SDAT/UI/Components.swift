@@ -161,7 +161,7 @@ struct TrackRow: View {
 struct TrackMenu: View {
     let track: Track
     var ownPlaylistId: String? = nil
-    var onRemoved: (() -> Void)? = nil
+    var onRemoved: ((String) -> Void)? = nil
     @Environment(Player.self) private var player
 
     var body: some View {
@@ -178,12 +178,12 @@ struct TrackMenu: View {
         }
         Button("Add to Playlist…", systemImage: "text.badge.plus") { Chrome.shared.playlistPickerTrack = track }
         DownloadButton(tracks: [track])
-        if let pid = ownPlaylistId {
+        if let pid = ownPlaylistId, let itemId = track.playlistItemId {
             Button("Remove from Playlist", systemImage: "minus.circle", role: .destructive) {
                 Task {
                     do {
-                        try await removeFromPlaylist(playlistId: pid, trackId: track.id)
-                        onRemoved?()
+                        try await removeFromPlaylist(playlistId: pid, trackId: track.id, itemId: itemId)
+                        onRemoved?(itemId)
                         Chrome.shared.flash("Removed from playlist")
                     } catch { Chrome.shared.flash(friendlyMessage(error)) }
                 }
@@ -208,7 +208,7 @@ struct TrackMenu: View {
 
 extension View {
     /// Long-press menu; favourite state is fetched lazily once the row settles on screen.
-    func trackMenu(_ t: Track, ownPlaylistId: String? = nil, onRemoved: (() -> Void)? = nil) -> some View {
+    func trackMenu(_ t: Track, ownPlaylistId: String? = nil, onRemoved: ((String) -> Void)? = nil) -> some View {
         contextMenu { TrackMenu(track: t, ownPlaylistId: ownPlaylistId, onRemoved: onRemoved) }
             .task(id: t.id) {
                 try? await Task.sleep(for: .milliseconds(600))
@@ -225,7 +225,7 @@ struct TrackList: View {
     var showCover = true
     var numbered = false
     var ownPlaylistId: String? = nil
-    var onRemoved: ((Track) -> Void)? = nil
+    var onRemoved: ((String) -> Void)? = nil
     @Environment(Player.self) private var player
 
     var body: some View {
@@ -237,7 +237,7 @@ struct TrackList: View {
                 TrackRow(track: t, showCover: showCover, number: numbered ? i + 1 : nil)
             }
             .buttonStyle(.plain)
-            .trackMenu(t, ownPlaylistId: ownPlaylistId, onRemoved: { onRemoved?(t) })
+            .trackMenu(t, ownPlaylistId: ownPlaylistId, onRemoved: onRemoved)
         }
     }
 }

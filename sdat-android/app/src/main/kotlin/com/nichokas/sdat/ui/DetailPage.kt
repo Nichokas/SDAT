@@ -158,7 +158,7 @@ fun DetailPage(
     favourite: Pair<FavouriteKind, String>?,
     numbered: Boolean,
     ownPlaylistId: String?,
-    onRemoved: (Track) -> Unit,
+    onRemoved: (String) -> Unit,
     onRetry: (() -> Unit)? = null,
     paginationError: String? = null,
     onRetryMore: (() -> Unit)? = null,
