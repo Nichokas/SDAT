@@ -1,6 +1,5 @@
 package com.nichokas.sdat.core
 
-import kotlin.coroutines.cancellation.CancellationException
 import uniffi.tonearm_ffi.ArtistOverview
 import uniffi.tonearm_ffi.FavouriteKind
 
@@ -33,19 +32,13 @@ fun playlistFavourite(isMix: Boolean, own: Boolean): FavouriteKind? = when {
 }
 
 /**
- * Pulls pages from [next] into [onPage] until one is missing or empty, one fails, or [cap] items are in, counting
- * the [loaded] ones. Pages, not the whole list, go out: the page may remove rows while later pages arrive.
+ * Pulls pages from [next] into [onPage] until one is missing or empty, or [cap] items are in, counting
+ * the [loaded] ones. Lets the caller handle a failed request and retry with the same pager.
  */
 suspend fun <T> pageThrough(loaded: Int, cap: Int, next: suspend () -> List<T>?, onPage: (List<T>) -> Unit) {
     var count = loaded
     while (count < cap) {
-        val page = try {
-            next()
-        } catch (e: CancellationException) {
-            throw e
-        } catch (_: Exception) {
-            null
-        }
+        val page = next()
         if (page.isNullOrEmpty()) return
         onPage(page)
         count += page.size

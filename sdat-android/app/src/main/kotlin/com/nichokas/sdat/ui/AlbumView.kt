@@ -34,6 +34,7 @@ import uniffi.tonearm_ffi.AlbumDetail
 import uniffi.tonearm_ffi.FavouriteKind
 import uniffi.tonearm_ffi.Playlist
 import uniffi.tonearm_ffi.Track
+import uniffi.tonearm_ffi.TrackPager
 import uniffi.tonearm_ffi.album
 import uniffi.tonearm_ffi.playlist
 import uniffi.tonearm_ffi.playlistTracks
@@ -110,8 +111,12 @@ fun AlbumView(id: String) {
     }
 }
 
-/** A playlist's header and the tracks loaded so far; [loadingMore] while later pages still stream in. */
-data class PlaylistPage(val playlist: Playlist, val tracks: List<Track>, val loadingMore: Boolean)
+private data class PlaylistPage(
+    val playlist: Playlist,
+    val tracks: List<Track>,
+    val loadingMore: Boolean = true,
+    val paginationError: String? = null,
+)
 
 /**
  * A playlist page's data. Its pages keep streaming in while another page is pushed over it, and stop once it is
@@ -120,6 +125,8 @@ data class PlaylistPage(val playlist: Playlist, val tracks: List<Track>, val loa
 private class PlaylistModel(private val id: String) : AutoCloseable {
     private val scope = MainScope()
     private var job: Job? = null
+    private var pager: TrackPager? = null
+    private var tracksFetched = 0
     var state by mutableStateOf<PageLoad<PlaylistPage>>(PageLoad.Loading)
         private set
 
@@ -129,14 +136,56 @@ private class PlaylistModel(private val id: String) : AutoCloseable {
         state = PageLoad.Loading
         // Kept out of the job: the ownership lookup has no deadline and must not hold off a Retry.
         scope.launch { OwnPlaylists.load() }
-        job = scope.launch { loadPlaylist(id) { update -> state = update(state) } }
+        job = scope.launch {
+            val currentPager = playlistTracks(id)
+            pager = currentPager
+            val first = loadPlaylist(id, currentPager)
+            state = first
+            if (first is PageLoad.Ready) {
+                tracksFetched = first.value.tracks.size
+                loadMore(currentPager)
+            } else {
+                closePager()
+            }
+        }
+    }
+
+    fun retryMore() {
+        val currentPager = pager ?: return
+        if (job?.isActive == true || (state as? PageLoad.Ready)?.value?.paginationError == null) return
+        job = scope.launch { loadMore(currentPager) }
+    }
+
+    private suspend fun loadMore(currentPager: TrackPager) {
+        state = state.mapReady { it.copy(loadingMore = true, paginationError = null) }
+        val error = try {
+            pageThrough(tracksFetched, PLAYLIST_CAP, currentPager::nextPage) { page ->
+                tracksFetched += page.size
+                state = state.mapReady { it.copy(tracks = it.tracks + page) }
+            }
+            null
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            friendlyMessage(e)
+        }
+        if (error == null) closePager()
+        state = state.mapReady { it.copy(loadingMore = false, paginationError = error) }
     }
 
     fun removed(itemId: String) {
         state = state.mapReady { p -> p.copy(tracks = p.tracks.filterNot { it.playlistItemId == itemId }) }
     }
 
-    override fun close() = scope.cancel()
+    private fun closePager() {
+        pager?.close()
+        pager = null
+    }
+
+    override fun close() {
+        scope.cancel()
+        closePager()
+    }
 }
 
 /** Header and first page render together; the remaining pages stream in behind. */
@@ -163,40 +212,27 @@ fun PlaylistView(id: String) {
             numbered = false,
             ownPlaylistId = if (own) pl.id else null,
             onRemoved = model::removed,
+            paginationError = page.paginationError,
+            onRetryMore = model::retryMore,
         )
     }
 }
 
 private fun <T> PageLoad<T>.mapReady(f: (T) -> T): PageLoad<T> = if (this is PageLoad.Ready) PageLoad.Ready(f(value)) else this
 
-/** [update] gets a function of the current state, so rows removed meanwhile stay removed as pages arrive. */
-private suspend fun loadPlaylist(id: String, update: ((PageLoad<PlaylistPage>) -> PageLoad<PlaylistPage>) -> Unit) {
-    playlistTracks(id).use { pager ->
-        coroutineScope {
-            val first = async { loadWithin(PLAYLIST_DEADLINE_MS) { pager.nextPage().orEmpty() } }
-            val header = when (val h = loadWithin(PLAYLIST_DEADLINE_MS) { playlist(id) }) {
-                is PageLoad.Ready -> h.value
-                is PageLoad.Failed -> {
-                    first.cancel()
-                    update { h }
-                    return@coroutineScope
-                }
-                PageLoad.Loading -> return@coroutineScope
-            }
-            // Unlike iOS, which shows an empty playlist, a failed first page gets the retry the header has.
-            val tracks = when (val f = first.await()) {
-                is PageLoad.Ready -> f.value
-                is PageLoad.Failed -> {
-                    update { f }
-                    return@coroutineScope
-                }
-                PageLoad.Loading -> return@coroutineScope
-            }
-            update { PageLoad.Ready(PlaylistPage(header, tracks, loadingMore = true)) }
-            pageThrough(tracks.size, PLAYLIST_CAP, pager::nextPage) { page ->
-                update { s -> s.mapReady { it.copy(tracks = it.tracks + page) } }
-            }
-            update { s -> s.mapReady { it.copy(loadingMore = false) } }
+private suspend fun loadPlaylist(id: String, pager: TrackPager): PageLoad<PlaylistPage> = coroutineScope {
+    val first = async { loadWithin(PLAYLIST_DEADLINE_MS) { pager.nextPage().orEmpty() } }
+    val header = when (val result = loadWithin(PLAYLIST_DEADLINE_MS) { playlist(id) }) {
+        is PageLoad.Ready -> result.value
+        is PageLoad.Failed -> {
+            first.cancel()
+            return@coroutineScope result
         }
+        PageLoad.Loading -> return@coroutineScope PageLoad.Loading
+    }
+    when (val result = first.await()) {
+        is PageLoad.Ready -> PageLoad.Ready(PlaylistPage(header, result.value))
+        is PageLoad.Failed -> result
+        PageLoad.Loading -> PageLoad.Loading
     }
 }

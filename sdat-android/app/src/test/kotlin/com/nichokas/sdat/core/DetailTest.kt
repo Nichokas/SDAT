@@ -4,6 +4,7 @@ import java.io.IOException
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
+import org.junit.Assert.assertThrows
 import org.junit.Test
 import uniffi.tonearm_ffi.FavouriteKind
 
@@ -46,9 +47,23 @@ class DetailTest {
         assertEquals(emptyList<List<Int>>(), drain(5, 5, pages(listOf(1))))
     }
 
-    @Test fun aFailedPageEndsPagingWithWhatArrived() {
+    @Test fun aFailedPageKeepsArrivedTracksAndLetsPagingResume() {
+        val got = mutableListOf<Int>()
         var calls = 0
-        val next: suspend () -> List<Int>? = { if (calls++ == 0) listOf(1) else throw IOException("offline") }
-        assertEquals(listOf(listOf(1)), drain(0, 100, next))
+        val next: suspend () -> List<Int>? = {
+            when (calls++) {
+                0 -> listOf(1)
+                1 -> throw IOException("offline")
+                else -> listOf(2)
+            }
+        }
+        assertThrows(IOException::class.java) {
+            runBlocking { pageThrough(0, 2, next) { got += it } }
+        }
+        assertEquals(listOf(1), got)
+
+        runBlocking { pageThrough(got.size, 2, next) { got += it } }
+        assertEquals(listOf(1, 2), got)
+        assertEquals(3, calls)
     }
 }
