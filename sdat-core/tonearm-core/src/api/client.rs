@@ -6,6 +6,7 @@
 //!
 //! All functions are blocking; UI code runs them on a worker thread.
 
+use std::io::Read;
 use std::sync::{Mutex, OnceLock};
 use std::time::{Duration, Instant, SystemTime};
 
@@ -287,10 +288,56 @@ fn request(method: Method, path: &str, query: &[(&str, String)]) -> Result<Reque
 fn get_json<T: DeserializeOwned>(path: &str, query: &[(&str, String)]) -> Result<T> {
     let resp = send(request(Method::GET, path, query)?)?;
     if resp.status() != StatusCode::OK {
-        bail_http!(resp.status().as_u16(), "unexpected status code: {}", resp.status().as_u16());
+        return Err(read_http_error(resp));
     }
     let bytes = resp.bytes()?;
     openapi::from_slice_lenient(&bytes).with_context(|| format!("decoding {path}"))
+}
+
+fn read_http_error(resp: Response) -> CoreError {
+    let status = resp.status();
+    let error = CoreError::http(status.as_u16(), format!("unexpected status code: {}", status.as_u16()));
+    if status == StatusCode::BAD_REQUEST
+        && let Some(request) = discover_request_details(resp.url())
+    {
+        let mut body = Vec::new();
+        let substatus = resp.take(4096).read_to_end(&mut body).ok().and_then(|_| numeric_error_code(&body));
+        return error.context(match substatus {
+            Some(code) => format!("{request} tidalErrorCode={code}"),
+            None => request,
+        });
+    }
+    error
+}
+
+// Use route templates and selected metadata because Discover sends these errors to Sentry.
+fn discover_request_details(url: &reqwest::Url) -> Option<String> {
+    let path: Vec<_> = url.path_segments()?.collect();
+    let route = match path.as_slice() {
+        ["v2", "albums", _, "relationships", "items"] => "/v2/albums/{id}/relationships/items",
+        ["v2", "playlists", _, "relationships", "items"] => "/v2/playlists/{id}/relationships/items",
+        ["v2", "tracks", _, "relationships", "radio"] => "/v2/tracks/{id}/relationships/radio",
+        ["v2", "userCollectionTracks", _, "relationships", "items"] => "/v2/userCollectionTracks/{id}/relationships/items",
+        ["v2", "artist", _] => "/v2/artist/{id}",
+        ["v1", "users", _, "favorites", "ids"] => "/v1/users/{id}/favorites/ids",
+        _ => return None,
+    };
+    let mut country = None;
+    let mut paginated = false;
+    for (key, value) in url.query_pairs() {
+        match key.as_ref() {
+            "countryCode" if value.len() == 2 && value.bytes().all(|b| b.is_ascii_uppercase()) => country = Some(value),
+            "page[cursor]" => paginated = true,
+            _ => {}
+        }
+    }
+    Some(format!("GET {route} countryCode={} paginated={paginated}", country.as_deref().unwrap_or("unknown")))
+}
+
+fn numeric_error_code(body: &[u8]) -> Option<u32> {
+    let value: serde_json::Value = serde_json::from_slice(body).ok()?;
+    value["subStatus"].as_u64().and_then(|code| u32::try_from(code).ok())
+        .or_else(|| value["errors"][0]["code"].as_str()?.parse().ok())
 }
 
 /// The signed-in user's access token; never the app-only one.
@@ -516,7 +563,7 @@ pub fn favourite_ids(user_id: &str, if_none_match: &str) -> Result<Option<(legac
         return Ok(None);
     }
     if resp.status() != StatusCode::OK {
-        bail_http!(resp.status().as_u16(), "unexpected status code: {}", resp.status().as_u16());
+        return Err(read_http_error(resp));
     }
     let etag = resp.headers().get("etag").and_then(|v| v.to_str().ok()).unwrap_or("").to_string();
     Ok(Some((openapi::from_slice_lenient(&resp.bytes()?)?, etag)))
@@ -895,6 +942,21 @@ pub fn poll_device_linking_status(device_code: &str, interval: i64, expires_in: 
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn discover_error_details_include_only_safe_request_metadata() {
+        let url = reqwest::Url::parse(
+            "https://openapi.tidal.com/v2/userCollectionTracks/private-account/relationships/items?countryCode=ES&page%5Bcursor%5D=opaque&token=secret",
+        )
+        .unwrap();
+        assert_eq!(
+            super::discover_request_details(&url).as_deref(),
+            Some("GET /v2/userCollectionTracks/{id}/relationships/items countryCode=ES paginated=true"),
+        );
+        assert_eq!(super::numeric_error_code(br#"{"subStatus":1001,"userMessage":"private"}"#), Some(1001));
+        assert_eq!(super::numeric_error_code(br#"{"errors":[{"code":"123","detail":"private"}]}"#), Some(123));
+        assert_eq!(super::numeric_error_code(br#"{"errors":[{"code":"private"}]}"#), None);
+    }
+
     #[test]
     fn client_credentials_decode() {
         assert_eq!(super::client_id().len(), 16);

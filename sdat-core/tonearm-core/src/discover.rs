@@ -6,7 +6,7 @@ use std::collections::{HashSet, VecDeque};
 use rand::seq::{IndexedRandom, SliceRandom};
 
 use crate::api::{self, legacy};
-use crate::error::CoreResult as Result;
+use crate::error::{CoreError, CoreResult as Result};
 use crate::model::Track;
 use crate::service::{self, Paginator};
 use crate::state;
@@ -98,6 +98,7 @@ pub struct InfiniteShuffle {
     seeds: VecDeque<String>,
     radio: RadioFn,
     seen: HashSet<String>,
+    reported_bad_requests: HashSet<String>,
     picked: usize,
 }
 
@@ -111,7 +112,7 @@ impl InfiniteShuffle {
     pub fn new(sources: Vec<PageSource>, radio: RadioFn) -> Self {
         let mut s: Vec<Source> = sources.into_iter().map(|next| Source { next, buffer: vec![], done: false }).collect();
         s.shuffle(&mut rand::rng());
-        InfiniteShuffle { sources: s.into(), seeds: VecDeque::new(), radio, seen: HashSet::new(), picked: 0 }
+        InfiniteShuffle { sources: s.into(), seeds: VecDeque::new(), radio, seen: HashSet::new(), reported_bad_requests: HashSet::new(), picked: 0 }
     }
 
     /// Wider Discover pool: the mixes plus the user's library, taken deeper and
@@ -122,11 +123,10 @@ impl InfiniteShuffle {
     pub fn from_mixes_and_library(mixes: &[MixRef]) -> Self {
         let mut sources: Vec<PageSource> = mixes.iter().map(|m| paginator_source(service::get_playlist_tracks(&m.id))).collect();
         sources.push(lazy(|| {
-            let uid = crate::auth::tokens().user_id();
-            if uid.is_empty() {
+            if crate::auth::tokens().user_id().is_empty() {
                 return Ok(None);
             }
-            let mut p = service::user_collection_tracks(&uid);
+            let mut p = service::user_collection_tracks("me");
             // Start somewhere deeper than the newest favourites.
             for _ in 0..rand::random_range(0..4) {
                 if p.is_consumed() {
@@ -165,6 +165,16 @@ impl InfiniteShuffle {
         Self::new(sources, Box::new(track_radio_source))
     }
 
+    fn report_bad_request(&mut self, error: &CoreError) -> bool {
+        if let CoreError::Http { status: 400, message } = error
+            && self.reported_bad_requests.insert(message.clone())
+        {
+            log::error!("Discover request failed: {message}");
+            return true;
+        }
+        false
+    }
+
     /// At least `min` new tracks unless every source and seed is exhausted
     /// or failed (then fewer, possibly none). A source or seed that fails is skipped
     /// for this call and kept for the next; a call that failed without
@@ -182,7 +192,9 @@ impl InfiniteShuffle {
                     Ok(Some(next)) => self.sources.push_back(Source { next, buffer: vec![], done: false }),
                     Ok(None) => {}
                     Err(e) => {
-                        log::warn!("shuffle: radio of {seed} failed: {e}");
+                        if !self.report_bad_request(&e) {
+                            log::warn!("shuffle: radio of {seed} failed: {e}");
+                        }
                         failed_seeds.push(seed);
                         error = Some(e);
                     }
@@ -198,7 +210,9 @@ impl InfiniteShuffle {
                     }
                     Ok(None) => src.done = true,
                     Err(e) => {
-                        log::warn!("shuffle: source failed: {e}");
+                        if !self.report_bad_request(&e) {
+                            log::warn!("shuffle: source failed: {e}");
+                        }
                         failed_sources.push(src);
                         error = Some(e);
                         continue;
@@ -237,7 +251,6 @@ mod tests {
     use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 
     use super::*;
-    use crate::error::CoreError;
     use crate::model::TrackInfo;
 
     fn track(id: &str) -> Track {
