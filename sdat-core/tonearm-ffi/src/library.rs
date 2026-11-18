@@ -3,7 +3,7 @@
 
 use std::sync::{Arc, Mutex, PoisonError};
 
-use tonearm_core::service::{self, Paginator};
+use tonearm_core::service::{self, Paginator, SearchTarget};
 use tonearm_core::{api, discover, explore, model, state};
 
 use crate::convert::tracks;
@@ -87,19 +87,19 @@ pub async fn search(query: String) -> Result<SearchResults, FfiError> {
 
 #[uniffi::export]
 pub fn search_tracks(query: String) -> Arc<TrackPager> {
-    TrackPager::new(service::search_tracks(&query))
+    TrackPager::new(service::search_tracks(SearchTarget::Query(&query)))
 }
 #[uniffi::export]
 pub fn search_albums(query: String) -> Arc<AlbumPager> {
-    AlbumPager::new(service::search_albums(&query))
+    AlbumPager::new(service::search_albums(SearchTarget::Query(&query)))
 }
 #[uniffi::export]
 pub fn search_artists(query: String) -> Arc<ArtistPager> {
-    ArtistPager::new(service::search_artists(&query))
+    ArtistPager::new(service::search_artists(SearchTarget::Query(&query)))
 }
 #[uniffi::export]
 pub fn search_playlists(query: String) -> Arc<PlaylistPager> {
-    PlaylistPager::new(service::search_playlists(&query))
+    PlaylistPager::new(service::search_playlists(SearchTarget::Query(&query)))
 }
 
 // ---- My Collection

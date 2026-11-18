@@ -8,7 +8,7 @@ use chrono::{DateTime, Datelike, Duration as CDuration, Local, NaiveTime};
 use crate::i18n::{tr, trf};
 use crate::model::{self, Track, PlaybackSource};
 use crate::router::{self, Response};
-use crate::service::{self, Paginator, SharedPaginator};
+use crate::service::{self, Paginator, SearchTarget, SharedPaginator};
 use crate::cache;
 use crate::ui::components::horizontal_list::HorizontalList;
 use crate::ui::components::tracklist::{Col, TrackList};
@@ -772,25 +772,25 @@ fn search() -> Response {
 }
 
 async fn search_albums(q: String) -> Response {
-    match paginated_media_card_page(service::search_albums(&q), media_card::album).await {
+    match paginated_media_card_page(service::search_albums(SearchTarget::ResultId(&q)), media_card::album).await {
         Ok(v) => Response::new(tr("Search"), v),
         Err(e) => Response::from_error(tr("Search"), e),
     }
 }
 async fn search_artists(q: String) -> Response {
-    match paginated_media_card_page(service::search_artists(&q), media_card::artist).await {
+    match paginated_media_card_page(service::search_artists(SearchTarget::ResultId(&q)), media_card::artist).await {
         Ok(v) => Response::new(tr("Search"), v),
         Err(e) => Response::from_error(tr("Search"), e),
     }
 }
 async fn search_playlists(q: String) -> Response {
-    match paginated_media_card_page(service::search_playlists(&q), media_card::playlist).await {
+    match paginated_media_card_page(service::search_playlists(SearchTarget::ResultId(&q)), media_card::playlist).await {
         Ok(v) => Response::new(tr("Search"), v),
         Err(e) => Response::from_error(tr("Search"), e),
     }
 }
 async fn search_tracks(q: String) -> Response {
-    match paginated_tracklist_page(service::search_tracks(&q), std_columns(), 40, None, Some(PlaybackSource::List { title: tr("Search"), route: format!("search/{q}/tracks") })).await {
+    match paginated_tracklist_page(service::search_tracks(SearchTarget::ResultId(&q)), std_columns(), 40, None, Some(PlaybackSource::List { title: tr("Search"), route: format!("search/{q}/tracks") })).await {
         Ok((v, _)) => Response::new(tr("Search"), v),
         Err(e) => Response::from_error(tr("Search"), e),
     }
