@@ -160,6 +160,8 @@ fun DetailPage(
     ownPlaylistId: String?,
     onRemoved: (Track) -> Unit,
     onRetry: (() -> Unit)? = null,
+    paginationError: String? = null,
+    onRetryMore: (() -> Unit)? = null,
 ) {
     val player = LocalTrackPlayer.current
     val fav = favourite?.let { (kind, id) -> Fav(kind, id) }
@@ -214,6 +216,11 @@ fun DetailPage(
                     enabled = tracks.isNotEmpty(),
                     modifier = Modifier.padding(top = 18.dp),
                 )
+                if (paginationError != null && onRetryMore != null) {
+                    Text("Couldn't load all tracks", style = IosTypography.body, modifier = Modifier.padding(top = 16.dp))
+                    Text(paginationError, style = IosTypography.footnote, color = GlasmioTheme.colors.secondaryContent, textAlign = TextAlign.Center)
+                    GlasmioButton(onRetryMore, Modifier.padding(top = 8.dp), size = GlasmioButtonSize.Medium) { Text("Retry") }
+                }
             }
         }
         trackItems(tracks, source = title, showCover = !numbered, numbered = numbered, ownPlaylistId = ownPlaylistId, onRemoved = onRemoved)

@@ -97,12 +97,16 @@ struct PlaylistView: View {
     @Environment(Recents.self) private var recents
     @State private var pl: Playlist?
     @State private var tracks: [Track] = []
-    @State private var loadingMore = true
+    @State private var pager: TrackPager?
+    @State private var tracksFetched = 0
+    @State private var loadingMore = false
     @State private var error: String?
+    @State private var paginationError: String?
+    @State private var loadAttempt = 0
     @State private var own = OwnPlaylists.shared
 
     var body: some View {
-        Group {
+        ZStack {
             if let pl {
                 DetailPage(
                     title: pl.title,
@@ -116,7 +120,9 @@ struct PlaylistView: View {
                     favourite: own.contains(pl.id) ? nil : (pl.isMix ? .mix : .playlist, pl.id),
                     numbered: false,
                     ownPlaylistId: own.contains(pl.id) ? pl.id : nil,
-                    onRemoved: { t in if let i = tracks.firstIndex(where: { $0.id == t.id }) { tracks.remove(at: i) } }
+                    onRemoved: { t in if let i = tracks.firstIndex(where: { $0.id == t.id }) { tracks.remove(at: i) } },
+                    paginationError: paginationError,
+                    onRetryMore: pager == nil ? nil : retryMore
                 )
             } else if let error {
                 ContentUnavailableView("Couldn't load", systemImage: "wifi.exclamationmark", description: Text(error))
@@ -124,7 +130,7 @@ struct PlaylistView: View {
                 DetailSkeleton()
             }
         }
-        .task { await load() }
+        .task(id: loadAttempt) { await load() }
     }
 
     private var mosaicCovers: [String] {
@@ -138,22 +144,45 @@ struct PlaylistView: View {
         return []
     }
 
+    private func retryMore() {
+        guard !loadingMore else { return }
+        paginationError = nil
+        loadAttempt += 1
+    }
+
     private func load() async {
-        guard pl == nil else { return }
-        let pager = playlistTracks(id: id)
-        async let header = withDeadline(12) { try await playlist(id: id) }
-        async let first = pager.nextPage()
+        guard !loadingMore, error == nil, paginationError == nil, pl == nil || pager != nil else { return }
+        loadingMore = true
+        defer { loadingMore = false }
         do {
-            let p = try await header
-            pl = p
-            recents.add(.init(kind: p.isMix ? .mix : .playlist, id: p.id, title: p.title, subtitle: p.creator ?? "", coverUrl: p.coverUrl))
-            tracks = (try? await first) ?? []
-        } catch { self.error = friendlyMessage(error); return }
-        while !Task.isCancelled, tracks.count < 5000 {
-            guard let page = try? await pager.nextPage(), !page.isEmpty else { break }
-            tracks += page
+            if pl == nil {
+                let firstPager = playlistTracks(id: id)
+                async let header = withDeadline(12) { [id] in try await playlist(id: id) }
+                async let first = firstPager.nextPage()
+                let p = try await header
+                pl = p
+                pager = firstPager
+                recents.add(.init(kind: p.isMix ? .mix : .playlist, id: p.id, title: p.title, subtitle: p.creator ?? "", coverUrl: p.coverUrl))
+                let page = try await first ?? []
+                tracks += page
+                tracksFetched += page.count
+            }
+            guard let pager else { return }
+            while !Task.isCancelled, tracksFetched < 5000 {
+                guard let page = try await pager.nextPage(), !page.isEmpty else {
+                    self.pager = nil
+                    return
+                }
+                tracks += page
+                tracksFetched += page.count
+            }
+            if tracksFetched >= 5000 { self.pager = nil }
+        } catch is CancellationError {
+            return
+        } catch {
+            if pl == nil { self.error = friendlyMessage(error) }
+            else { paginationError = friendlyMessage(error) }
         }
-        loadingMore = false
     }
 }
 
@@ -171,6 +200,8 @@ struct DetailPage: View {
     let numbered: Bool
     let ownPlaylistId: String?
     let onRemoved: (Track) -> Void
+    var paginationError: String? = nil
+    var onRetryMore: (() -> Void)? = nil
     @Environment(Player.self) private var player
     @State private var isFav = false
 
@@ -190,6 +221,14 @@ struct DetailPage: View {
                 )
                 .disabled(tracks.isEmpty)
                 .padding(.top, 6)
+                if !loadingMore, let onRetryMore {
+                    Text(paginationError == nil ? "Playlist may be incomplete" : "Couldn't load all tracks")
+                        .font(.headline)
+                    if let paginationError {
+                        Text(paginationError).font(.footnote).foregroundStyle(.secondary)
+                    }
+                    Button("Retry", action: onRetryMore).buttonStyle(.glass)
+                }
             }
             .frame(maxWidth: .infinity)
             .listRowSeparator(.hidden)
