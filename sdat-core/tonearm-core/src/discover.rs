@@ -138,7 +138,7 @@ impl InfiniteShuffle {
             // Start somewhere deeper than the newest favourites.
             for _ in 0..rand::random_range(0..4) {
                 if pager.is_consumed() {
-                    return Ok(None);
+                    break;
                 }
                 page = pager.next_page()?;
             }
