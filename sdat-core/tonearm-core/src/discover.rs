@@ -123,18 +123,31 @@ impl InfiniteShuffle {
     pub fn from_mixes_and_library(mixes: &[MixRef]) -> Self {
         let mut sources: Vec<PageSource> = mixes.iter().map(|m| paginator_source(service::get_playlist_tracks(&m.id))).collect();
         sources.push(lazy(|| {
-            if crate::auth::tokens().user_id().is_empty() {
+            let user_id = crate::auth::tokens().user_id();
+            if user_id.is_empty() {
                 return Ok(None);
             }
-            let mut p = service::user_collection_tracks("me");
+            let mut pager = service::user_collection_tracks("me");
+            let mut page = match pager.next_page() {
+                Err(CoreError::Http { status: 400 | 404, .. }) => {
+                    pager = service::user_collection_tracks(&user_id);
+                    pager.next_page()?
+                }
+                result => result?,
+            };
             // Start somewhere deeper than the newest favourites.
             for _ in 0..rand::random_range(0..4) {
-                if p.is_consumed() {
-                    break;
+                if pager.is_consumed() {
+                    return Ok(None);
                 }
-                p.next_page()?;
+                page = pager.next_page()?;
             }
-            Ok(Some(paginator_source(p)))
+            let mut first = Some(page);
+            let mut next = paginator_source(pager);
+            Ok(Some(Box::new(move || match first.take() {
+                Some(page) => Ok(Some(page)),
+                None => next(),
+            })))
         }));
         for _ in 0..6 {
             sources.push(lazy(|| Ok(random_favourite(&state::ALBUMS)?.map(|id| paginator_source(service::get_album_tracks(&id))))));
@@ -166,13 +179,11 @@ impl InfiniteShuffle {
     }
 
     fn report_bad_request(&mut self, error: &CoreError) -> bool {
-        if let CoreError::Http { status: 400, message } = error
-            && self.reported_bad_requests.insert(message.clone())
-        {
+        let CoreError::Http { status: 400, message } = error else { return false };
+        if self.reported_bad_requests.insert(message.clone()) {
             log::error!("Discover request failed: {message}");
-            return true;
         }
-        false
+        true
     }
 
     /// At least `min` new tracks unless every source and seed is exhausted
