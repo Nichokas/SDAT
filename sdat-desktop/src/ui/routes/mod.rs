@@ -614,7 +614,7 @@ fn feed_activity_key(occurred_at: &str, zone: &impl TimeZone) -> (NaiveDate, Dat
 }
 
 fn feed_needs_separator(seen: bool, next_seen: Option<bool>) -> bool {
-    !seen && next_seen == Some(true)
+    next_seen.is_some_and(|next| seen != next)
 }
 
 async fn feed() -> Response {
