@@ -77,6 +77,8 @@ class Playback(context: Context, private val prefs: Preferences, secrets: Secret
     /** The base queue a Handoff resume restored, until what follows its track is appended. Any new list replaces it;
      * a restart or a repeat keeps it. */
     private var resumedBase: List<Track>? = null
+    /** When that resume was ([SystemClock.elapsedRealtime]). */
+    private var resumedAt = 0L
     /** Bumped by every play or pause command, so a late handoff result knows the user acted. */
     var controls = 0
         private set
@@ -495,8 +497,10 @@ class Playback(context: Context, private val prefs: Preferences, secrets: Secret
 
     private fun refillIfNeeded() {
         val source = infinite ?: return
-        // A handoff's own tracks come first: a refill before them would take their place.
-        if (resumedBase.let { it != null && queue.original === it }) return
+        // A handoff's own tracks come first: a refill before them would take their place. They come within seconds
+        // of the resume, or nothing follows its track.
+        val awaitingUpNext = resumedBase.let { it != null && queue.original === it } && SystemClock.elapsedRealtime() - resumedAt < UP_NEXT_WAIT_MS
+        if (awaitingUpNext) return
         if (queue.needsRefill) scope.launch { fetchMore(source) }
     }
 
@@ -711,6 +715,7 @@ class Playback(context: Context, private val prefs: Preferences, secrets: Secret
         queue.restore(saved, state)
         replaceInfinite(null)
         resumedBase = queue.original
+        resumedAt = SystemClock.elapsedRealtime()
         awaitingMixes = discover
         resumeInfinite(Discover.mixes)
         start(current, resumeAt = state.position)
@@ -1002,6 +1007,8 @@ private const val ALIGN_ATTEMPTS = 3
 private const val MAX_SEEK_LEAD_MS = 3_000L
 /** Largest guest-host gap a resume is synchronized over. */
 private const val RESUME_WINDOW_MS = 3_000L
+/** How long a Discover queue taken over waits for its handed-over tracks before it refills. */
+private const val UP_NEXT_WAIT_MS = 30_000L
 
 /** Where a track plays from; [offline] for its downloaded copy. */
 private class Source(val uri: String, val quality: Quality, val offline: Boolean)

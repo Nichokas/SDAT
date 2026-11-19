@@ -118,7 +118,7 @@ pub struct DurableQueue {
     played: Cell<usize>,
     upcoming: RefCell<Vec<usize>>,
     last_taken: Cell<Option<usize>>,
-    /// The entries that started playing or were skipped, in that order.
+    /// The source entries that started playing or were skipped, each once, in the order they last did.
     taken: RefCell<Vec<Rc<Track>>>,
 }
 
@@ -126,6 +126,14 @@ impl DurableQueue {
     #[cfg(test)]
     pub fn append(&self, t: Track) {
         self.extend(&[t]);
+    }
+
+    /// Records that source entry `index` plays or is skipped now.
+    fn took(&self, index: usize) {
+        let entry = Rc::clone(&self.source.borrow()[index]);
+        let mut taken = self.taken.borrow_mut();
+        taken.retain(|t| !Rc::ptr_eq(t, &entry));
+        taken.push(entry);
     }
 
     fn publish(&self) {
@@ -177,9 +185,8 @@ impl DurableQueue {
 
     pub fn pop(&self) -> Option<Track> {
         let index = self.take_head()?;
-        let entry = Rc::clone(&self.source.borrow()[index]);
-        let track = entry.as_ref().clone();
-        self.taken.borrow_mut().push(entry);
+        let track = self.source.borrow()[index].as_ref().clone();
+        self.took(index);
         self.last_taken.set(Some(index));
         self.publish();
         Some(track)
@@ -236,6 +243,7 @@ impl DurableQueue {
         *self.source.borrow_mut() = std::iter::once(selected).chain(rest.into_iter().map(Rc::new)).collect();
         self.played.set(1);
         self.last_taken.set(Some(0));
+        self.taken.borrow_mut().clear();
         self.publish();
     }
 
@@ -244,7 +252,8 @@ impl DurableQueue {
             let mut upcoming = self.upcoming.borrow_mut();
             if i >= upcoming.len() { bail!("track not found"); }
             let removed = upcoming.remove(i);
-            self.source.borrow_mut().remove(removed);
+            let entry = self.source.borrow_mut().remove(removed);
+            self.taken.borrow_mut().retain(|t| !Rc::ptr_eq(t, &entry));
             for index in upcoming.iter_mut() {
                 *index -= usize::from(*index > removed);
             }
@@ -307,7 +316,7 @@ impl DurableQueue {
         let origin = occurrence.and_then(Weak::upgrade);
         let index = origin.and_then(|track| self.source.borrow().iter().position(|entry| Rc::ptr_eq(entry, &track)));
         if let Some(i) = index {
-            self.taken.borrow_mut().push(Rc::clone(&self.source.borrow()[i]));
+            self.took(i);
         }
         self.last_taken.set(index);
     }
@@ -319,7 +328,7 @@ impl DurableQueue {
         let skipped = {
             self.upcoming.borrow_mut().drain(..n).map(|i| {
                 self.played.set(self.played.get().max(i + 1));
-                self.taken.borrow_mut().push(Rc::clone(&self.source.borrow()[i]));
+                self.took(i);
                 self.history_entry(i)
             }).collect()
         };
