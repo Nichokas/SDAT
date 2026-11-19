@@ -21,6 +21,7 @@ if [ "$(uname)" = Linux ]; then export CARGO_TARGET_AARCH64_APPLE_IOS_LINKER="$h
 SDKROOT="$sdk" IPHONEOS_DEPLOYMENT_TARGET=17.0 CC_aarch64_apple_ios=clang AR_aarch64_apple_ios=llvm-ar \
   cargo rustc -p tonearm-ffi --lib --release --target aarch64-apple-ios --crate-type staticlib 9>&-
 lib="$target/aarch64-apple-ios/release/libtonearm_ffi.a"
+mkdir -p "$here/RustLib"
 cp "$lib" "$here/RustLib/libtonearm_ffi.a"
 tmp="$(mktemp -d)"
 cargo run -q -p tonearm-ffi --features bindgen --bin uniffi-bindgen-swift -- \
