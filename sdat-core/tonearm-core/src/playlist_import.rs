@@ -144,7 +144,8 @@ fn streamable(t: &openapi::TrackData) -> bool {
 /// For each ISRC, the ID of its most popular streamable track.
 fn best_by_isrc(tracks: &[openapi::TrackData]) -> HashMap<String, String> {
     let mut best: HashMap<String, &openapi::TrackData> = HashMap::new();
-    for t in tracks.iter().filter(|t| streamable(t)) {
+    // A track without an ISRC must not match the Spotify tracks that have none either.
+    for t in tracks.iter().filter(|t| streamable(t) && !t.attributes.isrc.is_empty()) {
         best.entry(t.attributes.isrc.to_ascii_uppercase()).and_modify(|b| if t.attributes.popularity > b.attributes.popularity { *b = t }).or_insert(t);
     }
     best.into_iter().map(|(isrc, t)| (isrc, t.id.clone())).collect()
@@ -250,6 +251,7 @@ mod tests {
             tidal("2", "gbum71029604", 0.7, &["STREAM", "DJ"]),
             tidal("3", "GBUM71029604", 0.9, &[]),
             tidal("4", "USRC17607839", 0.1, &[]),
+            tidal("5", "", 0.9, &["STREAM"]),
         ];
         assert_eq!(best_by_isrc(&tracks), HashMap::from([("GBUM71029604".to_owned(), "2".to_owned())]));
     }

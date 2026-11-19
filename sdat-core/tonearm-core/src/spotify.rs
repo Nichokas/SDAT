@@ -62,7 +62,7 @@ pub fn playlist_id(link: &str) -> Option<String> {
 
 /// Reads the playlist `id`. `progress(done, total)` follows the track lookups;
 /// `cancelled` is polled between them.
-pub fn fetch_playlist(id: &str, progress: &(dyn Fn(usize, usize) + Sync), cancelled: &(dyn Fn() -> bool + Sync)) -> Result<SpotifyPlaylist> {
+pub(crate) fn fetch_playlist(id: &str, progress: &(dyn Fn(usize, usize) + Sync), cancelled: &(dyn Fn() -> bool + Sync)) -> Result<SpotifyPlaylist> {
     let session = Session { playlist_id: id.to_owned(), token: Mutex::new(fetch_token(id)?), cancelled };
     let resp = session.get(&format!("{SPCLIENT}/playlist/v2/playlist/{id}"))?;
     if resp.status() != StatusCode::OK {
