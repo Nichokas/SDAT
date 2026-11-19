@@ -183,11 +183,13 @@ final class HandoffHub {
         guard r.discover else { return }
         // Discover goes on from this device's own shuffle. Asked again while the queue still waits for it:
         // without it, playback ends with the handed-over tracks.
+        let gen = generation
         Task {
             var wait = 2.0
-            while player.awaitsDiscover {
+            // Signed out or into another account meanwhile: these mixes are not that account's.
+            while gen == generation, player.awaitsDiscover {
                 if let mixes = try? await homeMixes(), !mixes.isEmpty {
-                    player.resumeInfinite(mixes: mixes)
+                    if gen == generation { player.resumeInfinite(mixes: mixes) }
                     return
                 }
                 try? await Task.sleep(for: .seconds(wait))
