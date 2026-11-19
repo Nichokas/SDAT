@@ -482,13 +482,13 @@ async fn playlist(id: String) -> Response {
         Ok(r) => r,
         Err(e) => return Response::from_error(title, e),
     };
-    let info = p.info.clone();
+    let playlist_id = id.clone();
     let weak_page = page.downgrade();
     list.set_click_handler(move |track, pos| {
-        let (info, track, weak_page) = (info.clone(), track.clone(), weak_page.clone());
+        let (id, track, weak_page) = (playlist_id.clone(), track.clone(), weak_page.clone());
         play(
             async move {
-                if !player::play_playlist_track(info, &track, pos).await?
+                if !player::play_playlist_track(&id, &track, pos).await?
                     && weak_page.upgrade().is_some_and(|page| page.root().is_some())
                 {
                     router::refresh();
