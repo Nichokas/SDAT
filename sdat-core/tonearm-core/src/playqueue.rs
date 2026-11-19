@@ -2,6 +2,8 @@
 use crate::error::{bail, CoreResult as Result};
 use rand::seq::SliceRandom;
 use std::cell::{Cell, RefCell};
+use std::collections::VecDeque;
+use std::rc::{Rc, Weak};
 
 use crate::model::Track;
 use crate::signals::State;
@@ -109,7 +111,7 @@ impl Queue {
 #[derive(Debug)]
 pub struct DurableQueue {
     queue: Queue,
-    source: RefCell<Vec<Track>>,
+    source: RefCell<Vec<Rc<Track>>>,
     shuffled: Cell<bool>,
     /// Source index just past the last track taken from the queue, where
     /// [`DurableQueue::restore`] continues.
@@ -128,7 +130,7 @@ impl DurableQueue {
     fn publish(&self) {
         let tracks = {
             let source = self.source.borrow();
-            self.upcoming.borrow().iter().map(|&i| source[i].clone()).collect()
+            self.upcoming.borrow().iter().map(|&i| source[i].as_ref().clone()).collect()
         };
         self.queue.set(tracks);
     }
@@ -181,8 +183,7 @@ impl DurableQueue {
     }
 
     pub fn select_user_track(&self, is_gapless: bool) {
-        let index = self.gapless_taken.take();
-        self.last_taken.set(if is_gapless { index } else { None });
+        self.last_taken.set(if is_gapless { self.gapless_taken.take() } else { None });
     }
 
     pub fn forget_gapless(&self) {
@@ -238,7 +239,7 @@ impl DurableQueue {
 
     pub fn set(&self, tracks: Vec<Track>) {
         *self.upcoming.borrow_mut() = (0..tracks.len()).collect();
-        *self.source.borrow_mut() = tracks;
+        *self.source.borrow_mut() = tracks.into_iter().map(Rc::new).collect();
         self.played.set(0);
         self.last_taken.set(None);
         self.gapless_taken.set(None);
@@ -258,14 +259,30 @@ impl DurableQueue {
         self.publish();
     }
 
-    pub fn skip(&self, n: usize) -> Result<Vec<Track>> {
+    pub fn current_occurrence(&self, track: &Track) -> Option<Weak<Track>> {
+        let index = self.last_taken.get()?;
+        let source = self.source.borrow();
+        let entry = &source[index];
+        (entry.id() == track.id()).then(|| Rc::downgrade(entry))
+    }
+
+    pub fn select_history_occurrence(&self, occurrence: Option<&Weak<Track>>) {
+        let origin = occurrence.and_then(Weak::upgrade);
+        let index = origin.and_then(|track| self.source.borrow().iter().position(|entry| Rc::ptr_eq(entry, &track)));
+        self.last_taken.set(index);
+    }
+
+    pub fn skip(&self, n: usize) -> Result<Vec<HistoryEntry>> {
         if self.queue.len() < n {
             bail!("not enough tracks in queue");
         }
-        let skipped = self.queue.entries().with(|v| v[..n].to_vec());
-        if let Some(max) = self.upcoming.borrow_mut().drain(..n).max() {
-            self.played.set(self.played.get().max(max + 1));
-        }
+        let skipped = {
+            let source = self.source.borrow();
+            self.upcoming.borrow_mut().drain(..n).map(|i| {
+                self.played.set(self.played.get().max(i + 1));
+                HistoryEntry { track: source[i].as_ref().clone(), occurrence: Some(Rc::downgrade(&source[i])) }
+            }).collect()
+        };
         self.publish();
         Ok(skipped)
     }
@@ -273,13 +290,13 @@ impl DurableQueue {
     /// Adds late-arriving tracks without touching what is already queued.
     pub fn extend(&self, tracks: &[Track]) {
         let mut source = self.source.borrow_mut();
-        let mut seen: std::collections::HashSet<&str> = source.iter().map(Track::id).collect();
+        let mut seen: std::collections::HashSet<&str> = source.iter().map(|t| t.id()).collect();
         let added: Vec<_> = tracks.iter().filter(|t| seen.insert(t.id())).cloned().collect();
         if added.is_empty() {
             return;
         }
         let start = source.len();
-        source.extend(added);
+        source.extend(added.into_iter().map(Rc::new));
         let end = source.len();
         drop(source);
         {
@@ -298,27 +315,32 @@ impl DurableQueue {
     }
 }
 
-/// History queue: the most recent entry is held back as "pending" (it is the
-/// track currently playing) until the next one arrives.
-#[derive(Default)]
 #[derive(Debug)]
+pub struct HistoryEntry {
+    pub track: Track,
+    pub occurrence: Option<Weak<Track>>,
+}
+
+#[derive(Default, Debug)]
 pub struct HistoryQueue {
-    pub queue: Queue,
-    pending: RefCell<Option<Track>>,
+    previous: RefCell<VecDeque<HistoryEntry>>,
+    pending: RefCell<Option<HistoryEntry>>,
 }
 
 impl HistoryQueue {
-    pub fn prepend(&self, t: Track) {
-        if let Some(p) = self.pending.borrow_mut().replace(t) {
-            self.queue.prepend(p);
+    pub fn prepend(&self, entry: HistoryEntry) {
+        if let Some(p) = self.pending.borrow_mut().replace(entry) {
+            self.previous.borrow_mut().push_front(p);
         }
     }
-    pub fn pop(&self) -> Option<Track> {
-        *self.pending.borrow_mut() = None;
-        self.queue.pop()
+
+    pub fn pop(&self) -> Option<HistoryEntry> {
+        self.pending.borrow_mut().take();
+        self.previous.borrow_mut().pop_front()
     }
-    pub fn peek(&self) -> Option<Track> {
-        self.queue.peek()
+
+    pub fn is_empty(&self) -> bool {
+        self.previous.borrow().is_empty()
     }
 }
 
@@ -562,12 +584,30 @@ mod tests {
     #[test]
     fn history_holds_back_current_track() {
         let h = HistoryQueue::default();
-        h.prepend(t("a"));
-        assert!(h.peek().is_none());
-        h.prepend(t("b"));
-        assert_eq!(h.peek().unwrap().id(), "a");
-        assert_eq!(h.pop().unwrap().id(), "a");
-        h.prepend(t("c"));
-        assert!(h.peek().is_none(), "pop clears the pending entry");
+        let entry = |id| HistoryEntry { track: t(id), occurrence: None };
+        h.prepend(entry("a"));
+        assert!(h.is_empty());
+        h.prepend(entry("b"));
+        assert_eq!(h.pop().unwrap().track.id(), "a");
+        h.prepend(entry("c"));
+        assert!(h.is_empty(), "pop clears the pending entry");
+    }
+
+    #[test]
+    fn history_recovers_exact_occurrence_after_a_source_removal() -> Result<()> {
+        let q = DurableQueue::default();
+        let mut first = t("a");
+        first.info.title = "previous occurrence".into();
+        q.set(vec![t("removed"), first, t("b"), t("a")]);
+        q.move_entry(0, 2);
+        let previous = q.pop().unwrap();
+        let occurrence = q.current_occurrence(&previous);
+        q.pop();
+        q.remove_at(0)?;
+        q.select_history_occurrence(occurrence.as_ref());
+        q.shuffle("a");
+        assert!(q.entries().with(|v| v.iter().all(|t| t.info.title != "previous occurrence")));
+        assert!(q.entries().with(|v| v.iter().any(|t| t.id() == "a")));
+        Ok(())
     }
 }
