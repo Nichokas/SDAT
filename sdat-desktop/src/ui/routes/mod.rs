@@ -3,7 +3,7 @@ use std::cell::Cell;
 use std::rc::Rc;
 
 use adw::prelude::*;
-use chrono::{DateTime, Datelike, Duration as CDuration, Local, NaiveTime};
+use chrono::{DateTime, Datelike, Days, Local, Months, NaiveDate, TimeZone, Utc};
 
 use crate::i18n::{tr, trf};
 use crate::model::{self, Track, PlaybackSource};
@@ -556,18 +556,16 @@ impl TimeStage {
             LastMonth | Older => Older,
         }
     }
-    /// Same thresholds as Go (today is truncated to UTC midnight like time.Truncate).
-    pub fn threshold(self, now: DateTime<Local>) -> Option<DateTime<chrono::Utc>> {
+    fn threshold(self, today: NaiveDate) -> Option<NaiveDate> {
         use TimeStage::{Today, ThisWeek, LastWeek, ThisMonth, LastMonth, Older};
-        let today = now.with_timezone(&chrono::Utc).date_naive().and_time(NaiveTime::MIN).and_utc();
-        Some(match self {
-            Today => today,
-            ThisWeek => today - CDuration::days(i64::from(now.weekday().num_days_from_monday())),
-            LastWeek => Self::ThisWeek.threshold(now)? - CDuration::days(7),
-            ThisMonth => today - CDuration::days(i64::from(now.day())),
-            LastMonth => Self::ThisMonth.threshold(now)?.checked_sub_months(chrono::Months::new(1))?,
-            Older => return None,
-        })
+        match self {
+            Today => Some(today),
+            ThisWeek => today.checked_sub_days(Days::new(u64::from(today.weekday().num_days_from_monday()))),
+            LastWeek => ThisWeek.threshold(today)?.checked_sub_days(Days::new(7)),
+            ThisMonth => today.with_day(1),
+            LastMonth => ThisMonth.threshold(today)?.checked_sub_months(Months::new(1)),
+            Older => None,
+        }
     }
     fn label(self) -> String {
         use TimeStage::{Today, ThisWeek, LastWeek, ThisMonth, LastMonth, Older};
@@ -610,30 +608,38 @@ fn stage_box(stage: TimeStage) -> gtk::Box {
     spacing(vstack(&[label(&stage.label()).class("title-2").upcast_ref()]), 12)
 }
 
+fn feed_activity_key(occurred_at: &str, zone: &impl TimeZone) -> (NaiveDate, DateTime<Utc>) {
+    let instant = DateTime::parse_from_rfc3339(occurred_at).map(|date| date.to_utc()).unwrap_or_default();
+    (instant.with_timezone(zone).date_naive(), instant)
+}
+
 async fn feed() -> Response {
     let uid = secrets::user_id();
     if uid.is_empty() {
         return Response::new(tr("Feed"), comp::auth_required(&tr("Please sign in to view your feed")));
     }
     let u = uid.clone();
-    let mut acts = match api::run(move || api::feed_activities(&u)).await {
+    let acts = match api::run(move || api::feed_activities(&u)).await {
         Ok(a) => a,
         Err(e) => return Response::from_error(tr("Feed"), e),
     };
-    let parse = |s: &str| DateTime::parse_from_rfc3339(s).map(|d| d.with_timezone(&chrono::Utc)).unwrap_or_default();
-    acts.sort_by_key(|a| std::cmp::Reverse(parse(&a.followable_activity.occurred_at)));
+    let today = Local::now().date_naive();
+    let mut acts: Vec<_> = acts
+        .into_iter()
+        .map(|activity| (feed_activity_key(&activity.followable_activity.occurred_at, &Local), activity))
+        .collect();
+    // A clock rollback across midnight can put adjacent instants on reversed local dates.
+    acts.sort_by_key(|(key, _)| std::cmp::Reverse(*key));
 
-    let now = Local::now();
     let body = gtk::Box::new(gtk::Orientation::Vertical, 36).vmargin(20);
     let mut stage = TimeStage::Today;
     let mut bx = stage_box(stage);
     let mut has_elements = false;
     let mut has_unseen = false;
-    for (i, a) in acts.iter().enumerate() {
+    for (i, ((occurred_on, _), a)) in acts.iter().enumerate() {
         let fa = &a.followable_activity;
-        let at = parse(&fa.occurred_at);
-        while let Some(th) = stage.threshold(now)
-            && at < th
+        while let Some(th) = stage.threshold(today)
+            && *occurred_on < th
         {
             stage = stage.next();
             if has_elements {
@@ -679,7 +685,7 @@ async fn feed() -> Response {
         if !a.seen {
             has_unseen = true;
         }
-        if !a.seen && acts.get(i + 1).is_some_and(|n| n.seen) {
+        if !a.seen && acts.get(i + 1).is_some_and(|(_, next)| next.seen) {
             let sep = gtk::Separator::new(gtk::Orientation::Vertical).css("separator { background-color: var(--accent-color); padding-top: 2px; border-radius: 5px; }");
             bx.append(&sep);
         }
@@ -976,7 +982,6 @@ async fn my_tracks() -> Response {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use chrono::TimeZone;
 
     #[test]
     fn artists_join() {
@@ -986,22 +991,33 @@ mod tests {
 
     #[test]
     fn stages_are_descending() {
-        let now = Local.with_ymd_and_hms(2026, 10, 31, 12, 0, 0).unwrap();
-        let t: Vec<_> = [TimeStage::Today, TimeStage::ThisWeek, TimeStage::LastWeek].iter().map(|s| s.threshold(now).unwrap()).collect();
+        let today = NaiveDate::from_ymd_opt(2026, 10, 31).unwrap();
+        let t: Vec<_> = [TimeStage::Today, TimeStage::ThisWeek, TimeStage::LastWeek].iter().map(|s| s.threshold(today).unwrap()).collect();
         assert!(t[0] >= t[1] && t[1] > t[2]);
-        assert_eq!(TimeStage::Older.threshold(now), None);
+        assert_eq!(TimeStage::Older.threshold(today), None);
     }
 
     #[test]
     fn feed_keeps_the_last_day_of_august_in_last_month() {
-        let now = Local.with_ymd_and_hms(2026, 9, 25, 12, 0, 0).unwrap();
-        let release = Local.with_ymd_and_hms(2026, 8, 31, 23, 59, 59).unwrap();
+        let today = NaiveDate::from_ymd_opt(2026, 9, 25).unwrap();
+        let release = NaiveDate::from_ymd_opt(2026, 8, 31).unwrap();
         let mut stage = TimeStage::Today;
-        while let Some(threshold) = stage.threshold(now)
+        while let Some(threshold) = stage.threshold(today)
             && release < threshold
         {
             stage = stage.next();
         }
         assert_eq!(stage, TimeStage::LastMonth);
+    }
+
+    #[test]
+    fn feed_uses_local_midnight_for_today() {
+        let zone = chrono::FixedOffset::east_opt(9 * 3600).unwrap();
+        let today = NaiveDate::from_ymd_opt(2026, 9, 25).unwrap();
+        let threshold = TimeStage::Today.threshold(today).unwrap();
+        let (before_midnight, _) = feed_activity_key("2026-09-24T14:59:59Z", &zone);
+        let (at_midnight, _) = feed_activity_key("2026-09-24T15:00:00Z", &zone);
+        assert!(before_midnight < threshold);
+        assert_eq!(at_midnight, threshold);
     }
 }
