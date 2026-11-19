@@ -24,7 +24,7 @@ const ATTEMPTS: usize = 4;
 const MAX_RETRY_AFTER: Duration = Duration::from_secs(30);
 
 /// A track of a Spotify playlist.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct SpotifyTrack {
     pub title: String,
     pub artists: Vec<String>,

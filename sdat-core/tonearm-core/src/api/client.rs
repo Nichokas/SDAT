@@ -661,25 +661,10 @@ pub fn add_items_body(track_ids: &[&str]) -> serde_json::Value {
 
 /// Appends a track to one of the user's playlists.
 pub fn playlist_add_track(playlist_id: &str, track_id: &str) -> Result<()> {
-    playlist_add_items(playlist_id, &add_items_body(&[track_id]))
-}
-
-/// Most tracks TIDAL takes in one [`playlist_add_tracks`] request.
-pub const PLAYLIST_TRACKS_PER_REQUEST: usize = 50;
-
-/// Appends up to [`PLAYLIST_TRACKS_PER_REQUEST`] tracks, in order, to one of the user's
-/// playlists, including those it already has.
-pub fn playlist_add_tracks(playlist_id: &str, track_ids: &[&str]) -> Result<()> {
-    let mut body = add_items_body(track_ids);
-    body["meta"] = serde_json::json!({ "onDuplicates": "ADD" });
-    playlist_add_items(playlist_id, &body)
-}
-
-fn playlist_add_items(playlist_id: &str, body: &serde_json::Value) -> Result<()> {
     let resp = send(
         request(Method::POST, &openapi(&format!("/v2/playlists/{playlist_id}/relationships/items")), &[])?
             .header("Content-Type", "application/vnd.api+json")
-            .body(body.to_string()),
+            .body(add_items_body(&[track_id]).to_string()),
     )?;
     crate::cache::invalidate(&crate::cache::playlist_key(playlist_id));
     if !resp.status().is_success() {
@@ -688,14 +673,36 @@ fn playlist_add_items(playlist_id: &str, body: &serde_json::Value) -> Result<()>
     Ok(())
 }
 
+/// The signed-in account, held for a run of writes that must all reach the same account
+/// even if the user signs out or switches account meanwhile.
+#[derive(Debug)]
+pub struct Account(String);
+
+/// The account signed in now.
+pub fn account() -> Result<Account> {
+    user_bearer().map(Account)
+}
+
+/// Most tracks TIDAL takes in one [`playlist_add_tracks`] request.
+pub const PLAYLIST_TRACKS_PER_REQUEST: usize = 50;
+
+/// Appends up to [`PLAYLIST_TRACKS_PER_REQUEST`] tracks, in order, to one of the account's
+/// playlists, including those it already has.
+pub fn playlist_add_tracks(account: &Account, playlist_id: &str, track_ids: &[&str]) -> Result<()> {
+    let mut body = add_items_body(track_ids);
+    body["meta"] = serde_json::json!({ "onDuplicates": "ADD" });
+    openapi_call_with(&account.0, Method::POST, &format!("/v2/playlists/{playlist_id}/relationships/items"), Some(&body))?;
+    Ok(())
+}
+
 /// JSON:API body for creating a private playlist.
 pub fn create_playlist_body(name: &str, description: &str) -> serde_json::Value {
     serde_json::json!({ "data": { "type": "playlists", "attributes": { "name": name, "description": description, "accessType": "UNLISTED" } } })
 }
 
-/// Creates an empty private playlist owned by the signed-in user and returns its ID.
-pub fn playlist_create(name: &str, description: &str) -> Result<String> {
-    let created = openapi_call(Method::POST, "/v2/playlists", Some(&create_playlist_body(name, description)))?;
+/// Creates an empty private playlist owned by the account and returns its ID.
+pub fn playlist_create(account: &Account, name: &str, description: &str) -> Result<String> {
+    let created = openapi_call_with(&account.0, Method::POST, "/v2/playlists", Some(&create_playlist_body(name, description)))?;
     match created["data"]["id"].as_str() {
         Some(id) if !id.is_empty() => Ok(id.to_owned()),
         _ => Err(CoreError::Decode("TIDAL returned no ID for the new playlist".into())),

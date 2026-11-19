@@ -48,6 +48,7 @@ pub struct Report {
 ///
 /// `cancelled` is polled between requests until [`Stage::Saving`], which always finishes:
 /// nothing is created on TIDAL before it, and stopping inside it would leave half a playlist.
+/// Saving writes to the account signed in when it starts, whatever the user does meanwhile.
 pub fn import_spotify_playlist(link: &str, progress: &(dyn Fn(Progress) + Sync), cancelled: &(dyn Fn() -> bool + Sync)) -> Result<Report> {
     api::client::user_bearer()?;
     let Some(id) = spotify::playlist_id(link) else { bail!("This is not a Spotify playlist link.") };
@@ -78,12 +79,20 @@ pub fn import_playlist(source: &SpotifyPlaylist, progress: &dyn Fn(Progress), ca
     let mut found: Vec<Option<String>> = source.tracks.iter().map(|t| by_isrc.get(&t.isrc).cloned()).collect();
     let mut done = found.iter().flatten().count();
     let mut missing = Vec::new();
+    // A playlist can repeat a track; each one is searched once.
+    let mut searched: HashMap<&SpotifyTrack, Option<String>> = HashMap::new();
     for (track, id) in source.tracks.iter().zip(&mut found) {
         if id.is_some() {
             continue;
         }
         stop()?;
-        *id = search(track, cancelled)?;
+        *id = if let Some(known) = searched.get(track) {
+            known.clone()
+        } else {
+            let result = search(track, cancelled)?;
+            searched.insert(track, result.clone());
+            result
+        };
         if id.is_none() {
             missing.push(format!("{} – {}", track.artists.join(", "), track.title));
         }
@@ -96,12 +105,13 @@ pub fn import_playlist(source: &SpotifyPlaylist, progress: &dyn Fn(Progress), ca
     }
 
     stop()?;
+    let account = api::account()?;
     let saving = |done| progress(Progress { stage: Stage::Saving, done, total: matched.len() });
     saving(0);
     let name = if source.name.trim().is_empty() { "Spotify playlist" } else { source.name.trim() };
-    let playlist_id = api::playlist_create(name, "Imported from Spotify")?;
+    let playlist_id = api::playlist_create(&account, name, "Imported from Spotify")?;
     for (i, chunk) in matched.chunks(api::PLAYLIST_TRACKS_PER_REQUEST).enumerate() {
-        api::playlist_add_tracks(&playlist_id, chunk).map_err(|e| CoreError::Other(format!("The playlist \"{name}\" was created on TIDAL but is incomplete: {e}")))?;
+        api::playlist_add_tracks(&account, &playlist_id, chunk).map_err(|e| CoreError::Other(format!("The playlist \"{name}\" was created on TIDAL but is incomplete: {e}")))?;
         saving(i * api::PLAYLIST_TRACKS_PER_REQUEST + chunk.len());
     }
     Ok(Report { playlist_id, name: name.to_owned(), imported: matched.len(), missing, skipped: source.skipped })

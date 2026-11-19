@@ -48,7 +48,8 @@ fn answer(request_line: &str, body: &str, writes: &Mutex<Vec<String>>) -> (&'sta
             {"id":"21","type":"tracks","attributes":{"title":"Second Song","duration":"PT9M","availability":["STREAM"]},"relationships":{"artists":{"data":[{"id":"a","type":"artists"}]}}},
             {"id":"20","type":"tracks","attributes":{"title":"Second Song (Remastered)","duration":"PT3M21S","availability":["STREAM"]},"relationships":{"artists":{"data":[{"id":"a","type":"artists"}]}}},
             {"id":"a","type":"artists","attributes":{"name":"Band"}}]}"#)
-    } else if path.starts_with("/v2/searchResults?") {
+    } else if path.starts_with("/v2/searchResults?filter%5Bquery%5D=Third+Song+Band&") {
+        writes.lock().expect("writes").push("search Third Song".into());
         ("200 OK", r#"{"data":[{"id":"r"}]}"#)
     } else if request_line.starts_with("POST /v2/playlists?") {
         writes.lock().expect("writes").push(format!("create {body}"));
@@ -102,6 +103,7 @@ fn imports_matches_in_order_and_reports_the_rest() {
             track("First Song", "Band", 180, "AAA"),
             track("Third Song", "Band", 240, "CCC"),
             track("First Song", "Band", 180, "AAA"),
+            track("Third Song", "Band", 240, "CCC"),
         ],
         skipped: 1,
     };
@@ -109,16 +111,17 @@ fn imports_matches_in_order_and_reports_the_rest() {
     let report = import_playlist(&source, &|p| stages.lock().expect("stages").push((p.stage, p.done, p.total)), &|| false).expect("import");
 
     assert_eq!((report.playlist_id.as_str(), report.name.as_str(), report.imported, report.skipped), ("new-playlist", "Road trip", 3, 1));
-    assert_eq!(report.missing, ["Band – Third Song"]);
+    assert_eq!(report.missing, ["Band – Third Song", "Band – Third Song"]);
     assert_eq!(
         *writes.lock().expect("writes"),
         [
+            "search Third Song",
             r#"create {"data":{"attributes":{"accessType":"UNLISTED","description":"Imported from Spotify","name":"Road trip"},"type":"playlists"}}"#,
             r#"add {"data":[{"id":"20","type":"tracks"},{"id":"10","type":"tracks"},{"id":"10","type":"tracks"}],"meta":{"onDuplicates":"ADD"}}"#,
         ]
     );
     let stages = stages.into_inner().expect("stages");
-    assert_eq!(stages.first(), Some(&(Stage::Matching, 0, 4)));
+    assert_eq!(stages.first(), Some(&(Stage::Matching, 0, 5)));
     assert_eq!(stages.last(), Some(&(Stage::Saving, 3, 3)));
-    assert!(stages.contains(&(Stage::Matching, 4, 4)), "every track is accounted for: {stages:?}");
+    assert!(stages.contains(&(Stage::Matching, 5, 5)), "every track is accounted for: {stages:?}");
 }
