@@ -68,15 +68,17 @@ pub fn import_playlist(source: &SpotifyPlaylist, progress: &dyn Fn(Progress), ca
     let matching = |done| progress(Progress { stage: Stage::Matching, done, total });
     matching(0);
     let mut by_isrc: HashMap<String, String> = HashMap::new();
-    let mut isrcs: Vec<&str> = source.tracks.iter().map(|t| t.isrc.as_str()).filter(|i| !i.is_empty()).collect();
+    // In upper case, as `best_by_isrc` keys them.
+    let wanted: Vec<String> = source.tracks.iter().map(|t| t.isrc.to_ascii_uppercase()).collect();
+    let mut isrcs: Vec<&str> = wanted.iter().map(String::as_str).filter(|i| !i.is_empty()).collect();
     isrcs.sort_unstable();
     isrcs.dedup();
     for chunk in isrcs.chunks(api::ISRCS_PER_REQUEST) {
         stop()?;
         by_isrc.extend(best_by_isrc(&patiently(cancelled, || api::tracks_by_isrc(chunk))?));
-        matching(source.tracks.iter().filter(|t| by_isrc.contains_key(&t.isrc)).count());
+        matching(wanted.iter().filter(|isrc| by_isrc.contains_key(*isrc)).count());
     }
-    let mut found: Vec<Option<String>> = source.tracks.iter().map(|t| by_isrc.get(&t.isrc).cloned()).collect();
+    let mut found: Vec<Option<String>> = wanted.iter().map(|isrc| by_isrc.get(isrc).cloned()).collect();
     let mut done = found.iter().flatten().count();
     let mut missing = Vec::new();
     // A playlist can repeat a track; each one is searched once.

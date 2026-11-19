@@ -102,7 +102,7 @@ fn imports_matches_in_order_and_reports_the_rest() {
             track("Second Song - Remastered 2011", "Band", 200, "BBB"),
             track("First Song", "Band", 180, "AAA"),
             track("Third Song", "Band", 240, "CCC"),
-            track("First Song", "Band", 180, "AAA"),
+            track("First Song", "Band", 180, "aaa"),
             track("Third Song", "Band", 240, "CCC"),
         ],
         skipped: 1,
