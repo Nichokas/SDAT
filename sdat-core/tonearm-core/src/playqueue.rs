@@ -487,6 +487,20 @@ mod tests {
     }
 
     #[test]
+    fn shuffled_removal_keeps_the_other_duplicate_in_source_order() -> Result<()> {
+        let q = DurableQueue::default();
+        let mut later = t("a");
+        later.info.title = "later occurrence".into();
+        q.set(vec![t("a"), t("b"), later, t("c")]);
+        q.shuffle("");
+        let later = q.entries().with(|v| v.iter().position(|t| t.info.title == "later occurrence")).unwrap();
+        q.remove_at(later)?;
+        q.restore();
+        assert_eq!(ids(&q.queue), ["a", "b", "c"]);
+        Ok(())
+    }
+
+    #[test]
     fn shuffle_and_restore_use_the_played_occurrence() -> Result<()> {
         let q = DurableQueue::default();
         let mut first = t("a");

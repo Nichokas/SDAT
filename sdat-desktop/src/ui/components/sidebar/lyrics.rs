@@ -187,17 +187,23 @@ fn set_active(b: Option<&gtk::Button>) {
     }
 }
 
-fn line_button(text: &str, timing: Option<(Duration, Duration)>) -> gtk::Button {
+fn line_button(text: &str, timing: Option<(Duration, Duration)>, track_id: &str) -> gtk::Button {
     let l = label(text).halign(gtk::Align::Center).valign(gtk::Align::Center).class("title-2");
     l.set_wrap(true);
     l.set_justify(gtk::Justification::Center);
     let b = gtk::Button::new().hexp(true).ptop(24).pbottom(24).pstart(16).pend(16).corner_radius(12);
     b.set_child(Some(&l));
     if let Some((start, _)) = timing {
+        let track_id = track_id.to_owned();
         // "timed" is an internal marker only (no style rules use it).
         b.add_css_class("dimmed");
         b.add_css_class("timed");
         b.connect_clicked(move |b| {
+            if crate::live::is_guest()
+                && !crate::live::host_track().is_some_and(|(_, host_id)| host_id == track_id)
+            {
+                return;
+            }
             if crate::live::user_seek(start) {
                 return;
             }
@@ -209,7 +215,7 @@ fn line_button(text: &str, timing: Option<(Duration, Duration)>) -> gtk::Button 
     b
 }
 
-fn set_lines(lines: Vec<Line>, timed: bool) {
+fn set_lines(lines: Vec<Line>, timed: bool, track_id: &str) {
     let v = view();
     v.scrolled.set_policy(gtk::PolicyType::Never, if timed { gtk::PolicyType::External } else { gtk::PolicyType::Automatic });
     let vbox = gtk::Box::new(gtk::Orientation::Vertical, 12).hexp(true).vexp(true);
@@ -220,7 +226,7 @@ fn set_lines(lines: Vec<Line>, timed: bool) {
             Line::Blank => vbox.append(&gtk::Box::new(gtk::Orientation::Vertical, 0)),
             Line::Silent(start, end) => timings.push(Timing { start, end, button: None }),
             Line::Text(t, tm) => {
-                let b = line_button(&t, tm);
+                let b = line_button(&t, tm, track_id);
                 vbox.append(&b);
                 if let Some((start, end)) = tm {
                     timings.push(Timing { start, end, button: Some(b.downgrade()) });
@@ -310,7 +316,7 @@ pub fn init() {
                 }
                 Ok((text, timed)) => {
                     let lines = if timed { parse_lrc(&text, ev.track.duration()) } else { parse_untimed(&text) };
-                    set_lines(lines, timed);
+                    set_lines(lines, timed, ev.track.id());
                     v.panel.set_child(Some(&v.overlay));
                 }
             }

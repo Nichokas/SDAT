@@ -205,7 +205,7 @@ fn detect_locales() -> Vec<String> {
         if let Ok(v) = std::env::var(var) {
             let locales: Vec<_> = v.split(':')
                 .map(|locale| locale.split('.').next().unwrap_or("").trim())
-                .filter(|locale| !matches!(*locale, "" | "C" | "POSIX"))
+                .filter(|locale| !locale.is_empty() && (var == "LANGUAGE" || !matches!(*locale, "C" | "POSIX")))
                 .map(str::to_owned)
                 .collect();
             if !locales.is_empty() {
@@ -218,28 +218,37 @@ fn detect_locales() -> Vec<String> {
 
 /// Returns the user's locale formatted like go-locale (e.g. `es_ES`).
 pub fn user_locale() -> String {
-    detect_locales().into_iter().next().unwrap_or_else(|| "en_US".into())
+    detect_locales().into_iter().next().filter(|loc| !matches!(loc.as_str(), "C" | "POSIX"))
+        .unwrap_or_else(|| "en_US".into())
 }
 
 fn catalog() -> &'static Catalog {
     static CAT: OnceLock<Catalog> = OnceLock::new();
     CAT.get_or_init(|| {
-        for loc in detect_locales() {
-            let lang = loc.split('_').next().unwrap_or("");
-            let alias = match lang {
-                "en" => "en_US",
-                "zh" => "zh_Hans",
-                "pt" => "pt_BR",
-                _ => lang,
-            };
-            if let Some(src) = [loc.as_str(), lang, alias].into_iter()
-                .find_map(|candidate| LOCALES.iter().find(|(name, _)| *name == candidate).map(|(_, src)| *src))
-            {
-                return parse_po(src);
-            }
-        }
-        Catalog::default()
+        let locales = detect_locales();
+        catalog_for(locales.iter().map(String::as_str))
     })
+}
+
+fn catalog_for<'a>(locales: impl IntoIterator<Item = &'a str>) -> Catalog {
+    for loc in locales {
+        if matches!(loc, "C" | "POSIX") {
+            break;
+        }
+        let lang = loc.split('_').next().unwrap_or("");
+        let alias = match lang {
+            "en" => "en_US",
+            "zh" => "zh_Hans",
+            "pt" => "pt_BR",
+            _ => lang,
+        };
+        if let Some(src) = [loc, lang, alias].into_iter()
+            .find_map(|candidate| LOCALES.iter().find(|(name, _)| *name == candidate).map(|(_, src)| *src))
+        {
+            return parse_po(src);
+        }
+    }
+    Catalog::default()
 }
 
 /// Translates `msgid`.
@@ -304,6 +313,15 @@ pub fn sprintf(fmt: &str, args: &[&dyn std::fmt::Display]) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn untranslated_locale_ends_language_fallback() {
+        assert_eq!(catalog_for(["eo", "es"]).singular.get("Play").map(String::as_str), Some("Reproducir"));
+        for locale in ["C", "POSIX"] {
+            assert!(!catalog_for(["eo", locale, "es"]).singular.contains_key("Play"));
+        }
+    }
+
     #[test]
     fn po_parse_and_format() {
         let po = "msgid \"\"\nmsgstr \"\"\n\"Plural-Forms: nplurals=2; plural=n != 1;\\n\"\n\nmsgid \"%d Track\"\nmsgid_plural \"%d Tracks\"\nmsgstr[0] \"%d Pista\"\nmsgstr[1] \"%d Pistas\"\n\nmsgid \"Hello\"\nmsgstr \"Ho\"\n\"la\"\n";
