@@ -204,6 +204,17 @@ impl DurableQueue {
         self.publish();
     }
 
+    pub fn set_rest(&self, current: Track, rest: Vec<Track>) {
+        let selected = self.last_taken.get().and_then(|i| self.source.borrow().get(i).cloned())
+            .filter(|entry| entry.id() == current.id() && entry.playlist_item_id == current.playlist_item_id)
+            .unwrap_or_else(|| Rc::new(current));
+        *self.upcoming.borrow_mut() = (1..=rest.len()).collect();
+        *self.source.borrow_mut() = std::iter::once(selected).chain(rest.into_iter().map(Rc::new)).collect();
+        self.played.set(1);
+        self.last_taken.set(Some(0));
+        self.publish();
+    }
+
     pub fn remove_at(&self, i: usize) -> Result<()> {
         {
             let mut upcoming = self.upcoming.borrow_mut();
@@ -680,5 +691,24 @@ mod tests {
         assert!(q.entries().with(|v| v.iter().all(|t| t.info.title != "previous occurrence")));
         assert!(q.entries().with(|v| v.iter().any(|t| t.id() == "a")));
         Ok(())
+    }
+
+    #[test]
+    fn attaching_a_handoff_list_preserves_the_current_history_occurrence() {
+        let q = DurableQueue::default();
+        q.set(vec![t("a")]);
+        let current = q.pop().unwrap();
+        let occurrence = q.current_occurrence(&current);
+        let mut duplicate = t("a");
+        duplicate.info.title = "upcoming duplicate".into();
+        q.set_rest(current, vec![t("b"), duplicate]);
+
+        assert_eq!(q.pop().unwrap().id(), "b");
+        q.select_history_occurrence(occurrence.as_ref());
+        q.shuffle("a", &[]);
+        q.entries().with(|tracks| {
+            assert_eq!(tracks.len(), 2);
+            assert!(tracks.iter().any(|track| track.info.title == "upcoming duplicate"));
+        });
     }
 }
