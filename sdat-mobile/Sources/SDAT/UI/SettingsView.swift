@@ -7,6 +7,7 @@ struct SettingsView: View {
     @Environment(Player.self) private var player
     @Environment(\.openURL) private var openURL
     @State private var confirmLogout = false
+    @State private var showSpotifyImport = false
     @State private var lastFmUser = Keychain.get("lastfm.user")
     @State private var lastFmPending: LastFmAuth?
     @State private var safariURL: IdentURL?
@@ -48,6 +49,10 @@ struct SettingsView: View {
                 if prefs.scrobbleListenBrainz { listenBrainzRow }
             }
 
+            Section("Library") {
+                Button("Import Spotify playlist") { showSpotifyImport = true }
+            }
+
             Section {
                 Picker("Country / Region", selection: Binding(
                     get: { country },
@@ -80,6 +85,7 @@ struct SettingsView: View {
         .navigationBarTitleDisplayMode(.inline)
         .task { automatic = await automaticCountry() }
         .sheet(item: $safariURL, onDismiss: finishLastFm) { u in SafariView(url: u.url).ignoresSafeArea() }
+        .sheet(isPresented: $showSpotifyImport) { SpotifyImportSheet() }
         .confirmationDialog("Erase all app data?", isPresented: $confirmErase, titleVisibility: .visible) {
             Button("Erase everything", role: .destructive) { session.eraseAll() }
         } message: { Text("This cannot be undone.") }

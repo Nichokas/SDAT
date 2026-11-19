@@ -50,6 +50,15 @@ pub fn end_account_change() {
     }
 }
 
+/// The user's playlists changed outside the menu: the next menu loads them again.
+pub fn forget() {
+    CACHE.with_borrow_mut(|c| {
+        if matches!(c, Cache::Ready(_)) {
+            *c = Cache::Empty;
+        }
+    });
+}
+
 /// What the submenu should show.
 #[derive(Debug, PartialEq, Eq)]
 enum Entry {

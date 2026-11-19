@@ -8,6 +8,7 @@ pub mod media_card;
 pub mod media_viewer;
 pub mod shortcut_list;
 pub mod sidebar;
+pub mod spotify_import;
 pub mod tracklist;
 pub mod tracklist_header;
 
