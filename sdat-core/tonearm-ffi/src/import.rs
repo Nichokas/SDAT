@@ -64,7 +64,7 @@ pub fn spotify_import(link: String) -> Arc<SpotifyImport> {
 
 #[uniffi::export]
 impl SpotifyImport {
-    /// Runs the import; `Cancelled` after [`Self::cancel`].
+    /// Runs the import; `Cancelled` after [`Self::cancel`], which no longer stops it once it is saving.
     pub async fn run(&self, listener: Arc<dyn ImportListener>) -> Result<ImportReport, FfiError> {
         let (link, cancelled) = (self.link.clone(), Arc::clone(&self.cancelled));
         let count = |n: usize| u32::try_from(n).unwrap_or(u32::MAX);

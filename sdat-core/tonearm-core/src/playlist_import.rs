@@ -45,7 +45,9 @@ pub struct Report {
 }
 
 /// Imports the public Spotify playlist behind `link` (see [`spotify::playlist_id`]).
-/// `cancelled` is polled between requests; nothing is created on TIDAL before the last stage.
+///
+/// `cancelled` is polled between requests until [`Stage::Saving`], which always finishes:
+/// nothing is created on TIDAL before it, and stopping inside it would leave half a playlist.
 pub fn import_spotify_playlist(link: &str, progress: &(dyn Fn(Progress) + Sync), cancelled: &(dyn Fn() -> bool + Sync)) -> Result<Report> {
     api::client::user_bearer()?;
     let Some(id) = spotify::playlist_id(link) else { bail!("This is not a Spotify playlist link.") };
@@ -131,13 +133,15 @@ fn search(track: &SpotifyTrack) -> Result<Option<String>> {
     };
     Ok(found.included.tracks(&found.data.relationships.tracks.data).into_iter().find_map(|t| {
         let artists: Vec<String> = t.included.artists(&t.data.relationships.artists.data).into_iter().map(|a| a.data.attributes.name).collect();
-        (streamable(&t.data) && same_recording(track, &t.data.attributes.title, &artists, t.data.attributes.duration)).then_some(t.data.id)
+        let title = format!("{} ({})", t.data.attributes.title, t.data.attributes.version);
+        (streamable(&t.data) && same_recording(track, &title, &artists, t.data.attributes.duration)).then_some(t.data.id)
     }))
 }
 
 fn same_recording(track: &SpotifyTrack, title: &str, artists: &[String], duration: Duration) -> bool {
     let wanted: Vec<String> = track.artists.iter().map(|a| fold(a)).collect();
     fold(plain_title(&track.title)) == fold(plain_title(title))
+        && renditions(&track.title) == renditions(title)
         && track.duration.abs_diff(duration) <= LENGTH_TOLERANCE
         && artists.iter().any(|a| wanted.contains(&fold(a)))
 }
@@ -146,6 +150,15 @@ fn same_recording(track: &SpotifyTrack, title: &str, artists: &[String], duratio
 fn plain_title(title: &str) -> &str {
     let end = [" - ", " (", " ["].iter().filter_map(|mark| title.find(mark)).min().unwrap_or(title.len());
     &title[..end]
+}
+
+/// Words that make a title another recording of the song, unlike `Remastered` or `feat. X`.
+const RENDITIONS: [&str; 9] = ["live", "acoustic", "remix", "instrumental", "demo", "karaoke", "acapella", "spedup", "slowed"];
+
+/// The [`RENDITIONS`] named in the decorations of `title`.
+fn renditions(title: &str) -> Vec<&'static str> {
+    let decorations = fold(&title[plain_title(title).len()..]);
+    RENDITIONS.into_iter().filter(|r| decorations.contains(r)).collect()
 }
 
 /// Letters and digits in lower case, so punctuation and spacing do not matter.
@@ -193,6 +206,15 @@ mod tests {
         assert!(!same_recording(&track, "Bohemian Rhapsody", &["Queen".into()], Duration::from_secs(148)), "a shorter edit");
         assert!(!same_recording(&track, "Bohemian Rhapsody", &["Panic! At The Disco".into()], Duration::from_secs(354)), "a cover");
         assert!(!same_recording(&track, "Somebody to Love", &["Queen".into()], Duration::from_secs(354)), "another song");
+    }
+
+    #[test]
+    fn another_rendition_of_the_song_does_not_match() {
+        let live = spotify("Song (Live)", &["Band"], 200);
+        assert!(!same_recording(&live, "Song (Acoustic)", &["Band".into()], Duration::from_secs(202)));
+        assert!(!same_recording(&live, "Song ()", &["Band".into()], Duration::from_secs(200)));
+        assert!(same_recording(&live, "Song (Live at Wembley)", &["Band".into()], Duration::from_secs(200)));
+        assert!(!same_recording(&spotify("Song", &["Band"], 200), "Song - Sped Up", &["Band".into()], Duration::from_secs(200)));
     }
 
     #[test]

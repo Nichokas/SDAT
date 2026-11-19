@@ -19,7 +19,8 @@ struct SpotifyImportSheet: View {
                             Spacer()
                             ProgressView()
                         }
-                        Button("Cancel", role: .destructive) { importer.cancel() }
+                        // Saving always finishes, so that a cancel never leaves half a playlist.
+                        Button("Cancel", role: .destructive) { importer.cancel() }.disabled(progress?.stage == .saving)
                     }
                 case .done(let report): summary(report)
                 }

@@ -32,11 +32,14 @@ thread_local! {
     static WAITING: RefCell<Vec<(glib::WeakRef<gio::Menu>, String)>> = const { RefCell::new(Vec::new()) };
     /// Bumped on sign in/out; a load started before it fetched the previous account's list.
     static ACCOUNT_EPOCH: Cell<u64> = const { Cell::new(0) };
+    /// The playlists changed while a load was in flight: its list may lack the change.
+    static STALE: Cell<bool> = const { Cell::new(false) };
 }
 
 /// Forgets the previous account's playlists and holds back new loads (sign in/out).
 pub fn begin_account_change() {
     ACCOUNT_EPOCH.set(ACCOUNT_EPOCH.get() + 1);
+    STALE.set(false);
     CACHE.with_borrow_mut(|c| *c = Cache::Switching);
 }
 
@@ -52,10 +55,10 @@ pub fn end_account_change() {
 
 /// The user's playlists changed outside the menu: the next menu loads them again.
 pub fn forget() {
-    CACHE.with_borrow_mut(|c| {
-        if matches!(c, Cache::Ready(_)) {
-            *c = Cache::Empty;
-        }
+    CACHE.with_borrow_mut(|c| match c {
+        Cache::Ready(_) => *c = Cache::Empty,
+        Cache::Loading => STALE.set(true),
+        Cache::Empty | Cache::Switching => {}
     });
 }
 
@@ -139,6 +142,10 @@ fn finish_load(epoch: u64, result: anyhow::Result<Vec<OwnPlaylist>>) {
     if ACCOUNT_EPOCH.get() != epoch {
         return;
     }
+    if STALE.replace(false) {
+        start_load();
+        return;
+    }
     let list = match result {
         Ok(l) => Some(l),
         Err(e) => {
@@ -187,6 +194,22 @@ mod tests {
         (0..menu.n_items())
             .filter_map(|i| menu.item_attribute_value(i, "label", None)?.get())
             .collect()
+    }
+
+    #[test]
+    fn a_change_during_a_load_discards_the_list_it_fetched() {
+        // The spawned loads are never polled, so they stay off the network.
+        glib::MainContext::new()
+            .with_thread_default(|| {
+                let menu = submenu("t");
+                ensure_loaded(&menu, "t");
+                forget();
+                finish_load(ACCOUNT_EPOCH.get(), Ok(vec![pl("a", "Old")]));
+                assert_eq!(labels(&menu), [tr("Loading…")]);
+                finish_load(ACCOUNT_EPOCH.get(), Ok(vec![pl("a", "Old"), pl("b", "Imported")]));
+                assert_eq!(labels(&menu), ["Old", "Imported"]);
+            })
+            .expect("thread default context");
     }
 
     #[test]

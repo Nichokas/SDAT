@@ -63,7 +63,8 @@ fun SpotifyImportSheet(onDismiss: () -> Unit) {
                         showTopSeparator = false,
                         trailing = { CircularProgressIndicator(Modifier.size(20.dp), strokeWidth = 2.dp) },
                     )
-                    GlasmioListRow("Cancel", titleColor = colors.destructive, showDisclosure = false, onClick = SpotifyImporter::cancel)
+                    // Saving always finishes, so that a cancel never leaves half a playlist.
+                    GlasmioListRow("Cancel", titleColor = colors.destructive, enabled = state.progress?.stage != ImportStage.SAVING, showDisclosure = false, onClick = SpotifyImporter::cancel)
                 }
                 is State.Done -> {
                     val report = state.report

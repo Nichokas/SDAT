@@ -58,9 +58,14 @@ fn run(window: &adw::ApplicationWindow, link: String) {
     // The import reports from its worker thread; the bar follows it from the main loop.
     let progress: Arc<Mutex<Option<Progress>>> = Arc::default();
     let shown = Arc::clone(&progress);
+    let dialog = ad.downgrade();
     let ticker = glib::timeout_add_local(Duration::from_millis(150), move || {
         if let Some(p) = *shown.lock().unwrap_or_else(PoisonError::into_inner) {
             bar.set_text(Some(&stage_label(p.stage)));
+            // Saving always finishes, so that a cancel never leaves half a playlist.
+            if let Some(d) = dialog.upgrade() {
+                d.set_response_enabled("cancel", p.stage != Stage::Saving);
+            }
             if p.total == 0 {
                 bar.pulse();
             } else {
