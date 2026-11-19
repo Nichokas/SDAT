@@ -10,7 +10,6 @@ use crate::i18n::{tr, trf};
 use crate::model::{format_duration, Track};
 use crate::player;
 use crate::signals::State;
-use crate::state;
 use crate::ui::dsl::{W, label, hstack, spacing, vstack, spacer, on_state};
 use crate::{imgutil, settings};
 
@@ -94,7 +93,7 @@ impl Col {
                 popover.set_halign(gtk::Align::End);
                 mb.set_popover(Some(&popover));
             });
-            let (fav, set_fav) = super::favourite_button::rebindable_favourite_button(&state::TRACKS);
+            let (fav, set_fav) = super::favourite_button::track_favourite_button();
             let fav = fav.halign(gtk::Align::Center).valign(gtk::Align::Center);
             let row = hstack(&[fav.upcast_ref(), queue.upcast_ref(), more.upcast_ref()]).margin(10).halign(gtk::Align::End);
             let (q, m, cur, sf) = (queue, more, Rc::clone(&current), Rc::clone(&set_fav));

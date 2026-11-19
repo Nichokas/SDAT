@@ -268,8 +268,8 @@ struct DetailPage: View {
                 if let favourite {
                     Button(isFav ? "Remove from Collection" : "Add to Collection", systemImage: isFav ? "star.slash" : "star") { toggleFav(favourite) }
                 }
-            } label: { Image(systemName: "ellipsis").foregroundStyle(.white) }
-            .tint(.white)
+            } label: { Image(systemName: "ellipsis").foregroundStyle(.primary) }
+            .tint(.primary)
         }
         .task {
             guard let favourite else { return }
@@ -304,7 +304,7 @@ struct CoverBackdrop: View {
     let url: String?
     var animated = false
     var bpm: Double?
-    var light = false
+    @Environment(\.colorScheme) private var colorScheme
     @State private var art: UIImage?
     // Phase is counted in beats and only advances while moving, so pausing or a new tempo
     // changes the speed instead of making the backdrop jump.
@@ -314,8 +314,9 @@ struct CoverBackdrop: View {
     private var moving: Bool { animated && !reduceMotion }
 
     var body: some View {
+        let light = colorScheme == .light
         ZStack {
-            Color.black
+            Color(.systemBackground)
             if let art {
                 GeometryReader { g in
                     // Well past the screen diagonal: only the cover's centre shows, never a corner.
@@ -337,14 +338,14 @@ struct CoverBackdrop: View {
                         .scaleEffect(1 + 0.06 * breath)
                         .frame(width: g.size.width, height: g.size.height)
                         .clipped()
-                        .overlay(light ? Color.white.opacity(0.14 + 0.05 * breath) : Color.black.opacity(0.32 - 0.07 * breath))
+                        .overlay(light ? Color.white.opacity(0.62 + 0.05 * breath) : Color.black.opacity(0.32 - 0.07 * breath))
                     }
                 }
                 // A new identity per cover, so a cover change crossfades instead of swapping in place.
                 .id(art)
                 .transition(.opacity)
             }
-            LinearGradient(colors: [.clear, .black.opacity(light ? 0.35 : 0.55)], startPoint: .center, endPoint: .bottom)
+            LinearGradient(colors: [.clear, Color(.systemBackground).opacity(0.55)], startPoint: .center, endPoint: .bottom)
         }
         .ignoresSafeArea()
         .animation(.easeInOut(duration: 0.8), value: art)

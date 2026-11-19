@@ -55,7 +55,7 @@ struct CachedImage: View {
     private var target: String? { url.map { CoverURL.sized($0, points: width, kind: kind) } }
 
     var body: some View {
-        Rectangle().fill(Color.white.opacity(0.08))
+        Rectangle().fill(Color.primary.opacity(0.08))
             .overlay {
                 if let img = image ?? target.flatMap(ImageStore.shared.cached) ?? url.flatMap(ImageStore.shared.cached) {
                     Image(uiImage: img).resizable().interpolation(.high).scaledToFill()
@@ -305,7 +305,7 @@ struct Skeleton: View {
     @State private var phase = false
     var body: some View {
         RoundedRectangle(cornerRadius: radius)
-            .fill(Color.white.opacity(phase ? 0.14 : 0.06))
+            .fill(Color.primary.opacity(phase ? 0.14 : 0.06))
             .frame(width: width, height: height)
             .onAppear { withAnimation(.easeInOut(duration: 0.9).repeatForever()) { phase = true } }
     }
@@ -421,7 +421,7 @@ struct GlassChipStyle: ButtonStyle {
     func makeBody(configuration: Configuration) -> some View {
         configuration.label
             .padding(.horizontal, 12).padding(.vertical, 8)
-            .foregroundStyle(.white)
+            .foregroundStyle(selected ? Color.white : Color.primary)
             .glassEffect(selected ? .regular.tint(.blue).interactive() : .regular.interactive(), in: .capsule)
             .scaleEffect(configuration.isPressed ? 0.96 : 1)
     }
@@ -493,8 +493,8 @@ struct DownloadRing: View {
     let value: Double
     var body: some View {
         ZStack {
-            Circle().stroke(Color.white.opacity(0.2), lineWidth: 2)
-            Circle().trim(from: 0, to: max(0.02, value)).stroke(Color.white, style: .init(lineWidth: 2, lineCap: .round))
+            Circle().stroke(Color.primary.opacity(0.2), lineWidth: 2)
+            Circle().trim(from: 0, to: max(0.02, value)).stroke(Color.primary, style: .init(lineWidth: 2, lineCap: .round))
                 .rotationEffect(.degrees(-90))
         }
         .animation(.linear(duration: 0.2), value: value)

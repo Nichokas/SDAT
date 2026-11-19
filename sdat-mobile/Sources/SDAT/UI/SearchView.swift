@@ -67,6 +67,8 @@ struct SearchView: View {
             } catch {
                 guard !Task.isCancelled, current(q, gen) else { return }
                 debounced = q
+                results = nil
+                topArtist = nil
                 self.error = friendlyMessage(error)
                 searching = false
             }

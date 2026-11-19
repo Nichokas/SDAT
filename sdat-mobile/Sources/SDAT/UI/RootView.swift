@@ -258,7 +258,7 @@ private struct TabBar: View {
                         }
                         .transition(.scale(scale: 0.85).combined(with: .opacity))
                     } else {
-                        Capsule().fill(.white.opacity(0.1))
+                        Capsule().fill(Color.primary.opacity(0.1))
                             .frame(width: max(pillR - pillL, 0), height: 54)
                             .transition(.opacity)
                     }
@@ -452,7 +452,7 @@ struct DownloadStatusButton: View {
         Button { Chrome.shared.push(.downloads) } label: {
             Image(systemName: "arrow.down")
                 .font(.system(size: 17, weight: .semibold))
-                .foregroundStyle(.white)
+                .foregroundStyle(.primary)
                 .frame(width: 44, height: 44)
                 .overlay {
                     Circle().trim(from: 0, to: max(0.001, p))

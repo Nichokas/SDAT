@@ -118,6 +118,12 @@ final class Live {
         finish(.idle)
     }
 
+    func signOut() {
+        leave()
+        showScanner = false
+        showSheet = false
+    }
+
     func dismissEnded() { if case .ended = mode { mode = .idle } }
 
     private func finish(_ m: Mode) {

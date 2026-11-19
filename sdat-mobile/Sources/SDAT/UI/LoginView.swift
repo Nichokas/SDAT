@@ -6,11 +6,10 @@ struct LoginView: View {
     @Environment(Session.self) private var session
     @Environment(\.openURL) private var openURL
     @State private var appeared = false
-    @State private var starting = false
 
     var body: some View {
         ZStack {
-            Color.black.ignoresSafeArea()
+            Color(.systemBackground).ignoresSafeArea()
             GeometryReader { g in
                 ScrollView {
                     hero
@@ -21,9 +20,7 @@ struct LoginView: View {
             }
         }
         .safeAreaInset(edge: .bottom) { bottom }
-        .preferredColorScheme(.dark)
         .onAppear { withAnimation(.spring(duration: 0.8, bounce: 0.25).delay(0.05)) { appeared = true } }
-        .onChange(of: session.pending == nil) { _, none in if !none { starting = false } }
         .animation(.spring(duration: 0.45), value: session.pending == nil)
     }
 
@@ -32,7 +29,7 @@ struct LoginView: View {
             Text("SDAT")
                 .font(.system(size: 48, weight: .heavy, design: .rounded))
                 .tracking(4)
-                .foregroundStyle(.white)
+                .foregroundStyle(.primary)
                 .lineLimit(1).minimumScaleFactor(0.5)
                 .offset(y: appeared ? 0 : 12)
                 .opacity(appeared ? 1 : 0)
@@ -44,7 +41,7 @@ struct LoginView: View {
                         .minimumScaleFactor(0.6).lineLimit(1)
                         .textSelection(.enabled)
                     HStack(spacing: 8) {
-                        ProgressView().controlSize(.small).tint(.white)
+                        ProgressView().controlSize(.small)
                         Text("Waiting for approval…").font(.footnote).foregroundStyle(.secondary)
                     }
                 }
@@ -57,7 +54,7 @@ struct LoginView: View {
             }
         }
         .padding(.horizontal, 32)
-        .foregroundStyle(.white)
+        .foregroundStyle(.primary)
     }
 
     private var bottom: some View {
@@ -70,11 +67,10 @@ struct LoginView: View {
                     Button("Cancel") { session.cancelLogin() }
                         .font(.subheadline).foregroundStyle(.secondary)
                 } else {
-                    GlassWideButton(title: "Sign in with TIDAL", tidalMark: true, loading: starting) {
-                        starting = true
-                        Task { await session.beginLogin(); starting = false }
+                    GlassWideButton(title: "Sign in with TIDAL", tidalMark: true, loading: session.startingLogin) {
+                        Task { await session.beginLogin() }
                     }
-                    .disabled(starting)
+                    .disabled(session.startingLogin)
                 }
             }
         }

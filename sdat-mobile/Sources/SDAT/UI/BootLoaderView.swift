@@ -1,6 +1,6 @@
 import SwiftUI
 
-/// First-sign-in loader: the miniplayer's dashed ring filling (white) with real warm-up
+/// First-sign-in loader: the miniplayer's dashed ring filling with real warm-up
 /// progress, and three sharp squares lighting up in sequence inside (none, 1, 1-2, 1-2-3).
 /// Reduce Motion: the squares fade gently together instead of stepping.
 struct BootLoaderView: View {
@@ -10,14 +10,14 @@ struct BootLoaderView: View {
 
     var body: some View {
         ZStack {
-            Color.black.ignoresSafeArea()
+            Color(.systemBackground).ignoresSafeArea()
             ZStack {
-                ProgressRing(progress: progress, lineWidth: 3, color: .white)
+                ProgressRing(progress: progress, lineWidth: 3, color: .primary)
                 TimelineView(.animation(minimumInterval: reduceMotion ? 1 / 30 : 0.1)) { ctx in
                     let t = ctx.date.timeIntervalSinceReferenceDate
                     HStack(spacing: size * 0.08) {
                         ForEach(0..<3) { i in
-                            Rectangle().fill(Color.white)
+                            Rectangle().fill(Color.primary)
                                 .frame(width: size * 0.1, height: size * 0.1)
                                 .opacity(squareOpacity(i, t))
                         }
