@@ -17,6 +17,10 @@ sccache="$(command -v sccache || echo "$cargo_home/bin/sccache")"
 "$sccache" --version
 
 config="$cargo_home/config.toml"
+# Cargo prefers the extensionless file when both names exist.
+if [ -e "$cargo_home/config" ]; then
+  config="$cargo_home/config"
+fi
 mkdir -p "$cargo_home" "$target_dir"
 touch "$config"
 # A dotfiles-managed config is a symlink; edit its destination so the link survives the atomic replace below.
