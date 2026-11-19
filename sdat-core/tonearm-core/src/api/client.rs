@@ -705,10 +705,27 @@ pub fn playlist_create(name: &str, description: &str) -> Result<String> {
 /// Most ISRCs TIDAL takes in one [`tracks_by_isrc`] request.
 pub const ISRCS_PER_REQUEST: usize = 20;
 
-/// The catalogue track of each of up to [`ISRCS_PER_REQUEST`] ISRCs; an unknown ISRC has none.
+/// Catalogue tracks with any of up to [`ISRCS_PER_REQUEST`] ISRCs; an unknown ISRC has none.
+///
+/// TIDAL answers several ISRCs with one track each on a single page, and one ISRC with
+/// every track that has it, in pages.
 pub fn tracks_by_isrc(isrcs: &[&str]) -> Result<Vec<openapi::TrackData>> {
-    let page: openapi::Response<Vec<openapi::TrackData>> = get_json(&openapi("/v2/tracks"), &[("filter[isrc]", isrcs.join(","))])?;
-    Ok(page.data)
+    const MAX_PAGES: usize = 3;
+    let mut out = Vec::new();
+    let mut cursor = String::new();
+    for _ in 0..MAX_PAGES {
+        let mut q = vec![("filter[isrc]", isrcs.join(","))];
+        if !cursor.is_empty() {
+            q.push(("page[cursor]", cursor));
+        }
+        let page: openapi::Response<Vec<openapi::TrackData>> = get_json(&openapi("/v2/tracks"), &q)?;
+        out.extend(page.data);
+        match page.links.meta.and_then(|m| m.next_cursor).filter(|c| !c.is_empty()) {
+            Some(next) => cursor = next,
+            None => break,
+        }
+    }
+    Ok(out)
 }
 
 /// Removes a track occurrence identified by the playlist relationship's `meta.itemId`.
