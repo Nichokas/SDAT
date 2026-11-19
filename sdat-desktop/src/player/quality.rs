@@ -75,13 +75,10 @@ pub fn on_deep_element_added(element: &gst::Element) {
         if pad.direction() != gst::PadDirection::Src {
             return;
         }
-        pad.add_probe(gst::PadProbeType::EVENT_DOWNSTREAM, |pad, info| {
+        pad.add_probe(gst::PadProbeType::EVENT_DOWNSTREAM, |_, info| {
             let Some(gst::PadProbeData::Event(ev)) = &info.data else { return gst::PadProbeReturn::Ok };
-            if ev.type_() != gst::EventType::Caps {
-                return gst::PadProbeReturn::Ok;
-            }
-            let Some(caps) = pad.current_caps() else { return gst::PadProbeReturn::Ok };
-            let Some(s) = caps.structure(0) else { return gst::PadProbeReturn::Ok };
+            let gst::EventView::Caps(caps) = ev.view() else { return gst::PadProbeReturn::Ok };
+            let Some(s) = caps.caps().structure(0) else { return gst::PadProbeReturn::Ok };
             if s.name() != "audio/x-raw" {
                 return gst::PadProbeReturn::Ok;
             }

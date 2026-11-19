@@ -198,6 +198,9 @@ fn line_button(text: &str, timing: Option<(Duration, Duration)>) -> gtk::Button 
         b.add_css_class("dimmed");
         b.add_css_class("timed");
         b.connect_clicked(move |b| {
+            if crate::live::user_seek(start) {
+                return;
+            }
             set_active(Some(b));
             manually_scrolled().set(false);
             player::seek_to_position(start, true);

@@ -197,41 +197,44 @@ pub fn set_locale(locale: &str) -> bool {
     LOCALE_OVERRIDE.set(locale.replace('-', "_")).is_ok()
 }
 
-fn detect_locale() -> String {
+fn detect_locales() -> Vec<String> {
     if let Some(l) = LOCALE_OVERRIDE.get() {
-        return l.clone();
+        return vec![l.clone()];
     }
     for var in ["LANGUAGE", "LC_ALL", "LC_MESSAGES", "LANG"] {
         if let Ok(v) = std::env::var(var) {
-            let v = v.split(':').next().unwrap_or("").split('.').next().unwrap_or("").to_string();
-            if !v.is_empty() && v != "C" && v != "POSIX" {
-                return v;
+            let locales: Vec<_> = v.split(':')
+                .map(|locale| locale.split('.').next().unwrap_or("").trim())
+                .filter(|locale| !matches!(*locale, "" | "C" | "POSIX"))
+                .map(str::to_owned)
+                .collect();
+            if !locales.is_empty() {
+                return locales;
             }
         }
     }
-    "en_US".into()
+    vec!["en_US".into()]
 }
 
 /// Returns the user's locale formatted like go-locale (e.g. `es_ES`).
 pub fn user_locale() -> String {
-    detect_locale()
+    detect_locales().into_iter().next().unwrap_or_else(|| "en_US".into())
 }
 
 fn catalog() -> &'static Catalog {
     static CAT: OnceLock<Catalog> = OnceLock::new();
     CAT.get_or_init(|| {
-        let loc = detect_locale();
-        let lang = loc.split('_').next().unwrap_or("").to_string();
-        // gotext lookup order: full locale, then language only; plus a few aliases.
-        let mut candidates = vec![loc, lang.clone()];
-        if lang == "zh" {
-            candidates.push("zh_Hans".into());
-        }
-        if lang == "pt" {
-            candidates.push("pt_BR".into());
-        }
-        for c in candidates {
-            if let Some((_, src)) = LOCALES.iter().find(|(name, _)| *name == c) {
+        for loc in detect_locales() {
+            let lang = loc.split('_').next().unwrap_or("");
+            let alias = match lang {
+                "en" => "en_US",
+                "zh" => "zh_Hans",
+                "pt" => "pt_BR",
+                _ => lang,
+            };
+            if let Some(src) = [loc.as_str(), lang, alias].into_iter()
+                .find_map(|candidate| LOCALES.iter().find(|(name, _)| *name == candidate).map(|(_, src)| *src))
+            {
                 return parse_po(src);
             }
         }

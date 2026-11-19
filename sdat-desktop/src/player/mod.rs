@@ -233,6 +233,9 @@ pub fn init() -> Result<()> {
     });
 
     if let Some(bin) = playbin.downcast_ref::<gst::Bin>() {
+        for element in bin.iterate_recurse().into_iter().flatten() {
+            quality::on_deep_element_added(&element);
+        }
         bin.connect_deep_element_added(|_, _, element| quality::on_deep_element_added(element));
     }
 
@@ -400,7 +403,7 @@ fn clear_queues() {
     base_queue().clear();
 }
 
-fn get_next_track_from_queue(peek: bool) -> Option<Track> {
+fn get_next_track_from_queue(peek: bool, can_rewind: &mut bool) -> Option<Track> {
     let t = if peek { user_queue().peek() } else { user_queue().pop() };
     if t.is_some() {
         if !peek {
@@ -423,7 +426,8 @@ fn get_next_track_from_queue(peek: bool) -> Option<Track> {
         // More of the list is coming: don't wrap around (repeat) yet.
         return None;
     }
-    if repeat_mode_changed().get() == RepeatMode::Queue {
+    if *can_rewind {
+        *can_rewind = false;
         log::debug!("queue repeat mode is enabled, replaying base queue");
         base_queue().rewind();
         if shuffle_state_changed().get() {
@@ -436,19 +440,23 @@ fn get_next_track_from_queue(peek: bool) -> Option<Track> {
 
 /// Returns the next streamable track and whether it is a track repeat.
 fn next_track(peek: bool) -> (Option<Track>, bool) {
-    let repeat = repeat_mode_changed().get();
-    if repeat == RepeatMode::Track {
+    if repeat_mode_changed().get() == RepeatMode::Track {
         return (track_changed().with(|t| t.as_ref().map(|e| e.track.clone())), true);
     }
-    let mut next = get_next_track_from_queue(true);
+    (next_streamable_from_queue(peek), false)
+}
+
+fn next_streamable_from_queue(peek: bool) -> Option<Track> {
+    let mut can_rewind = repeat_mode_changed().get() == RepeatMode::Queue;
+    let mut next = get_next_track_from_queue(true, &mut can_rewind);
     while matches!(&next, Some(t) if !t.info.streamable) {
-        get_next_track_from_queue(false);
-        next = get_next_track_from_queue(true);
+        get_next_track_from_queue(false, &mut can_rewind);
+        next = get_next_track_from_queue(true, &mut can_rewind);
     }
-    if !peek {
-        get_next_track_from_queue(false);
+    if !peek && next.is_some() {
+        get_next_track_from_queue(false, &mut can_rewind);
     }
-    (next, false)
+    next
 }
 
 fn previous_track(peek: bool) -> Option<Track> {
@@ -837,6 +845,27 @@ mod playlist_tests {
     }
 
     #[test]
+    fn repeat_queue_stops_after_wrapping_an_unplayable_list() {
+        set_repeat_mode(RepeatMode::Queue);
+        let mut unavailable = track("A", None);
+        unavailable.info.streamable = false;
+        base_queue().set(vec![unavailable]);
+        assert!(next_track(false).0.is_none());
+        set_repeat_mode(RepeatMode::None);
+    }
+
+    #[test]
+    fn starting_a_list_under_repeat_one_plays_its_selected_track() -> Result<()> {
+        set_repeat_mode(RepeatMode::Track);
+        let tracks = vec![track("A", None), track("B", None)];
+        let started = play_tracks(tracks, false, 1)?;
+        assert_eq!(started.id(), "B");
+        assert_eq!(repeat_mode_changed().get(), RepeatMode::Track);
+        set_repeat_mode(RepeatMode::None);
+        Ok(())
+    }
+
+    #[test]
     fn reordered_playlist_starts_the_clicked_track() {
         let clicked = track("B", Some("b"));
         let fresh = [track("C", Some("c")), track("A", Some("a")), clicked.clone()];
@@ -1087,7 +1116,7 @@ fn play_tracks(tracks: Vec<Track>, shuffle: bool, starting_position: usize) -> R
             Err(e) => log::warn!("could not skip to position {starting_position}: {e:#}"),
         }
     }
-    let Some(t) = next_track(false).0 else {
+    let Some(t) = next_streamable_from_queue(false) else {
         anyhow::bail!("tracklist produced no valid tracks to be played");
     };
     fire(Trigger::PlayTrack(t.clone(), false));

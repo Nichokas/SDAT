@@ -176,9 +176,21 @@ impl DurableQueue {
     pub fn remove_at(&self, i: usize) -> Result<()> {
         let Some(t) = self.queue.get(i) else { bail!("track not found") };
         let mut src = self.source.borrow_mut();
-        let before = src[..self.played.get().min(src.len())].iter().filter(|s| s.id() == t.id()).count();
-        self.played.set(self.played.get() - before);
-        src.retain(|s| s.id() != t.id());
+        let played = self.played.get().min(src.len());
+        let same_item = |other: &Track| other.id() == t.id() && other.playlist_item_id == t.playlist_item_id;
+        let index = if self.shuffled.get() {
+            src[played..].iter().position(same_item).map(|n| played + n)
+                .or_else(|| src[..played].iter().position(same_item))
+        } else {
+            let n = played + i;
+            src.get(n).is_some_and(same_item).then_some(n)
+        };
+        if let Some(index) = index {
+            src.remove(index);
+            if index < played {
+                self.played.set(played - 1);
+            }
+        }
         drop(src);
         self.queue.remove_at(i)
     }
@@ -199,9 +211,15 @@ impl DurableQueue {
         self.queue.set(tracks);
         self.played.set(0);
     }
-    /// Shuffles every source track except `current_id`.
+    /// Shuffles every source entry except the current occurrence.
     pub fn shuffle(&self, current_id: &str) {
-        let mut src: Vec<Track> = self.source.borrow().iter().filter(|t| t.id() != current_id).cloned().collect();
+        let mut src = self.source.borrow().clone();
+        let played = self.played.get().min(src.len());
+        if let Some(index) = src[..played].iter().rposition(|t| t.id() == current_id)
+            .or_else(|| src[played..].iter().position(|t| t.id() == current_id).map(|i| i + played))
+        {
+            src.remove(index);
+        }
         src.shuffle(&mut rand::rng());
         self.queue.set(src);
         self.shuffled.set(true);
@@ -392,6 +410,29 @@ mod tests {
         q.pop(); // the first "a"
         q.restore();
         assert_eq!(ids(&q.queue), ["b", "c", "a", "d"]);
+    }
+
+    #[test]
+    fn shuffle_keeps_the_other_occurrence_of_the_current_track() {
+        let q = DurableQueue::default();
+        q.set(["a", "b", "a", "c"].map(t).to_vec());
+        q.pop();
+        q.shuffle("a");
+        let mut upcoming = ids(&q.queue);
+        upcoming.sort();
+        assert_eq!(upcoming, ["a", "b", "c"]);
+    }
+
+    #[test]
+    fn removing_one_entry_keeps_other_occurrences_after_restore() -> Result<()> {
+        let q = DurableQueue::default();
+        q.set(["a", "b", "x", "c", "x", "d"].map(t).to_vec());
+        q.pop();
+        q.remove_at(1)?;
+        q.shuffle("a");
+        q.restore();
+        assert_eq!(ids(&q.queue), ["b", "c", "x", "d"]);
+        Ok(())
     }
 
     #[test]
