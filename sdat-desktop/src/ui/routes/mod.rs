@@ -3,7 +3,7 @@ use std::cell::Cell;
 use std::rc::Rc;
 
 use adw::prelude::*;
-use chrono::{DateTime, Datelike, Duration as CDuration, Local, NaiveTime};
+use chrono::{DateTime, Datelike, Days, Local, Months, NaiveDate, TimeZone, Utc};
 
 use crate::i18n::{tr, trf};
 use crate::model::{self, Track, PlaybackSource};
@@ -546,28 +546,23 @@ pub enum TimeStage {
 }
 
 impl TimeStage {
-    fn next(self) -> Self {
+    fn for_date(today: NaiveDate, occurred_on: NaiveDate) -> Self {
+        use TimeStage::{Today, ThisWeek, LastWeek, ThisMonth, LastMonth, Older};
+        [Today, ThisWeek, LastWeek, ThisMonth, LastMonth]
+            .into_iter()
+            .find(|stage| stage.threshold(today).is_some_and(|start| occurred_on >= start))
+            .unwrap_or(Older)
+    }
+    fn threshold(self, today: NaiveDate) -> Option<NaiveDate> {
         use TimeStage::{Today, ThisWeek, LastWeek, ThisMonth, LastMonth, Older};
         match self {
-            Today => ThisWeek,
-            ThisWeek => LastWeek,
-            LastWeek => ThisMonth,
-            ThisMonth => LastMonth,
-            LastMonth | Older => Older,
+            Today => Some(today),
+            ThisWeek => today.checked_sub_days(Days::new(u64::from(today.weekday().num_days_from_monday()))),
+            LastWeek => ThisWeek.threshold(today)?.checked_sub_days(Days::new(7)),
+            ThisMonth => today.with_day(1),
+            LastMonth => ThisMonth.threshold(today)?.checked_sub_months(Months::new(1)),
+            Older => None,
         }
-    }
-    /// Same thresholds as Go (today is truncated to UTC midnight like time.Truncate).
-    pub fn threshold(self, now: DateTime<Local>) -> Option<DateTime<chrono::Utc>> {
-        use TimeStage::{Today, ThisWeek, LastWeek, ThisMonth, LastMonth, Older};
-        let today = now.with_timezone(&chrono::Utc).date_naive().and_time(NaiveTime::MIN).and_utc();
-        Some(match self {
-            Today => today,
-            ThisWeek => today - CDuration::days(i64::from(now.weekday().num_days_from_monday())),
-            LastWeek => Self::ThisWeek.threshold(now)? - CDuration::days(7),
-            ThisMonth => today - CDuration::days(i64::from(now.day())),
-            LastMonth => Self::ThisMonth.threshold(now)?.checked_sub_months(chrono::Months::new(1))?,
-            Older => return None,
-        })
     }
     fn label(self) -> String {
         use TimeStage::{Today, ThisWeek, LastWeek, ThisMonth, LastMonth, Older};
@@ -610,37 +605,47 @@ fn stage_box(stage: TimeStage) -> gtk::Box {
     spacing(vstack(&[label(&stage.label()).class("title-2").upcast_ref()]), 12)
 }
 
+fn feed_activity_key(occurred_at: &str, zone: &impl TimeZone) -> (NaiveDate, DateTime<Utc>) {
+    let instant = DateTime::parse_from_rfc3339(occurred_at).map(|date| date.to_utc()).unwrap_or_default();
+    (instant.with_timezone(zone).date_naive(), instant)
+}
+
+fn feed_needs_separator(seen: bool, next_seen: Option<bool>) -> bool {
+    next_seen.is_some_and(|next| seen != next)
+}
+
 async fn feed() -> Response {
     let uid = secrets::user_id();
     if uid.is_empty() {
         return Response::new(tr("Feed"), comp::auth_required(&tr("Please sign in to view your feed")));
     }
     let u = uid.clone();
-    let mut acts = match api::run(move || api::feed_activities(&u)).await {
+    let acts = match api::run(move || api::feed_activities(&u)).await {
         Ok(a) => a,
         Err(e) => return Response::from_error(tr("Feed"), e),
     };
-    let parse = |s: &str| DateTime::parse_from_rfc3339(s).map(|d| d.with_timezone(&chrono::Utc)).unwrap_or_default();
-    acts.sort_by_key(|a| std::cmp::Reverse(parse(&a.followable_activity.occurred_at)));
+    let today = Local::now().date_naive();
+    let mut acts: Vec<_> = acts
+        .into_iter()
+        .map(|activity| (feed_activity_key(&activity.followable_activity.occurred_at, &Local), activity))
+        .collect();
+    // A clock rollback across midnight can put adjacent instants on reversed local dates.
+    acts.sort_by_key(|((date, instant), _)| std::cmp::Reverse((*date, *instant)));
 
-    let now = Local::now();
     let body = gtk::Box::new(gtk::Orientation::Vertical, 36).vmargin(20);
     let mut stage = TimeStage::Today;
     let mut bx = stage_box(stage);
     let mut has_elements = false;
     let mut has_unseen = false;
-    for (i, a) in acts.iter().enumerate() {
+    for (i, ((occurred_on, _), a)) in acts.iter().enumerate() {
         let fa = &a.followable_activity;
-        let at = parse(&fa.occurred_at);
-        while let Some(th) = stage.threshold(now)
-            && at < th
-        {
-            stage = stage.next();
+        let activity_stage = TimeStage::for_date(today, *occurred_on);
+        if activity_stage != stage {
             if has_elements {
                 body.append(&bx);
             }
+            stage = activity_stage;
             bx = stage_box(stage);
-            has_elements = false;
         }
         match (fa.activity_type.as_str(), &fa.album, &fa.history_mix) {
             ("NEW_ALBUM_RELEASE", Some(al), _) => {
@@ -679,7 +684,7 @@ async fn feed() -> Response {
         if !a.seen {
             has_unseen = true;
         }
-        if !a.seen && acts.get(i + 1).is_some_and(|n| n.seen) {
+        if feed_needs_separator(a.seen, acts.get(i + 1).map(|(_, next)| next.seen)) {
             let sep = gtk::Separator::new(gtk::Orientation::Vertical).css("separator { background-color: var(--accent-color); padding-top: 2px; border-radius: 5px; }");
             bx.append(&sep);
         }
@@ -976,7 +981,6 @@ async fn my_tracks() -> Response {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use chrono::TimeZone;
 
     #[test]
     fn artists_join() {
@@ -986,9 +990,50 @@ mod tests {
 
     #[test]
     fn stages_are_descending() {
-        let now = Local.with_ymd_and_hms(2026, 10, 31, 12, 0, 0).unwrap();
-        let t: Vec<_> = [TimeStage::Today, TimeStage::ThisWeek, TimeStage::LastWeek].iter().map(|s| s.threshold(now).unwrap()).collect();
+        let today = NaiveDate::from_ymd_opt(2026, 10, 31).unwrap();
+        let t: Vec<_> = [TimeStage::Today, TimeStage::ThisWeek, TimeStage::LastWeek].iter().map(|s| s.threshold(today).unwrap()).collect();
         assert!(t[0] >= t[1] && t[1] > t[2]);
-        assert_eq!(TimeStage::Older.threshold(now), None);
+        assert_eq!(TimeStage::Older.threshold(today), None);
+    }
+
+    #[test]
+    fn feed_keeps_the_last_day_of_august_in_last_month() {
+        let today = NaiveDate::from_ymd_opt(2026, 9, 25).unwrap();
+        let release = NaiveDate::from_ymd_opt(2026, 8, 31).unwrap();
+        assert_eq!(TimeStage::for_date(today, release), TimeStage::LastMonth);
+    }
+
+    #[test]
+    fn feed_keeps_the_previous_week_together_across_months() {
+        let today = NaiveDate::from_ymd_opt(2026, 9, 8).unwrap();
+        for (month, day) in [(8, 31), (9, 1), (9, 6)] {
+            let release = NaiveDate::from_ymd_opt(2026, month, day).unwrap();
+            assert_eq!(TimeStage::for_date(today, release), TimeStage::LastWeek);
+        }
+    }
+
+    #[test]
+    fn feed_uses_local_midnight_for_today() {
+        let zone = chrono::FixedOffset::east_opt(9 * 3600).unwrap();
+        let today = NaiveDate::from_ymd_opt(2026, 9, 25).unwrap();
+        let threshold = TimeStage::Today.threshold(today).unwrap();
+        let (before_midnight, _) = feed_activity_key("2026-09-24T14:59:59Z", &zone);
+        let (at_midnight, _) = feed_activity_key("2026-09-24T15:00:00Z", &zone);
+        assert!(before_midnight < threshold);
+        assert_eq!(at_midnight, threshold);
+    }
+
+    #[test]
+    fn feed_marks_seen_status_changes_after_a_midnight_rollback() {
+        let summer = chrono::FixedOffset::west_opt(9_000).unwrap();
+        let winter = chrono::FixedOffset::west_opt(12_600).unwrap();
+        let seen = feed_activity_key("1987-10-25T02:30:59Z", &summer);
+        let unseen = feed_activity_key("1987-10-25T02:31:00Z", &winter);
+        assert!(seen.1 < unseen.1);
+        assert!(seen > unseen);
+        assert!(feed_needs_separator(true, Some(false)));
+        assert!(feed_needs_separator(false, Some(true)));
+        assert!(!feed_needs_separator(false, Some(false)));
+        assert!(!feed_needs_separator(false, None));
     }
 }
