@@ -546,15 +546,12 @@ pub enum TimeStage {
 }
 
 impl TimeStage {
-    fn next(self) -> Self {
+    fn for_date(today: NaiveDate, occurred_on: NaiveDate) -> Self {
         use TimeStage::{Today, ThisWeek, LastWeek, ThisMonth, LastMonth, Older};
-        match self {
-            Today => ThisWeek,
-            ThisWeek => LastWeek,
-            LastWeek => ThisMonth,
-            ThisMonth => LastMonth,
-            LastMonth | Older => Older,
-        }
+        [Today, ThisWeek, LastWeek, ThisMonth, LastMonth]
+            .into_iter()
+            .find(|stage| stage.threshold(today).is_some_and(|start| occurred_on >= start))
+            .unwrap_or(Older)
     }
     fn threshold(self, today: NaiveDate) -> Option<NaiveDate> {
         use TimeStage::{Today, ThisWeek, LastWeek, ThisMonth, LastMonth, Older};
@@ -642,15 +639,13 @@ async fn feed() -> Response {
     let mut has_unseen = false;
     for (i, ((occurred_on, _), a)) in acts.iter().enumerate() {
         let fa = &a.followable_activity;
-        while let Some(th) = stage.threshold(today)
-            && *occurred_on < th
-        {
-            stage = stage.next();
+        let activity_stage = TimeStage::for_date(today, *occurred_on);
+        if activity_stage != stage {
             if has_elements {
                 body.append(&bx);
             }
+            stage = activity_stage;
             bx = stage_box(stage);
-            has_elements = false;
         }
         match (fa.activity_type.as_str(), &fa.album, &fa.history_mix) {
             ("NEW_ALBUM_RELEASE", Some(al), _) => {
@@ -1005,13 +1000,16 @@ mod tests {
     fn feed_keeps_the_last_day_of_august_in_last_month() {
         let today = NaiveDate::from_ymd_opt(2026, 9, 25).unwrap();
         let release = NaiveDate::from_ymd_opt(2026, 8, 31).unwrap();
-        let mut stage = TimeStage::Today;
-        while let Some(threshold) = stage.threshold(today)
-            && release < threshold
-        {
-            stage = stage.next();
+        assert_eq!(TimeStage::for_date(today, release), TimeStage::LastMonth);
+    }
+
+    #[test]
+    fn feed_keeps_the_previous_week_together_across_months() {
+        let today = NaiveDate::from_ymd_opt(2026, 9, 8).unwrap();
+        for (month, day) in [(8, 31), (9, 1), (9, 6)] {
+            let release = NaiveDate::from_ymd_opt(2026, month, day).unwrap();
+            assert_eq!(TimeStage::for_date(today, release), TimeStage::LastWeek);
         }
-        assert_eq!(stage, TimeStage::LastMonth);
     }
 
     #[test]
