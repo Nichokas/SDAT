@@ -192,7 +192,7 @@ pub fn country_code() -> String {
 }
 
 /// The account's session country, else the IP-based context (Go used only the
-/// latter, which can be wrong), else `WW`. Cached until [`reset_country_code`].
+/// latter, which can be wrong). Successful lookups are cached until [`reset_country_code`].
 pub fn automatic_country_code() -> String {
     let lock = || COUNTRY.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
     if let Some(c) = lock().clone() {
@@ -211,7 +211,7 @@ pub fn automatic_country_code() -> String {
         }
         Err(e) => {
             log::warn!("Failed to fetch country code, defaulting to WW: {e}");
-            "WW".into()
+            return lock().clone().unwrap_or_else(|| "WW".into());
         }
     };
     let mut g = lock();
@@ -632,10 +632,10 @@ pub fn parse_own_playlists(bytes: &[u8]) -> Result<(Vec<OwnPlaylist>, Option<Str
 
 /// Lists the playlists owned by the signed-in user (read-only).
 pub fn own_playlists() -> Result<Vec<OwnPlaylist>> {
-    const MAX_PAGES: usize = 20;
     let mut out = Vec::new();
     let mut cursor: Option<String> = None;
-    for _ in 0..MAX_PAGES {
+    let mut seen = std::collections::HashSet::new();
+    loop {
         let mut q = vec![("filter[owners.id]", "me".to_owned())];
         if let Some(c) = cursor.take() {
             q.push(("page[cursor]", c));
@@ -647,7 +647,8 @@ pub fn own_playlists() -> Result<Vec<OwnPlaylist>> {
         let (page, next) = parse_own_playlists(&resp.bytes()?)?;
         out.extend(page);
         match next {
-            Some(c) => cursor = Some(c),
+            Some(c) if seen.insert(c.clone()) => cursor = Some(c),
+            Some(_) => bail!("playlist pagination returned a repeated cursor"),
             None => break,
         }
     }
@@ -810,7 +811,12 @@ pub struct DeviceLinkingChallenge {
     pub verification_uri: String,
     pub verification_uri_complete: String,
     pub expires_in: i64,
+    #[serde(default = "default_device_poll_interval")]
     pub interval: i64,
+}
+
+const fn default_device_poll_interval() -> i64 {
+    5
 }
 
 #[derive(Debug, Clone, Deserialize, Default)]
@@ -877,8 +883,10 @@ pub fn poll_device_linking_status(device_code: &str, interval: i64, expires_in: 
         ("scope", SCOPE),
     ];
     // Sleeps in small steps so cancellation is responsive.
-    let pause = || {
-        let until = deadline.min(Instant::now() + Duration::from_secs(interval.max(1) as u64));
+    let mut interval = Duration::from_secs(interval.max(1) as u64);
+    let pause = |interval| {
+        let now = Instant::now();
+        let until = now + deadline.saturating_duration_since(now).min(interval);
         while Instant::now() < until {
             if cancelled() {
                 return Err(CoreError::Cancelled("linking canceled".into()));
@@ -898,7 +906,7 @@ pub fn poll_device_linking_status(device_code: &str, interval: i64, expires_in: 
             Ok(r) => r,
             Err(e) if !(e.is_status() || e.is_redirect() || e.is_builder()) => {
                 log::warn!("device login poll failed, retrying: {e}");
-                pause()?;
+                pause(interval)?;
                 continue;
             }
             Err(e) => return Err(e.into()),
@@ -907,7 +915,12 @@ pub fn poll_device_linking_status(device_code: &str, interval: i64, expires_in: 
             let e: TokenError = resp.json()?;
             match e.error.as_str() {
                 "authorization_pending" => {
-                    pause()?;
+                    pause(interval)?;
+                    continue;
+                }
+                "slow_down" => {
+                    interval = interval.saturating_add(Duration::from_secs(5));
+                    pause(interval)?;
                     continue;
                 }
                 "expired_token" => bail!("linking session expired"),

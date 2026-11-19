@@ -117,7 +117,6 @@ impl FavouriteCache {
             }
         if self.kind == Kind::Mixes {
             let (mut list, mut etag) = api::favourite_mix_ids("", "")?;
-            inner.last_fetched = Some(Instant::now());
             let mut items = std::mem::take(&mut list.content);
             while !list.cursor.is_empty() {
                 let (l, e) = api::favourite_mix_ids(&list.cursor, &etag)?;
@@ -129,7 +128,6 @@ impl FavouriteCache {
             inner.etag = etag;
         } else {
             let res = api::favourite_ids(&uid, &inner.etag)?;
-            inner.last_fetched = Some(Instant::now());
             if let Some((lists, etag)) = res {
                 let list = match self.kind {
                     Kind::Albums => lists.album,
@@ -141,6 +139,7 @@ impl FavouriteCache {
                 inner.etag = etag;
             }
         }
+        inner.last_fetched = Some(Instant::now());
         Ok(inner.items.clone().unwrap_or_default())
     }
 
