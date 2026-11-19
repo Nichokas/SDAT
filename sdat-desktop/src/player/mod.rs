@@ -16,7 +16,7 @@ use std::rc::Rc;
 use std::sync::mpsc;
 use std::time::Duration;
 
-use crate::model::{PlaybackSource, Track};
+use crate::model::{PlaybackSource, PlaylistInfo, Track};
 use crate::signals::{Signal, State, CONTINUE};
 use crate::{api, global_signal, i18n::tr, service, settings};
 use playqueue::{DurableQueue, HistoryQueue, Queue};
@@ -782,16 +782,114 @@ pub async fn play_artist_top_songs(artist_id: &str, shuffle: bool, position: usi
     Ok(())
 }
 
-pub async fn play_playlist(playlist_id: &str, shuffle: bool, position: usize) -> Result<()> {
+pub async fn play_playlist(playlist_id: &str, shuffle: bool) -> Result<()> {
     let id = playlist_id.to_string();
     let i = id.clone();
     let info = api::run(move || service::get_playlist_info(&i)).await?;
     let tracks = crate::cache::all_tracks(crate::cache::Job::Playlist(id)).await?;
-    clear_queues();
-    stop();
-    play_tracks(tracks, shuffle, position)?;
-    source_changed().set(Some(PlaybackSource::Playlist(info)));
-    Ok(())
+    play_tracklist(PlaybackSource::Playlist(info), tracks, shuffle, 0).await
+}
+
+pub async fn play_playlist_track(playlist_id: &str, clicked: &Track, position: usize) -> Result<bool> {
+    let id = playlist_id.to_string();
+    let i = id.clone();
+    let info = api::run(move || service::get_playlist_info(&i)).await?;
+    let tracks = crate::cache::all_tracks(crate::cache::Job::Playlist(id)).await?;
+    play_playlist_selection(info, tracks, clicked, position).await
+}
+
+async fn play_playlist_selection(info: PlaylistInfo, tracks: Vec<Track>, clicked: &Track, position: usize) -> Result<bool> {
+    let Some(start) = playlist_start(&tracks, clicked, position) else {
+        return Ok(false);
+    };
+    play_tracklist(PlaybackSource::Playlist(info), tracks, false, start).await?;
+    Ok(true)
+}
+
+fn playlist_start(tracks: &[Track], clicked: &Track, position: usize) -> Option<usize> {
+    let matches = |track: &Track| {
+        track.id() == clicked.id()
+            && clicked.playlist_item_id.as_ref().is_none_or(|id| track.playlist_item_id.as_ref() == Some(id))
+    };
+    let start = if tracks.get(position).is_some_and(matches) {
+        Some(position)
+    } else {
+        let mut candidates = tracks.iter().enumerate().filter(|(_, track)| matches(track));
+        let (index, _) = candidates.next()?;
+        if candidates.next().is_some() {
+            return None;
+        }
+        Some(index)
+    };
+    start.filter(|&index| tracks[index].info.streamable)
+}
+
+#[cfg(test)]
+mod playlist_tests {
+    use super::*;
+
+    fn track(id: &str, item: Option<&str>) -> Track {
+        let mut track = Track::default();
+        track.info.id = id.into();
+        track.info.streamable = true;
+        track.playlist_item_id = item.map(str::to_owned);
+        track
+    }
+
+    #[test]
+    fn reordered_playlist_starts_the_clicked_track() {
+        let clicked = track("B", Some("b"));
+        let fresh = [track("C", Some("c")), track("A", Some("a")), clicked.clone()];
+        let started = playlist_start(&fresh, &clicked, 1).and_then(|index| fresh.get(index));
+        assert_eq!(started.map(Track::id), Some("B"));
+    }
+
+    #[test]
+    fn clicking_playlist_row_replaces_the_pending_queue() -> Result<()> {
+        let info = PlaylistInfo::default();
+        let clicked = track("B", Some("b"));
+        let tracks = vec![track("A", Some("a")), clicked.clone(), track("C", Some("c"))];
+        user_queue().append(track("queued", None));
+
+        assert!(glib::MainContext::new().block_on(play_playlist_selection(info, tracks, &clicked, 0))?);
+        assert!(user_queue().is_empty());
+        assert_eq!(base_queue().peek().as_ref().map(Track::id), Some("C"));
+        Ok(())
+    }
+
+    #[test]
+    fn reordered_playlist_keeps_the_selected_occurrence() {
+        let clicked = track("B", Some("b2"));
+        let fresh = [clicked.clone(), track("B", Some("b1"))];
+        let started = playlist_start(&fresh, &clicked, 1).and_then(|index| fresh.get(index));
+        assert_eq!(started.and_then(|track| track.playlist_item_id.as_deref()), Some("b2"));
+    }
+
+    #[test]
+    fn removed_occurrence_does_not_start_playback() {
+        let clicked = track("B", Some("b2"));
+        let fresh = [track("B", Some("b1")), track("C", Some("c"))];
+        assert_eq!(playlist_start(&fresh, &clicked, 1), None);
+    }
+
+    #[test]
+    fn newly_unavailable_track_does_not_start_playback() {
+        let clicked = track("B", Some("b"));
+        let mut unavailable = clicked.clone();
+        unavailable.info.streamable = false;
+        let fresh = [unavailable, track("C", Some("c"))];
+        assert_eq!(playlist_start(&fresh, &clicked, 0), None);
+    }
+
+    #[test]
+    fn rows_without_occurrence_ids_match_by_track() {
+        let clicked = track("B", None);
+        let fresh = [clicked.clone(), track("C", None), clicked.clone()];
+        assert_eq!(playlist_start(&fresh, &clicked, 2), Some(2));
+        assert_eq!(playlist_start(&fresh, &clicked, 1), None);
+        assert_eq!(playlist_start(&fresh[..2], &clicked, 1), Some(0));
+        assert_eq!(playlist_start(&fresh, &track("A", None), 1), None);
+    }
 }
 
 thread_local! {

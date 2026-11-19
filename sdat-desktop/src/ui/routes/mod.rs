@@ -482,21 +482,34 @@ async fn playlist(id: String) -> Response {
         Ok(r) => r,
         Err(e) => return Response::from_error(title, e),
     };
-    let i = id.clone();
-    list.set_click_handler(move |_, pos| {
-        let i = i.clone();
-        play(async move { player::play_playlist(&i, false, pos).await }, tr("An error occurred while playing the track"), "An error occurred while playing the playlist");
+    let playlist_id = id.clone();
+    let weak_page = page.downgrade();
+    list.set_click_handler(move |track, pos| {
+        let (id, track, weak_page) = (playlist_id.clone(), track.clone(), weak_page.clone());
+        play(
+            async move {
+                if !player::play_playlist_track(&id, &track, pos).await?
+                    && weak_page.upgrade().is_some_and(|page| page.root().is_some())
+                {
+                    router::refresh();
+                    toast(&tr("This playlist changed. Select a track again."));
+                }
+                Ok(())
+            },
+            tr("An error occurred while playing the track"),
+            "An error occurred while playing the playlist",
+        );
     });
     let (i1, i2) = (id.clone(), id);
     let header = tracklist_header::playlist(
         &p,
         move || {
             let i = i1.clone();
-            play(async move { player::play_playlist(&i, false, 0).await }, tr("An error occurred while playing the playlist"), "An error occurred while playing the playlist");
+            play(async move { player::play_playlist(&i, false).await }, tr("An error occurred while playing the playlist"), "An error occurred while playing the playlist");
         },
         move || {
             let i = i2.clone();
-            play(async move { player::play_playlist(&i, true, 0).await }, tr("An error occurred while playing the playlist"), "An error occurred while playing the playlist");
+            play(async move { player::play_playlist(&i, true).await }, tr("An error occurred while playing the playlist"), "An error occurred while playing the playlist");
         },
     )
     .hmargin(40);
