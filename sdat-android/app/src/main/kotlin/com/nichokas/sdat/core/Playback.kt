@@ -729,29 +729,22 @@ class Playback(context: Context, private val prefs: Preferences, secrets: Secret
         val (saved, state) = resumed(current, maxOf(atMs, 0) / 1000.0, repeat, discover)
         queue.restore(saved, state)
         replaceInfinite(null)
-        val base = queue.original
-        resumedBase = base
+        resumedBase = queue.original
         awaitingMixes = discover
         resumeInfinite(Discover.mixes)
         start(current, resumeAt = state.position)
-        if (!discover) return
-        // What follows the handed-over track comes within seconds, or nothing does: Discover goes on then.
-        scope.launch {
-            delay(UP_NEXT_WAIT_MS)
-            if (resumedBase !== base || queue.original !== base) return@launch
-            resumedBase = null
-            refillIfNeeded()
-        }
     }
 
     /** The rest of a resumed queue (Handoff), after its track [after], while that resume's queue still is the one
-     * playing. */
+     * playing. No [tracks]: nothing follows it, and a Discover queue goes on from its own source. */
     fun appendUpNext(after: String, tracks: List<Track>) {
         val base = resumedBase
         if (base == null || queue.original !== base || !upcomingApplies(after, track?.id, base.map { it.id })) return
         resumedBase = null
-        queue.extend(tracks)
-        changed()
+        if (tracks.isNotEmpty()) {
+            queue.extend(tracks)
+            changed()
+        }
         refillIfNeeded()
     }
 
@@ -817,9 +810,6 @@ class Playback(context: Context, private val prefs: Preferences, secrets: Secret
 }
 
 private val systemPauses = setOf(Player.PLAY_WHEN_READY_CHANGE_REASON_AUDIO_BECOMING_NOISY, Player.PLAY_WHEN_READY_CHANGE_REASON_AUDIO_FOCUS_LOSS)
-
-/** How long a Discover queue taken over waits for its handed-over tracks before it refills. */
-private const val UP_NEXT_WAIT_MS = 30_000L
 
 /** Where a track plays from; [offline] for its downloaded copy. */
 private class Source(val uri: String, val quality: Quality, val offline: Boolean)

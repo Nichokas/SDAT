@@ -133,7 +133,8 @@ pub enum HandoffEvent {
     MovedTo(Device),
     /// What follows the track of the last [`HandoffEvent::Arrived`] or
     /// [`Handoff::continue_here`], read after it. Append it while that track
-    /// is still the current one. Not sent when nothing follows.
+    /// is still the current one. Without tracks when nothing follows it or
+    /// that could not be read: the app need not wait for them.
     Upcoming(Upcoming),
 }
 
@@ -826,17 +827,18 @@ impl Worker {
         Ok(Resume { from, current: track, position_ms, repeat: head.repeat, discover: head.discover })
     }
 
-    /// Reads what follows a resumed track and tells the app. A failed read is
-    /// tried again a little later; after the last try the track plays alone
-    /// and TIDAL's queue is left as it is.
+    /// Reads what follows a resumed track and tells the app, also when that is
+    /// nothing. A failed read is tried again a little later; after the last
+    /// try the track plays alone and TIDAL's queue is left as it is.
     fn read_future(&mut self, mut r: Resumed) {
+        let nothing = |current: String| HandoffEvent::Upcoming(Upcoming { current, tracks: Vec::new() });
         match r.tail.take().map_or_else(|| Self::read_tail(&r.queue), Ok) {
-            Ok((_, tracks, _)) if tracks.is_empty() => {}
+            Ok((_, tracks, _)) if tracks.is_empty() => self.emit(nothing(r.track)),
             Ok((entries, tracks, revision)) => {
                 // The queue was rewritten since, here or elsewhere: what follows is no longer the resume's.
                 if !self.mirror.holds_adoption(&revision) {
                     log::info!("handoff: the resumed queue changed before what follows was read");
-                    return;
+                    return self.emit(nothing(r.track));
                 }
                 // Taken into the mirror only while the app's report of the track alone is held back: one
                 // already taken would plan a rewrite to that track. Without it, the app's append rewrites them.
@@ -854,7 +856,10 @@ impl Worker {
                 r.at = Instant::now() + FUTURE_RETRY;
                 self.future_due = Some(r);
             }
-            Err(e) => log::warn!("handoff: gave up reading what follows the resumed track error={e}"),
+            Err(e) => {
+                log::warn!("handoff: gave up reading what follows the resumed track error={e}");
+                self.emit(nothing(r.track));
+            }
         }
     }
 

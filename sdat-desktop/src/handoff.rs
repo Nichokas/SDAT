@@ -201,6 +201,8 @@ fn on_event(ev: HandoffEvent) {
             player::pause();
             player::toasts().notify(&trf("Playing on %s", &[&name(&d)]));
         }
+        // Nothing follows the resumed track: it plays alone, as it does already.
+        HandoffEvent::Upcoming(u) if u.tracks.is_empty() => {}
         HandoffEvent::Upcoming(u) => {
             UPCOMING.with(|s| *s.borrow_mut() = Some(u));
             apply_upcoming();

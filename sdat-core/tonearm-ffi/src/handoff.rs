@@ -111,7 +111,8 @@ pub enum HandoffEvent {
     MovedTo { device: HandoffDevice },
     /// What follows `current_id`, the track of the last `Arrived` or
     /// `continue_here`, read after it. Append it while that track is still
-    /// the current one. Not sent when nothing follows.
+    /// the current one. Without tracks when nothing follows it or that could
+    /// not be read: the app need not wait for them.
     Upcoming { current_id: String, tracks: Vec<Track> },
 }
 

@@ -182,23 +182,16 @@ final class Player: LivePlaybackPort {
         exactResume = true
         load(0, resumeAt: max(secs, 0))
         resumedVersion = queueVersion
-        guard discover else { return }
-        // What follows the handed-over track comes within seconds, or nothing does: Discover goes on then.
-        let version = queueVersion
-        Task {
-            try? await Task.sleep(for: .seconds(Self.upNextWait))
-            guard resumedVersion == version, queueVersion == version else { return }
-            resumedVersion = nil
-            refillIfNeeded()
-        }
     }
 
     /// What follows a handoff's resumed track `id`, only while the queues still are what that resume set up: else
-    /// the user started or queued something else, or it is a duplicate.
+    /// the user started or queued something else, or it is a duplicate. No tracks: nothing follows it, and a
+    /// Discover queue goes on from its own source. Returns whether tracks were appended.
     @discardableResult
     func appendUpNext(after id: String, _ tracks: [Track]) -> Bool {
-        guard resumedVersion == queueVersion, index != nil, current?.id == id, !tracks.isEmpty else { return false }
+        guard resumedVersion == queueVersion, index != nil, current?.id == id else { return false }
         resumedVersion = nil
+        guard !tracks.isEmpty else { refillIfNeeded(); return false }
         queue.append(contentsOf: tracks)
         original.append(contentsOf: tracks)
         invalidatePreload()
@@ -805,8 +798,6 @@ final class Player: LivePlaybackPort {
     /// `queueVersion` right after a handoff resume, until what follows its track is appended: any change to the
     /// queues since ends it, a restart or a repeat does not.
     @ObservationIgnored private var resumedVersion: Int?
-    /// How long a Discover queue taken over waits for its handed-over tracks before it refills.
-    private static let upNextWait = 30.0
     /// Bumped by every play or pause command, a resume of the same track too.
     @ObservationIgnored private(set) var plays = 0
     @ObservationIgnored private var restoredInfinite = false
