@@ -469,6 +469,7 @@ fn sign_in(window: &adw::ApplicationWindow) {
 /// in flight.
 async fn session_changed() {
     crate::ui::components::add_to_playlist::begin_account_change();
+    crate::ui::components::favourite_button::invalidate_track_favourite_writes();
     drop(api::run(|| {
         tonearm_core::auth::session_changed();
         anyhow::Ok(())

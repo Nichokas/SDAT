@@ -11,7 +11,7 @@ use crate::player::{self, PlaybackStatus, RepeatMode};
 use crate::signals::State;
 use crate::ui::components::{media_viewer, render_cover, squircle_picture, CancelToken};
 use crate::ui::dsl::{on_state, W, spacing, vstack, label, hstack, on_state_lazy, spacer};
-use crate::{global_signal, imgutil, router, service, settings, state};
+use crate::{global_signal, imgutil, router, service, settings};
 
 global_signal!(fn is_controllable() -> State<bool> = State::new(false));
 global_signal!(fn is_track_loaded() -> State<bool> = State::new(false));
@@ -176,86 +176,16 @@ fn volume_popover() -> gtk::Popover {
     p
 }
 
-fn render_fav(b: &gtk::Button, loading: bool, fav: bool) {
-    if loading {
-        b.set_child(Some(&adw::Spinner::new()));
-        b.remove_css_class("accent");
-    } else if fav {
-        b.set_icon_name("heart-filled-symbolic");
-        b.add_css_class("accent");
-        b.set_tooltip_text(Some(&tr("Remove from Collection")));
-    } else {
-        b.set_icon_name("heart-outline-thick-symbolic");
-        b.remove_css_class("accent");
-        b.set_tooltip_text(Some(&tr("Add to Collection")));
-    }
-}
-
 fn current_track_id() -> Option<String> {
     player::track_changed().with(|t| t.as_ref().map(|e| e.track.id().to_string()))
 }
 
 fn favourite_button() -> gtk::Button {
-    let b = gtk::Button::from_icon_name("heart-outline-thick-symbolic").class("flat");
-    let fav = Rc::new(Cell::new(false));
-    let loading = Rc::new(Cell::new(false));
-    on_state(state::signed_in_changed(), &b, |b, s| b.set_sensitive(*s && current_track_id().is_some()));
-    {
-        let (fav, loading) = (Rc::clone(&fav), Rc::clone(&loading));
-        on_state(player::track_changed(), &b, move |b, ev| {
-            b.set_sensitive(ev.is_some() && state::signed_in_changed().get());
-            let Some(id) = ev.as_ref().map(|e| e.track.id().to_string()) else {
-                fav.set(false);
-                render_fav(b, false, false);
-                return;
-            };
-            loading.set(true);
-            render_fav(b, true, fav.get());
-            let w = b.downgrade();
-            let (fav, loading) = (Rc::clone(&fav), Rc::clone(&loading));
-            glib::spawn_future_local(async move {
-                match crate::api::run(move || state::TRACKS.contains(&id)).await {
-                    Ok(v) => fav.set(v),
-                    Err(e) => log::error!("error while fetching favourites error={e:#}"),
-                }
-                loading.set(false);
-                if let Some(b) = w.upgrade() {
-                    render_fav(&b, false, fav.get());
-                }
-            });
-        });
-    };
-    b.connect_clicked(move |b| {
-        let Some(id) = current_track_id() else { return };
-        if loading.get() {
-            return;
-        }
-        loading.set(true);
-        render_fav(b, true, fav.get());
-        let w = b.downgrade();
-        let (fav, loading) = (Rc::clone(&fav), Rc::clone(&loading));
-        glib::spawn_future_local(async move {
-            let was = fav.get();
-            let r = crate::api::run(move || {
-                let r = if was { state::TRACKS.remove(&id) } else { state::TRACKS.add(&id) };
-                if r.is_ok() {
-                    state::TRACKS.bust();
-                }
-                r
-            })
-            .await;
-            match r {
-                Ok(()) => fav.set(!was),
-                Err(e) if was => log::error!("error while removing track from favourites error={e:#}"),
-                Err(e) => log::error!("error while adding track to favourites error={e:#}"),
-            }
-            loading.set(false);
-            if let Some(b) = w.upgrade() {
-                render_fav(&b, false, fav.get());
-            }
-        });
+    let (button, set_id) = crate::ui::components::favourite_button::track_favourite_button();
+    on_state(player::track_changed(), &button, move |_, event| {
+        set_id(event.as_ref().map(|event| event.track.id()));
     });
-    b
+    button
 }
 
 fn action_row() -> gtk::Box {
