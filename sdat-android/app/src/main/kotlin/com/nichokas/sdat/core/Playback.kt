@@ -364,7 +364,7 @@ class Playback(context: Context, private val prefs: Preferences, secrets: Secret
         if (q == prefs.streamingQuality) return
         prefs.streamingQuality = q
         val t = track ?: return
-        if (offline) {
+        if (offline && Downloads.localStream(t.id) != null) {
             if (preloaded?.source?.offline != true) {
                 dropPreload()
                 syncPreload()
