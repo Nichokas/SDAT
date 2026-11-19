@@ -32,7 +32,6 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.MainScope
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.withTimeoutOrNull
 import uniffi.tonearm_ffi.Mix
 import uniffi.tonearm_ffi.Quality
 import uniffi.tonearm_ffi.Shuffle
@@ -516,8 +515,15 @@ class Playback(context: Context, private val prefs: Preferences, secrets: Secret
         }
         scope.launch {
             // A handoff's own tracks come first, when they are still on their way, and a Discover queue waits for
-            // its source. The core tells when no tracks follow; the limit is for an answer that never comes.
-            withTimeoutOrNull(HANDOFF_WAIT_MS) { while (awaitingUpNext || (awaitingMixes && infinite == null)) delay(100) }
+            // its source. A track to play ends the wait, and so does another start. The tracks have a limit, for an
+            // answer of the core that never comes; the source is asked for until it comes.
+            val limit = SystemClock.elapsedRealtime() + HANDOFF_WAIT_MS
+            while (track === from && entry == entryBefore && queue.upNext.isEmpty()) {
+                val tracks = awaitingUpNext && SystemClock.elapsedRealtime() < limit
+                val source = awaitingMixes && infinite == null
+                if (!tracks && !source) break
+                delay(100)
+            }
             val more = queue.upNext.isNotEmpty() || infinite?.let { fetchMore(it) } == true
             // A track picked during the fetch owns playback now; a source replaced meanwhile had nothing more.
             if (track !== from || entry != entryBefore) return@launch
@@ -841,7 +847,7 @@ class Playback(context: Context, private val prefs: Preferences, secrets: Secret
 
 private val systemPauses = setOf(Player.PLAY_WHEN_READY_CHANGE_REASON_AUDIO_BECOMING_NOISY, Player.PLAY_WHEN_READY_CHANGE_REASON_AUDIO_FOCUS_LOSS)
 
-/** How long a queue that ran dry waits for what a handoff still owes it: its next tracks, or Discover's source. */
+/** How long a queue that ran dry waits for the tracks a handoff still owes it. */
 private const val HANDOFF_WAIT_MS = 20_000L
 
 /** Where a track plays from; [offline] for its downloaded copy. */

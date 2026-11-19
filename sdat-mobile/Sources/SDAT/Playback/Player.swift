@@ -469,16 +469,18 @@ final class Player: LivePlaybackPort {
             let started = starts
             Task {
                 // A handoff's own tracks come first, when they are still on their way.
-                await awaitHandoff()
+                await awaitHandoff(manual: !auto, started: started)
                 // Something else plays by now, or nothing does (a sign-out).
                 guard starts == started, current != nil else { return }
-                guard let source = infinite else { loading = false; stopAtEnd(); return }
-                let handed = following(manual: !auto) != nil
-                let more = handed ? true : await fetchMore(from: source)
-                // Another Next tapped meanwhile waited too, and went on first.
-                guard infinite === source, starts == started else { return }
+                // The handed-over tracks play without the source.
+                if following(manual: !auto) == nil {
+                    guard let source = infinite else { loading = false; stopAtEnd(); return }
+                    let more = await fetchMore(from: source)
+                    // Another Next tapped meanwhile waited too, and went on first.
+                    guard infinite === source, starts == started else { return }
+                    guard more else { loading = false; stopAtEnd(); return }
+                }
                 loading = false
-                guard more else { stopAtEnd(); return }
                 // A pause while the refill loaded holds for the track it starts.
                 let held = holdAutoplay
                 advance(auto: auto)
@@ -776,11 +778,16 @@ final class Player: LivePlaybackPort {
         advance(auto: true)
     }
 
-    /// Waits while a queue that ran dry may still get more: the tracks after a handoff's resumed one (the core
-    /// tells when there are none) and the source of a Discover queue. The limit is for an answer that never comes.
-    private func awaitHandoff() async {
+    /// Waits while a queue that ran dry may still get more: the tracks after a handoff's resumed one and the
+    /// source of a Discover queue. A track to play ends it, and so does another start (`starts` is no longer
+    /// `started`). The tracks have a limit, for an answer of the core that never comes; the source is asked for
+    /// until it comes.
+    private func awaitHandoff(manual: Bool, started: Int) async {
         let limit = Date().addingTimeInterval(Self.handoffWait)
-        while resumedVersion == queueVersion || (restoredInfinite && infinite == nil), Date() < limit {
+        while starts == started, current != nil, following(manual: manual) == nil {
+            let tracks = resumedVersion == queueVersion && Date() < limit
+            let source = restoredInfinite && infinite == nil
+            guard tracks || source else { return }
             try? await Task.sleep(for: .milliseconds(100))
         }
     }

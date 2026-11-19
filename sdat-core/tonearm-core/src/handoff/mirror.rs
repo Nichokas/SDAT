@@ -274,7 +274,8 @@ impl Mirror {
 
     /// The entries after TIDAL's current one, read after an append.
     pub(super) fn entries_read(&mut self, future: Vec<Entry>) {
-        if let Some(w) = self.written.as_mut().filter(|w| w.entries.len() > w.cur) {
+        // They follow the current entry, which has to be a known one: also when it is the last known.
+        if let Some(w) = self.written.as_mut().filter(|w| w.entries.get(w.cur).is_some()) {
             w.entries.truncate(w.cur + 1);
             w.entries.extend(future);
             // Under repeat all, the entries before the current one follow the last.
