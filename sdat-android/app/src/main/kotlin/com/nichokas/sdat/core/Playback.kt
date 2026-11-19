@@ -424,8 +424,8 @@ class Playback(context: Context, private val prefs: Preferences, secrets: Secret
 
     private var mixesJob: Job? = null
 
-    /** Asks for the home mixes while a Discover queue taken over waits for its source, since Discover may have
-     * none loaded: without it, playback ends with the handed-over tracks. */
+    /** Asks for the home mixes while a Discover queue restored or taken over waits for its source, since Discover
+     * may have none loaded: without it, playback ends with the tracks it has. */
     private fun fetchMixes() {
         mixesJob?.cancel()
         mixesJob = scope.launch {
@@ -501,7 +501,9 @@ class Playback(context: Context, private val prefs: Preferences, secrets: Secret
             return
         }
         // Endless queue ran dry before the refill landed: fetch, then go on.
-        val source = infinite ?: return stopAtEnd()
+        if (infinite == null && !awaitingMixes) return stopAtEnd()
+        // Restored or taken over, and its source is not here yet: asked for now.
+        if (infinite == null && mixesJob?.isActive != true) fetchMixes()
         val from = track
         val entryBefore = entry
         fetching = true
@@ -513,10 +515,10 @@ class Playback(context: Context, private val prefs: Preferences, secrets: Secret
             player.playWhenReady = true
         }
         scope.launch {
-            // A handoff's own tracks come first, when they are still on their way. The core tells when none are; the
-            // limit is for an answer that never comes.
-            withTimeoutOrNull(UP_NEXT_WAIT_MS) { while (awaitingUpNext) delay(100) }
-            val more = queue.upNext.isNotEmpty() || fetchMore(source)
+            // A handoff's own tracks come first, when they are still on their way, and a Discover queue waits for
+            // its source. The core tells when no tracks follow; the limit is for an answer that never comes.
+            withTimeoutOrNull(HANDOFF_WAIT_MS) { while (awaitingUpNext || (awaitingMixes && infinite == null)) delay(100) }
+            val more = queue.upNext.isNotEmpty() || infinite?.let { fetchMore(it) } == true
             // A track picked during the fetch owns playback now; a source replaced meanwhile had nothing more.
             if (track !== from || entry != entryBefore) return@launch
             fetching = false
@@ -839,8 +841,8 @@ class Playback(context: Context, private val prefs: Preferences, secrets: Secret
 
 private val systemPauses = setOf(Player.PLAY_WHEN_READY_CHANGE_REASON_AUDIO_BECOMING_NOISY, Player.PLAY_WHEN_READY_CHANGE_REASON_AUDIO_FOCUS_LOSS)
 
-/** How long the end of a resumed track waits for what follows it (Handoff). */
-private const val UP_NEXT_WAIT_MS = 20_000L
+/** How long a queue that ran dry waits for what a handoff still owes it: its next tracks, or Discover's source. */
+private const val HANDOFF_WAIT_MS = 20_000L
 
 /** Where a track plays from; [offline] for its downloaded copy. */
 private class Source(val uri: String, val quality: Quality, val offline: Boolean)

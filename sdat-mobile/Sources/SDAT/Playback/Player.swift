@@ -183,8 +183,8 @@ final class Player: LivePlaybackPort {
         if discover { attachDiscover() }
     }
 
-    /// Asks for the home mixes while a Discover queue taken over waits for its source: without it, playback ends
-    /// with the handed-over tracks.
+    /// Asks for the home mixes while a Discover queue restored or taken over waits for its source: without it,
+    /// playback ends with the tracks it has.
     private func attachDiscover() {
         discoverWait &+= 1
         let wait = discoverWait
@@ -462,24 +462,27 @@ final class Player: LivePlaybackPort {
     private func advance(auto: Bool) {
         guard let (t, fromUser, newIndex) = following(manual: !auto) else {
             // Endless (Discover) queue ran dry before the refill landed: fetch, then go on.
-            if let source = infinite {
-                loading = true
-                Task {
-                    // A handoff's own tracks come first, when they are still on their way.
-                    await awaitUpNext()
-                    let handed = following(manual: !auto) != nil
-                    let more = handed ? true : await fetchMore(from: source)
-                    guard infinite === source else { return }
-                    loading = false
-                    guard more else { stopAtEnd(); return }
-                    // A pause while the refill loaded holds for the track it starts.
-                    let held = holdAutoplay
-                    advance(auto: auto)
-                    if held { holdAutoplay = true }
-                }
-                return
+            guard infinite != nil || restoredInfinite else { stopAtEnd(); return }
+            loading = true
+            // Restored or taken over, and its source is not here yet: asked for now.
+            if infinite == nil { attachDiscover() }
+            let started = starts
+            Task {
+                // A handoff's own tracks come first, when they are still on their way.
+                await awaitHandoff()
+                // Something else plays by now, or nothing does (a sign-out).
+                guard starts == started, current != nil else { return }
+                guard let source = infinite else { loading = false; stopAtEnd(); return }
+                let handed = following(manual: !auto) != nil
+                let more = handed ? true : await fetchMore(from: source)
+                guard infinite === source else { return }
+                loading = false
+                guard more else { stopAtEnd(); return }
+                // A pause while the refill loaded holds for the track it starts.
+                let held = holdAutoplay
+                advance(auto: auto)
+                if held { holdAutoplay = true }
             }
-            stopAtEnd()
             return
         }
         if fromUser {
@@ -772,11 +775,11 @@ final class Player: LivePlaybackPort {
         advance(auto: true)
     }
 
-    /// Waits while what follows a handoff's resumed track may still come. The core tells when nothing does; the
-    /// limit is for an answer that never comes.
-    private func awaitUpNext() async {
-        let limit = Date().addingTimeInterval(Self.upNextWait)
-        while resumedVersion == queueVersion, Date() < limit {
+    /// Waits while a queue that ran dry may still get more: the tracks after a handoff's resumed one (the core
+    /// tells when there are none) and the source of a Discover queue. The limit is for an answer that never comes.
+    private func awaitHandoff() async {
+        let limit = Date().addingTimeInterval(Self.handoffWait)
+        while resumedVersion == queueVersion || (restoredInfinite && infinite == nil), Date() < limit {
             try? await Task.sleep(for: .milliseconds(100))
         }
     }
@@ -830,7 +833,7 @@ final class Player: LivePlaybackPort {
     @ObservationIgnored private var resumedVersion: Int?
     /// Bumped by every Discover resume and by a sign-out: an older request for the home mixes is dropped.
     @ObservationIgnored private var discoverWait = 0
-    private static let upNextWait: TimeInterval = 20
+    private static let handoffWait: TimeInterval = 20
     /// Bumped by every play or pause command, a resume of the same track too.
     @ObservationIgnored private(set) var plays = 0
     @ObservationIgnored private var restoredInfinite = false
