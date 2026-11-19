@@ -794,6 +794,55 @@ pub async fn play_playlist(playlist_id: &str, shuffle: bool, position: usize) ->
     Ok(())
 }
 
+#[cfg(test)]
+fn playlist_start(_tracks: &[Track], _clicked: &Track, position: usize) -> Option<usize> {
+    Some(position)
+}
+
+#[cfg(test)]
+mod playlist_tests {
+    use super::*;
+
+    fn track(id: &str, item: Option<&str>) -> Track {
+        let mut track = Track::default();
+        track.info.id = id.into();
+        track.playlist_item_id = item.map(str::to_owned);
+        track
+    }
+
+    #[test]
+    fn reordered_playlist_starts_the_clicked_track() {
+        let clicked = track("B", Some("b"));
+        let fresh = [track("C", Some("c")), track("A", Some("a")), clicked.clone()];
+        let started = playlist_start(&fresh, &clicked, 1).and_then(|index| fresh.get(index));
+        assert_eq!(started.map(Track::id), Some("B"));
+    }
+
+    #[test]
+    fn reordered_playlist_keeps_the_selected_occurrence() {
+        let clicked = track("B", Some("b2"));
+        let fresh = [clicked.clone(), track("B", Some("b1"))];
+        let started = playlist_start(&fresh, &clicked, 1).and_then(|index| fresh.get(index));
+        assert_eq!(started.and_then(|track| track.playlist_item_id.as_deref()), Some("b2"));
+    }
+
+    #[test]
+    fn removed_occurrence_does_not_start_playback() {
+        let clicked = track("B", Some("b2"));
+        let fresh = [track("B", Some("b1")), track("C", Some("c"))];
+        assert_eq!(playlist_start(&fresh, &clicked, 1), None);
+    }
+
+    #[test]
+    fn rows_without_occurrence_ids_match_by_track() {
+        let clicked = track("B", None);
+        let fresh = [clicked.clone(), track("C", None), clicked.clone()];
+        assert_eq!(playlist_start(&fresh, &clicked, 2), Some(2));
+        assert_eq!(playlist_start(&fresh, &clicked, 1), Some(0));
+        assert_eq!(playlist_start(&fresh, &track("A", None), 1), None);
+    }
+}
+
 thread_local! {
     /// Bumped whenever the base queue is replaced, so background fetches for
     /// an older list can tell they are stale.
