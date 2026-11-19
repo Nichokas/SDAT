@@ -5,9 +5,9 @@ use std::rc::Rc;
 
 use adw::prelude::*;
 
-use crate::{api, global_signal};
+use crate::{api, global_signal, secrets};
 use crate::i18n::tr;
-use crate::signals::{CONTINUE, Signal, UNSUBSCRIBE};
+use crate::signals::{CONTINUE, Signal, State, UNSUBSCRIBE};
 use crate::state::{self, FavouriteCache};
 use crate::ui::dsl::{W, on_state};
 
@@ -84,14 +84,10 @@ struct TrackFavouriteChange {
 }
 
 global_signal!(fn track_favourite_changed() -> Signal<TrackFavouriteChange> = Signal::default());
+global_signal!(pub(crate) fn track_favourites_available() -> State<bool> = State::new(state::signed_in_changed().get()));
 
 thread_local! {
     static TRACK_WRITES: RefCell<HashSet<(u64, String)>> = RefCell::default();
-    static TRACK_SESSION: Cell<u64> = const { Cell::new(0) };
-}
-
-pub(crate) fn invalidate_track_favourite_writes() {
-    TRACK_SESSION.set(TRACK_SESSION.get() + 1);
 }
 
 #[derive(Default)]
@@ -107,10 +103,7 @@ pub type SetId = Rc<dyn Fn(Option<&str>)>;
 pub fn track_favourite_button() -> (gtk::Button, SetId) {
     let b = gtk::Button::from_icon_name("heart-outline-thick-symbolic").class("flat");
     let binding = Rc::new(TrackBinding::default());
-    let bound = Rc::downgrade(&binding);
-    on_state(state::signed_in_changed(), &b, move |b, signed_in| {
-        b.set_sensitive(*signed_in && bound.upgrade().is_some_and(|binding| binding.id.borrow().is_some()));
-    });
+    b.set_sensitive(false);
     let changes = track_favourite_changed();
     let (w, bound) = (b.downgrade(), Rc::clone(&binding));
     let sub = changes.on(move |change| {
@@ -122,7 +115,6 @@ pub fn track_favourite_button() -> (gtk::Button, SetId) {
         }
         CONTINUE
     });
-    b.connect_destroy(move |_| changes.unsubscribe(sub));
     let set: SetId = {
         let (w, binding) = (b.downgrade(), Rc::clone(&binding));
         Rc::new(move |id: Option<&str>| {
@@ -131,8 +123,9 @@ pub fn track_favourite_button() -> (gtk::Button, SetId) {
             binding.revision.set(revision);
             *binding.id.borrow_mut() = id.map(str::to_owned);
             binding.favourite.set(None);
-            b.set_sensitive(id.is_some() && state::signed_in_changed().get());
-            let Some(id) = id else {
+            let available = track_favourites_available().get();
+            b.set_sensitive(id.is_some() && available);
+            let Some(id) = id.filter(|_| available) else {
                 render(&b, false, false);
                 return;
             };
@@ -154,9 +147,20 @@ pub fn track_favourite_button() -> (gtk::Button, SetId) {
             });
         })
     };
+    let availability = track_favourites_available();
+    let (bound, rebind) = (Rc::clone(&binding), Rc::clone(&set));
+    let availability_sub = availability.on_lazy(move |_| {
+        let id = bound.id.borrow().clone();
+        rebind(id.as_deref());
+        CONTINUE
+    });
+    b.connect_destroy(move |_| {
+        changes.unsubscribe(sub);
+        availability.unsubscribe(availability_sub);
+    });
     b.connect_clicked(move |b| {
         let (Some(id), Some(was_favourite)) = (binding.id.borrow().clone(), binding.favourite.get()) else { return };
-        let write = (TRACK_SESSION.get(), id);
+        let write = (secrets::session_generation(), id);
         if !TRACK_WRITES.with_borrow_mut(|writes| writes.insert(write.clone())) {
             return;
         }
@@ -166,13 +170,16 @@ pub fn track_favourite_button() -> (gtk::Button, SetId) {
         let (w, binding) = (b.downgrade(), Rc::clone(&binding));
         glib::spawn_future_local(async move {
             let request_id = write.1.clone();
+            let generation = write.0;
             let result = api::run(move || {
-                if was_favourite { state::TRACKS.remove(&request_id) } else { state::TRACKS.add(&request_id) }
+                secrets::with_session(generation, || {
+                    if was_favourite { state::TRACKS.remove(&request_id) } else { state::TRACKS.add(&request_id) }
+                })
             })
             .await;
             TRACK_WRITES.with_borrow_mut(|writes| writes.remove(&write));
             let (session, id) = write;
-            if result.is_ok() && TRACK_SESSION.get() == session {
+            if matches!(result, Ok(Some(()))) && secrets::session_generation() == session && track_favourites_available().get() {
                 changes.notify(&TrackFavouriteChange { id, favourite: !was_favourite });
                 return;
             }

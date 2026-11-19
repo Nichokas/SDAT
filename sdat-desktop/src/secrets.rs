@@ -3,12 +3,64 @@
 //! `dev.dergs.Tonearm` schema are copied over by `migrate` on first start.
 
 use std::collections::HashMap;
+use std::sync::RwLock;
+use std::sync::atomic::{AtomicU64, Ordering};
 
 use base64::Engine;
 
 use crate::i18n::{tr, trf};
 
 pub(crate) const REFRESH_TOKEN_KEY: &str = "refresh_token";
+
+static SESSION: Session = Session { gate: RwLock::new(()), generation: AtomicU64::new(0) };
+
+struct Session {
+    gate: RwLock<()>,
+    generation: AtomicU64,
+}
+
+impl Session {
+    fn generation(&self) -> u64 {
+        self.generation.load(Ordering::Relaxed)
+    }
+
+    fn write<T>(&self, generation: u64, write: impl FnOnce() -> tonearm_core::CoreResult<T>) -> tonearm_core::CoreResult<Option<T>> {
+        let _guard = self.gate.read().unwrap_or_else(std::sync::PoisonError::into_inner);
+        if generation != self.generation() {
+            return Ok(None);
+        }
+        write().map(Some)
+    }
+
+    fn change(&self, edit: impl FnOnce() -> anyhow::Result<()>) -> anyhow::Result<()> {
+        let _guard = self.gate.write().unwrap_or_else(std::sync::PoisonError::into_inner);
+        edit()?;
+        self.generation.fetch_add(1, Ordering::Relaxed);
+        Ok(())
+    }
+}
+
+pub(crate) fn session_generation() -> u64 {
+    SESSION.generation()
+}
+
+pub(crate) fn with_session<T>(
+    generation: u64,
+    write: impl FnOnce() -> tonearm_core::CoreResult<T>,
+) -> tonearm_core::CoreResult<Option<T>> {
+    SESSION.write(generation, write)
+}
+
+pub(crate) fn change_session(refresh_token: Option<&str>) -> anyhow::Result<()> {
+    SESSION.change(|| {
+        match refresh_token {
+            Some(token) => set_refresh_token(token)?,
+            None => delete_refresh_token()?,
+        }
+        tonearm_core::auth::session_changed();
+        Ok(())
+    })
+}
 
 #[derive(Debug, Clone)]
 pub struct ServiceError {
@@ -93,8 +145,7 @@ pub fn get_refresh_token() -> String {
     }
 }
 
-/// Must be followed by `crate::state::notify_signed_in_changed()` on the main thread.
-pub fn set_refresh_token(token: &str) -> anyhow::Result<()> {
+fn set_refresh_token(token: &str) -> anyhow::Result<()> {
     libsecret::password_store_sync(
         Some(&schema()),
         attrs(REFRESH_TOKEN_KEY),
@@ -106,7 +157,7 @@ pub fn set_refresh_token(token: &str) -> anyhow::Result<()> {
     Ok(())
 }
 
-pub fn delete_refresh_token() -> anyhow::Result<()> {
+fn delete_refresh_token() -> anyhow::Result<()> {
     libsecret::password_clear_sync(Some(&schema()), attrs(REFRESH_TOKEN_KEY), gtk::gio::Cancellable::NONE).map_err(|e| {
         log::error!("error deleting refresh token from keyring: {e}");
         anyhow::anyhow!(e)
@@ -142,6 +193,18 @@ pub fn user_id() -> String {
 
 #[cfg(test)]
 mod tests {
+    use super::{AtomicU64, RwLock, Session};
+
+    #[test]
+    fn queued_write_cannot_run_after_session_change() {
+        let session = Session { gate: RwLock::new(()), generation: AtomicU64::new(0) };
+        let before = session.generation();
+        session.change(|| Ok(())).unwrap();
+        let stale: Option<()> = session.write(before, || panic!("write reached the replacement account")).unwrap();
+        assert_eq!(stale, None);
+        assert_eq!(session.write(session.generation(), || Ok("saved")).unwrap(), Some("saved"));
+    }
+
     #[test]
     fn jwt_uid() {
         // header.{"uid":12345}.sig

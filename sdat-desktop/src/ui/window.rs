@@ -445,7 +445,7 @@ fn sign_in(window: &adw::ApplicationWindow) {
                 if replacing {
                     crate::handoff::stop();
                 }
-                if let Err(e) = api::run(move || secrets::set_refresh_token(&token)).await {
+                if let Err(e) = update_session(Some(token)).await {
                     log::error!("failed to store refresh token error={e:#}");
                     toast(&tr("Sign in failed: the keyring could not store the session"));
                     if replacing {
@@ -453,8 +453,6 @@ fn sign_in(window: &adw::ApplicationWindow) {
                     }
                     return;
                 }
-                session_changed().await;
-                state::notify_signed_in_changed();
                 if replacing {
                     crate::handoff::start();
                 }
@@ -465,18 +463,23 @@ fn sign_in(window: &adw::ApplicationWindow) {
     });
 }
 
-/// Off the UI thread: busting a favourites cache waits for any fetch of it
-/// in flight.
-async fn session_changed() {
+async fn update_session(refresh_token: Option<String>) -> anyhow::Result<()> {
+    thread_local! {
+        static CHANGING: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+    }
+    anyhow::ensure!(!CHANGING.replace(true), "another account change is in progress");
+    let favourites = crate::ui::components::favourite_button::track_favourites_available();
     crate::ui::components::add_to_playlist::begin_account_change();
-    crate::ui::components::favourite_button::invalidate_track_favourite_writes();
-    drop(api::run(|| {
-        tonearm_core::auth::session_changed();
-        anyhow::Ok(())
-    })
-    .await);
-    crate::cache::allow_prefetch_again();
+    favourites.set(false);
+    let result = api::run(move || secrets::change_session(refresh_token.as_deref())).await;
+    if result.is_ok() {
+        crate::cache::allow_prefetch_again();
+        state::notify_signed_in_changed();
+    }
+    favourites.set(state::signed_in_changed().get());
     crate::ui::components::add_to_playlist::end_account_change();
+    CHANGING.set(false);
+    result
 }
 
 fn install_actions(app: &adw::Application, window: &adw::ApplicationWindow) {
@@ -569,14 +572,12 @@ fn install_actions(app: &adw::Application, window: &adw::ApplicationWindow) {
         // Detach while the session still works.
         crate::handoff::stop();
         glib::spawn_future_local(async {
-            if let Err(e) = api::run(secrets::delete_refresh_token).await {
+            if let Err(e) = update_session(None).await {
                 log::error!("failed to delete refresh token error={e:#}");
                 toast(&tr("Sign out failed"));
                 crate::handoff::start();
                 return;
             }
-            session_changed().await;
-            state::notify_signed_in_changed();
             toast(&tr("Signed out"));
             router::refresh();
         });
