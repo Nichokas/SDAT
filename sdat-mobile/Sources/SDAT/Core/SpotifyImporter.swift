@@ -32,12 +32,12 @@ final class SpotifyImporter {
             } catch {
                 result = .failed(friendlyMessage(error))
             }
-            // A failed import may have created its playlist too.
-            if case .idle = result {} else { await OwnPlaylists.shared.load(force: true) }
             // An import the account's sign-out cleared reports nothing to the next account.
             guard running === job else { return }
             running = nil
             state = result
+            // A failed import may have created its playlist too.
+            if case .idle = result {} else { await OwnPlaylists.shared.load(force: true) }
         }
     }
 

@@ -153,8 +153,7 @@ fn search(track: &SpotifyTrack, cancelled: &dyn Fn() -> bool) -> Result<Option<S
     Ok(found.included.tracks(&found.data.relationships.tracks.data).into_iter().find_map(|t| {
         let artists: Vec<String> = t.included.artists(&t.data.relationships.artists.data).into_iter().map(|a| a.data.attributes.name).collect();
         let a = &t.data.attributes;
-        // TIDAL keeps `Live` or `Remastered 2011` in `version`, and some titles repeat it.
-        let title = if fold(&a.title).contains(&fold(&a.version)) { a.title.clone() } else { format!("{} ({})", a.title, a.version) };
+        let title = with_version(&a.title, &a.version);
         (streamable(&t.data) && same_recording(track, &title, &artists, a.duration)).then_some(t.data.id)
     }))
 }
@@ -162,6 +161,17 @@ fn search(track: &SpotifyTrack, cancelled: &dyn Fn() -> bool) -> Result<Option<S
 fn same_recording(track: &SpotifyTrack, title: &str, artists: &[String], duration: Duration) -> bool {
     let wanted: Vec<String> = track.artists.iter().map(|a| fold(a)).collect();
     comparable(&track.title) == comparable(title) && track.duration.abs_diff(duration) <= LENGTH_TOLERANCE && artists.iter().any(|a| wanted.contains(&fold(a)))
+}
+
+/// TIDAL keeps `Live` or `Remastered 2011` in a track's version, and some titles repeat it
+/// after the name.
+fn with_version(title: &str, version: &str) -> String {
+    let version_folded = fold(version);
+    if version_folded.is_empty() || parts(title).skip(1).any(|part| fold(part).contains(&version_folded)) {
+        title.to_owned()
+    } else {
+        format!("{title} ({version})")
+    }
 }
 
 /// The name of a title and what follows it in brackets or after a dash: `Song (feat. X) - Live`.
@@ -181,9 +191,13 @@ fn comparable(title: &str) -> String {
     let says_nothing = |part: &str| {
         let part = part.to_lowercase();
         let mut words = part.split(|c: char| !c.is_alphanumeric()).filter(|w| !w.is_empty()).peekable();
-        matches!(words.peek(), Some(&("feat" | "ft" | "featuring" | "from"))) || words.all(|w| NEUTRAL.contains(&w) || w.starts_with(|c: char| c.is_ascii_digit()))
+        matches!(words.peek(), Some(&("feat" | "ft" | "featuring" | "from"))) || words.all(|w| NEUTRAL.contains(&w) || is_year(w))
     };
     parts(title).enumerate().filter(|(i, part)| *i == 0 || !says_nothing(part)).map(|(_, part)| fold(part)).collect()
+}
+
+fn is_year(word: &str) -> bool {
+    word.len() == 4 && word.bytes().all(|b| b.is_ascii_digit())
 }
 
 /// Letters and digits in lower case, so punctuation and spacing do not matter.
@@ -244,6 +258,14 @@ mod tests {
         assert!(!same("Intro (Dawn)", "Intro (Dusk)"));
         assert!(!same("Love - Hate", "Love"));
         assert!(!same("Song (Taylor's Version)", "Song"));
+        assert!(!same("Song (1st Version)", "Song (2nd Version)"));
+    }
+
+    #[test]
+    fn a_tidal_version_joins_the_title_unless_the_title_repeats_it() {
+        assert_eq!(with_version("Live Forever", "Live"), "Live Forever (Live)");
+        assert_eq!(with_version("Song (Live at Wembley)", "Live"), "Song (Live at Wembley)");
+        assert_eq!(with_version("Song", ""), "Song");
     }
 
     #[test]

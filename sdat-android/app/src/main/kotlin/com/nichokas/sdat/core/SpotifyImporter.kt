@@ -50,16 +50,15 @@ object SpotifyImporter {
                 State.Failed(e.detail)
             } catch (e: Exception) {
                 State.Failed(friendlyMessage(e))
-            } finally {
-                import.close()
             }
+            // An import the account's sign-out cleared reports nothing to the next account.
+            val current = running === import
+            if (current) running = null
+            import.close()
+            if (!current) return@launch
+            state = result
             // A failed import may have created its playlist too.
             if (result !is State.Idle) OwnPlaylists.load(force = true)
-            // An import the account's sign-out cleared reports nothing to the next account.
-            if (running === import) {
-                running = null
-                state = result
-            }
         }
     }
 
