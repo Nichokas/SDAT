@@ -319,6 +319,18 @@ mod tests {
     }
 
     #[test]
+    fn explore_track_list_marks_tracks_streamable() {
+        let page: legacy::Page = serde_json::from_str(
+            r#"{"rows":[{"modules":[{"type":"TRACK_LIST","pagedList":{"items":[{"id":42,"title":"Track","duration":180}]}}]}]}"#,
+        )
+        .expect("page");
+        let explore = explore_page(&page);
+        let tracks = &explore.sections[0].tracks;
+        assert_eq!(ids(tracks), ["42"]);
+        assert_eq!(tracks.iter().map(|track| track.info.streamable).collect::<Vec<_>>(), [true]);
+    }
+
+    #[test]
     fn explore_links_and_recents_parse() {
         let page: legacy::Page = serde_json::from_str(
             r#"{"title":"Explore","rows":[{"modules":[{"type":"PAGE_LINKS_CLOUD","title":"Genres","pagedList":{"items":[{"title":"Pop","apiPath":"pages/genre_pop"}]}},{"type":"VIDEO_LIST","title":"x"}]}]}"#,
