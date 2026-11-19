@@ -61,6 +61,7 @@ struct DiscoverView: View {
             }
             .buttonStyle(.plain)
         }
+        .foregroundStyle(.white)
         .padding(.horizontal, 20)
         .padding(.top, 4)
         .padding(.bottom, 8)

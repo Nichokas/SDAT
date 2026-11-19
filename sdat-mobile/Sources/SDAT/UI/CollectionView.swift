@@ -223,7 +223,7 @@ struct PlayShuffleButtons: View {
                 .buttonStyle(.glassProminent)
                 .tint(.blue)
                 Button(action: shuffle) {
-                    HStack(spacing: 6) { Image(systemName: "shuffle"); Text("Shuffle") }.font(compact ? .subheadline.weight(.semibold) : .headline).foregroundStyle(.white).frame(maxWidth: .infinity, minHeight: compact ? 28 : 34)
+                    HStack(spacing: 6) { Image(systemName: "shuffle"); Text("Shuffle") }.font(compact ? .subheadline.weight(.semibold) : .headline).foregroundStyle(.primary).frame(maxWidth: .infinity, minHeight: compact ? 28 : 34)
                 }
                 .buttonStyle(.glass)
             }
