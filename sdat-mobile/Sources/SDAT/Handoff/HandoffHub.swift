@@ -181,8 +181,19 @@ final class HandoffHub {
         let rep: Player.Repeat = switch r.repeat { case .off: .off; case .all: .all; case .one: .one }
         player.resume([r.current], at: Double(r.positionMs) / 1000, repeat: rep, from: r.from.name, discover: r.discover)
         guard r.discover else { return }
-        // Discover goes on from this device's own shuffle.
-        Task { if let mixes = try? await homeMixes() { player.resumeInfinite(mixes: mixes) } }
+        // Discover goes on from this device's own shuffle. Asked again while the queue still waits for it:
+        // without it, playback ends with the handed-over tracks.
+        Task {
+            var wait = 2.0
+            while player.awaitsDiscover {
+                if let mixes = try? await homeMixes(), !mixes.isEmpty {
+                    player.resumeInfinite(mixes: mixes)
+                    return
+                }
+                try? await Task.sleep(for: .seconds(wait))
+                wait = min(wait * 2, 60)
+            }
+        }
     }
 
     /// The report after the append is what the core waits for.

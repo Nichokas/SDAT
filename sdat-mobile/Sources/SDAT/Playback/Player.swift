@@ -48,6 +48,8 @@ final class Player {
     var played: ArraySlice<Track> { index.map { queue.prefix($0) } ?? [] }
     /// The queue is Discover's endless shuffle, also before its source is attached again.
     var endless: Bool { infinite != nil || restoredInfinite }
+    /// A Discover queue restored or taken over that has no source yet.
+    var awaitsDiscover: Bool { restoredInfinite }
     /// Base queue in its unshuffled order, restored when shuffle is turned off.
     private var original: [Track] = [] { didSet { queueVersion &+= 1 } }
 

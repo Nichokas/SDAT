@@ -118,7 +118,7 @@ pub struct DurableQueue {
     played: Cell<usize>,
     upcoming: RefCell<Vec<usize>>,
     last_taken: Cell<Option<usize>>,
-    /// The entries that started playing from the queue or were skipped, in that order.
+    /// The entries that started playing or were skipped, in that order.
     taken: RefCell<Vec<Rc<Track>>>,
 }
 
@@ -306,6 +306,9 @@ impl DurableQueue {
     pub fn select_history_occurrence(&self, occurrence: Option<&Weak<Track>>) {
         let origin = occurrence.and_then(Weak::upgrade);
         let index = origin.and_then(|track| self.source.borrow().iter().position(|entry| Rc::ptr_eq(entry, &track)));
+        if let Some(i) = index {
+            self.taken.borrow_mut().push(Rc::clone(&self.source.borrow()[i]));
+        }
         self.last_taken.set(index);
     }
 
@@ -557,10 +560,13 @@ mod tests {
         let next = q.pop().unwrap();
         let after = q.pop().unwrap();
         assert_eq!(played(&q, after.id()), ["2", next.id()]);
-        // A track moved to the user queue plays from there.
+        // A track moved to the user queue counts once it plays from there.
         let moved = q.take_for_gapless().unwrap();
-        assert_eq!(played(&q, after.id()), [moved.track.id(), "2", next.id()]);
-        assert_eq!(q.played(after.id(), &[moved.occurrence.unwrap()]).len(), 2);
+        assert_eq!(q.played(after.id(), &[moved.occurrence.clone().unwrap()]).len(), 2);
+        q.select_history_occurrence(moved.occurrence.as_ref());
+        assert_eq!(played(&q, moved.track.id()), ["2", next.id(), after.id()]);
+        let last = q.pop().unwrap();
+        assert_eq!(played(&q, last.id()), ["2", next.id(), after.id(), moved.track.id()]);
         q.rewind();
         assert!(played(&q, "").is_empty());
         Ok(())

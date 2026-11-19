@@ -189,8 +189,14 @@ class Playback(context: Context, private val prefs: Preferences, secrets: Secret
     private val restore = scope.launch {
         val saved = saver.load()
         restoring = false
-        // Anything played meanwhile wins, and is saved now that persisting is on.
-        if (track != null) return@launch persist()
+        // Anything played meanwhile wins, and is saved now that persisting is on. A Discover queue among it still
+        // waits for its source.
+        if (track != null) {
+            persist()
+            pendingMixes?.let(::resumeInfinite)
+            pendingMixes = null
+            return@launch
+        }
         if (saved == null) return@launch
         val (state, queued) = saved
         queue.restore(queued, state)

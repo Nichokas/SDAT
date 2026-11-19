@@ -1148,9 +1148,9 @@ impl Worker {
                     }
                     self.mirror.queue_written(tracks, entries, batch, head.revision, repeat);
                 }
-                Write::Append { batch, tracks } => {
+                Write::Append { batch, tracks, capped } => {
                     let rev = wire::append(&self.queue()?, &tracks, &batch, local.discover)?;
-                    self.mirror.appended(tracks, rev);
+                    self.mirror.appended(tracks, capped, rev);
                 }
                 Write::Repeat(r) => {
                     let rev = wire::set_repeat(&self.queue()?, r)?;
