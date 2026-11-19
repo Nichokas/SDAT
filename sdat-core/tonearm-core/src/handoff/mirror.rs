@@ -585,6 +585,18 @@ mod tests {
     }
 
     #[test]
+    fn a_track_added_while_the_current_one_changes_keeps_the_entries_in_step() {
+        let mut m = active_with(&["1", "2", "3"]);
+        assert_eq!(m.plan(&local("2", &["3", "4"], 0, true), 0), vec![append(&["4"]), Write::Current { index: 1, position_ms: 0 }]);
+        // Read before the current entry moves: TIDAL's is still the first, and these follow it.
+        m.appended(ids(&["4"]), false, entries(&["2", "3", "4"]), "r".into());
+        assert_eq!(m.entry(1).map(|e| e.item_id), Some("i2".into()));
+        m.current_written(1, 0, true, 0, "r".into());
+        assert_eq!(m.plan(&local("4", &[], 0, true), 0), vec![Write::Current { index: 3, position_ms: 0 }]);
+        assert_eq!(m.entry(3).map(|e| e.item_id), Some("i4".into()));
+    }
+
+    #[test]
     fn a_track_added_to_a_queue_of_one_can_be_selected() {
         let mut m = active_with(&["1"]);
         assert_eq!(m.plan(&local("1", &["2"], 0, true), 0), vec![append(&["2"])]);
