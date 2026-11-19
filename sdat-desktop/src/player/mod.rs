@@ -411,9 +411,9 @@ fn get_next_track_from_queue(peek: bool, can_rewind: &mut bool) -> Option<Track>
             // Forget the moved gapless entry only once that entry is consumed.
             GAPLESS_MOVED.with(|m| {
                 let mut m = m.borrow_mut();
-                if t.as_ref().is_some_and(|t| m.as_deref() == Some(t.id())) {
-                    m.take();
-                }
+                let moved = t.as_ref().is_some_and(|t| m.as_deref() == Some(t.id()));
+                m.take();
+                base_queue().select_user_track(moved);
             });
         }
         return t;
@@ -487,7 +487,7 @@ fn insert_tracklist_next(tracks: Vec<Track>) {
         && repeat_mode_changed().get() != RepeatMode::Track;
     if gapless
         && user_queue().is_empty()
-        && let Some(head) = base_queue().pop()
+        && let Some(head) = base_queue().take_for_gapless()
     {
         GAPLESS_MOVED.with(|m| *m.borrow_mut() = Some(head.id().to_string()));
         user_queue().prepend(head);
@@ -530,6 +530,8 @@ pub fn skip_through_queue(kind: QueueKind, to: usize) {
             let next = match kind {
                 QueueKind::User => {
                     update_pinned(|p| play_next::after_remove(p, 0));
+                    GAPLESS_MOVED.with(|m| m.borrow_mut().take());
+                    base_queue().select_user_track(false);
                     user_queue().pop()
                 }
                 QueueKind::Base => base_queue().pop(),
@@ -633,6 +635,8 @@ fn previous_now() {
         // The track we came back from plays next, ahead of "play next" tracks.
         update_pinned(|p| p + 1);
     }
+    GAPLESS_MOVED.with(|m| m.borrow_mut().take());
+    base_queue().select_user_track(false);
     fire(Trigger::PlayTrack(prev, false));
 }
 
@@ -694,31 +698,18 @@ pub fn set_repeat_mode(m: RepeatMode) {
 }
 
 pub fn set_shuffle(shuffle: bool, current_track_id: &str) {
+    let moved = GAPLESS_MOVED.with(|m| m.borrow_mut().take())
+        .filter(|id| user_queue().entries().with(|e| e.iter().any(|t| t.id() == id.as_str())));
+    if moved.is_none() {
+        base_queue().forget_gapless();
+    }
+    GAPLESS_MOVED.with(|m| *m.borrow_mut() = moved);
     if shuffle {
         base_queue().shuffle(current_track_id);
     } else {
         // Continues after the last list track that played, which may not be
         // the current one (a "play next" track).
         base_queue().restore();
-    }
-    // Shuffling the source brings back a gapless-prepared track that
-    // "play next" moved to the user queue; drop the base copy so it plays once.
-    // Restoring continues after it, since moving it popped it.
-    // The marker is only valid while its entry is still in the user queue
-    // (a skip may have drained it); otherwise forget it.
-    let moved = GAPLESS_MOVED.with(|m| m.borrow_mut().take())
-        .filter(|id| user_queue().entries().with(|e| e.iter().any(|t| t.id() == id.as_str())));
-    GAPLESS_MOVED.with(|m| m.borrow_mut().clone_from(&moved));
-    if shuffle
-        && let Some(id) = moved
-        && let Some(i) = base_queue().entries().with(|e| e.iter().position(|t| t.id() == id))
-    {
-        // Only the upcoming copy: `remove_at` would also drop it from the
-        // durable source, losing it for later shuffles and queue repeat.
-        base_queue().entries().notify(|mut v| {
-            v.remove(i);
-            v
-        });
     }
     shuffle_state_changed().set(shuffle);
 }

@@ -114,149 +114,187 @@ pub struct DurableQueue {
     /// Source index just past the last track taken from the queue, where
     /// [`DurableQueue::restore`] continues.
     played: Cell<usize>,
+    upcoming: RefCell<Vec<usize>>,
+    last_taken: Cell<Option<usize>>,
+    gapless_taken: Cell<Option<usize>>,
 }
 
 impl DurableQueue {
     #[cfg(test)]
     pub fn append(&self, t: Track) {
-        if self.contains(t.id()) {
-            return;
-        }
-        self.source.borrow_mut().push(t.clone());
-        self.queue.append(t);
+        self.extend(&[t]);
     }
+
+    fn publish(&self) {
+        let tracks = {
+            let source = self.source.borrow();
+            self.upcoming.borrow().iter().map(|&i| source[i].clone()).collect()
+        };
+        self.queue.set(tracks);
+    }
+
     pub fn clear(&self) {
-        self.source.borrow_mut().clear();
-        self.queue.clear();
         self.shuffled.set(false);
-        self.played.set(0);
+        self.set(Vec::new());
     }
-    #[cfg(test)]
-    pub fn contains(&self, id: &str) -> bool {
-        self.source.borrow().iter().any(|t| t.id() == id)
-    }
+
     pub fn entries(&self) -> &State<Vec<Track>> {
         self.queue.entries()
     }
-    /// Number of distinct list tracks known (loaded) so far.
+
     pub fn source_len(&self) -> usize {
         self.source.borrow().len()
     }
+
     pub fn is_shuffled(&self) -> bool {
         self.shuffled.get()
     }
+
     #[cfg(test)]
     pub fn len(&self) -> usize {
         self.queue.len()
     }
+
     pub fn is_empty(&self) -> bool {
         self.queue.is_empty()
     }
+
     pub fn peek(&self) -> Option<Track> {
         self.queue.peek()
     }
+
+    fn take_head(&self, taken: &Cell<Option<usize>>) -> Option<Track> {
+        let track = self.peek()?;
+        let index = self.upcoming.borrow_mut().remove(0);
+        self.played.set(self.played.get().max(index + 1));
+        taken.set(Some(index));
+        self.publish();
+        Some(track)
+    }
+
     pub fn pop(&self) -> Option<Track> {
-        let t = self.queue.pop();
-        if let Some(t) = &t {
-            self.mark_played(t);
-        }
-        t
+        self.take_head(&self.last_taken)
     }
-    /// Moves the restore point past `t`: its next occurrence in the source
-    /// (so a repeated track counts once per play), else its first one. It
-    /// never moves back, so a shuffled pop of an earlier track replays nothing.
-    fn mark_played(&self, t: &Track) {
-        let src = self.source.borrow();
-        let from = self.played.get().min(src.len());
-        let found = src[from..].iter().position(|s| s.id() == t.id()).map(|i| from + i);
-        if let Some(i) = found.or_else(|| src.iter().position(|s| s.id() == t.id())) {
-            self.played.set(self.played.get().max(i + 1));
-        }
+
+    pub fn take_for_gapless(&self) -> Option<Track> {
+        self.take_head(&self.gapless_taken)
     }
+
+    pub fn select_user_track(&self, is_gapless: bool) {
+        let index = self.gapless_taken.take();
+        self.last_taken.set(if is_gapless { index } else { None });
+    }
+
+    pub fn forget_gapless(&self) {
+        self.gapless_taken.set(None);
+    }
+
+    pub fn move_entry(&self, from: usize, to: usize) {
+        {
+            let mut upcoming = self.upcoming.borrow_mut();
+            if from >= upcoming.len() { return; }
+            let index = upcoming.remove(from);
+            let to = to.min(upcoming.len());
+            upcoming.insert(to, index);
+        }
+        self.publish();
+    }
+
     pub fn remove_at(&self, i: usize) -> Result<()> {
-        let Some(t) = self.queue.get(i) else { bail!("track not found") };
-        let mut src = self.source.borrow_mut();
-        let played = self.played.get().min(src.len());
-        let same_item = |other: &Track| other.id() == t.id() && other.playlist_item_id == t.playlist_item_id;
-        let index = if self.shuffled.get() {
-            src[played..].iter().position(same_item).map(|n| played + n)
-                .or_else(|| src[..played].iter().position(same_item))
-        } else {
-            let n = played + i;
-            src.get(n).is_some_and(same_item).then_some(n)
-        };
-        if let Some(index) = index {
-            src.remove(index);
-            if index < played {
-                self.played.set(played - 1);
+        {
+            let mut upcoming = self.upcoming.borrow_mut();
+            if i >= upcoming.len() { bail!("track not found"); }
+            let removed = upcoming.remove(i);
+            self.source.borrow_mut().remove(removed);
+            for index in upcoming.iter_mut() {
+                *index -= usize::from(*index > removed);
+            }
+            for taken in [&self.last_taken, &self.gapless_taken] {
+                taken.set(taken.get().filter(|&index| index != removed)
+                    .map(|index| index - usize::from(index > removed)));
+            }
+            if removed < self.played.get() {
+                self.played.set(self.played.get() - 1);
             }
         }
-        drop(src);
-        self.queue.remove_at(i)
+        self.publish();
+        Ok(())
     }
-    /// Restores the original order, continuing after the last track taken
-    /// from the queue.
+
+    /// Restores the original order, continuing after the furthest source entry taken.
     pub fn restore(&self) {
-        let src = self.source.borrow();
-        self.queue.set(src[self.played.get().min(src.len())..].to_vec());
+        let len = self.source_len();
+        *self.upcoming.borrow_mut() = (self.played.get()..len).collect();
         self.shuffled.set(false);
+        self.publish();
     }
-    /// Queues the whole source again in its original order.
+
     pub fn rewind(&self) {
         self.played.set(0);
+        self.last_taken.set(None);
+        self.gapless_taken.set(None);
         self.restore();
     }
+
     pub fn set(&self, tracks: Vec<Track>) {
-        self.source.borrow_mut().clone_from(&tracks);
-        self.queue.set(tracks);
+        *self.upcoming.borrow_mut() = (0..tracks.len()).collect();
+        *self.source.borrow_mut() = tracks;
         self.played.set(0);
+        self.last_taken.set(None);
+        self.gapless_taken.set(None);
+        self.publish();
     }
-    /// Shuffles every source entry except the current occurrence.
+
     pub fn shuffle(&self, current_id: &str) {
-        let mut src = self.source.borrow().clone();
-        let played = self.played.get().min(src.len());
-        if let Some(index) = src[..played].iter().rposition(|t| t.id() == current_id)
-            .or_else(|| src[played..].iter().position(|t| t.id() == current_id).map(|i| i + played))
-        {
-            src.remove(index);
-        }
-        src.shuffle(&mut rand::rng());
-        self.queue.set(src);
+        let src = self.source.borrow();
+        let current = self.last_taken.get().filter(|&i| src[i].id() == current_id);
+        let reserved = self.gapless_taken.get();
+        let mut upcoming: Vec<_> = (0..src.len())
+            .filter(|&i| Some(i) != current && Some(i) != reserved).collect();
+        drop(src);
+        upcoming.shuffle(&mut rand::rng());
+        *self.upcoming.borrow_mut() = upcoming;
         self.shuffled.set(true);
+        self.publish();
     }
+
     pub fn skip(&self, n: usize) -> Result<Vec<Track>> {
-        let skipped = self.queue.skip(n)?;
-        for t in &skipped {
-            self.mark_played(t);
+        if self.queue.len() < n {
+            bail!("not enough tracks in queue");
         }
+        let skipped = self.queue.entries().with(|v| v[..n].to_vec());
+        if let Some(max) = self.upcoming.borrow_mut().drain(..n).max() {
+            self.played.set(self.played.get().max(max + 1));
+        }
+        self.publish();
         Ok(skipped)
     }
-    /// Adds late-arriving tracks (rest of a paginated list) without touching
-    /// what is already queued: appended in order, or scattered at random
-    /// positions among the upcoming tracks when shuffled. Duplicates are skipped.
+
+    /// Adds late-arriving tracks without touching what is already queued.
     pub fn extend(&self, tracks: &[Track]) {
-        let new: Vec<Track> = {
-            let src = self.source.borrow();
-            let mut seen: std::collections::HashSet<&str> = src.iter().map(Track::id).collect();
-            tracks.iter().filter(|t| seen.insert(t.id())).cloned().collect()
-        };
-        if new.is_empty() {
+        let mut source = self.source.borrow_mut();
+        let mut seen: std::collections::HashSet<&str> = source.iter().map(Track::id).collect();
+        let added: Vec<_> = tracks.iter().filter(|t| seen.insert(t.id())).cloned().collect();
+        if added.is_empty() {
             return;
         }
-        self.source.borrow_mut().extend(new.iter().cloned());
-        let shuffled = self.shuffled.get();
-        self.queue.entries.notify(|mut v| {
-            if shuffled {
+        let start = source.len();
+        source.extend(added);
+        let end = source.len();
+        drop(source);
+        {
+            let mut upcoming = self.upcoming.borrow_mut();
+            if self.shuffled.get() {
                 let mut rng = rand::rng();
-                for t in new {
-                    let i = rand::RngExt::random_range(&mut rng, 0..=v.len());
-                    v.insert(i, t);
+                for i in start..end {
+                    let pos = rand::RngExt::random_range(&mut rng, 0..=upcoming.len());
+                    upcoming.insert(pos, i);
                 }
             } else {
-                v.extend(new);
+                upcoming.extend(start..end);
             }
-            v
-        });
+        }
+        self.publish();
     }
 }
 
@@ -305,6 +343,7 @@ mod tests {
     fn extend_while_shuffled_keeps_queue_and_adds_everything() {
         let q = super::DurableQueue::default();
         q.set((0..20).map(|i| t(&i.to_string())).collect());
+        q.pop();
         q.shuffle("0");
         let before: Vec<String> = q.entries().with(|v| v.iter().map(|x| x.id().to_string()).collect());
         q.extend(&(20..40).map(|i| t(&i.to_string())).collect::<Vec<_>>());
@@ -433,6 +472,66 @@ mod tests {
         q.restore();
         assert_eq!(ids(&q.queue), ["b", "c", "x", "d"]);
         Ok(())
+    }
+
+    #[test]
+    fn removing_a_reordered_entry_removes_it_from_the_source() -> Result<()> {
+        let q = DurableQueue::default();
+        q.set(["a", "b", "c", "d"].map(t).to_vec());
+        q.pop();
+        q.move_entry(1, 0);
+        q.remove_at(0)?;
+        q.restore();
+        assert_eq!(ids(&q.queue), ["b", "d"]);
+        Ok(())
+    }
+
+    #[test]
+    fn shuffle_and_restore_use_the_played_occurrence() -> Result<()> {
+        let q = DurableQueue::default();
+        let mut first = t("a");
+        first.playlist_item_id = Some("first".into());
+        let mut second = t("a");
+        second.playlist_item_id = Some("second".into());
+        q.set(vec![first, t("b"), second, t("c")]);
+        q.move_entry(2, 0);
+        assert_eq!(q.pop().unwrap().playlist_item_id.as_deref(), Some("second"));
+        q.shuffle("a");
+        let first = q.entries().with(|v| v.iter().position(|t| t.playlist_item_id.as_deref() == Some("first"))).unwrap();
+        assert!(q.entries().with(|v| v.iter().all(|t| t.playlist_item_id.as_deref() != Some("second"))));
+        q.remove_at(first)?;
+        q.restore();
+        assert_eq!(ids(&q.queue), ["c"]);
+        Ok(())
+    }
+
+    #[test]
+    fn shuffling_after_a_user_track_preserves_its_base_occurrence() {
+        let q = DurableQueue::default();
+        q.set(["a", "b", "c"].map(t).to_vec());
+        q.pop();
+        q.select_user_track(false);
+        q.shuffle("c");
+        let mut upcoming = ids(&q.queue);
+        upcoming.sort();
+        assert_eq!(upcoming, ["a", "b", "c"]);
+    }
+
+    #[test]
+    fn shuffle_keeps_both_current_and_reserved_gapless_entries_out() {
+        let q = DurableQueue::default();
+        q.set(["a", "b", "b", "c"].map(t).to_vec());
+        q.pop();
+        assert_eq!(q.take_for_gapless().unwrap().id(), "b");
+        q.shuffle("a");
+        let mut upcoming = ids(&q.queue);
+        upcoming.sort();
+        assert_eq!(upcoming, ["b", "c"]);
+        q.select_user_track(true);
+        q.shuffle("b");
+        let mut upcoming = ids(&q.queue);
+        upcoming.sort();
+        assert_eq!(upcoming, ["a", "b", "c"]);
     }
 
     #[test]
