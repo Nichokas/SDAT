@@ -97,6 +97,26 @@ struct TrackBinding {
     favourite: Cell<Option<bool>>,
 }
 
+struct PendingTrackWrite {
+    key: (u64, String),
+    button: glib::WeakRef<gtk::Button>,
+    binding: Rc<TrackBinding>,
+    revision: u64,
+    was_favourite: bool,
+}
+
+impl Drop for PendingTrackWrite {
+    fn drop(&mut self) {
+        TRACK_WRITES.with_borrow_mut(|writes| writes.remove(&self.key));
+        if self.binding.revision.get() == self.revision {
+            self.binding.favourite.set(Some(self.was_favourite));
+            if let Some(button) = self.button.upgrade() {
+                render(&button, false, self.was_favourite);
+            }
+        }
+    }
+}
+
 /// Rebinds a [`track_favourite_button`] to a track ID (`None` = unbound).
 pub type SetId = Rc<dyn Fn(Option<&str>)>;
 
@@ -160,38 +180,36 @@ pub fn track_favourite_button() -> (gtk::Button, SetId) {
     });
     b.connect_clicked(move |b| {
         let (Some(id), Some(was_favourite)) = (binding.id.borrow().clone(), binding.favourite.get()) else { return };
-        let write = (secrets::session_generation(), id);
-        if !TRACK_WRITES.with_borrow_mut(|writes| writes.insert(write.clone())) {
+        let generation = secrets::session_generation();
+        let key = (generation, id);
+        if !TRACK_WRITES.with_borrow_mut(|writes| writes.insert(key.clone())) {
             return;
         }
+        let pending = PendingTrackWrite {
+            key,
+            button: b.downgrade(),
+            binding: Rc::clone(&binding),
+            revision: binding.revision.get(),
+            was_favourite,
+        };
         binding.favourite.set(None);
         render(b, true, false);
-        let revision = binding.revision.get();
-        let (w, binding) = (b.downgrade(), Rc::clone(&binding));
+        let request_id = pending.key.1.clone();
         glib::spawn_future_local(async move {
-            let request_id = write.1.clone();
-            let generation = write.0;
             let result = api::run(move || {
                 secrets::with_session(generation, || {
                     if was_favourite { state::TRACKS.remove(&request_id) } else { state::TRACKS.add(&request_id) }
                 })
             })
             .await;
-            TRACK_WRITES.with_borrow_mut(|writes| writes.remove(&write));
-            let (session, id) = write;
-            if matches!(result, Ok(Some(()))) && secrets::session_generation() == session && track_favourites_available().get() {
-                changes.notify(&TrackFavouriteChange { id, favourite: !was_favourite });
-                return;
-            }
-            if let Err(e) = result {
-                log::error!("error while updating favourites error={e:#}");
-            }
-            if binding.revision.get() == revision {
-                binding.favourite.set(Some(was_favourite));
-                if let Some(b) = w.upgrade() {
-                    render(&b, false, was_favourite);
+            match result {
+                Ok(Some(())) if secrets::session_generation() == generation && track_favourites_available().get() => {
+                    changes.notify(&TrackFavouriteChange { id: pending.key.1.clone(), favourite: !was_favourite });
                 }
+                Err(e) => log::error!("error while updating favourites error={e:#}"),
+                _ => {}
             }
+            drop(pending);
         });
     });
     (b, set)
