@@ -155,6 +155,7 @@ fn section(m: &legacy::Module) -> Option<ExploreSection> {
                 .map(|it| {
                     model::track_from_v2(&legacy::TrackItemData {
                         album: legacy::TrackItemDataAlbum { cover: it.album.cover.clone(), id: it.album.id, title: it.album.title.clone(), ..Default::default() },
+                        allow_streaming: true,
                         artists: it.artists.iter().map(|a| legacy::ArtistItemData { id: a.id, name: a.name.clone(), ..Default::default() }).collect(),
                         duration: it.duration,
                         id: it.id.int,
