@@ -10,6 +10,8 @@ final class Session {
     private(set) var signedIn = false
     private(set) var pending: DeviceLogin?
     var error: String?
+    private var loginAttempt: UUID?
+    var startingLogin: Bool { loginAttempt != nil && pending == nil }
     private init() {
         try? FileManager.default.createDirectory(
             at: FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0],
@@ -21,11 +23,16 @@ final class Session {
 
     /// Starts TIDAL device linking; the user approves the code on link.tidal.com.
     func beginLogin() async {
+        cancelLogin()
+        let attempt = UUID()
+        loginAttempt = attempt
         error = nil
         do {
             let login = try await startDeviceLogin()
+            guard loginAttempt == attempt else { login.cancel(); return }
             pending = login
             let result = try await login.wait()
+            guard loginAttempt == attempt else { return }
             // Over a session: the old one detaches with its own credentials; the hub then starts the new one.
             if signedIn { HandoffHub.shared.stop() }
             tokens.save(result)
@@ -34,12 +41,15 @@ final class Session {
             Boot.shared.start()   // first-time warm-up, only after a fresh sign-in
             signedIn = true
         } catch {
+            guard loginAttempt == attempt else { return }
             self.error = friendlyMessage(error)
         }
+        loginAttempt = nil
         pending = nil
     }
 
     func cancelLogin() {
+        loginAttempt = nil
         pending?.cancel()
         pending = nil
     }
@@ -48,6 +58,7 @@ final class Session {
     /// downloads, then clears the credentials.
     func logOut() {
         HandoffHub.shared.signOut()
+        Live.shared.signOut()
         Player.shared.stopAndClear()
         Task {
             await Downloads.shared.removeAll()
@@ -60,6 +71,7 @@ final class Session {
     /// Dev: wipes Keychain, defaults, caches and files, stops playback, back to login.
     func eraseAll() {
         HandoffHub.shared.signOut()
+        Live.shared.signOut()
         Player.shared.stopAndClear()
         Task { await eraseRest() }
     }
@@ -67,6 +79,8 @@ final class Session {
     private func eraseRest() async {
         await Downloads.shared.removeAll()
         Keychain.wipe()
+        Preferences.shared.reset()
+        Recents.shared.reset()
         if let id = Bundle.main.bundleIdentifier { UserDefaults.standard.removePersistentDomain(forName: id) }
         Diagnostics.shared.setConsent(.unset)
         // Empties the diagnostics log and the previous session; the core keeps diag.log open, so its directory stays.

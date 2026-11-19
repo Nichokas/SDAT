@@ -47,7 +47,6 @@ struct SDATApp: App {
             } message: {
                 Text("If SDAT crashes or hits an error, send a report to the developer so it can be fixed. Reports include the error, a stack trace, recent log entries, the app version, and the device model and iOS version, but no account details. You can change this in Settings > Diagnostics.")
             }
-            .preferredColorScheme(.dark)
             .tint(.blue)
         }
         .onChange(of: phase) { _, p in

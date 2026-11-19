@@ -169,6 +169,7 @@ final class Downloads {
         savePending()
         frozen = true
         pending = []; progress = [:]; activeOrder = []; activeTracks = [:]
+        currentID = nil
         worker?.cancel()
     }
     /// Re-queues downloads interrupted by expiry, a kill or a crash.
@@ -216,8 +217,11 @@ final class Downloads {
         pending.removeAll { $0.id == id }
         if progress[id] != nil, batchTotal > 0 { batchTotal -= 1 }
         progress[id] = nil
-        if currentID != id { activeOrder.removeAll { $0 == id }; activeTracks[id] = nil }
-        if currentID == id { worker?.cancel() }
+        activeOrder.removeAll { $0 == id }; activeTracks[id] = nil
+        if currentID == id {
+            currentID = nil
+            worker?.cancel()
+        }
         savePending()
     }
     func cancelAll() { for id in Array(progress.keys) { cancel(id) } }
@@ -239,6 +243,7 @@ final class Downloads {
     func removeAll() async {
         pending = []
         progress = [:]; activeOrder = []; activeTracks = [:]
+        currentID = nil
         while let w = worker { w.cancel(); await w.value; if worker == w { worker = nil } }
         failures = [:]; entries = [:]; coverMap = [:]
         await indexWrite?.value; indexWrite = nil
@@ -258,20 +263,20 @@ final class Downloads {
                 let bg = UIApplication.shared.beginBackgroundTask(withName: "download") {}
                 do {
                     let e = try await self.fetch(t)
-                    if self.progress[t.id] != nil {          // not cancelled meanwhile
+                    if !Task.isCancelled {
                         self.entries[t.id] = e
                         self.saveIndex()
                     } else { try? FileManager.default.removeItem(at: Self.dir.appendingPathComponent(e.file)) }
                 } catch is CancellationError {
                 } catch {
-                    if self.progress[t.id] != nil { self.failures[t.id] = friendlyMessage(error) }
+                    if !Task.isCancelled { self.failures[t.id] = friendlyMessage(error) }
                 }
                 UIApplication.shared.endBackgroundTask(bg)
+                if Task.isCancelled { self.worker = nil; self.pump(); return }
                 self.progress[t.id] = nil
                 self.activeOrder.removeAll { $0 == t.id }; self.activeTracks[t.id] = nil
                 self.currentID = nil
                 self.savePending()
-                if Task.isCancelled { self.worker = nil; self.pump(); return }
             }
             self?.worker = nil
         }
@@ -325,7 +330,8 @@ final class Downloads {
             for (i, u) in parts.enumerated() {
                 try Task.checkCancellation()
                 guard progress[t.id] != nil else { throw CancellationError() }
-                let d = try await Self.get(u, net)
+                let (d, _) = try await Self.get(u, net)
+                try Task.checkCancellation()
                 if i == 0 { (sampleRate, bitDepth) = Self.audioSpec(init: d) }
                 try h.write(contentsOf: d)
                 progress[t.id] = Double(i + 1) / Double(parts.count)
@@ -347,7 +353,7 @@ final class Downloads {
             let cname = "cover-\(a.id).jpg"
             let cf = Self.dir.appendingPathComponent(cname)
             if FileManager.default.fileExists(atPath: cf.path) { cover = cname }
-            else if let d = try? await Self.get(cu, net), !Task.isCancelled { try? d.write(to: cf, options: .atomic); cover = cname }
+            else if let d = try? await Self.get(cu, net).0, !Task.isCancelled { try? d.write(to: cf, options: .atomic); cover = cname }
         }
         if let a = t.album, let cover {
             for r in [a.coverUrl, a.coverUrlLarge].compactMap({ $0 }) { coverMap[r] = Self.dir.appendingPathComponent(cover) }
@@ -434,14 +440,14 @@ final class Downloads {
     }
 
     /// Downloads with 3 attempts (backoff 1 s, 2 s).
-    private static func get(_ u: URL, _ net: URLSession) async throws -> Data {
+    private static func get(_ u: URL, _ net: URLSession) async throws -> (Data, URL) {
         var last: Error = URLError(.unknown)
         for attempt in 0..<3 {
             try Task.checkCancellation()
             do {
                 let (d, r) = try await net.data(from: u)
                 if let h = r as? HTTPURLResponse, !(200..<300).contains(h.statusCode) { throw URLError(.badServerResponse) }
-                return d
+                return (d, r.url ?? u)
             } catch let e as URLError where e.code == .cancelled { throw CancellationError() }
             catch { last = error; try await Task.sleep(for: .seconds(attempt + 1)) }
         }
@@ -456,9 +462,9 @@ final class Downloads {
             return (text, nil)
         }
         guard let u = URL(string: s) else { throw Failure.unsupported("manifest URL") }
-        let d = try await get(u, net)
+        let (d, base) = try await get(u, net)
         guard let text = String(data: d, encoding: .utf8) else { throw Failure.unsupported("manifest") }
-        return (text, u)
+        return (text, base)
     }
 
     private static func parse(_ text: String, base: URL?) throws -> (map: URL, segments: [URL]) {
@@ -471,8 +477,11 @@ final class Downloads {
                 throw Failure.unsupported("byte ranges")
             } else if l.hasPrefix("#EXT-X-MAP"), let r = l.range(of: #"URI="([^"]+)""#, options: .regularExpression) {
                 let uri = l[r].dropFirst(5).dropLast()
-                map = URL(string: String(uri), relativeTo: base)?.absoluteURL
+                guard let nextMap = URL(string: String(uri), relativeTo: base)?.absoluteURL else { throw Failure.unsupported("initialization URL") }
+                if let map, map != nextMap, !segs.isEmpty { throw Failure.unsupported("multiple initialization segments") }
+                map = nextMap
             } else if !l.isEmpty, !l.hasPrefix("#") {
+                guard map != nil else { throw Failure.unsupported("MPEG-TS") }
                 guard let u = URL(string: l, relativeTo: base)?.absoluteURL else { throw Failure.unsupported("segment URL") }
                 segs.append(u)
             }

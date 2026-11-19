@@ -147,7 +147,7 @@ final class Player {
     /// pool (from the tapped one onwards, wrapping), then the endless Discover shuffle.
     func playDiscover(_ track: Track, pool: [Track], mixes: [Mix]) {
         recentIDs = []; recentOrder = []
-        restoredInfinite = false
+        restoredInfinite = mixes.isEmpty
         var seen: Set<String> = [String(describing: track.id)]
         let i = pool.firstIndex { $0.id == track.id } ?? 0
         let rest = (Array(pool.dropFirst(i + 1)) + Array(pool.prefix(i)))
@@ -1227,8 +1227,11 @@ final class Player {
         }
         Favs.shared.onChange = { [weak self] in MainActor.assumeIsolated { self?.syncRemote() } }
         c.changePlaybackPositionCommand.addTarget { [weak self] event in
-            guard let e = event as? MPChangePlaybackPositionCommandEvent else { return .commandFailed }
-            MainActor.assumeIsolated { if !Live.shared.guestRefuses() { self?.seek(to: e.positionTime) } }
+            guard let e = event as? MPChangePlaybackPositionCommandEvent,
+                  e.positionTime >= 0, e.positionTime < Double(Int64.max) / 1000 else { return .commandFailed }
+            MainActor.assumeIsolated {
+                if !Live.shared.userSeek(e.positionTime) { self?.seek(to: e.positionTime) }
+            }
             return .success
         }
     }

@@ -68,6 +68,15 @@ final class Preferences {
         scrobbleLastFm = d.bool(forKey: "scrobbleLastFm")
         scrobbleListenBrainz = d.bool(forKey: "scrobbleListenBrainz")
     }
+
+    func reset() {
+        streamingQuality = .hiFi
+        downloadQuality = .hiFi
+        downloadOverCellular = false
+        preloadNext = true
+        scrobbleLastFm = false
+        scrobbleListenBrainz = false
+    }
 }
 
 /// tonearm-core reads its config through this callback.

@@ -4,16 +4,14 @@ import SwiftUI
 /// Full player. Swipe left (or tap the queue button) for the queue.
 struct PlayerSheet: View {
     @Environment(Player.self) private var player
-    @Environment(\.scenePhase) private var phase
     @State private var page = 0
-    @State private var systemLight = false
 
     var body: some View {
         // Read in body so Observation re-renders this view when either flag changes.
         let showLive = Live.shared.showSheet && Chrome.shared.showPlayer
         ZStack {
             CoverBackdrop(url: player.current?.album?.coverUrlLarge ?? player.current?.album?.coverUrl,
-                          animated: player.isPlaying, bpm: player.current?.bpm, light: systemLight)
+                          animated: player.isPlaying, bpm: player.current?.bpm)
                 .ignoresSafeArea()
             TabView(selection: $page) {
                 NowPlayingPage(showQueue: { withAnimation { page = 1 } }).tag(0)
@@ -30,14 +28,7 @@ struct PlayerSheet: View {
                              set: { Chrome.shared.playlistPickerTrack = $0 })) { t in PlaylistPicker(track: t) }
         .toastOverlay(Chrome.shared.toast)
         .presentationDragIndicator(.visible)
-        .presentationBackground(.black)
-        .preferredColorScheme(.dark)
-        // The app forces dark, which hides the iPhone's setting from the environment; the screen's
-        // traits still carry it. Toggling it in Control Center makes the app inactive, then active.
-        .onChange(of: phase, initial: true) {
-            let screen = UIApplication.shared.connectedScenes.compactMap { ($0 as? UIWindowScene)?.screen }.first
-            systemLight = screen?.traitCollection.userInterfaceStyle == .light
-        }
+        .presentationBackground(Color(.systemBackground))
     }
 }
 
@@ -72,10 +63,10 @@ private struct NowPlayingPage: View {
                     HStack(spacing: 6) {
                         if player.isOffline {
                             Image(systemName: "arrow.down.circle.fill").font(.footnote)
-                                .foregroundStyle(.white.opacity(0.65))
+                                .foregroundStyle(Color.primary.opacity(0.65))
                                 .accessibilityLabel("Playing downloaded copy")
                         }
-                        Text(player.current?.artistLine ?? "").foregroundStyle(.white.opacity(0.65)).lineLimit(1)
+                        Text(player.current?.artistLine ?? "").foregroundStyle(Color.primary.opacity(0.65)).lineLimit(1)
                     }
                 }
                 .id(player.current?.id)
@@ -101,7 +92,7 @@ private struct NowPlayingPage: View {
                 }
                 .accessibilityLabel("More")
             }
-            .foregroundStyle(.white)
+            .foregroundStyle(Color.primary)
             .buttonStyle(.plain)
             .padding(.top, 24)
 
@@ -114,15 +105,15 @@ private struct NowPlayingPage: View {
                 let q = player.shownQuality ?? prefs.streamingQuality
                 HStack(spacing: 8) {
                     QualityLogo(quality: q, height: 16)
-                    Text(q.badgeText).font(.caption.weight(.semibold)).foregroundStyle(.white.opacity(0.7))
+                    Text(q.badgeText).font(.caption.weight(.semibold)).foregroundStyle(Color.primary.opacity(0.7))
                         .lineLimit(1).fixedSize()
-                    Image(systemName: "chevron.up.chevron.down").font(.caption2.weight(.semibold)).foregroundStyle(.white.opacity(0.5))
+                    Image(systemName: "chevron.up.chevron.down").font(.caption2.weight(.semibold)).foregroundStyle(Color.primary.opacity(0.5))
                 }
                 .frame(minHeight: 44)
                 .contentShape(.rect)
                 .animation(.smooth, value: q)
             }
-            .foregroundStyle(.white)
+            .foregroundStyle(Color.primary)
             .padding(.top, 2)
 
             HStack(spacing: 46) {
@@ -135,7 +126,7 @@ private struct NowPlayingPage: View {
                 .accessibilityLabel("Previous")
                 Button { Live.shared.userToggle() } label: {
                     Group {
-                        if player.loading { ProgressView().controlSize(.large).tint(.white) } else {
+                        if player.loading { ProgressView().controlSize(.large).tint(.primary) } else {
                             Image(systemName: player.isPlaying ? "pause.fill" : "play.fill").font(.system(size: 46))
                                 .contentTransition(.symbolEffect(.replace))
                         }
@@ -152,7 +143,7 @@ private struct NowPlayingPage: View {
                 .sensoryFeedback(.impact(weight: .light), trigger: nextTap)
                 .accessibilityLabel("Next")
             }
-            .foregroundStyle(.white)
+            .foregroundStyle(Color.primary)
             .buttonStyle(.plain)
             .padding(.top, 20)
 
@@ -166,7 +157,7 @@ private struct NowPlayingPage: View {
                 .buttonStyle(.plain)
                 .accessibilityLabel("Queue")
             }
-            .foregroundStyle(.white.opacity(0.85))
+            .foregroundStyle(Color.primary.opacity(0.85))
             .padding(.top, 16)
         }
         .padding(.horizontal, 24)
@@ -183,8 +174,8 @@ private struct RoutePicker: UIViewRepresentable {
     func makeUIView(context: Context) -> AVRoutePickerView {
         let view = AVRoutePickerView()
         view.prioritizesVideoDevices = false
-        view.tintColor = UIColor.white.withAlphaComponent(0.85)
-        view.activeTintColor = .white
+        view.tintColor = UIColor.label.withAlphaComponent(0.85)
+        view.activeTintColor = .label
         return view
     }
 
@@ -210,13 +201,13 @@ private struct Scrubber: View {
                 }
             }
             .disabled(Live.shared.isGuest && !Live.shared.guestControl)
-            .tint(.white)
+            .tint(.primary)
             HStack {
                 Text(Fmt.time(scrub ?? player.position))
                 Spacer()
                 Text("-" + Fmt.time(player.duration - (scrub ?? player.position)))
             }
-            .font(.caption.monospacedDigit()).foregroundStyle(.white.opacity(0.6))
+            .font(.caption.monospacedDigit()).foregroundStyle(Color.primary.opacity(0.6))
         }
     }
 }
@@ -236,7 +227,7 @@ private struct QueuePage: View {
         NavigationStack {
             List {
                 if let t = player.current {
-                    Section("Now Playing") { TrackRow(track: t).listRowBackground(Color.white.opacity(0.06)) }
+                    Section("Now Playing") { TrackRow(track: t).listRowBackground(Color.primary.opacity(0.06)) }
                 }
                 if Live.shared.isGuest {
                     // Guests follow the host's queue; the header opens the session sheet.
@@ -244,11 +235,11 @@ private struct QueuePage: View {
                         ForEach(Live.shared.upNext) { row in
                             TrackRow(track: row.track).trackMenu(row.track)
                         }
-                        .listRowBackground(Color.white.opacity(0.06))
+                        .listRowBackground(Color.primary.opacity(0.06))
                     } header: {
                         Button { Live.shared.showSheet = true } label: {
                             Label("Playing from Listen Together", systemImage: "dot.radiowaves.left.and.right")
-                                .foregroundStyle(.white)
+                                .foregroundStyle(Color.primary)
                         }
                     }
                 } else if !player.userQueue.isEmpty {
@@ -260,7 +251,7 @@ private struct QueuePage: View {
                         }
                         .onMove { player.moveUserQueue(from: $0, to: $1) }
                         .onDelete { player.removeUserQueue(at: $0) }
-                        .listRowBackground(Color.white.opacity(0.06))
+                        .listRowBackground(Color.primary.opacity(0.06))
                     }
                 }
                 if !Live.shared.isGuest {
@@ -272,7 +263,7 @@ private struct QueuePage: View {
                     }
                     .onMove { player.moveUpNext(from: $0, to: $1) }
                     .onDelete { player.removeUpNext(at: $0) }
-                    .listRowBackground(Color.white.opacity(0.06))
+                    .listRowBackground(Color.primary.opacity(0.06))
                 }
                 }
             }
@@ -285,23 +276,23 @@ private struct QueuePage: View {
                 ToolbarItem(placement: .topBarLeading) {
                     Button { Live.shared.showSheet = true } label: {
                         Image(systemName: "dot.radiowaves.left.and.right")
-                            .foregroundStyle(Live.shared.active ? .white : .white.opacity(0.45))
+                            .foregroundStyle(Live.shared.active ? Color.primary : Color.primary.opacity(0.45))
                     }
                     .accessibilityLabel("Listen Together")
                 }
                 ToolbarItemGroup(placement: .topBarTrailing) {
                     Button { player.setShuffle(!player.shuffle) } label: {
-                        Image(systemName: "shuffle").foregroundStyle(player.shuffle ? .white : .white.opacity(0.45))
+                        Image(systemName: "shuffle").foregroundStyle(player.shuffle ? Color.primary : Color.primary.opacity(0.45))
                     }
                     .accessibilityLabel(player.shuffle ? "Shuffle: On" : "Shuffle: Off")
                     Button { player.cycleRepeat() } label: {
                         Image(systemName: player.repeatMode == .one ? "repeat.1" : "repeat")
-                            .foregroundStyle(player.repeatMode == .off ? .white.opacity(0.45) : .white)
+                            .foregroundStyle(player.repeatMode == .off ? Color.primary.opacity(0.45) : Color.primary)
                     }
                     .accessibilityLabel(repeatLabel)
                 }
             }
-            .background { ZStack { Color.black.opacity(0.55); Rectangle().fill(.ultraThinMaterial).opacity(0.9) }.ignoresSafeArea() }
+            .background { ZStack { Color(.systemBackground).opacity(0.55); Rectangle().fill(.ultraThinMaterial).opacity(0.9) }.ignoresSafeArea() }
         }
     }
 }

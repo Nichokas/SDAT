@@ -60,7 +60,7 @@ struct DownloadsView: View {
         }
         .listStyle(.plain)
         .scrollContentBackground(.hidden)
-        .background(Color.black)
+        .background(Color(.systemBackground))
         .navigationTitle("Downloads")
         .toolbar {
             if !saved.isEmpty {
@@ -68,8 +68,8 @@ struct DownloadsView: View {
                     Button("Play", systemImage: "play.fill") { player.play(saved, from: "Downloads") }
                     Button("Shuffle", systemImage: "shuffle") { player.playShuffled(saved, from: "Downloads") }
                     Button("Delete All Downloads", systemImage: "trash", role: .destructive) { confirmAll = true }
-                } label: { Image(systemName: "ellipsis").foregroundStyle(.white) }
-                .tint(.white)
+                } label: { Image(systemName: "ellipsis").foregroundStyle(.primary) }
+                .tint(.primary)
             }
         }
         .confirmationDialog("Delete all downloads?", isPresented: $confirmAll, titleVisibility: .visible) {

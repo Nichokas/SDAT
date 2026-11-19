@@ -25,6 +25,10 @@ final class Recents {
         }
     }
 
+    func reset() {
+        items.removeAll()
+    }
+
     func add(_ item: Item) {
         items.removeAll { $0.id == item.id && $0.kind == item.kind }
         items.insert(item, at: 0)
