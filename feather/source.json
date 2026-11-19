@@ -18,6 +18,15 @@
       "category": "entertainment",
       "versions": [
         {
+          "version": "2.4.0",
+          "buildVersion": "18",
+          "date": "2026-11-19T21:07:38Z",
+          "localizedDescription": "## What's Changed\n* Core: expire the cached access token by wall clock, not uptime by @Nichokas in https://github.com/Nichokas/SDAT/pull/177\n* Core: log Discover 400 request details safely by @Nichokas in https://github.com/Nichokas/SDAT/pull/179\n* Core: fix filtered search HTTP 400 errors by @Nichokas in https://github.com/Nichokas/SDAT/pull/178\n* Keep scrolled track pages in the desktop playback queue by @Nichokas in https://github.com/Nichokas/SDAT/pull/202\n* Fix removal of repeated tracks from mobile playlists by @Nichokas in https://github.com/Nichokas/SDAT/pull/215\n* Retry failed playlist pages on mobile by @Nichokas in https://github.com/Nichokas/SDAT/pull/214\n* fix(core): mark Explore tracks as streamable by @Nichokas in https://github.com/Nichokas/SDAT/pull/216\n* fix(desktop): group Feed entries by local dates by @Nichokas in https://github.com/Nichokas/SDAT/pull/219\n* fix(desktop): preserve playlist row selection across reorders by @Nichokas in https://github.com/Nichokas/SDAT/pull/218\n* fix(android): keep downloads playing when streaming quality changes by @Nichokas in https://github.com/Nichokas/SDAT/pull/217\n* fix(desktop): synchronize track favourite buttons by @Nichokas in https://github.com/Nichokas/SDAT/pull/220\n* fix(build): repair Cargo setup, iOS archives, and Flatpak sources by @Nichokas in https://github.com/Nichokas/SDAT/pull/224\n* fix(ios): correct session, downloads, playback, and appearance by @Nichokas in https://github.com/Nichokas/SDAT/pull/226\n* fix(core): recover catalogue requests, mobile search, and device sign-in by @Nichokas in https://github.com/Nichokas/SDAT/pull/225\n* fix(desktop): correct queue, playback, pagination, and locale behavior by @Nichokas in https://github.com/Nichokas/SDAT/pull/223\n* refactor(mobile): extract Listen Together playback engines by @Nichokas in https://github.com/Nichokas/SDAT/pull/227\n* Import a public Spotify playlist into a new TIDAL playlist by @Nichokas in https://github.com/Nichokas/SDAT/pull/221\n* Hand off Discover as endless and repeat all as the whole list by @Nichokas in https://github.com/Nichokas/SDAT/pull/222\n\n\n**Full Changelog**: https://github.com/Nichokas/SDAT/compare/v2.3.2...v2.4.0",
+          "downloadURL": "https://github.com/Nichokas/SDAT/releases/download/v2.4.0/SDAT-v2.4.0-unsigned.ipa",
+          "size": 11901047,
+          "minOSVersion": "26.0"
+        },
+        {
           "version": "2.3.2",
           "buildVersion": "17",
           "date": "2026-11-17T20:41:31Z",
@@ -144,11 +153,11 @@
           "minOSVersion": "26.0"
         }
       ],
-      "version": "2.3.2",
-      "versionDate": "2026-11-17T20:41:31Z",
-      "versionDescription": "## What's Changed\n* Core: stop logging hidden TIDAL item types as errors by @Nichokas in https://github.com/Nichokas/SDAT/pull/173\n* Mobile: pick the TIDAL country in Settings, automatic by default by @Nichokas in https://github.com/Nichokas/SDAT/pull/174\n* iOS: build the dSYM and upload it to Sentry on releases by @Nichokas in https://github.com/Nichokas/SDAT/pull/175\n* iOS: keep the paused player in Now Playing for 10 minutes by @Nichokas in https://github.com/Nichokas/SDAT/pull/176\n\n\n**Full Changelog**: https://github.com/Nichokas/SDAT/compare/v2.3.1...v2.3.2",
-      "downloadURL": "https://github.com/Nichokas/SDAT/releases/download/v2.3.2/SDAT-v2.3.2-unsigned.ipa",
-      "size": 11751940
+      "version": "2.4.0",
+      "versionDate": "2026-11-19T21:07:38Z",
+      "versionDescription": "## What's Changed\n* Core: expire the cached access token by wall clock, not uptime by @Nichokas in https://github.com/Nichokas/SDAT/pull/177\n* Core: log Discover 400 request details safely by @Nichokas in https://github.com/Nichokas/SDAT/pull/179\n* Core: fix filtered search HTTP 400 errors by @Nichokas in https://github.com/Nichokas/SDAT/pull/178\n* Keep scrolled track pages in the desktop playback queue by @Nichokas in https://github.com/Nichokas/SDAT/pull/202\n* Fix removal of repeated tracks from mobile playlists by @Nichokas in https://github.com/Nichokas/SDAT/pull/215\n* Retry failed playlist pages on mobile by @Nichokas in https://github.com/Nichokas/SDAT/pull/214\n* fix(core): mark Explore tracks as streamable by @Nichokas in https://github.com/Nichokas/SDAT/pull/216\n* fix(desktop): group Feed entries by local dates by @Nichokas in https://github.com/Nichokas/SDAT/pull/219\n* fix(desktop): preserve playlist row selection across reorders by @Nichokas in https://github.com/Nichokas/SDAT/pull/218\n* fix(android): keep downloads playing when streaming quality changes by @Nichokas in https://github.com/Nichokas/SDAT/pull/217\n* fix(desktop): synchronize track favourite buttons by @Nichokas in https://github.com/Nichokas/SDAT/pull/220\n* fix(build): repair Cargo setup, iOS archives, and Flatpak sources by @Nichokas in https://github.com/Nichokas/SDAT/pull/224\n* fix(ios): correct session, downloads, playback, and appearance by @Nichokas in https://github.com/Nichokas/SDAT/pull/226\n* fix(core): recover catalogue requests, mobile search, and device sign-in by @Nichokas in https://github.com/Nichokas/SDAT/pull/225\n* fix(desktop): correct queue, playback, pagination, and locale behavior by @Nichokas in https://github.com/Nichokas/SDAT/pull/223\n* refactor(mobile): extract Listen Together playback engines by @Nichokas in https://github.com/Nichokas/SDAT/pull/227\n* Import a public Spotify playlist into a new TIDAL playlist by @Nichokas in https://github.com/Nichokas/SDAT/pull/221\n* Hand off Discover as endless and repeat all as the whole list by @Nichokas in https://github.com/Nichokas/SDAT/pull/222\n\n\n**Full Changelog**: https://github.com/Nichokas/SDAT/compare/v2.3.2...v2.4.0",
+      "downloadURL": "https://github.com/Nichokas/SDAT/releases/download/v2.4.0/SDAT-v2.4.0-unsigned.ipa",
+      "size": 11901047
     }
   ],
   "news": []
