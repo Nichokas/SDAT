@@ -75,7 +75,9 @@ impl Written {
                 // has to be exactly that rotation: an append would land inside the repeated list.
                 Repeat::All => {
                     let rotated = tracks.len() == self.wrote.len() && tracks.starts_with(rest) && tracks.ends_with(before);
-                    (rotated && (own || k == 0)).then_some(tracks.len())
+                    // A queue taken over was read as its whole batch only if it repeated then: under any
+                    // other mode the batch may hold tracks from before its current one.
+                    (rotated && (own || (k == 0 && self.repeat == Repeat::All))).then_some(tracks.len())
                 }
                 _ if rest == tracks => Some(tracks.len()),
                 Repeat::Off if own => tracks.starts_with(rest).then_some(rest.len()),
@@ -705,6 +707,20 @@ mod tests {
         // Its batch on TIDAL is not known: nothing is appended to it, and it is not taken for a repeated list.
         assert!(matches!(m.plan(&local("1", &["2", "3"], 0, true), 0).first(), Some(Write::Queue(_))));
         assert!(matches!(m.plan(&repeating("2", &[], &["1"]), 0).first(), Some(Write::Queue(_))));
+        // Not even as it is: TIDAL would repeat the tracks its batch holds from before the one taken over.
+        assert!(matches!(m.plan(&repeating("1", &["2"], &[]), 0).first(), Some(Write::Queue(_))));
+    }
+
+    #[test]
+    fn a_repeating_queue_taken_over_is_kept_as_it_is() {
+        let all = Head { repeat: Repeat::All, ..head("r", "1", "phone") };
+        let mut m = Mirror::new(ME.into());
+        m.fetched(state(Some(ME), Status::Playing), Some(all.clone()), None);
+        m.adopt(Entry { track_id: "1".into(), item_id: "i1".into() }, &all, 0, 0);
+        m.local_playing = true;
+        // What follows it was read as TIDAL repeats it: the rest of the batch, then its start.
+        assert!(m.adopted_future("r", entries(&["2", "3"])));
+        assert_eq!(m.plan(&repeating("1", &["2", "3"], &[]), 0), vec![Write::Current { index: 0, position_ms: 0 }]);
     }
 
     #[test]
