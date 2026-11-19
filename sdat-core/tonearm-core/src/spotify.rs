@@ -255,6 +255,9 @@ impl Session<'_> {
     fn get(&self, url: &str) -> Result<Response> {
         let mut attempt = 0;
         loop {
+            if (self.cancelled)() {
+                return Err(CoreError::Cancelled("Spotify import cancelled".into()));
+            }
             attempt += 1;
             let token = lock(&self.token).clone();
             let resp = crate::diag::net::send(http().get(url).bearer_auth(&token).header("Accept", "application/json")).map_err(unreachable)?;
@@ -273,7 +276,7 @@ impl Session<'_> {
                     // In short steps, so that a cancel does not wait for Spotify.
                     for _ in 0..wait.as_secs() * 4 {
                         if (self.cancelled)() {
-                            return Err(CoreError::Cancelled("Spotify import cancelled".into()));
+                            break;
                         }
                         std::thread::sleep(Duration::from_millis(250));
                     }
