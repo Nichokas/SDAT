@@ -155,6 +155,7 @@ fn section(m: &legacy::Module) -> Option<ExploreSection> {
                 .map(|it| {
                     model::track_from_v2(&legacy::TrackItemData {
                         album: legacy::TrackItemDataAlbum { cover: it.album.cover.clone(), id: it.album.id, title: it.album.title.clone(), ..Default::default() },
+                        allow_streaming: true,
                         artists: it.artists.iter().map(|a| legacy::ArtistItemData { id: a.id, name: a.name.clone(), ..Default::default() }).collect(),
                         duration: it.duration,
                         id: it.id.int,
@@ -316,6 +317,18 @@ mod tests {
             .expect("page");
         assert!(got.is_empty());
         assert_eq!(calls, 5, "a server repeating full pages of nothing new stops after a few requests");
+    }
+
+    #[test]
+    fn explore_track_list_marks_tracks_streamable() {
+        let page: legacy::Page = serde_json::from_str(
+            r#"{"rows":[{"modules":[{"type":"TRACK_LIST","pagedList":{"items":[{"id":42,"title":"Track","duration":180}]}}]}]}"#,
+        )
+        .expect("page");
+        let explore = explore_page(&page);
+        let tracks = &explore.sections[0].tracks;
+        assert_eq!(ids(tracks), ["42"]);
+        assert_eq!(tracks.iter().map(|track| track.info.streamable).collect::<Vec<_>>(), [true]);
     }
 
     #[test]
