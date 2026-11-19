@@ -403,19 +403,17 @@ fn clear_queues() {
     base_queue().clear();
 }
 
+fn pop_user_queue() -> Option<Track> {
+    let track = user_queue().pop()?;
+    update_pinned(|p| play_next::after_remove(p, 0));
+    let moved = GAPLESS_MOVED.with(|m| m.borrow_mut().take());
+    base_queue().select_user_track(moved.as_deref() == Some(track.id()));
+    Some(track)
+}
+
 fn get_next_track_from_queue(peek: bool, can_rewind: &mut bool) -> Option<Track> {
-    let t = if peek { user_queue().peek() } else { user_queue().pop() };
+    let t = if peek { user_queue().peek() } else { pop_user_queue() };
     if t.is_some() {
-        if !peek {
-            update_pinned(|p| play_next::after_remove(p, 0));
-            // Forget the moved gapless entry only once that entry is consumed.
-            GAPLESS_MOVED.with(|m| {
-                let mut m = m.borrow_mut();
-                let moved = t.as_ref().is_some_and(|t| m.as_deref() == Some(t.id()));
-                m.take();
-                base_queue().select_user_track(moved);
-            });
-        }
         return t;
     }
     let t = if peek { base_queue().peek() } else { base_queue().pop() };
@@ -519,7 +517,16 @@ pub enum QueueKind {
 /// Skips `to` entries of a queue (adding them to the history) and plays the next.
 pub fn skip_through_queue(kind: QueueKind, to: usize) {
     let res = match kind {
-        QueueKind::User => user_queue().skip(to).inspect(|_| update_pinned(|p| play_next::after_skip(p, to))),
+        QueueKind::User => user_queue().skip(to).inspect(|skipped| {
+            update_pinned(|p| play_next::after_skip(p, to));
+            GAPLESS_MOVED.with(|m| {
+                let mut moved = m.borrow_mut();
+                if skipped.iter().any(|t| moved.as_deref() == Some(t.id())) {
+                    moved.take();
+                    base_queue().forget_gapless();
+                }
+            });
+        }),
         QueueKind::Base => base_queue().skip(to),
     };
     match res {
@@ -528,12 +535,7 @@ pub fn skip_through_queue(kind: QueueKind, to: usize) {
                 history().prepend(t);
             }
             let next = match kind {
-                QueueKind::User => {
-                    update_pinned(|p| play_next::after_remove(p, 0));
-                    GAPLESS_MOVED.with(|m| m.borrow_mut().take());
-                    base_queue().select_user_track(false);
-                    user_queue().pop()
-                }
+                QueueKind::User => pop_user_queue(),
                 QueueKind::Base => base_queue().pop(),
             };
             match next {
@@ -833,6 +835,21 @@ mod playlist_tests {
         track.info.streamable = true;
         track.playlist_item_id = item.map(str::to_owned);
         track
+    }
+
+    #[test]
+    fn clicking_prepared_user_queue_head_preserves_its_base_occurrence() {
+        base_queue().set(vec![track("A", Some("prepared")), track("A", Some("later")), track("B", None)]);
+        let prepared = base_queue().take_for_gapless().unwrap();
+        GAPLESS_MOVED.with(|m| *m.borrow_mut() = Some(prepared.id().to_owned()));
+        user_queue().prepend(prepared);
+        skip_through_queue(QueueKind::User, 0);
+        set_shuffle(true, "A");
+        base_queue().entries().with(|tracks| {
+            assert_eq!(tracks.len(), 2);
+            assert!(tracks.iter().any(|t| t.playlist_item_id.as_deref() == Some("later")));
+            assert!(!tracks.iter().any(|t| t.playlist_item_id.as_deref() == Some("prepared")));
+        });
     }
 
     #[test]
