@@ -53,6 +53,7 @@ class Session(context: Context) : TokenStore {
         }
         Favs.clear()
         OwnPlaylists.clear()
+        SpotifyImporter.clear()
         sessionChanged()
         Boot.start(app)
         signedIn = true
@@ -71,6 +72,7 @@ class Session(context: Context) : TokenStore {
         picture.value = null
         Favs.clear()
         OwnPlaylists.clear()
+        SpotifyImporter.clear()
         Recents.clear()
         sessionChanged()
         signedIn = false

@@ -67,7 +67,7 @@ pub fn fetch_playlist(id: &str, progress: &(dyn Fn(usize, usize) + Sync), cancel
     if resp.status() != StatusCode::OK {
         return Err(unexpected(resp.status()));
     }
-    let (name, entries) = parse_playlist(&resp.bytes()?)?;
+    let (name, entries) = parse_playlist(&resp.bytes().map_err(unreachable)?)?;
     let ids: Vec<&str> = entries.iter().filter_map(|uri| uri.strip_prefix("spotify:track:")).collect();
 
     let next = AtomicUsize::new(0);
@@ -119,9 +119,9 @@ fn http() -> &'static Client {
 const NOT_FOUND: &str = "Spotify playlist not found. Make sure it is public.";
 
 fn fetch_token(playlist_id: &str) -> Result<String> {
-    let resp = crate::diag::net::send(http().get(format!("{EMBED}/{playlist_id}")))?;
+    let resp = crate::diag::net::send(http().get(format!("{EMBED}/{playlist_id}"))).map_err(unreachable)?;
     match resp.status() {
-        StatusCode::OK => parse_embed_token(&resp.text()?),
+        StatusCode::OK => parse_embed_token(&resp.text().map_err(unreachable)?),
         StatusCode::NOT_FOUND => bail!("{NOT_FOUND}"),
         s => Err(unexpected(s)),
     }
@@ -151,6 +151,12 @@ fn parse_embed_token(html: &str) -> Result<String> {
 /// every other kind of error as a TIDAL failure.
 fn unexpected(status: StatusCode) -> CoreError {
     CoreError::Other(format!("Spotify did not answer as expected (HTTP {}). Try again later.", status.as_u16()))
+}
+
+#[expect(clippy::needless_pass_by_value, reason = "the signature `map_err` calls")]
+fn unreachable(e: reqwest::Error) -> CoreError {
+    log::warn!("Spotify request failed: {e}");
+    CoreError::Other("Can't reach Spotify. Check your connection and try again.".into())
 }
 
 /// Name and entry URIs of a `spclient` playlist answer.
@@ -241,7 +247,7 @@ impl Session {
         loop {
             attempt += 1;
             let token = lock(&self.token).clone();
-            let resp = crate::diag::net::send(http().get(url).bearer_auth(&token).header("Accept", "application/json"))?;
+            let resp = crate::diag::net::send(http().get(url).bearer_auth(&token).header("Accept", "application/json")).map_err(unreachable)?;
             match resp.status() {
                 StatusCode::UNAUTHORIZED if attempt < ATTEMPTS => {
                     let mut current = lock(&self.token);
@@ -266,7 +272,7 @@ impl Session {
         let Some(hex) = hex_id(id) else { return Ok(None) };
         let resp = self.get(&format!("{SPCLIENT}/metadata/4/track/{hex}"))?;
         match resp.status() {
-            StatusCode::OK => parse_track(&resp.bytes()?).map(Some),
+            StatusCode::OK => parse_track(&resp.bytes().map_err(unreachable)?).map(Some),
             StatusCode::NOT_FOUND => Ok(None),
             s => Err(unexpected(s)),
         }

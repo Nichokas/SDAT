@@ -39,7 +39,7 @@ object SpotifyImporter {
             }
         }
         scope.launch {
-            state = try {
+            val result = try {
                 val report = import.run(listener)
                 OwnPlaylists.load(force = true)
                 State.Done(report)
@@ -53,10 +53,21 @@ object SpotifyImporter {
             } catch (e: Exception) {
                 State.Failed(friendlyMessage(e))
             } finally {
-                running = null
                 import.close()
             }
+            // An import the account's sign-out cleared reports nothing to the next account.
+            if (running === import) {
+                running = null
+                state = result
+            }
         }
+    }
+
+    /** Sign-out: stops the import and forgets its result, which belong to the account. */
+    fun clear() {
+        running?.cancel()
+        running = null
+        state = State.Idle
     }
 
     fun cancel() {

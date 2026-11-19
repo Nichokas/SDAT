@@ -47,6 +47,7 @@ final class Session {
     /// Stops playback (nothing restores on next login), cancels and deletes all
     /// downloads, then clears the credentials.
     func logOut() {
+        SpotifyImporter.shared.clear()
         HandoffHub.shared.signOut()
         Player.shared.stopAndClear()
         Task {
@@ -59,6 +60,7 @@ final class Session {
 
     /// Dev: wipes Keychain, defaults, caches and files, stops playback, back to login.
     func eraseAll() {
+        SpotifyImporter.shared.clear()
         HandoffHub.shared.signOut()
         Player.shared.stopAndClear()
         Task { await eraseRest() }

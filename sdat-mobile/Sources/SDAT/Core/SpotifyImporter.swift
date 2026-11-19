@@ -34,9 +34,18 @@ final class SpotifyImporter {
             } catch {
                 result = .failed(friendlyMessage(error))
             }
+            // An import the account's sign-out cleared reports nothing to the next account.
+            guard running === job else { return }
             running = nil
             state = result
         }
+    }
+
+    /// Sign-out: stops the import and forgets its result, which belong to the account.
+    func clear() {
+        running?.cancel()
+        running = nil
+        state = .idle
     }
 
     func cancel() { running?.cancel() }

@@ -76,7 +76,7 @@ pub fn import_playlist(source: &SpotifyPlaylist, progress: &dyn Fn(Progress), ca
     isrcs.dedup();
     for chunk in isrcs.chunks(api::ISRCS_PER_REQUEST) {
         stop()?;
-        by_isrc.extend(best_by_isrc(&api::tracks_by_isrc(chunk)?));
+        by_isrc.extend(best_by_isrc(&patiently(|| api::tracks_by_isrc(chunk))?));
         advance(source.tracks.iter().filter(|t| chunk.contains(&t.isrc.as_str()) && by_isrc.contains_key(&t.isrc)).count());
     }
     let mut found: Vec<Option<String>> = source.tracks.iter().map(|t| by_isrc.get(&t.isrc).cloned()).collect();
@@ -109,6 +109,18 @@ pub fn import_playlist(source: &SpotifyPlaylist, progress: &dyn Fn(Progress), ca
     Ok(Report { playlist_id, name: name.to_owned(), imported: matched.len(), missing, skipped: source.skipped })
 }
 
+/// Runs a TIDAL request again, after a pause, while TIDAL answers that there were too many.
+fn patiently<T>(request: impl Fn() -> Result<T>) -> Result<T> {
+    const PAUSES: [Duration; 3] = [Duration::from_secs(2), Duration::from_secs(5), Duration::from_secs(10)];
+    for pause in PAUSES {
+        match request() {
+            Err(CoreError::Http { status: 429, .. }) => std::thread::sleep(pause),
+            other => return other,
+        }
+    }
+    request()
+}
+
 fn streamable(t: &openapi::TrackData) -> bool {
     t.attributes.availability.iter().any(|a| a == "STREAM")
 }
@@ -125,7 +137,7 @@ fn best_by_isrc(tracks: &[openapi::TrackData]) -> HashMap<String, String> {
 /// TIDAL's first search hit that is the same recording as `track`.
 fn search(track: &SpotifyTrack) -> Result<Option<String>> {
     let query = format!("{} {}", plain_title(&track.title), track.artists.first().map_or("", String::as_str));
-    let found = match api::search(query.trim(), &["tracks.artists"]) {
+    let found = match patiently(|| api::search(query.trim(), &["tracks.artists"])) {
         Ok(found) => found,
         // TIDAL rejects some queries; that track is simply not found.
         Err(CoreError::Http { status: 400 | 404, .. }) => return Ok(None),
@@ -147,8 +159,15 @@ fn same_recording(track: &SpotifyTrack, title: &str, artists: &[String], duratio
 }
 
 /// The title without what the services write differently: `(feat. X)`, `[Live]`, ` - Remastered 2011`.
+/// A dash is part of the song's name unless a decoration follows it (`Love - Hate`).
 fn plain_title(title: &str) -> &str {
-    let end = [" - ", " (", " ["].iter().filter_map(|mark| title.find(mark)).min().unwrap_or(title.len());
+    const DECORATIONS: [&str; 18] =
+        ["remaster", "version", "edit", "mix", "feat", "live", "mono", "stereo", "deluxe", "bonus", "from", "single", "original", "acoustic", "demo", "instrumental", "karaoke", "recorded"];
+    let dash = title.match_indices(" - ").map(|(at, _)| at).find(|at| {
+        let part = title[at + 3..].split(" - ").next().unwrap_or_default().to_lowercase();
+        part.split(|c: char| !c.is_alphanumeric()).any(|word| word.starts_with(|c: char| c.is_ascii_digit()) || DECORATIONS.iter().any(|d| word.starts_with(d)))
+    });
+    let end = [dash, title.find(" ("), title.find(" [")].into_iter().flatten().min().unwrap_or(title.len());
     &title[..end]
 }
 
@@ -221,5 +240,8 @@ mod tests {
     fn decorations_are_cut_from_the_end_of_a_title_only() {
         assert_eq!(plain_title("(I Can't Get No) Satisfaction"), "(I Can't Get No) Satisfaction");
         assert_eq!(plain_title("Song (feat. X) [Live]"), "Song");
+        assert_eq!(plain_title("Song - 2011 Remaster"), "Song");
+        assert_eq!(plain_title("Love - Hate"), "Love - Hate");
+        assert_eq!(plain_title("Love - Hate - Radio Edit"), "Love - Hate");
     }
 }
