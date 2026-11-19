@@ -71,11 +71,11 @@ impl Written {
                 return Some(tracks.len());
             }
             match repeat {
-                // TIDAL repeats the whole batch, the tracks before an entry after its last: the list has to be
-                // exactly that, and an append would land inside the repeated list.
+                // TIDAL repeats the whole batch: `[1, 2, 3]` written, with `2` current, is `[2, 3, 1]`. The list
+                // has to be exactly that rotation: an append would land inside the repeated list.
                 Repeat::All => {
-                    let whole = tracks.len() == self.wrote.len() && tracks.starts_with(rest) && tracks.ends_with(before);
-                    (whole && (own || k == 0)).then_some(tracks.len())
+                    let rotated = tracks.len() == self.wrote.len() && tracks.starts_with(rest) && tracks.ends_with(before);
+                    (rotated && (own || k == 0)).then_some(tracks.len())
                 }
                 _ if rest == tracks => Some(tracks.len()),
                 Repeat::Off if own => tracks.starts_with(rest).then_some(rest.len()),

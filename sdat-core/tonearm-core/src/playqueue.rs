@@ -194,8 +194,10 @@ impl DurableQueue {
 
     /// The source tracks that [`DurableQueue::rewind`] brings back and that
     /// play nowhere else: not queued here, not in the user queue
-    /// (`user_occurrences`) and not the one playing. The ones that played
-    /// come last, in the order they did.
+    /// (`user_occurrences`) and not the one playing. In the source's order,
+    /// which a rewind plays them in. A rewind of a shuffled queue is shuffled
+    /// again: there the ones that played come last, in the order they did,
+    /// so the list only grows at its end.
     pub fn played(&self, current_id: &str, user_occurrences: &[Weak<Track>]) -> Vec<Track> {
         let src = self.source.borrow();
         let current = self.last_taken.get().filter(|&i| src[i].id() == current_id);
@@ -208,7 +210,9 @@ impl DurableQueue {
             .filter(|(i, entry)| Some(*i) != current && !upcoming.contains(i) && !queued.contains(&Rc::as_ptr(entry)))
             .map(|(_, entry)| entry)
             .collect();
-        left.sort_by_key(|entry| taken.get(&Rc::as_ptr(entry)).copied().unwrap_or(0));
+        if self.shuffled.get() {
+            left.sort_by_key(|entry| taken.get(&Rc::as_ptr(entry)).copied().unwrap_or(0));
+        }
         left.into_iter().map(|entry| entry.as_ref().clone()).collect()
     }
 
@@ -563,6 +567,14 @@ mod tests {
         q.skip(2)?;
         q.pop();
         assert_eq!(played(&q, "2"), ["0", "1"]);
+        // Played out of the source's order, which a rewind restores.
+        q.move_entry(0, 1);
+        q.pop();
+        q.pop();
+        assert_eq!(played(&q, "3"), ["0", "1", "2", "4"]);
+        q.set((0..5).map(|i| t(&i.to_string())).collect());
+        q.skip(2)?;
+        q.pop();
         // Shuffled: the others follow in the order they play.
         q.shuffle("2", &[]);
         assert!(played(&q, "2").is_empty());
