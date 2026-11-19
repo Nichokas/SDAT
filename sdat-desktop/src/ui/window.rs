@@ -24,10 +24,29 @@ enum AccountChangeStatus {
     InProgress,
 }
 
-struct AccountChangeGuard;
+#[derive(Default)]
+struct AccountChangeGuard {
+    paused: bool,
+}
+
+impl AccountChangeGuard {
+    fn pause(&mut self) {
+        self.paused = true;
+        crate::ui::components::add_to_playlist::begin_account_change();
+        crate::ui::components::favourite_button::track_favourites_available().set(false);
+    }
+
+    fn resume(&mut self) {
+        if std::mem::take(&mut self.paused) {
+            crate::ui::components::favourite_button::track_favourites_available().set(state::signed_in_changed().get());
+            crate::ui::components::add_to_playlist::end_account_change();
+        }
+    }
+}
 
 impl Drop for AccountChangeGuard {
     fn drop(&mut self) {
+        self.resume();
         ACCOUNT_CHANGING.set(false);
     }
 }
@@ -472,18 +491,15 @@ async fn update_session(refresh_token: Option<String>) -> anyhow::Result<Account
         toast(&tr("An account change is already in progress"));
         return Ok(AccountChangeStatus::InProgress);
     }
-    let change = AccountChangeGuard;
+    let mut change = AccountChangeGuard::default();
     // The keyring worker can finish after its caller stops waiting.
     glib::spawn_future_local(async move {
-        let _change = change;
         let was_signed_in = state::signed_in_changed().get();
         if was_signed_in {
             // Detach with the old account's credentials before replacing them.
             crate::handoff::stop();
         }
-        let favourites = crate::ui::components::favourite_button::track_favourites_available();
-        crate::ui::components::add_to_playlist::begin_account_change();
-        favourites.set(false);
+        change.pause();
         let result = api::run(move || secrets::change_session(refresh_token.as_deref())).await;
         if result.is_ok() {
             crate::cache::allow_prefetch_again();
@@ -493,8 +509,7 @@ async fn update_session(refresh_token: Option<String>) -> anyhow::Result<Account
         if was_signed_in && signed_in {
             crate::handoff::start();
         }
-        favourites.set(signed_in);
-        crate::ui::components::add_to_playlist::end_account_change();
+        change.resume();
         if result.is_ok() {
             router::refresh();
         }
@@ -1034,7 +1049,7 @@ mod tests {
     #[test]
     fn overlapping_account_change_reports_that_the_first_is_still_running() {
         ACCOUNT_CHANGING.set(true);
-        let _active = AccountChangeGuard;
+        let _active = AccountChangeGuard::default();
         let notices = Rc::new(RefCell::new(Vec::new()));
         let seen = Rc::clone(&notices);
         let subscription = player::toasts().on(move |message| {
@@ -1046,6 +1061,26 @@ mod tests {
         assert!(matches!(status, AccountChangeStatus::InProgress));
         assert!(ACCOUNT_CHANGING.get());
         assert_eq!(notices.borrow().as_slice(), &[tr("An account change is already in progress")]);
+    }
+
+    #[test]
+    fn dropping_an_account_change_restores_track_favourites() {
+        let signed_in = state::signed_in_changed();
+        let was_signed_in = signed_in.get();
+        signed_in.set(true);
+        let favourites = crate::ui::components::favourite_button::track_favourites_available();
+        favourites.set(true);
+        ACCOUNT_CHANGING.set(true);
+        let mut change = AccountChangeGuard::default();
+        change.pause();
+        assert!(!favourites.get());
+
+        drop(change);
+
+        assert!(favourites.get());
+        assert!(!ACCOUNT_CHANGING.get());
+        signed_in.set(was_signed_in);
+        favourites.set(was_signed_in);
     }
 
     #[test]
