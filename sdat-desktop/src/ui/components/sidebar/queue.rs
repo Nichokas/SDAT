@@ -43,20 +43,9 @@ fn queue_tracklist(kind: QueueKind) -> TrackList {
     ]);
     list.set_click_handler(move |_, pos| player::skip_through_queue(kind, pos));
     list.bind_tracks(entries(kind));
-    list.set_reorder_callback(Some(Box::new(move |src, dst, track| {
-        if kind == QueueKind::Base {
-            player::base_queue().move_entry(src, dst);
-            return;
-        }
-        entries(kind).notify(|mut q| {
-            if src < q.len() {
-                q.remove(src);
-            }
-            let dst = dst.min(q.len());
-            q.insert(dst, track.clone());
-            q
-        });
-        player::user_queue_moved(src, dst);
+    list.set_reorder_callback(Some(Box::new(move |src, dst, _| match kind {
+        QueueKind::User => player::user_queue_moved(src, dst),
+        QueueKind::Base => player::base_queue().move_entry(src, dst),
     })));
     list
 }

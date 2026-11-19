@@ -118,7 +118,6 @@ pub struct DurableQueue {
     played: Cell<usize>,
     upcoming: RefCell<Vec<usize>>,
     last_taken: Cell<Option<usize>>,
-    gapless_taken: Cell<Option<usize>>,
 }
 
 impl DurableQueue {
@@ -165,29 +164,33 @@ impl DurableQueue {
         self.queue.peek()
     }
 
-    fn take_head(&self, taken: &Cell<Option<usize>>) -> Option<Track> {
-        let track = self.peek()?;
+    fn take_head(&self) -> Option<usize> {
+        if self.is_empty() {
+            return None;
+        }
         let index = self.upcoming.borrow_mut().remove(0);
         self.played.set(self.played.get().max(index + 1));
-        taken.set(Some(index));
+        Some(index)
+    }
+
+    pub fn pop(&self) -> Option<Track> {
+        let index = self.take_head()?;
+        let track = self.source.borrow()[index].as_ref().clone();
+        self.last_taken.set(Some(index));
         self.publish();
         Some(track)
     }
 
-    pub fn pop(&self) -> Option<Track> {
-        self.take_head(&self.last_taken)
+    pub fn take_for_gapless(&self) -> Option<HistoryEntry> {
+        let index = self.take_head()?;
+        let entry = self.history_entry(index);
+        self.publish();
+        Some(entry)
     }
 
-    pub fn take_for_gapless(&self) -> Option<Track> {
-        self.take_head(&self.gapless_taken)
-    }
-
-    pub fn select_user_track(&self, is_gapless: bool) {
-        self.last_taken.set(if is_gapless { self.gapless_taken.take() } else { None });
-    }
-
-    pub fn forget_gapless(&self) {
-        self.gapless_taken.set(None);
+    fn history_entry(&self, index: usize) -> HistoryEntry {
+        let source = self.source.borrow();
+        HistoryEntry { track: source[index].as_ref().clone(), occurrence: Some(Rc::downgrade(&source[index])) }
     }
 
     pub fn move_entry(&self, from: usize, to: usize) {
@@ -210,10 +213,8 @@ impl DurableQueue {
             for index in upcoming.iter_mut() {
                 *index -= usize::from(*index > removed);
             }
-            for taken in [&self.last_taken, &self.gapless_taken] {
-                taken.set(taken.get().filter(|&index| index != removed)
-                    .map(|index| index - usize::from(index > removed)));
-            }
+            self.last_taken.set(self.last_taken.get().filter(|&index| index != removed)
+                .map(|index| index - usize::from(index > removed)));
             if removed < self.played.get() {
                 self.played.set(self.played.get() - 1);
             }
@@ -233,7 +234,6 @@ impl DurableQueue {
     pub fn rewind(&self) {
         self.played.set(0);
         self.last_taken.set(None);
-        self.gapless_taken.set(None);
         self.restore();
     }
 
@@ -242,16 +242,16 @@ impl DurableQueue {
         *self.source.borrow_mut() = tracks.into_iter().map(Rc::new).collect();
         self.played.set(0);
         self.last_taken.set(None);
-        self.gapless_taken.set(None);
         self.publish();
     }
 
-    pub fn shuffle(&self, current_id: &str) {
+    pub fn shuffle(&self, current_id: &str, user_occurrences: &[Weak<Track>]) {
         let src = self.source.borrow();
         let current = self.last_taken.get().filter(|&i| src[i].id() == current_id);
-        let reserved = self.gapless_taken.get();
-        let mut upcoming: Vec<_> = (0..src.len())
-            .filter(|&i| Some(i) != current && Some(i) != reserved).collect();
+        let queued: std::collections::HashSet<_> = user_occurrences.iter().map(Weak::as_ptr).collect();
+        let mut upcoming: Vec<_> = src.iter().enumerate()
+            .filter_map(|(i, entry)| (Some(i) != current && !queued.contains(&Rc::as_ptr(entry))).then_some(i))
+            .collect();
         drop(src);
         upcoming.shuffle(&mut rand::rng());
         *self.upcoming.borrow_mut() = upcoming;
@@ -277,10 +277,9 @@ impl DurableQueue {
             bail!("not enough tracks in queue");
         }
         let skipped = {
-            let source = self.source.borrow();
             self.upcoming.borrow_mut().drain(..n).map(|i| {
                 self.played.set(self.played.get().max(i + 1));
-                HistoryEntry { track: source[i].as_ref().clone(), occurrence: Some(Rc::downgrade(&source[i])) }
+                self.history_entry(i)
             }).collect()
         };
         self.publish();
@@ -315,10 +314,81 @@ impl DurableQueue {
     }
 }
 
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub struct HistoryEntry {
     pub track: Track,
     pub occurrence: Option<Weak<Track>>,
+}
+
+impl From<Track> for HistoryEntry {
+    fn from(track: Track) -> Self {
+        Self { track, occurrence: None }
+    }
+}
+
+#[derive(Default, Debug)]
+pub struct UserQueue {
+    rows: RefCell<Vec<HistoryEntry>>,
+    display: Queue,
+}
+
+impl UserQueue {
+    pub fn entries(&self) -> &State<Vec<Track>> {
+        self.display.entries()
+    }
+
+    pub fn source_occurrences(&self) -> Vec<Weak<Track>> {
+        self.rows.borrow().iter().filter_map(|entry| entry.occurrence.clone()).collect()
+    }
+
+    pub fn edit<R>(&self, f: impl FnOnce(&mut Vec<HistoryEntry>) -> R) -> R {
+        let result = f(&mut self.rows.borrow_mut());
+        let tracks = self.rows.borrow().iter().map(|entry| entry.track.clone()).collect();
+        self.display.set(tracks);
+        result
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.rows.borrow().is_empty()
+    }
+
+    pub fn peek(&self) -> Option<Track> {
+        self.display.peek()
+    }
+
+    pub fn pop(&self) -> Option<HistoryEntry> {
+        if self.is_empty() {
+            return None;
+        }
+        Some(self.edit(|rows| rows.remove(0)))
+    }
+
+    pub fn remove_at(&self, i: usize) -> Result<()> {
+        if i >= self.rows.borrow().len() {
+            bail!("track not found");
+        }
+        self.edit(|rows| rows.remove(i));
+        Ok(())
+    }
+
+    pub fn skip(&self, n: usize) -> Result<Vec<HistoryEntry>> {
+        if n > self.rows.borrow().len() {
+            bail!("not enough tracks in queue");
+        }
+        Ok(self.edit(|rows| rows.drain(..n).collect()))
+    }
+
+    pub fn append(&self, track: Track) {
+        self.edit(|rows| rows.push(track.into()));
+    }
+
+    pub fn prepend(&self, entry: HistoryEntry) {
+        self.edit(|rows| rows.insert(0, entry));
+    }
+
+    pub fn clear(&self) {
+        self.edit(Vec::clear);
+    }
 }
 
 #[derive(Default, Debug)]
@@ -366,7 +436,7 @@ mod tests {
         let q = super::DurableQueue::default();
         q.set((0..20).map(|i| t(&i.to_string())).collect());
         q.pop();
-        q.shuffle("0");
+        q.shuffle("0", &[]);
         let before: Vec<String> = q.entries().with(|v| v.iter().map(|x| x.id().to_string()).collect());
         q.extend(&(20..40).map(|i| t(&i.to_string())).collect::<Vec<_>>());
         let after: Vec<String> = q.entries().with(|v| v.iter().map(|x| x.id().to_string()).collect());
@@ -419,7 +489,7 @@ mod tests {
         assert_eq!(q.len(), 20);
         q.skip(3).unwrap();
         q.pop(); // "3" plays
-        q.shuffle("3");
+        q.shuffle("3", &[]);
         assert!(q.is_shuffled());
         assert_eq!(q.len(), 19);
         assert!(!ids(&q.queue).contains(&"3".to_string()));
@@ -437,7 +507,7 @@ mod tests {
     fn restore_continues_after_the_last_played_list_track() {
         let q = DurableQueue::default();
         q.set((0..10).map(|i| t(&i.to_string())).collect());
-        q.shuffle("");
+        q.shuffle("", &[]);
         let played: Vec<Track> = (0..3).filter_map(|_| q.pop()).collect();
         // a "play next" track from elsewhere is playing now
         q.restore();
@@ -450,7 +520,7 @@ mod tests {
         let q = DurableQueue::default();
         q.set(["a", "b", "c", "d"].map(t).to_vec());
         q.skip(2).unwrap(); // "a" and "b" played
-        q.shuffle("");
+        q.shuffle("", &[]);
         while q.peek().is_some_and(|x| x.id() != "a") {
             q.pop();
         }
@@ -478,7 +548,7 @@ mod tests {
         let q = DurableQueue::default();
         q.set(["a", "b", "a", "c"].map(t).to_vec());
         q.pop();
-        q.shuffle("a");
+        q.shuffle("a", &[]);
         let mut upcoming = ids(&q.queue);
         upcoming.sort();
         assert_eq!(upcoming, ["a", "b", "c"]);
@@ -490,7 +560,7 @@ mod tests {
         q.set(["a", "b", "x", "c", "x", "d"].map(t).to_vec());
         q.pop();
         q.remove_at(1)?;
-        q.shuffle("a");
+        q.shuffle("a", &[]);
         q.restore();
         assert_eq!(ids(&q.queue), ["b", "c", "x", "d"]);
         Ok(())
@@ -514,7 +584,7 @@ mod tests {
         let mut later = t("a");
         later.info.title = "later occurrence".into();
         q.set(vec![t("a"), t("b"), later, t("c")]);
-        q.shuffle("");
+        q.shuffle("", &[]);
         let later = q.entries().with(|v| v.iter().position(|t| t.info.title == "later occurrence")).unwrap();
         q.remove_at(later)?;
         q.restore();
@@ -532,7 +602,7 @@ mod tests {
         q.set(vec![first, t("b"), second, t("c")]);
         q.move_entry(2, 0);
         assert_eq!(q.pop().unwrap().playlist_item_id.as_deref(), Some("second"));
-        q.shuffle("a");
+        q.shuffle("a", &[]);
         let first = q.entries().with(|v| v.iter().position(|t| t.playlist_item_id.as_deref() == Some("first"))).unwrap();
         assert!(q.entries().with(|v| v.iter().all(|t| t.playlist_item_id.as_deref() != Some("second"))));
         q.remove_at(first)?;
@@ -546,8 +616,8 @@ mod tests {
         let q = DurableQueue::default();
         q.set(["a", "b", "c"].map(t).to_vec());
         q.pop();
-        q.select_user_track(false);
-        q.shuffle("c");
+        q.select_history_occurrence(None);
+        q.shuffle("c", &[]);
         let mut upcoming = ids(&q.queue);
         upcoming.sort();
         assert_eq!(upcoming, ["a", "b", "c"]);
@@ -558,13 +628,14 @@ mod tests {
         let q = DurableQueue::default();
         q.set(["a", "b", "b", "c"].map(t).to_vec());
         q.pop();
-        assert_eq!(q.take_for_gapless().unwrap().id(), "b");
-        q.shuffle("a");
+        let reserved = q.take_for_gapless().unwrap();
+        assert_eq!(reserved.track.id(), "b");
+        q.shuffle("a", reserved.occurrence.as_slice());
         let mut upcoming = ids(&q.queue);
         upcoming.sort();
         assert_eq!(upcoming, ["b", "c"]);
-        q.select_user_track(true);
-        q.shuffle("b");
+        q.select_history_occurrence(reserved.occurrence.as_ref());
+        q.shuffle("b", &[]);
         let mut upcoming = ids(&q.queue);
         upcoming.sort();
         assert_eq!(upcoming, ["a", "b", "c"]);
@@ -605,7 +676,7 @@ mod tests {
         q.pop();
         q.remove_at(0)?;
         q.select_history_occurrence(occurrence.as_ref());
-        q.shuffle("a");
+        q.shuffle("a", &[]);
         assert!(q.entries().with(|v| v.iter().all(|t| t.info.title != "previous occurrence")));
         assert!(q.entries().with(|v| v.iter().any(|t| t.id() == "a")));
         Ok(())
