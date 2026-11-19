@@ -229,9 +229,8 @@ async fn paginated_media_card_page<T: Clone + Send + 'static>(p: Paginator<T>, f
 /// list is cached once the last page arrives.
 /// Appends the paginator's items the list doesn't show yet. Idempotent, so the
 /// scroll loader and a click-triggered full fetch can't duplicate rows.
-fn sync_from_paginator(list: &TrackList, p: &service::SharedPaginator<Track>) {
-    let guard = p.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
-    for t in guard.items().iter().skip(list.len()).cloned() {
+fn append_loaded_tracks(list: &TrackList, start: usize, tracks: &[Track]) {
+    for t in tracks.iter().skip(list.len().saturating_sub(start)).cloned() {
         list.add_track(t);
     }
 }
@@ -241,10 +240,7 @@ fn sync_from_paginator(list: &TrackList, p: &service::SharedPaginator<Track>) {
 /// appended to both the list and the play queue.
 fn play_whole_list_on_click(list: &TrackList, p: Option<SharedPaginator<Track>>, source: PlaybackSource) {
     list.set_list_click_handler(move |l, t, pos| {
-        let tracks = match &p {
-            Some(p) => p.lock().unwrap_or_else(std::sync::PoisonError::into_inner).items().to_vec(),
-            None => l.tracks(),
-        };
+        let tracks = l.tracks();
         let initial_count = tracks.len();
         let Some(generation) = player::play_list_from(source.clone(), tracks, t, pos) else { return };
         if let Some(p) = &p {
@@ -284,18 +280,24 @@ fn page_feeder(list: Option<crate::ui::components::tracklist::WeakTrackList>, p:
     Rc::new(move |done| {
         let (list, p, queued) = (list.clone(), std::sync::Arc::clone(&p), Rc::clone(&queued));
         glib::spawn_future_local(async move {
-            let pp = std::sync::Arc::clone(&p);
             let offset = queued.get();
-            let batch = api::run(move || next_queue_batch(&mut pp.lock().unwrap_or_else(std::sync::PoisonError::into_inner), offset)).await;
-            let (page, more) = match batch {
+            let list = list.as_ref().and_then(crate::ui::components::tracklist::WeakTrackList::upgrade);
+            let start = list.as_ref().map(TrackList::len);
+            let batch = api::run(move || {
+                let mut paginator = p.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+                let (page, more) = next_queue_batch(&mut paginator, offset)?;
+                let rows = start.and_then(|n| paginator.items().get(n..)).unwrap_or_default().to_vec();
+                Ok::<_, anyhow::Error>((page, more, rows))
+            }).await;
+            let (page, more, rows) = match batch {
                 Ok(batch) => batch,
                 Err(e) => {
                     log::error!("loading more of the playing list failed, keeping what we have error={e:#}");
                     return done(false);
                 }
             };
-            if let Some(l) = list.as_ref().and_then(crate::ui::components::tracklist::WeakTrackList::upgrade) {
-                sync_from_paginator(&l, &p);
+            if let (Some(l), Some(start)) = (list, start) {
+                append_loaded_tracks(&l, start, &rows);
             }
             let alive = player::extend_list(generation, &page);
             queued.set(offset + page.len());
@@ -336,24 +338,27 @@ async fn paginated_tracklist_page(p: Paginator<Track>, columns: Vec<Col>, margin
     on_reach_bottom_soon(&sw, move |finish| {
         let (p, l, key) = (std::sync::Arc::clone(&p), l.clone(), key.clone());
         glib::spawn_future_local(async move {
-            if p.lock().unwrap_or_else(std::sync::PoisonError::into_inner).is_consumed() {
-                log::debug!("No more items to fetch");
-                return finish(false);
-            }
+            let start = l.len();
+            let has_cache = key.is_some();
             let fg = cache::Foreground::begin();
-            let page = service::next_page(&p).await;
+            let page = api::run(move || {
+                let mut paginator = p.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+                if !paginator.is_consumed() {
+                    paginator.next_page()?;
+                }
+                let more = !paginator.is_consumed();
+                let rows = paginator.items().get(start..).unwrap_or_default().to_vec();
+                let cached = (has_cache && !more).then(|| paginator.items().to_vec());
+                Ok::<_, anyhow::Error>((rows, more, cached))
+            }).await;
             drop(fg);
             match page {
-                Ok(_) => {
-                    sync_from_paginator(&l, &p);
-                    let guard = p.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
-                    if guard.is_consumed()
-                        && let (Some(k), Some(g)) = (key.as_deref(), generation_at_start)
-                    {
-                        cache::put(k, g, guard.items().to_vec());
+                Ok((rows, more, cached)) => {
+                    append_loaded_tracks(&l, start, &rows);
+                    if let (Some(k), Some(g), Some(tracks)) = (key.as_deref(), generation_at_start, cached) {
+                        cache::put(k, g, tracks);
                     }
-                    drop(guard);
-                    finish(true);
+                    finish(more);
                 }
                 Err(e) => {
                     log::error!("loading next page failed error={e:#}");

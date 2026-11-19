@@ -143,7 +143,8 @@ fn start_listen(track: &Track) {
     CLOCK.with(|c| {
         *c.borrow_mut() = Some(Clock::new(meta, now_unix()));
     });
-    if player::playback_state_changed().get().status == PlaybackStatus::Playing {
+    let state = player::playback_state_changed().get();
+    if state.status == PlaybackStatus::Playing && !state.buffering {
         clock_start();
     }
 }
@@ -160,7 +161,7 @@ pub fn init() {
         false
     });
     player::playback_state_changed().on(|ps| {
-        if ps.status == PlaybackStatus::Playing {
+        if ps.status == PlaybackStatus::Playing && !ps.buffering {
             clock_start();
         } else {
             clock_stop();
