@@ -526,6 +526,8 @@ class Playback(context: Context, private val prefs: Preferences, secrets: Secret
                 if (!tracks && !source) break
                 delay(100)
             }
+            // A track picked during the wait owns playback now: its queue is not this one's to refill.
+            if (track !== from || entry != entryBefore) return@launch
             val more = queued() || infinite?.let { fetchMore(it) } == true
             // A track picked during the fetch owns playback now; a source replaced meanwhile had nothing more.
             if (track !== from || entry != entryBefore) return@launch
