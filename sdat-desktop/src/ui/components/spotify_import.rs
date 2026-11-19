@@ -96,7 +96,7 @@ fn run(window: &adw::ApplicationWindow, link: String) {
             Ok(report) => {
                 router::navigate(&format!("playlist/{}", report.playlist_id));
                 match window.upgrade() {
-                    Some(w) if !report.missing.is_empty() => present_missing(&w, &report),
+                    Some(w) if !report.missing.is_empty() || report.skipped > 0 => present_left_out(&w, &report),
                     _ => toast(&summary(&report)),
                 }
             }
@@ -126,12 +126,22 @@ fn summary(report: &Report) -> String {
     trf("Imported %s tracks into %s", &[&report.imported, &report.name])
 }
 
-/// The tracks TIDAL does not have, so the user can look for them by hand.
-fn present_missing(window: &adw::ApplicationWindow, report: &Report) {
-    let ad = adw::AlertDialog::new(Some(&summary(report)), Some(&trf("%s tracks are not on TIDAL:", &[&report.missing.len()])));
-    let list = gtk::Label::builder().label(report.missing.join("\n")).selectable(true).xalign(0.0).wrap(true).build();
-    let scroll = gtk::ScrolledWindow::builder().child(&list).min_content_height(200).hscrollbar_policy(gtk::PolicyType::Never).build();
-    ad.set_extra_child(Some(&scroll));
+/// What the new playlist lacks: the tracks TIDAL does not have, so the user can look for
+/// them by hand, and how many Spotify entries were not tracks.
+fn present_left_out(window: &adw::ApplicationWindow, report: &Report) {
+    let mut body = Vec::new();
+    if report.skipped > 0 {
+        body.push(trf("%s entries were skipped: local files, podcast episodes or tracks Spotify no longer has.", &[&report.skipped]));
+    }
+    if !report.missing.is_empty() {
+        body.push(trf("%s tracks are not on TIDAL:", &[&report.missing.len()]));
+    }
+    let ad = adw::AlertDialog::new(Some(&summary(report)), Some(&body.join("\n\n")));
+    if !report.missing.is_empty() {
+        let list = gtk::Label::builder().label(report.missing.join("\n")).selectable(true).xalign(0.0).wrap(true).build();
+        let scroll = gtk::ScrolledWindow::builder().child(&list).min_content_height(200).hscrollbar_policy(gtk::PolicyType::Never).build();
+        ad.set_extra_child(Some(&scroll));
+    }
     ad.add_response("close", &tr("Close"));
     ad.present(Some(window));
 }

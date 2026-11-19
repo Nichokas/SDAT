@@ -72,7 +72,7 @@ pub fn import_playlist(source: &SpotifyPlaylist, progress: &dyn Fn(Progress), ca
     isrcs.dedup();
     for chunk in isrcs.chunks(api::ISRCS_PER_REQUEST) {
         stop()?;
-        by_isrc.extend(best_by_isrc(&patiently(|| api::tracks_by_isrc(chunk))?));
+        by_isrc.extend(best_by_isrc(&patiently(cancelled, || api::tracks_by_isrc(chunk))?));
         matching(source.tracks.iter().filter(|t| by_isrc.contains_key(&t.isrc)).count());
     }
     let mut found: Vec<Option<String>> = source.tracks.iter().map(|t| by_isrc.get(&t.isrc).cloned()).collect();
@@ -83,7 +83,7 @@ pub fn import_playlist(source: &SpotifyPlaylist, progress: &dyn Fn(Progress), ca
             continue;
         }
         stop()?;
-        *id = search(track)?;
+        *id = search(track, cancelled)?;
         if id.is_none() {
             missing.push(format!("{} – {}", track.artists.join(", "), track.title));
         }
@@ -108,11 +108,19 @@ pub fn import_playlist(source: &SpotifyPlaylist, progress: &dyn Fn(Progress), ca
 }
 
 /// Runs a TIDAL request again, after a pause, while TIDAL answers that there were too many.
-fn patiently<T>(request: impl Fn() -> Result<T>) -> Result<T> {
-    const PAUSES: [Duration; 3] = [Duration::from_secs(2), Duration::from_secs(5), Duration::from_secs(10)];
-    for pause in PAUSES {
+fn patiently<T>(cancelled: &dyn Fn() -> bool, request: impl Fn() -> Result<T>) -> Result<T> {
+    const PAUSES_SECS: [u32; 3] = [2, 5, 10];
+    const TICK: Duration = Duration::from_millis(250);
+    for secs in PAUSES_SECS {
         match request() {
-            Err(CoreError::Http { status: 429, .. }) => std::thread::sleep(pause),
+            Err(CoreError::Http { status: 429, .. }) => {
+                for _ in 0..secs * 4 {
+                    if cancelled() {
+                        return Err(CoreError::Cancelled("Spotify import cancelled".into()));
+                    }
+                    std::thread::sleep(TICK);
+                }
+            }
             other => return other,
         }
     }
@@ -133,9 +141,9 @@ fn best_by_isrc(tracks: &[openapi::TrackData]) -> HashMap<String, String> {
 }
 
 /// TIDAL's first search hit that is the same recording as `track`.
-fn search(track: &SpotifyTrack) -> Result<Option<String>> {
+fn search(track: &SpotifyTrack, cancelled: &dyn Fn() -> bool) -> Result<Option<String>> {
     let query = format!("{} {}", plain_title(&track.title), track.artists.first().map_or("", String::as_str));
-    let found = match patiently(|| api::search(query.trim(), &["tracks.artists"])) {
+    let found = match patiently(cancelled, || api::search(query.trim(), &["tracks.artists"])) {
         Ok(found) => found,
         // TIDAL rejects some queries; that track is simply not found.
         Err(CoreError::Http { status: 400 | 404, .. }) => return Ok(None),
