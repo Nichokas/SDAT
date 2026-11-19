@@ -72,7 +72,22 @@ impl CachedToken {
 
 static USER_TOKEN: Mutex<CachedToken> = Mutex::new(CachedToken { token: String::new(), expiry: None, generation: 0 });
 static OPENAPI_TOKEN: Mutex<CachedToken> = Mutex::new(CachedToken { token: String::new(), expiry: None, generation: 0 });
-static COUNTRY: std::sync::Mutex<Option<String>> = std::sync::Mutex::new(None);
+enum CountryLookup {
+    Found(String),
+    RetryAfter(Instant),
+}
+
+impl CountryLookup {
+    fn cached_code(&self) -> Option<&str> {
+        match self {
+            Self::Found(code) => Some(code),
+            Self::RetryAfter(until) if Instant::now() < *until => Some("WW"),
+            Self::RetryAfter(_) => None,
+        }
+    }
+}
+
+static COUNTRY: Mutex<Option<CountryLookup>> = Mutex::new(None);
 
 /// Forget the cached user access token (after sign-in/out).
 pub fn reset_user_token() {
@@ -195,8 +210,8 @@ pub fn country_code() -> String {
 /// latter, which can be wrong). Successful lookups are cached until [`reset_country_code`].
 pub fn automatic_country_code() -> String {
     let lock = || COUNTRY.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
-    if let Some(c) = lock().clone() {
-        return c;
+    if let Some(c) = lock().as_ref().and_then(CountryLookup::cached_code) {
+        return c.to_owned();
     }
     // The network lookup runs without holding COUNTRY, so `reset_country_code`
     // (called on the UI thread at login/logout) never waits on HTTP.
@@ -207,19 +222,23 @@ pub fn automatic_country_code() -> String {
     }) {
         Ok(c) => {
             log::info!("Discovered country code countryCode={c}");
-            c
+            CountryLookup::Found(c)
         }
         Err(e) => {
             log::warn!("Failed to fetch country code, defaulting to WW: {e}");
-            return lock().clone().unwrap_or_else(|| "WW".into());
+            CountryLookup::RetryAfter(Instant::now() + Duration::from_secs(2))
         }
     };
     let mut g = lock();
-    if COUNTRY_GEN.load(std::sync::atomic::Ordering::SeqCst) == epoch {
-        g.get_or_insert(c).clone()
-    } else {
-        c
+    let code = c.cached_code().unwrap_or("WW").to_owned();
+    if COUNTRY_GEN.load(std::sync::atomic::Ordering::SeqCst) != epoch {
+        return code;
     }
+    if let Some(CountryLookup::Found(code)) = g.as_ref() {
+        return code.clone();
+    }
+    *g = Some(c);
+    code
 }
 
 static COUNTRY_GEN: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
@@ -632,10 +651,11 @@ pub fn parse_own_playlists(bytes: &[u8]) -> Result<(Vec<OwnPlaylist>, Option<Str
 
 /// Lists the playlists owned by the signed-in user (read-only).
 pub fn own_playlists() -> Result<Vec<OwnPlaylist>> {
+    const MAX_PAGES: usize = 1000;
     let mut out = Vec::new();
     let mut cursor: Option<String> = None;
     let mut seen = std::collections::HashSet::new();
-    loop {
+    for _ in 0..MAX_PAGES {
         let mut q = vec![("filter[owners.id]", "me".to_owned())];
         if let Some(c) = cursor.take() {
             q.push(("page[cursor]", c));
@@ -649,10 +669,10 @@ pub fn own_playlists() -> Result<Vec<OwnPlaylist>> {
         match next {
             Some(c) if seen.insert(c.clone()) => cursor = Some(c),
             Some(_) => bail!("playlist pagination returned a repeated cursor"),
-            None => break,
+            None => return Ok(out),
         }
     }
-    Ok(out)
+    bail!("owned playlist pagination exceeded {MAX_PAGES} pages")
 }
 
 /// JSON:API body for adding tracks to a playlist.
