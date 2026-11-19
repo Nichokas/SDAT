@@ -127,7 +127,8 @@ impl FavouriteCache {
             inner.items = Some(items);
             inner.etag = etag;
         } else {
-            let res = api::favourite_ids(&uid, &inner.etag)?;
+            let etag = if inner.items.is_some() { &inner.etag } else { "" };
+            let res = api::favourite_ids(&uid, etag)?;
             if let Some((lists, etag)) = res {
                 let list = match self.kind {
                     Kind::Albums => lists.album,
@@ -137,6 +138,8 @@ impl FavouriteCache {
                 };
                 inner.items = Some(list);
                 inner.etag = etag;
+            } else if inner.items.is_none() {
+                crate::error::bail!("favourite IDs returned not modified without cached items");
             }
         }
         inner.last_fetched = Some(Instant::now());
