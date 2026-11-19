@@ -359,12 +359,18 @@ class Playback(context: Context, private val prefs: Preferences, secrets: Secret
         changed()
     }
 
-    /** Settings and the player's quality badge: the playing track switches at once and keeps its place (iOS
-     * reloadQuality), and stays paused if it was. */
+    /** Reloads the current stream at the same position and keeps downloaded playback going. */
     fun setStreamingQuality(q: Quality) {
         if (q == prefs.streamingQuality) return
         prefs.streamingQuality = q
         val t = track ?: return
+        if (offline && Downloads.localStream(t.id) != null) {
+            if (preloaded?.source?.offline != true) {
+                dropPreload()
+                syncPreload()
+            }
+            return
+        }
         restart(t, position)
     }
 
