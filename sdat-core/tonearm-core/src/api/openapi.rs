@@ -126,7 +126,7 @@ impl IncludedObjects {
         let mut found = Vec::new();
         for rel in rels {
             for obj in &self.0 {
-                if obj.id == rel.id && (obj.type_ == t || t.is_empty()) {
+                if obj.id == rel.id && (rel.type_.is_empty() || obj.type_ == rel.type_) && (t.is_empty() || obj.type_ == t) {
                     found.push(obj);
                 }
             }
@@ -624,6 +624,15 @@ mod tests {
         let r = super::first_search_result(serde_json::from_str(j).unwrap());
         assert_eq!(r.data.id, "abc");
         assert_eq!(r.included.artists(&r.data.relationships.top_hits.data).len(), 1);
+    }
+
+    #[test]
+    fn mixed_search_hits_can_share_an_id() {
+        let json = r#"{"data":[{"id":"42","type":"tracks"},{"id":"42","type":"albums"}],
+            "included":[{"id":"42","type":"tracks"},{"id":"42","type":"albums"}]}"#;
+        let response: super::Relationships = serde_json::from_str(json).unwrap();
+        assert_eq!(response.included.tracks(&response.data).len(), 1);
+        assert_eq!(response.included.albums(&response.data).len(), 1);
     }
 
     #[test]

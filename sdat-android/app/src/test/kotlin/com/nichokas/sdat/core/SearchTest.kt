@@ -115,14 +115,14 @@ class SearchTest {
         assertEquals("a", next.result)
     }
 
-    @Test fun aFailureShowsTheErrorAndKeepsTheOldResults() = runBlocking {
+    @Test fun aFailureShowsTheErrorAndClearsTheOldResults() = runBlocking {
         val model = SearchModel(debounceMs = 0) { q: String -> if (q == "bad") throw IllegalStateException() else q }
         model.edit("daft")
         model.settle()
         model.edit("bad")
         model.settle()
         assertEquals("bad", model.state.shown)
-        assertEquals("daft", model.state.result)
+        assertNull(model.state.result)
         assertEquals("Something went wrong. Please try again.", model.state.error)
         assertFalse(model.state.searching)
     }

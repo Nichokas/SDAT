@@ -58,7 +58,7 @@ data class SearchState<R>(
         if (current(q, generation)) copy(shown = q, result = result, error = null, searching = false) else this
 
     fun failed(q: String, generation: Int, message: String) =
-        if (current(q, generation)) copy(shown = q, error = message, searching = false) else this
+        if (current(q, generation)) copy(shown = q, result = null, error = message, searching = false) else this
 
     private fun current(q: String, generation: Int) = generation == this.generation && trimmed == q
 }
