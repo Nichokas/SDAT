@@ -102,10 +102,10 @@ final class Live {
             guestControl = guest?.guestControl() ?? false
             mode = .joining
             // Only an accepted invitation clears an older system pause.
-            player.clearSystemPause()
+            player.liveEngine.clearSystemPause()
             switching = nil
-            player.liveFollowing = true
-            player.liveTarget = { [weak self] in self?.hostPosition() }
+            player.liveEngine.liveFollowing = true
+            player.liveEngine.liveTarget = { [weak self] in self?.hostPosition() }
             run(every: 0.25) { $0.guestTick() }
         } catch {
             mode = .ended("This invitation isn't valid.")
@@ -139,7 +139,7 @@ final class Live {
         dropGuestEnqueues()
         switching = nil
         loaded = nil
-        player.liveEnded()
+        player.liveEngine.liveEnded()
         invite = nil; guests = []; upNext = []; reconnecting = false
         mode = m
     }
@@ -290,15 +290,15 @@ final class Live {
     /// Returns `false` when the caller should act locally (not a guest).
     private func requestPlay() -> Bool {
         guard route(.play) else { return false }
-        if guestControl, player.systemPaused { player.clearSystemPause() }
+        if guestControl, player.liveEngine.systemPaused { player.liveEngine.clearSystemPause() }
         return true
     }
 
     /// Guest paused by the system (call, headphones unplugged) while the host
     /// plays: "play" means resume here, not change the host.
     private func resumeLocally() -> Bool {
-        guard guest != nil, player.systemPaused else { return false }
-        player.clearSystemPause()
+        guard guest != nil, player.liveEngine.systemPaused else { return false }
+        player.liveEngine.clearSystemPause()
         return true
     }
     func userPause() { if !route(.pause) { if player.isPlaying { player.toggle() } } }
@@ -400,8 +400,8 @@ final class Live {
             }
         }
         let item = player.current == nil ? nil : itemIds.first
-        let playing = player.isPlaying && !player.loading
-        let pos = player.liveHostPosition
+        let playing = player.liveEngine.liveHostPlaying
+        let pos = player.liveEngine.liveHostPosition
         let now = Date()
         if !force, let s = sent, s.item == item, s.playing == playing {
             let expected = s.pos + (playing ? now.timeIntervalSince(s.at) : 0)
@@ -445,7 +445,7 @@ final class Live {
             return
         }
         // Reload also when our copy ended (host repeating the same song).
-        if player.current?.id != trackId || (!player.liveHasItem && !player.loading) {
+        if player.current?.id != trackId || (!player.liveEngine.liveHasItem && !player.loading) {
             guard switching != trackId else { return }
             // Only a reload of the track already here is limited: the host may come back to a track within the interval.
             if player.current?.id == trackId, let l = loaded, l.id == trackId, Date().timeIntervalSince(l.at) < Self.reloadInterval { return }
@@ -461,20 +461,20 @@ final class Live {
                 loaded = (trackId, Date())
                 // A system pause (call, headphones unplugged) also holds a new
                 // host track: it loads paused until the user or system resumes.
-                player.livePlay([track], index: 0, at: Double(now.positionMs) / 1000,
-                                playing: now.playing && !player.systemPaused)
+                player.liveEngine.livePlay([track], index: 0, at: Double(now.positionMs) / 1000,
+                                playing: now.playing && !player.liveEngine.systemPaused)
             }
             return
         }
         // Don't measure drift mid-seek or while rebuffering: the position is
         // frozen there, so the error looks huge and would trigger seek after seek.
-        if player.loading || switching != nil || player.liveSeeking { return }
+        if player.loading || switching != nil || player.liveEngine.liveSeeking { return }
         // Paused by the system (call, headphones unplugged): wait for the
         // user or the system to resume instead of restarting on the speaker.
-        if t.playing && !player.isPlaying && player.systemPaused { return }
+        if t.playing && !player.isPlaying && player.liveEngine.systemPaused { return }
         if t.playing != player.isPlaying {
             if t.playing {
-                player.liveResume()
+                player.liveEngine.liveResume()
             } else {
                 player.toggle()
                 player.seek(to: Double(t.positionMs) / 1000)
@@ -482,7 +482,7 @@ final class Live {
             return
         }
         guard t.playing else {
-            if abs(player.livePosition * 1000 - Double(t.positionMs)) > 1000 {
+            if abs(player.liveEngine.livePosition * 1000 - Double(t.positionMs)) > 1000 {
                 player.seek(to: Double(t.positionMs) / 1000)
             }
             return
@@ -490,10 +490,10 @@ final class Live {
         // Measure only while audio really plays with a healthy buffer, and
         // not right after a start or a seek: a player that is still filling
         // reports a frozen position, i.e. a large fake error.
-        guard player.liveAdvancing, player.liveBufferHealthy else { return }
+        guard player.liveEngine.liveAdvancing, player.liveEngine.liveBufferHealthy else { return }
         let now = Date()
-        if let s = player.liveSeekEndedAt, now.timeIntervalSince(s) < Self.seekSettle { return }
-        let actual = Int64(player.livePosition * 1000)
+        if let s = player.liveEngine.liveSeekEndedAt, now.timeIntervalSince(s) < Self.seekSettle { return }
+        let actual = Int64(player.liveEngine.livePosition * 1000)
         // A change of the manual delay stays below core's tolerance: realign
         // once instead of never applying it.
         let lat = latencyMs
@@ -502,7 +502,7 @@ final class Live {
         if let previous, abs(lat - previous) >= Self.latencyRealignMs, let t = guest.target(latencyMs: lat) {
             alignedLatencyMs = lat
             Self.log.notice("latency changed \(previous)->\(lat) ms, realigning")
-            player.liveSeek(to: Double(t.positionMs) / 1000)
+            player.liveEngine.liveSeek(to: Double(t.positionMs) / 1000)
             return
         }
         if now.timeIntervalSince(lastDriftLogAt) >= 10 {
@@ -515,7 +515,7 @@ final class Live {
         guard case .seek(let ms) = guest.correction(latencyMs: latencyMs, actualMs: actual) else { return }
         Self.log.notice("drift seek errMs=\(ms - actual)")
         alignedLatencyMs = lat
-        player.liveSeek(to: Double(ms) / 1000)
+        player.liveEngine.liveSeek(to: Double(ms) / 1000)
     }
 
     /// The host's position for the track loaded here (latency included).
