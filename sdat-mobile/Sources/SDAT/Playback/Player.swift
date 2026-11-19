@@ -44,6 +44,10 @@ final class Player {
     var progress: Double { duration > 0 ? min(position / duration, 1) : 0 }
     /// Base-queue tracks after the current one.
     var upNext: ArraySlice<Track> { index.map { queue.dropFirst($0 + 1) } ?? queue[...] }
+    /// Base-queue tracks before the current one: repeat all plays them again after the last.
+    var played: ArraySlice<Track> { index.map { queue.prefix($0) } ?? [] }
+    /// The queue is Discover's endless shuffle, also before its source is attached again.
+    var endless: Bool { infinite != nil || restoredInfinite }
     /// Base queue in its unshuffled order, restored when shuffle is turned off.
     private var original: [Track] = [] { didSet { queueVersion &+= 1 } }
 
@@ -162,16 +166,17 @@ final class Player {
 
     /// Playback taken over from another device (Handoff): `tracks` already are in
     /// play order, so shuffle is off and the personal queue is replaced too.
-    func resume(_ tracks: [Track], at secs: Double, repeat r: Repeat, from device: String) {
+    /// `discover`: Discover's endless queue, which `resumeInfinite` goes on with.
+    func resume(_ tracks: [Track], at secs: Double, repeat r: Repeat, from device: String, discover: Bool = false) {
         guard !tracks.isEmpty else { return }
         recentIDs = []; recentOrder = []
-        restoredInfinite = false
+        restoredInfinite = discover
         infinite = nil
         shuffle = false
         original = tracks
         queue = tracks
         userQueue = []
-        sourceTitle = device.isEmpty ? nil : device
+        sourceTitle = discover ? "Discover" : (device.isEmpty ? nil : device)
         repeatMode = r
         // `start` swaps the item only once the new stream is fetched; the old song must not keep playing meanwhile.
         avPlayer.pause()
@@ -192,6 +197,7 @@ final class Player {
         original.append(contentsOf: tracks)
         invalidatePreload()
         persist()
+        refillIfNeeded()
         return true
     }
 
@@ -964,7 +970,8 @@ final class Player {
     }
 
     private func refillIfNeeded() {
-        guard let source = infinite, let i = index, queue.count - i <= 5 else { return }
+        // A handoff's own tracks come first: a refill before them would take their place.
+        guard resumedVersion != queueVersion, let source = infinite, let i = index, queue.count - i <= 5 else { return }
         Task { _ = await fetchMore(from: source) }
     }
 

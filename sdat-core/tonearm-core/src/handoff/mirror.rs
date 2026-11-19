@@ -17,6 +17,8 @@ pub(super) enum Write {
     NewQueue,
     /// Replace the queue; the first track becomes current.
     Queue(Vec<String>),
+    /// Add tracks after the written ones.
+    Append(Vec<String>),
     Repeat(Repeat),
     /// Select written entry `index` at this position.
     Current { index: usize, position_ms: i64 },
@@ -38,6 +40,11 @@ struct Written {
     wrote: Vec<String>,
     /// TIDAL's entries for them, as far as read back.
     entries: Vec<Entry>,
+    /// `wrote` is all TIDAL holds from its current entry on. Not for an
+    /// adopted current entry, until what follows it is read.
+    whole: bool,
+    /// Tracks were appended since `entries` was read.
+    unread: bool,
     cur: usize,
     revision: String,
     repeat: Repeat,
@@ -47,21 +54,31 @@ struct Written {
 }
 
 impl Written {
-    /// Index of the written entry the local list starts at, the current one first.
-    fn find(&self, tracks: &[String]) -> Option<usize> {
-        // Only a capped write may lag behind a still capped local list; it
-        // is topped up once half of it is played.
-        let capped = self.wrote.len() == MAX_FUTURE + 1 && tracks.len() == MAX_FUTURE + 1;
-        let matches = |k: usize| {
+    /// Index of the written entry the local list starts at, the current one
+    /// first, and how many of `tracks` need no write: the rest is appended.
+    fn find(&self, tracks: &[String]) -> Option<(usize, usize)> {
+        // More follows a capped local list than is written: what is written may
+        // lag behind it, and is topped up once half of it is played.
+        let capped = tracks.len() == MAX_FUTURE + 1;
+        let written = |k: usize| {
             let rest = &self.wrote[k..];
-            rest == tracks || (capped && 2 * rest.len() >= tracks.len() && tracks.starts_with(rest))
+            if rest == tracks || (capped && 2 * rest.len() >= tracks.len() && tracks.starts_with(rest)) {
+                Some(tracks.len())
+            } else {
+                (self.whole && tracks.starts_with(rest)).then_some(rest.len())
+            }
         };
-        (self.cur..self.wrote.len()).chain(0..self.cur.min(self.wrote.len())).find(|&k| matches(k))
+        (self.cur..self.wrote.len()).chain(0..self.cur.min(self.wrote.len())).find_map(|k| Some((k, written(k)?)))
     }
 
     /// TIDAL's entry for written index `index`, if it was read back and still matches.
     fn known(&self, index: usize) -> Option<&Entry> {
         self.entries.get(index).filter(|e| self.wrote.get(index) == Some(&e.track_id))
+    }
+
+    /// Written index `index` was appended after the entries were read: a read finds its entry.
+    fn unread(&self, index: usize) -> bool {
+        self.unread && index >= self.entries.len()
     }
 }
 
@@ -165,9 +182,16 @@ impl Mirror {
         if self.state.queue_id.is_none() {
             out.push(Write::NewQueue);
         }
-        let tracks: Vec<String> = std::iter::once(cur).chain(local.future.iter().take(MAX_FUTURE)).cloned().collect();
-        // An entry never read back can't be selected: the queue is written again.
-        if let Some((w, index)) = self.written.as_ref().and_then(|w| w.find(&tracks).filter(|&i| w.known(i).is_some()).map(|i| (w, i))) {
+        // Repeat all plays the tracks before the current one again after the last: they follow it
+        // in the queue, so the device that takes it over repeats the same list. Discover never wraps.
+        let wrap = if local.repeat == Repeat::All && !local.discover { local.past.as_slice() } else { &[] };
+        let tracks: Vec<String> = std::iter::once(cur).chain(&local.future).chain(wrap).take(MAX_FUTURE + 1).cloned().collect();
+        // An entry that can't be read back can't be selected: the queue is written again.
+        let found = self.written.as_ref().and_then(|w| w.find(&tracks).filter(|&(i, _)| w.known(i).is_some() || w.unread(i)).map(|f| (w, f)));
+        if let Some((w, (index, written))) = found {
+            if written < tracks.len() {
+                out.push(Write::Append(tracks[written..].to_vec()));
+            }
             if w.repeat != local.repeat {
                 out.push(Write::Repeat(local.repeat));
             }
@@ -215,7 +239,24 @@ impl Mirror {
     }
 
     pub(super) fn queue_written(&mut self, wrote: Vec<String>, entries: Vec<Entry>, revision: String, repeat: Repeat) {
-        self.written = Some(Written { wrote, entries, cur: 0, revision, repeat, position_ms: 0, at_ms: 0, playing: false });
+        self.written = Some(Written { wrote, entries, whole: true, unread: false, cur: 0, revision, repeat, position_ms: 0, at_ms: 0, playing: false });
+    }
+
+    pub(super) fn appended(&mut self, tracks: Vec<String>, revision: String) {
+        if let Some(w) = &mut self.written {
+            w.wrote.extend(tracks);
+            w.unread = true;
+            w.revision = revision;
+        }
+    }
+
+    /// The entries after TIDAL's current one, read after an append.
+    pub(super) fn entries_read(&mut self, future: Vec<Entry>) {
+        if let Some(w) = self.written.as_mut().filter(|w| w.entries.len() > w.cur) {
+            w.entries.truncate(w.cur + 1);
+            w.entries.extend(future);
+            w.unread = false;
+        }
     }
 
     pub(super) fn repeat_written(&mut self, repeat: Repeat, revision: String) {
@@ -271,6 +312,8 @@ impl Mirror {
         let written = Written {
             wrote: vec![current.track_id.clone()],
             entries: vec![current],
+            whole: false,
+            unread: false,
             cur: 0,
             revision: head.revision.clone(),
             repeat: head.repeat,
@@ -296,6 +339,8 @@ impl Mirror {
             return false;
         }
         let Some(w) = self.written.as_mut() else { return false };
+        // A read that stopped at the cap may have left more behind.
+        w.whole = future.len() < MAX_FUTURE;
         w.wrote.extend(future.iter().map(|e| e.track_id.clone()));
         w.entries.extend(future);
         true
@@ -388,7 +433,7 @@ mod tests {
     }
 
     fn local(current: &str, future: &[&str], position_ms: i64, playing: bool) -> LocalPlayback {
-        LocalPlayback { current: Some(current.into()), future: ids(future), position_ms, playing, repeat: Repeat::Off }
+        LocalPlayback { current: Some(current.into()), future: ids(future), position_ms, playing, repeat: Repeat::Off, ..LocalPlayback::default() }
     }
 
     fn dev(id: &str, name: &str) -> Device {
@@ -499,22 +544,90 @@ mod tests {
     fn long_queues_are_capped_and_topped_up() {
         let all: Vec<String> = (0..300).map(|i| i.to_string()).collect();
         let mut m = active_with(&[]);
-        let l = |from: usize| LocalPlayback { current: Some(all[from].clone()), future: all[from + 1..].to_vec(), position_ms: 0, playing: true, repeat: Repeat::Off };
+        let l = |from: usize| LocalPlayback { current: Some(all[from].clone()), future: all[from + 1..].to_vec(), position_ms: 0, playing: true, repeat: Repeat::Off, ..LocalPlayback::default() };
         let Some(Write::Queue(wrote)) = m.plan(&l(0), 0).into_iter().next() else { panic!("expected a rewrite") };
         assert_eq!(wrote.len(), MAX_FUTURE + 1);
         let entries = wrote.iter().map(|t| Entry { track_id: t.clone(), item_id: t.clone() }).collect();
         m.queue_written(wrote, entries, "r".into(), Repeat::Off);
         m.current_written(0, 0, true, 0, "r".into());
         assert_eq!(m.plan(&l(10), 0), vec![Write::Current { index: 10, position_ms: 0 }]);
-        assert!(matches!(m.plan(&l(80), 0).first(), Some(Write::Queue(_))));
+        // Less than half of the cap is left written: the rest of it is added.
+        assert_eq!(m.plan(&l(80), 0), vec![Write::Append(all[101..181].to_vec()), Write::Current { index: 80, position_ms: 0 }]);
     }
 
     #[test]
-    fn tracks_added_to_a_short_queue_are_written() {
+    fn tracks_added_at_the_end_are_appended() {
         let mut m = active_with(&["1", "2", "3"]);
-        assert!(matches!(m.plan(&local("1", &["2", "3", "4"], 0, true), 0).first(), Some(Write::Queue(_))));
+        assert_eq!(m.plan(&local("1", &["2", "3", "4"], 0, true), 0), vec![Write::Append(ids(&["4"]))]);
+        m.appended(ids(&["4"]), "r".into());
+        assert!(m.plan(&local("1", &["2", "3", "4"], 0, true), 0).is_empty());
+        // Its entry is read when it is selected.
+        assert_eq!(m.plan(&local("4", &[], 0, true), 0), vec![Write::Current { index: 3, position_ms: 0 }]);
+        assert_eq!(m.entry(3), None);
+        m.entries_read(vec![Entry { track_id: "2".into(), item_id: "i2".into() }, Entry { track_id: "3".into(), item_id: "i3".into() }, Entry { track_id: "4".into(), item_id: "i4".into() }]);
+        assert_eq!(m.entry(3).map(|e| e.item_id), Some("i4".into()));
+    }
+
+    #[test]
+    fn an_appended_entry_that_cannot_be_read_rewrites() {
+        let mut m = active_with(&["1", "2"]);
+        m.appended(ids(&["3"]), "r".into());
+        // TIDAL holds less than was appended.
+        m.entries_read(vec![Entry { track_id: "2".into(), item_id: "i2".into() }]);
+        assert!(matches!(m.plan(&local("3", &[], 0, true), 0).first(), Some(Write::Queue(_))));
+    }
+
+    fn repeating(current: &str, future: &[&str], past: &[&str]) -> LocalPlayback {
+        LocalPlayback { past: ids(past), repeat: Repeat::All, ..local(current, future, 0, true) }
+    }
+
+    #[test]
+    fn repeat_all_keeps_the_whole_list_after_the_current_track() {
+        let mut m = Mirror::new(ME.into());
+        m.fetched(state(Some(ME), Status::Playing), None, None);
+        m.local_playing = true;
+        // Started at the second of three: the first follows the last.
+        assert_eq!(m.plan(&repeating("2", &["3"], &["1"]), 0).first(), Some(&Write::Queue(ids(&["2", "3", "1"]))));
+        let entries = ["2", "3", "1"].iter().map(|t| Entry { track_id: (*t).into(), item_id: format!("i{t}") }).collect();
+        m.queue_written(ids(&["2", "3", "1"]), entries, "r".into(), Repeat::All);
+        m.current_written(0, 0, true, 0, "r".into());
+        // Each track left is added behind the others.
+        assert_eq!(m.plan(&repeating("3", &[], &["1", "2"]), 0), vec![Write::Append(ids(&["2"])), Write::Current { index: 1, position_ms: 0 }]);
+        m.appended(ids(&["2"]), "r".into());
         m.current_written(1, 0, true, 0, "r".into());
-        assert!(matches!(m.plan(&local("2", &["3", "4"], 0, true), 0).first(), Some(Write::Queue(_))));
+        // The wrap to the first track is one more step in the same queue.
+        assert_eq!(m.plan(&repeating("1", &["2", "3"], &[]), 0), vec![Write::Append(ids(&["3"])), Write::Current { index: 2, position_ms: 0 }]);
+    }
+
+    #[test]
+    fn repeat_all_turned_on_adds_the_played_part() {
+        let mut m = active_with(&["1", "2", "3"]);
+        m.current_written(1, 0, true, 0, "r".into());
+        assert_eq!(m.plan(&repeating("2", &["3"], &["1"]), 0), vec![Write::Append(ids(&["1"])), Write::Repeat(Repeat::All)]);
+        m.appended(ids(&["1"]), "r".into());
+        m.repeat_written(Repeat::All, "r".into());
+        // Turned off again: the queue ends with the list.
+        let off = LocalPlayback { past: ids(&["1"]), ..local("2", &["3"], 0, true) };
+        assert_eq!(m.plan(&off, 0), vec![Write::Queue(ids(&["2", "3"])), Write::Current { index: 0, position_ms: 0 }]);
+    }
+
+    #[test]
+    fn discover_does_not_wrap() {
+        let mut m = active_with(&["2", "3"]);
+        let l = LocalPlayback { discover: true, ..repeating("2", &["3"], &["1"]) };
+        assert_eq!(m.plan(&l, 0), vec![Write::Repeat(Repeat::All)]);
+    }
+
+    #[test]
+    fn nothing_is_appended_to_an_adopted_track_alone() {
+        let mut m = Mirror::new(ME.into());
+        m.fetched(state(Some(ME), Status::Playing), Some(head("r", "1", "phone")), None);
+        m.adopt(Entry { track_id: "1".into(), item_id: "i1".into() }, &head("r", "1", "phone"), 0, 0);
+        m.local_playing = true;
+        // What follows it on TIDAL was never read: an append would add it twice.
+        assert!(matches!(m.plan(&local("1", &["2", "3"], 0, true), 0).first(), Some(Write::Queue(_))));
+        assert!(m.adopted_future("r", vec![Entry { track_id: "2".into(), item_id: "i2".into() }]));
+        assert_eq!(m.plan(&local("1", &["2", "3"], 0, true), 0), vec![Write::Append(ids(&["3"])), Write::Current { index: 0, position_ms: 0 }]);
     }
 
     #[test]
@@ -565,7 +678,7 @@ mod tests {
     #[test]
     fn stopping_locally_pauses() {
         let mut m = active_with(&["1"]);
-        let stopped = LocalPlayback { current: None, future: vec![], position_ms: 0, playing: false, repeat: Repeat::Off };
+        let stopped = LocalPlayback { current: None, future: vec![], position_ms: 0, playing: false, repeat: Repeat::Off, ..LocalPlayback::default() };
         assert_eq!(m.plan(&stopped, 0), vec![Write::Status { playing: false }]);
     }
 

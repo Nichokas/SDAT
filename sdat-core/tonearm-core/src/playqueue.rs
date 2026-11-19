@@ -114,6 +114,8 @@ pub struct DurableQueue {
     /// Source index just past the last track taken from the queue, where
     /// [`DurableQueue::restore`] continues.
     played: Cell<usize>,
+    /// While shuffled: the tracks taken from the queue, in that order.
+    taken: RefCell<Vec<Track>>,
 }
 
 impl DurableQueue {
@@ -130,6 +132,7 @@ impl DurableQueue {
         self.queue.clear();
         self.shuffled.set(false);
         self.played.set(0);
+        self.taken.borrow_mut().clear();
     }
     #[cfg(test)]
     pub fn contains(&self, id: &str) -> bool {
@@ -162,10 +165,23 @@ impl DurableQueue {
         }
         t
     }
+    /// The source tracks that are not queued, in the order they left the
+    /// queue: what [`DurableQueue::rewind`] brings back. The last one is the
+    /// track playing, if it came from this queue.
+    pub fn played(&self) -> Vec<Track> {
+        if self.shuffled.get() {
+            return self.taken.borrow().clone();
+        }
+        let src = self.source.borrow();
+        src[..self.played.get().min(src.len())].to_vec()
+    }
     /// Moves the restore point past `t`: its next occurrence in the source
     /// (so a repeated track counts once per play), else its first one. It
     /// never moves back, so a shuffled pop of an earlier track replays nothing.
     fn mark_played(&self, t: &Track) {
+        if self.shuffled.get() {
+            self.taken.borrow_mut().push(t.clone());
+        }
         let src = self.source.borrow();
         let from = self.played.get().min(src.len());
         let found = src[from..].iter().position(|s| s.id() == t.id()).map(|i| from + i);
@@ -180,6 +196,7 @@ impl DurableQueue {
         self.played.set(self.played.get() - before);
         src.retain(|s| s.id() != t.id());
         drop(src);
+        self.taken.borrow_mut().retain(|s| s.id() != t.id());
         self.queue.remove_at(i)
     }
     /// Restores the original order, continuing after the last track taken
@@ -188,6 +205,7 @@ impl DurableQueue {
         let src = self.source.borrow();
         self.queue.set(src[self.played.get().min(src.len())..].to_vec());
         self.shuffled.set(false);
+        self.taken.borrow_mut().clear();
     }
     /// Queues the whole source again in its original order.
     pub fn rewind(&self) {
@@ -198,6 +216,7 @@ impl DurableQueue {
         self.source.borrow_mut().clone_from(&tracks);
         self.queue.set(tracks);
         self.played.set(0);
+        self.taken.borrow_mut().clear();
     }
     /// Shuffles every source track except `current_id`.
     pub fn shuffle(&self, current_id: &str) {
@@ -205,6 +224,7 @@ impl DurableQueue {
         src.shuffle(&mut rand::rng());
         self.queue.set(src);
         self.shuffled.set(true);
+        *self.taken.borrow_mut() = self.source.borrow().iter().find(|t| t.id() == current_id).cloned().into_iter().collect();
     }
     pub fn skip(&self, n: usize) -> Result<Vec<Track>> {
         let skipped = self.queue.skip(n)?;
@@ -352,6 +372,28 @@ mod tests {
         q.remove_at(0).unwrap();
         q.rewind();
         assert_eq!(q.len(), 19, "removed tracks are gone from the source");
+    }
+
+    #[test]
+    fn played_is_what_a_rewind_brings_back() {
+        let played = |q: &DurableQueue| q.played().iter().map(|t| t.id().to_string()).collect::<Vec<_>>();
+        let q = DurableQueue::default();
+        q.set((0..5).map(|i| t(&i.to_string())).collect());
+        assert!(played(&q).is_empty());
+        // Started at the third track: the first two come back too.
+        q.skip(2).unwrap();
+        q.pop();
+        assert_eq!(played(&q), ["0", "1", "2"]);
+        // Shuffled: the track playing, then the others as they leave the queue.
+        q.shuffle("2");
+        assert_eq!(played(&q), ["2"]);
+        let next = q.pop().unwrap();
+        let after = q.pop().unwrap();
+        assert_eq!(played(&q), ["2", next.id(), after.id()]);
+        q.remove_at(0).unwrap();
+        assert_eq!(played(&q).len() + q.len(), q.source_len());
+        q.rewind();
+        assert!(played(&q).is_empty());
     }
 
     #[test]

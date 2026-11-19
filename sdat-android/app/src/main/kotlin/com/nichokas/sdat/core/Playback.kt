@@ -89,6 +89,7 @@ class Playback(context: Context, private val prefs: Preferences, secrets: Secret
     override val currentId get() = track?.id
     val userQueue get() = queue.userQueue
     val upNext get() = queue.upNext
+    val played get() = queue.played
     val shuffle get() = queue.shuffle
     val repeat get() = queue.repeat
     val source get() = queue.source
@@ -488,6 +489,8 @@ class Playback(context: Context, private val prefs: Preferences, secrets: Secret
 
     private fun refillIfNeeded() {
         val source = infinite ?: return
+        // A handoff's own tracks come first: a refill before them would take their place.
+        if (resumedBase.let { it != null && queue.original === it }) return
         if (queue.needsRefill) scope.launch { fetchMore(source) }
     }
 
@@ -679,7 +682,8 @@ class Playback(context: Context, private val prefs: Preferences, secrets: Secret
         if (player.mediaItemCount > 1) player.removeMediaItems(1, player.mediaItemCount)
     }
 
-    private val endless get() = infinite != null || awaitingMixes
+    /** The queue is Discover's endless shuffle, also before its source is attached. */
+    val endless get() = infinite != null || awaitingMixes
 
     private fun persist() {
         sessionPlayer.refresh()
@@ -692,14 +696,17 @@ class Playback(context: Context, private val prefs: Preferences, secrets: Secret
      * playing. */
     var onChange: (() -> Unit)? = null
 
-    /** Another device's playback (Handoff), loaded like the queue saved at launch and played from [atMs]. */
-    fun resume(current: Track, atMs: Long, repeat: Repeat) {
+    /** Another device's playback (Handoff), loaded like the queue saved at launch and played from [atMs].
+     * [discover]: Discover's endless queue, which goes on with this device's own shuffle. */
+    fun resume(current: Track, atMs: Long, repeat: Repeat, discover: Boolean) {
         // An arrival that plays here is newer than a Continue here still on its way.
         controls++
-        val (saved, state) = resumed(current, maxOf(atMs, 0) / 1000.0, repeat)
+        val (saved, state) = resumed(current, maxOf(atMs, 0) / 1000.0, repeat, discover)
         queue.restore(saved, state)
         replaceInfinite(null)
         resumedBase = queue.original
+        awaitingMixes = discover
+        resumeInfinite(Discover.mixes)
         start(current, resumeAt = state.position)
     }
 
@@ -711,6 +718,7 @@ class Playback(context: Context, private val prefs: Preferences, secrets: Secret
         resumedBase = null
         queue.extend(tracks)
         changed()
+        refillIfNeeded()
     }
 
     /** After a failure or a controller's stop there is nothing prepared, so this starts the track again where it was;

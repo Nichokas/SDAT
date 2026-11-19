@@ -5148,6 +5148,15 @@ public struct HandoffLocal: Equatable, Hashable {
      * Track ids after the current one, in play order (play-next first).
      */
     public var future: [String]
+    /**
+     * Track ids repeat all plays again after the last of `future`, in that
+     * order: the part of the list before the current track.
+     */
+    public var past: [String]
+    /**
+     * The queue is Discover's endless shuffle.
+     */
+    public var discover: Bool
     public var positionMs: Int64
     public var playing: Bool
     public var `repeat`: HandoffRepeat
@@ -5160,9 +5169,18 @@ public struct HandoffLocal: Equatable, Hashable {
          */current: String?, 
         /**
          * Track ids after the current one, in play order (play-next first).
-         */future: [String], positionMs: Int64, playing: Bool, `repeat`: HandoffRepeat) {
+         */future: [String], 
+        /**
+         * Track ids repeat all plays again after the last of `future`, in that
+         * order: the part of the list before the current track.
+         */past: [String], 
+        /**
+         * The queue is Discover's endless shuffle.
+         */discover: Bool, positionMs: Int64, playing: Bool, `repeat`: HandoffRepeat) {
         self.current = current
         self.future = future
+        self.past = past
+        self.discover = discover
         self.positionMs = positionMs
         self.playing = playing
         self.`repeat` = `repeat`
@@ -5186,6 +5204,8 @@ public struct FfiConverterTypeHandoffLocal: FfiConverterRustBuffer {
             try HandoffLocal(
                 current: FfiConverterOptionString.read(from: &buf), 
                 future: FfiConverterSequenceString.read(from: &buf), 
+                past: FfiConverterSequenceString.read(from: &buf), 
+                discover: FfiConverterBool.read(from: &buf), 
                 positionMs: FfiConverterInt64.read(from: &buf), 
                 playing: FfiConverterBool.read(from: &buf), 
                 repeat: FfiConverterTypeHandoffRepeat.read(from: &buf)
@@ -5195,6 +5215,8 @@ public struct FfiConverterTypeHandoffLocal: FfiConverterRustBuffer {
     public static func write(_ value: HandoffLocal, into buf: inout [UInt8]) {
         FfiConverterOptionString.write(value.current, into: &buf)
         FfiConverterSequenceString.write(value.future, into: &buf)
+        FfiConverterSequenceString.write(value.past, into: &buf)
+        FfiConverterBool.write(value.discover, into: &buf)
         FfiConverterInt64.write(value.positionMs, into: &buf)
         FfiConverterBool.write(value.playing, into: &buf)
         FfiConverterTypeHandoffRepeat.write(value.`repeat`, into: &buf)
@@ -5226,14 +5248,24 @@ public struct HandoffResume: Equatable, Hashable {
     public var current: Track
     public var positionMs: Int64
     public var `repeat`: HandoffRepeat
+    /**
+     * The queue is Discover's endless shuffle: go on with this device's own
+     * once it runs out.
+     */
+    public var discover: Bool
 
     // Default memberwise initializers are never public by default, so we
     // declare one manually.
-    public init(from: HandoffDevice, current: Track, positionMs: Int64, `repeat`: HandoffRepeat) {
+    public init(from: HandoffDevice, current: Track, positionMs: Int64, `repeat`: HandoffRepeat, 
+        /**
+         * The queue is Discover's endless shuffle: go on with this device's own
+         * once it runs out.
+         */discover: Bool) {
         self.from = from
         self.current = current
         self.positionMs = positionMs
         self.`repeat` = `repeat`
+        self.discover = discover
     }
 
     
@@ -5255,7 +5287,8 @@ public struct FfiConverterTypeHandoffResume: FfiConverterRustBuffer {
                 from: FfiConverterTypeHandoffDevice.read(from: &buf), 
                 current: FfiConverterTypeTrack.read(from: &buf), 
                 positionMs: FfiConverterInt64.read(from: &buf), 
-                repeat: FfiConverterTypeHandoffRepeat.read(from: &buf)
+                repeat: FfiConverterTypeHandoffRepeat.read(from: &buf), 
+                discover: FfiConverterBool.read(from: &buf)
         )
     }
 
@@ -5264,6 +5297,7 @@ public struct FfiConverterTypeHandoffResume: FfiConverterRustBuffer {
         FfiConverterTypeTrack.write(value.current, into: &buf)
         FfiConverterInt64.write(value.positionMs, into: &buf)
         FfiConverterTypeHandoffRepeat.write(value.`repeat`, into: &buf)
+        FfiConverterBool.write(value.discover, into: &buf)
     }
 }
 

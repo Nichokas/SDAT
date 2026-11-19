@@ -64,6 +64,11 @@ pub struct HandoffLocal {
     pub current: Option<String>,
     /// Track ids after the current one, in play order (play-next first).
     pub future: Vec<String>,
+    /// Track ids repeat all plays again after the last of `future`, in that
+    /// order: the part of the list before the current track.
+    pub past: Vec<String>,
+    /// The queue is Discover's endless shuffle.
+    pub discover: bool,
     pub position_ms: i64,
     pub playing: bool,
     pub repeat: HandoffRepeat,
@@ -77,6 +82,9 @@ pub struct HandoffResume {
     pub current: Track,
     pub position_ms: i64,
     pub repeat: HandoffRepeat,
+    /// The queue is Discover's endless shuffle: go on with this device's own
+    /// once it runs out.
+    pub discover: bool,
 }
 
 impl From<core::Resume> for HandoffResume {
@@ -86,6 +94,7 @@ impl From<core::Resume> for HandoffResume {
             current: Track::from(&r.current),
             position_ms: r.position_ms,
             repeat: r.repeat.into(),
+            discover: r.discover,
         }
     }
 }
@@ -155,6 +164,8 @@ impl Handoff {
         self.0.report(core::LocalPlayback {
             current: local.current,
             future: local.future,
+            past: local.past,
+            discover: local.discover,
             position_ms: local.position_ms,
             playing: local.playing,
             repeat: local.repeat.into(),

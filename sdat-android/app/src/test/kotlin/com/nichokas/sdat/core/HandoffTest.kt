@@ -20,13 +20,36 @@ class HandoffTest {
 
     @Test fun reportsPlayNextBeforeTheRestOfTheQueue() {
         assertEquals(
-            HandoffLocal("a", listOf("x", "y", "b", "c"), 12_000, true, HandoffRepeat.ALL),
-            handoffLocal("a", listOf("x", "y"), listOf("b", "c"), 12_000, playing = true, Repeat.All),
+            HandoffLocal("a", listOf("x", "y", "b", "c"), listOf("p"), false, 12_000, true, HandoffRepeat.ALL),
+            handoffLocal("a", listOf("x", "y"), listOf("b", "c"), listOf("p"), discover = false, 12_000, playing = true, Repeat.All),
         )
     }
 
-    @Test fun nothingLoadedHasNoFuture() {
-        assertEquals(HandoffLocal(null, emptyList(), 0, false, HandoffRepeat.OFF), handoffLocal(null, listOf("x"), listOf("b"), 0, playing = false, Repeat.Off))
+    @Test fun nothingLoadedHasNoQueue() {
+        assertEquals(
+            HandoffLocal(null, emptyList(), emptyList(), false, 0, false, HandoffRepeat.OFF),
+            handoffLocal(null, listOf("x"), listOf("b"), listOf("p"), discover = true, 0, playing = false, Repeat.Off),
+        )
+    }
+
+    @Test fun playedIsTheBaseQueueBeforeTheCurrentTrack() {
+        val q = PlayQueue<String> { it }
+        q.play(listOf("a", "b", "c"), startAt = 1)
+        assertEquals(listOf("a"), q.played)
+        // A Play Next track joins the base queue where it plays.
+        q.playNext(listOf("x"))
+        q.advance(manual = false)
+        assertEquals(listOf("a", "b"), q.played)
+        assertEquals(listOf("c"), q.upNext)
+    }
+
+    @Test fun aResumedDiscoverQueueStaysEndless() {
+        val (saved, _) = resumed("a", 0.0, Repeat.Off, discover = true)
+        assertTrue(saved.endless)
+        assertEquals(PlayQueue.DISCOVER, saved.source)
+        val (other, _) = resumed("a", 0.0, Repeat.Off)
+        assertFalse(other.endless)
+        assertEquals(null, other.source)
     }
 
     @Test fun repeatRoundTrips() {

@@ -32,6 +32,9 @@ const FIRST_CHUNK: usize = 50;
 const CHUNK: usize = 20;
 /// What a track needs for display, below `current.` or `future.`.
 const TRACK_INCLUDES: &str = "artists,albums.coverArt";
+/// `legacySource.type` of the items of a Discover queue. TIDAL keeps a
+/// source per item, so every item written for such a queue carries it.
+const DISCOVER: &str = "SDAT_DISCOVER";
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub(super) enum Status {
@@ -70,6 +73,8 @@ pub(super) struct Head {
     pub updated_by: Option<String>,
     pub track: Option<Track>,
     pub stream: Option<String>,
+    /// The current item carries [`DISCOVER`].
+    pub discover: bool,
 }
 
 thread_local! {
@@ -197,6 +202,7 @@ pub(super) fn parse_head(v: &Value) -> Head {
         position_ms: meta.and_then(|m| m.get("position")).and_then(Value::as_str).and_then(ms_of_iso),
         position_at_ms: meta.and_then(|m| m.get("positionUpdatedAt")).and_then(Value::as_str).and_then(unix_ms),
         updated_by: meta.and_then(|m| str_at(m, "/updatedByInstallationId")),
+        discover: meta.and_then(|m| str_at(m, "/legacySource/type")).as_deref() == Some(DISCOVER),
         track: cur.and_then(|c| tracks(v, &Value::Array(vec![c.clone()])).into_iter().next()),
         stream: stream_href(v),
     }
@@ -337,20 +343,47 @@ fn track_ids(ids: &[String]) -> Value {
     Value::Array(ids.iter().map(|id| json!({"type": "tracks", "id": id})).collect())
 }
 
+/// `meta` of an add to the future.
+fn add_meta(mode: &str, discover: bool) -> Value {
+    if discover {
+        json!({"mode": mode, "legacySource": {"type": DISCOVER, "id": "discover"}})
+    } else {
+        json!({"mode": mode})
+    }
+}
+
+/// Adds `tracks` to the future in `mode`, the later chunks after it; returns the last revision.
+fn add(queue: &str, tracks: &[String], mode: &str, discover: bool) -> Result<String> {
+    let path = format!("/v2/playQueues/{queue}/relationships/future");
+    let mut rev = String::new();
+    for (i, chunk) in tracks.chunks(CHUNK).enumerate() {
+        let body = json!({"data": track_ids(chunk), "meta": add_meta(if i == 0 { mode } else { "ADD_TO_BACK" }, discover)});
+        rev = revision(&call(Method::POST, &path, Some(&body))?);
+    }
+    Ok(rev)
+}
+
 /// Replaces the queue with `tracks` (the first becomes current); returns the revision.
-pub(super) fn rewrite(queue: &str, tracks: &[String], repeat: Repeat) -> Result<String> {
+pub(super) fn rewrite(queue: &str, tracks: &[String], repeat: Repeat, discover: bool) -> Result<String> {
+    let attributes = json!({"shuffle": "OFF", "shuffled": false, "repeat": repeat_str(repeat)});
+    let path = format!("/v2/playQueues/{queue}");
+    if discover {
+        // Only the future's own endpoint takes a `legacySource`.
+        call(Method::PATCH, &path, Some(&json!({"data": {"type": "playQueues", "id": queue, "attributes": attributes}})))?;
+        return add(queue, tracks, "REPLACE_ALL_AND_CURRENT", true);
+    }
     let (first, rest) = tracks.split_at(tracks.len().min(FIRST_CHUNK));
-    let body = json!({"data": {"type": "playQueues", "id": queue,
-        "attributes": {"shuffle": "OFF", "shuffled": false, "repeat": repeat_str(repeat)},
+    let body = json!({"data": {"type": "playQueues", "id": queue, "attributes": attributes,
         "relationships": {
             "future": {"data": track_ids(first), "meta": {"mode": "REPLACE_ALL"}},
             "current": {"meta": {"mode": "FIRST_FUTURE_ITEM"}}}}});
-    let mut rev = revision(&call(Method::PATCH, &format!("/v2/playQueues/{queue}"), Some(&body))?);
-    for chunk in rest.chunks(CHUNK) {
-        let body = json!({"data": track_ids(chunk), "meta": {"mode": "ADD_TO_BACK"}});
-        rev = revision(&call(Method::POST, &format!("/v2/playQueues/{queue}/relationships/future"), Some(&body))?);
-    }
-    Ok(rev)
+    let rev = revision(&call(Method::PATCH, &path, Some(&body))?);
+    if rest.is_empty() { Ok(rev) } else { add(queue, rest, "ADD_TO_BACK", false) }
+}
+
+/// Adds `tracks` after the queue's last; returns the revision.
+pub(super) fn append(queue: &str, tracks: &[String], discover: bool) -> Result<String> {
+    add(queue, tracks, "ADD_TO_BACK", discover)
 }
 
 pub(super) fn set_repeat(queue: &str, repeat: Repeat) -> Result<String> {
@@ -409,6 +442,7 @@ mod tests {
         let h = parse_head(&serde_json::from_str(HEAD).expect("json"));
         assert_eq!(h.revision, "r1");
         assert_eq!(h.repeat, Repeat::All);
+        assert!(!h.discover);
         assert_eq!(h.current, Some(Entry { track_id: "40475829".into(), item_id: "7706807".into() }));
         assert_eq!(h.position_ms, Some(83_456));
         assert_eq!(h.position_at_ms, Some(1_794_746_339_242));
@@ -428,6 +462,63 @@ mod tests {
         assert!(h.track.is_none());
         let empty = parse_head(&serde_json::from_str(r#"{"data":{"id":"q","type":"playQueues","attributes":{"revision":"r"},"relationships":{"current":{"data":null}}}}"#).expect("json"));
         assert!(empty.current.is_none());
+    }
+
+    #[test]
+    fn the_discover_mark_is_read_from_the_current_item() {
+        let h = parse_head(&serde_json::from_str(r#"{"data":{"id":"q","type":"playQueues","attributes":{"revision":"r","repeat":"NONE"},
+            "relationships":{"current":{"data":{"id":"1","type":"tracks","meta":{"itemId":"5","legacySource":{"type":"SDAT_DISCOVER","id":"discover"}}}}}}}"#).expect("json"));
+        assert!(h.discover);
+        let other = parse_head(&serde_json::from_str(r#"{"data":{"id":"q","type":"playQueues","attributes":{"revision":"r","repeat":"NONE"},
+            "relationships":{"current":{"data":{"id":"1","type":"tracks","meta":{"itemId":"5","legacySource":{"type":"ALBUM","id":"7"}}}}}}}"#).expect("json"));
+        assert!(!other.discover);
+        assert_eq!(add_meta("ADD_TO_BACK", true), json!({"mode": "ADD_TO_BACK", "legacySource": {"type": "SDAT_DISCOVER", "id": "discover"}}));
+        assert_eq!(add_meta("ADD_TO_BACK", false), json!({"mode": "ADD_TO_BACK"}));
+    }
+
+    /// What `rewrite` and `append` leave in `queue`, the current track first, and whether it carries the Discover mark.
+    fn written(queue: &str) -> Result<(Vec<String>, bool)> {
+        let h = head(queue)?;
+        let future = future_entries(queue, 100)?;
+        Ok((h.current.into_iter().chain(future).map(|e| e.track_id).collect(), h.discover))
+    }
+
+    /// The writes of a Discover queue and of a repeated list, as TIDAL keeps
+    /// them. On a queue of its own that is never selected, so the account's
+    /// playback is left alone. Needs `SDAT_LIVE_REFRESH_TOKEN`.
+    #[test]
+    #[ignore = "live: writes a queue of its own to the TIDAL account"]
+    fn live_queue_writes_round_trip() {
+        crate::handoff::tests::live_sign_in();
+        let ids: Vec<String> = ["35707532", "60923645", "40475829", "504370449", "162358163"].map(String::from).to_vec();
+        let me = register(&std::env::var("SDAT_LIVE_KEY_A").unwrap_or_else(|_| crate::handoff::new_installation_key()), "SDAT test A").expect("register");
+        let selected = state().expect("state").queue_id;
+        let v = call(Method::POST, "/v2/playQueues", Some(&json!({"data": {"type": "playQueues"}}))).expect("create");
+        let q = str_at(&v, "/data/id").expect("queue id");
+        let run = || -> Result<()> {
+            // A Discover queue, then its refill: every item carries the mark.
+            rewrite(&q, &ids[..3], Repeat::Off, true)?;
+            assert_eq!(written(&q)?, (ids[..3].to_vec(), true));
+            // The mirror keeps the revision an append returns.
+            assert_eq!(append(&q, &ids[3..], true)?, head(&q)?.revision);
+            let last = future_entries(&q, 100)?.pop().expect("appended entry");
+            set_current(&q, &last, 1_000, &me)?;
+            assert_eq!(written(&q)?, (ids[4..].to_vec(), true));
+            // Any other queue drops it.
+            rewrite(&q, &ids[..3], Repeat::All, false)?;
+            assert_eq!(written(&q)?, (ids[..3].to_vec(), false));
+            assert_eq!(head(&q)?.repeat, Repeat::All);
+            // Repeat all: the track just left goes behind the others.
+            let next = future_entries(&q, 100)?.remove(0);
+            append(&q, &ids[..1], false)?;
+            set_current(&q, &next, 0, &me)?;
+            assert_eq!(written(&q)?, (vec![ids[1].clone(), ids[2].clone(), ids[0].clone()], false));
+            Ok(())
+        };
+        let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(run));
+        call(Method::DELETE, &format!("/v2/playQueues/{q}"), None).expect("delete");
+        assert_eq!(state().expect("state").queue_id, selected, "the selected queue changed");
+        result.expect("checks").expect("calls");
     }
 
     #[test]
