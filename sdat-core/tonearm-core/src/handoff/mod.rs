@@ -92,6 +92,14 @@ pub struct LocalPlayback {
     pub repeat: Repeat,
 }
 
+impl LocalPlayback {
+    /// The repeat mode written to the queue. Discover never ends, and TIDAL
+    /// would hand its played tracks on as the ones to repeat.
+    fn queue_repeat(&self) -> Repeat {
+        if self.discover && self.repeat == Repeat::All { Repeat::Off } else { self.repeat }
+    }
+}
+
 /// Playback taken over from another device: the current track only, so it
 /// starts sooner. What follows it comes after, as [`HandoffEvent::Upcoming`].
 #[derive(Debug, Clone)]
@@ -135,11 +143,15 @@ pub trait HandoffListener: Send + Sync {
     fn on_event(&self, ev: HandoffEvent);
 }
 
-/// A random installation key (UUID v4) for the app to keep in its settings.
-pub fn new_installation_key() -> String {
+fn uuid_v4() -> String {
     let b = rand::random::<u128>() & !(0xf000 << 64) & !(0xc << 60) | (0x4000 << 64) | (0x8 << 60);
     let h = format!("{b:032x}");
     format!("{}-{}-{}-{}-{}", &h[..8], &h[8..12], &h[12..16], &h[16..20], &h[20..])
+}
+
+/// A random installation key (UUID v4) for the app to keep in its settings.
+pub fn new_installation_key() -> String {
+    uuid_v4()
 }
 
 enum Cmd {
@@ -1127,16 +1139,17 @@ impl Worker {
                 Write::NewQueue => self.mirror.queue_created(wire::create_queue()?),
                 Write::Queue(tracks) => {
                     let q = self.queue()?;
-                    wire::rewrite(&q, &tracks, local.repeat, local.discover)?;
+                    let repeat = local.queue_repeat();
+                    let batch = wire::rewrite(&q, &tracks, repeat, local.discover)?;
                     let head = wire::head(&q)?;
                     let mut entries: Vec<wire::Entry> = head.current.into_iter().collect();
                     if !sending {
                         entries.extend(wire::future_entries(&q, MAX_FUTURE)?);
                     }
-                    self.mirror.queue_written(tracks, entries, head.revision, local.repeat);
+                    self.mirror.queue_written(tracks, entries, batch, head.revision, repeat);
                 }
-                Write::Append(tracks) => {
-                    let rev = wire::append(&self.queue()?, &tracks, local.discover)?;
+                Write::Append { batch, tracks } => {
+                    let rev = wire::append(&self.queue()?, &tracks, &batch, local.discover)?;
                     self.mirror.appended(tracks, rev);
                 }
                 Write::Repeat(r) => {
