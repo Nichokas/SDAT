@@ -1,5 +1,5 @@
 //! Port of `internal/ui/window*.go`: the main window, its actions, dialogs and popups.
-use std::cell::RefCell;
+use std::cell::{Cell, RefCell};
 use std::rc::Rc;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -16,6 +16,20 @@ use crate::{api, model, player, router, secrets, settings, state};
 
 thread_local! {
     static WINDOW: RefCell<Option<adw::ApplicationWindow>> = const { RefCell::new(None) };
+    static ACCOUNT_CHANGING: Cell<bool> = const { Cell::new(false) };
+}
+
+enum AccountChangeStatus {
+    Completed,
+    InProgress,
+}
+
+struct AccountChangeGuard;
+
+impl Drop for AccountChangeGuard {
+    fn drop(&mut self) {
+        ACCOUNT_CHANGING.set(false);
+    }
 }
 
 pub fn window() -> Option<adw::ApplicationWindow> {
@@ -440,29 +454,25 @@ fn sign_in(window: &adw::ApplicationWindow) {
             }
             Ok(resp) => {
                 let token = resp.refresh_token.clone();
-                if let Err(e) = update_session(Some(token)).await {
-                    log::error!("failed to store refresh token error={e:#}");
-                    toast(&tr("Sign in failed: the keyring could not store the session"));
-                    return;
+                match update_session(Some(token)).await {
+                    Ok(AccountChangeStatus::Completed) => toast(&trf("Signed in as %s", &[&resp.user.email])),
+                    Ok(AccountChangeStatus::InProgress) => {}
+                    Err(e) => {
+                        log::error!("failed to store refresh token error={e:#}");
+                        toast(&tr("Sign in failed: the keyring could not store the session"));
+                    }
                 }
-                toast(&trf("Signed in as %s", &[&resp.user.email]));
             }
         }
     });
 }
 
-async fn update_session(refresh_token: Option<String>) -> anyhow::Result<()> {
-    thread_local! {
-        static CHANGING: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+async fn update_session(refresh_token: Option<String>) -> anyhow::Result<AccountChangeStatus> {
+    if ACCOUNT_CHANGING.replace(true) {
+        toast(&tr("An account change is already in progress"));
+        return Ok(AccountChangeStatus::InProgress);
     }
-    struct AccountChange;
-    impl Drop for AccountChange {
-        fn drop(&mut self) {
-            CHANGING.set(false);
-        }
-    }
-    anyhow::ensure!(!CHANGING.replace(true), "another account change is in progress");
-    let change = AccountChange;
+    let change = AccountChangeGuard;
     // The keyring worker can finish after its caller stops waiting.
     glib::spawn_future_local(async move {
         let _change = change;
@@ -488,7 +498,7 @@ async fn update_session(refresh_token: Option<String>) -> anyhow::Result<()> {
         if result.is_ok() {
             router::refresh();
         }
-        result
+        result.map(|()| AccountChangeStatus::Completed)
     })
     .await
     .map_err(|_| anyhow::anyhow!("account change task failed"))?
@@ -582,12 +592,14 @@ fn install_actions(app: &adw::Application, window: &adw::ApplicationWindow) {
     }));
     window.add_action(&simple("sign-out", || {
         glib::spawn_future_local(async {
-            if let Err(e) = update_session(None).await {
-                log::error!("failed to delete refresh token error={e:#}");
-                toast(&tr("Sign out failed"));
-                return;
+            match update_session(None).await {
+                Ok(AccountChangeStatus::Completed) => toast(&tr("Signed out")),
+                Ok(AccountChangeStatus::InProgress) => {}
+                Err(e) => {
+                    log::error!("failed to delete refresh token error={e:#}");
+                    toast(&tr("Sign out failed"));
+                }
             }
-            toast(&tr("Signed out"));
         });
     }));
     accel(app, "win.sign-out", &["<Primary>l".into()]);
@@ -1018,6 +1030,23 @@ async fn lastfm_configure(window: Option<adw::ApplicationWindow>) -> anyhow::Res
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn overlapping_account_change_reports_that_the_first_is_still_running() {
+        ACCOUNT_CHANGING.set(true);
+        let _active = AccountChangeGuard;
+        let notices = Rc::new(RefCell::new(Vec::new()));
+        let seen = Rc::clone(&notices);
+        let subscription = player::toasts().on(move |message| {
+            seen.borrow_mut().push(message.clone());
+            false
+        });
+        let status = glib::MainContext::new().block_on(update_session(None)).unwrap();
+        player::toasts().unsubscribe(subscription);
+        assert!(matches!(status, AccountChangeStatus::InProgress));
+        assert!(ACCOUNT_CHANGING.get());
+        assert_eq!(notices.borrow().as_slice(), &[tr("An account change is already in progress")]);
+    }
 
     #[test]
     fn release_builds_are_stable() {

@@ -151,15 +151,20 @@ pub fn track_favourite_button() -> (gtk::Button, SetId) {
             };
             render(&b, true, false);
             let (w, binding, id) = (w.clone(), Rc::clone(&binding), id.to_owned());
+            let generation = secrets::session_generation();
             glib::spawn_future_local(async move {
-                let result = api::run(move || state::TRACKS.contains(&id)).await;
-                if binding.revision.get() != revision {
+                let result = api::run(move || secrets::with_session(generation, || state::TRACKS.contains(&id))).await;
+                if binding.revision.get() != revision || secrets::session_generation() != generation {
                     return;
                 }
-                let favourite = result.unwrap_or_else(|e| {
-                    log::error!("Failed to get favourites error={e:#}");
-                    false
-                });
+                let favourite = match result {
+                    Ok(Some(favourite)) => favourite,
+                    Ok(None) => return,
+                    Err(e) => {
+                        log::error!("Failed to get favourites error={e:#}");
+                        false
+                    }
+                };
                 binding.favourite.set(Some(favourite));
                 if let Some(b) = w.upgrade() {
                     render(&b, false, favourite);

@@ -24,12 +24,12 @@ impl Session {
         self.generation.load(Ordering::Relaxed)
     }
 
-    fn write<T>(&self, generation: u64, write: impl FnOnce() -> tonearm_core::CoreResult<T>) -> tonearm_core::CoreResult<Option<T>> {
+    fn run<T>(&self, generation: u64, operation: impl FnOnce() -> tonearm_core::CoreResult<T>) -> tonearm_core::CoreResult<Option<T>> {
         let _guard = self.gate.read().unwrap_or_else(std::sync::PoisonError::into_inner);
         if generation != self.generation() {
             return Ok(None);
         }
-        write().map(Some)
+        operation().map(Some)
     }
 
     fn change(&self, edit: impl FnOnce() -> anyhow::Result<()>) -> anyhow::Result<()> {
@@ -46,9 +46,9 @@ pub(crate) fn session_generation() -> u64 {
 
 pub(crate) fn with_session<T>(
     generation: u64,
-    write: impl FnOnce() -> tonearm_core::CoreResult<T>,
+    operation: impl FnOnce() -> tonearm_core::CoreResult<T>,
 ) -> tonearm_core::CoreResult<Option<T>> {
-    SESSION.write(generation, write)
+    SESSION.run(generation, operation)
 }
 
 pub(crate) fn change_session(refresh_token: Option<&str>) -> anyhow::Result<()> {
@@ -200,9 +200,9 @@ mod tests {
         let session = Session { gate: RwLock::new(()), generation: AtomicU64::new(0) };
         let before = session.generation();
         session.change(|| Ok(())).unwrap();
-        let stale: Option<()> = session.write(before, || panic!("write reached the replacement account")).unwrap();
+        let stale: Option<()> = session.run(before, || panic!("write reached the replacement account")).unwrap();
         assert_eq!(stale, None);
-        assert_eq!(session.write(session.generation(), || Ok("saved")).unwrap(), Some("saved"));
+        assert_eq!(session.run(session.generation(), || Ok("saved")).unwrap(), Some("saved"));
     }
 
     #[test]
