@@ -475,7 +475,8 @@ final class Player: LivePlaybackPort {
                 guard let source = infinite else { loading = false; stopAtEnd(); return }
                 let handed = following(manual: !auto) != nil
                 let more = handed ? true : await fetchMore(from: source)
-                guard infinite === source else { return }
+                // Another Next tapped meanwhile waited too, and went on first.
+                guard infinite === source, starts == started else { return }
                 loading = false
                 guard more else { stopAtEnd(); return }
                 // A pause while the refill loaded holds for the track it starts.
