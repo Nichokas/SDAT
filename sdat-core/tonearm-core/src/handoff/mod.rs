@@ -1154,18 +1154,15 @@ impl Worker {
                     self.mirror.queue_written(tracks, entries, batch, head.revision, repeat);
                 }
                 Write::Append { batch, tracks, capped } => {
-                    let rev = wire::append(&self.queue()?, &tracks, &batch, local.discover)?;
-                    self.mirror.appended(tracks, capped, rev);
+                    let q = self.queue()?;
+                    let rev = wire::append(&q, &tracks, &batch, local.discover)?;
+                    self.mirror.appended(tracks, capped, wire::future_entries(&q, MAX_FUTURE)?, rev);
                 }
                 Write::Repeat(r) => {
                     let rev = wire::set_repeat(&self.queue()?, r)?;
                     self.mirror.repeat_written(r, rev);
                 }
                 Write::Current { index, position_ms } => {
-                    if self.mirror.entry(index).is_none() {
-                        // Appended since the entries were read.
-                        self.mirror.entries_read(wire::future_entries(&self.queue()?, MAX_FUTURE)?);
-                    }
                     let e = self.mirror.entry(index).ok_or_else(|| CoreError::Other("queue entry missing".into()))?;
                     let position_ms = if local.playing { position_ms + i64::try_from(planned.elapsed().as_millis()).unwrap_or(0) } else { position_ms };
                     let rev = wire::set_current(&self.queue()?, &e, position_ms, &me)?;

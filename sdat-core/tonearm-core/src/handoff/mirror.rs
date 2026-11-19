@@ -43,8 +43,6 @@ struct Written {
     /// TIDAL's batch of a queue this device wrote: `wrote` is all of it, in
     /// its order. `None` for a queue taken over as another device wrote it.
     batch: Option<String>,
-    /// Tracks were appended since `entries` was read.
-    unread: bool,
     /// The last write stopped at the cap: the local list goes on after `wrote`.
     capped: bool,
     cur: usize,
@@ -91,11 +89,6 @@ impl Written {
     /// TIDAL's entry for written index `index`, if it was read back and still matches.
     fn known(&self, index: usize) -> Option<&Entry> {
         self.entries.get(index).filter(|e| self.wrote.get(index) == Some(&e.track_id))
-    }
-
-    /// Written index `index` was appended after the entries were read: a read finds its entry.
-    fn unread(&self, index: usize) -> bool {
-        self.unread && index >= self.entries.len()
     }
 }
 
@@ -205,15 +198,15 @@ impl Mirror {
         // behind it, as one batch that TIDAL repeats: the device that takes the queue over reads the whole list.
         let before = if repeat == Repeat::All { local.past.as_slice() } else { &[] };
         let tracks: Vec<String> = std::iter::once(cur).chain(&local.future).chain(before).take(MAX_FUTURE + 1).cloned().collect();
-        // An entry that can't be read back can't be selected: the queue is written again.
-        let readable = |w: &Written, i: usize| w.known(i).is_some() || (w.unread(i) && repeat != Repeat::One);
-        let found = self.written.as_ref().and_then(|w| w.find(&tracks, repeat).filter(|&(i, _)| readable(w, i)).map(|f| (w, f)));
+        // An entry never read back can't be selected: the queue is written again.
+        let found = self.written.as_ref().and_then(|w| w.find(&tracks, repeat).filter(|&(i, _)| w.known(i).is_some()).map(|f| (w, f)));
         if let Some((w, (index, written))) = found {
-            if let Some(batch) = w.batch.clone().filter(|_| written < tracks.len()) {
-                out.push(Write::Append { batch, tracks: tracks[written..].to_vec(), capped: tracks.len() == MAX_FUTURE + 1 });
-            }
+            // First, so that what follows an append is read as it is queued, not as another mode shows it.
             if w.repeat != repeat {
                 out.push(Write::Repeat(repeat));
+            }
+            if let Some(batch) = w.batch.clone().filter(|_| written < tracks.len()) {
+                out.push(Write::Append { batch, tracks: tracks[written..].to_vec(), capped: tracks.len() == MAX_FUTURE + 1 });
             }
             let expected = if w.playing { w.position_ms.saturating_add(now_ms.saturating_sub(w.at_ms)) } else { w.position_ms };
             if index != w.cur || self.need_position || w.playing != local.playing || local.position_ms.saturating_sub(expected).saturating_abs() > SEEK_MS {
@@ -260,27 +253,21 @@ impl Mirror {
 
     pub(super) fn queue_written(&mut self, wrote: Vec<String>, entries: Vec<Entry>, batch: String, revision: String, repeat: Repeat) {
         let capped = wrote.len() == MAX_FUTURE + 1;
-        self.written = Some(Written { wrote, entries, batch: Some(batch), unread: false, capped, cur: 0, revision, repeat, position_ms: 0, at_ms: 0, playing: false });
+        self.written = Some(Written { wrote, entries, batch: Some(batch), capped, cur: 0, revision, repeat, position_ms: 0, at_ms: 0, playing: false });
     }
 
-    pub(super) fn appended(&mut self, tracks: Vec<String>, capped: bool, revision: String) {
+    /// `future`: the entries after TIDAL's current one, read after the append.
+    pub(super) fn appended(&mut self, tracks: Vec<String>, capped: bool, future: Vec<Entry>, revision: String) {
         if let Some(w) = &mut self.written {
             w.wrote.extend(tracks);
-            w.unread = true;
             w.capped = capped;
             w.revision = revision;
-        }
-    }
-
-    /// The entries after TIDAL's current one, read after an append.
-    pub(super) fn entries_read(&mut self, future: Vec<Entry>) {
-        // They follow the current entry, which has to be a known one: also when it is the last known.
-        if let Some(w) = self.written.as_mut().filter(|w| w.entries.get(w.cur).is_some()) {
+            // They follow the current entry, the last one still valid.
             w.entries.truncate(w.cur + 1);
-            w.entries.extend(future);
-            // Under repeat all, the entries before the current one follow the last.
-            w.entries.truncate(w.wrote.len());
-            w.unread = false;
+            if w.entries.len() == w.cur + 1 {
+                w.entries.extend(future);
+                w.entries.truncate(w.wrote.len());
+            }
         }
     }
 
@@ -338,7 +325,6 @@ impl Mirror {
             wrote: vec![current.track_id.clone()],
             entries: vec![current],
             batch: None,
-            unread: false,
             capped: false,
             cur: 0,
             revision: head.revision.clone(),
@@ -592,32 +578,31 @@ mod tests {
     fn tracks_added_at_the_end_are_appended() {
         let mut m = active_with(&["1", "2", "3"]);
         assert_eq!(m.plan(&local("1", &["2", "3", "4"], 0, true), 0), vec![append(&["4"])]);
-        m.appended(ids(&["4"]), false, "r".into());
+        m.appended(ids(&["4"]), false, entries(&["2", "3", "4"]), "r".into());
         assert!(m.plan(&local("1", &["2", "3", "4"], 0, true), 0).is_empty());
-        // Its entry is read when it is selected.
         assert_eq!(m.plan(&local("4", &[], 0, true), 0), vec![Write::Current { index: 3, position_ms: 0 }]);
-        assert_eq!(m.entry(3), None);
-        m.entries_read(entries(&["2", "3", "4"]));
         assert_eq!(m.entry(3).map(|e| e.item_id), Some("i4".into()));
     }
 
     #[test]
-    fn a_track_added_to_a_queue_of_one_is_read_and_selected() {
+    fn a_track_added_to_a_queue_of_one_can_be_selected() {
         let mut m = active_with(&["1"]);
         assert_eq!(m.plan(&local("1", &["2"], 0, true), 0), vec![append(&["2"])]);
-        m.appended(ids(&["2"]), false, "r".into());
+        m.appended(ids(&["2"]), false, entries(&["2"]), "r".into());
         assert_eq!(m.plan(&local("2", &[], 0, true), 0), vec![Write::Current { index: 1, position_ms: 0 }]);
-        // The current entry is the last one known: what was read follows it.
-        m.entries_read(entries(&["2"]));
-        assert_eq!(m.entry(1).map(|e| e.item_id), Some("i2".into()));
     }
 
     #[test]
-    fn an_appended_entry_that_cannot_be_read_rewrites() {
+    fn repeat_turned_off_is_written_before_an_append() {
         let mut m = active_with(&["1", "2"]);
-        m.appended(ids(&["3"]), false, "r".into());
-        // TIDAL holds less than was appended.
-        m.entries_read(entries(&["2"]));
+        m.repeat_written(Repeat::All, "r".into());
+        assert_eq!(m.plan(&local("1", &["2", "3"], 0, true), 0), vec![Write::Repeat(Repeat::Off), append(&["3"])]);
+    }
+
+    #[test]
+    fn an_appended_track_tidal_does_not_return_rewrites() {
+        let mut m = active_with(&["1", "2"]);
+        m.appended(ids(&["3"]), false, entries(&["2"]), "r".into());
         assert!(matches!(m.plan(&local("3", &[], 0, true), 0).first(), Some(Write::Queue(_))));
     }
 
@@ -641,9 +626,6 @@ mod tests {
         let one = |current: &str, future: &[&str]| LocalPlayback { repeat: Repeat::One, ..local(current, future, 0, true) };
         // TIDAL shows only the current item under repeat one: the entry of an appended track could not be read.
         assert!(matches!(m.plan(&one("1", &["2", "3"]), 0).first(), Some(Write::Queue(_))));
-        // Nor that of a track appended before repeat one was turned on.
-        m.appended(ids(&["3"]), false, "r".into());
-        assert!(matches!(m.plan(&one("3", &[]), 0).first(), Some(Write::Queue(_))));
     }
 
     fn repeating(current: &str, future: &[&str], past: &[&str]) -> LocalPlayback {

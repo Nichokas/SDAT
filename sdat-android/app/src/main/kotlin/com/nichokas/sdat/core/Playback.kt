@@ -518,13 +518,15 @@ class Playback(context: Context, private val prefs: Preferences, secrets: Secret
             // its source. A track to play ends the wait, and so does another start. The tracks have a limit, for an
             // answer of the core that never comes; the source is asked for until it comes.
             val limit = SystemClock.elapsedRealtime() + HANDOFF_WAIT_MS
-            while (track === from && entry == entryBefore && queue.upNext.isEmpty()) {
+            // Handed over, or added with Play Next meanwhile.
+            val queued = { queue.upNext.isNotEmpty() || queue.userQueue.isNotEmpty() }
+            while (track === from && entry == entryBefore && !queued()) {
                 val tracks = awaitingUpNext && SystemClock.elapsedRealtime() < limit
                 val source = awaitingMixes && infinite == null
                 if (!tracks && !source) break
                 delay(100)
             }
-            val more = queue.upNext.isNotEmpty() || infinite?.let { fetchMore(it) } == true
+            val more = queued() || infinite?.let { fetchMore(it) } == true
             // A track picked during the fetch owns playback now; a source replaced meanwhile had nothing more.
             if (track !== from || entry != entryBefore) return@launch
             fetching = false
