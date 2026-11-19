@@ -16,7 +16,7 @@ use std::rc::Rc;
 use std::sync::mpsc;
 use std::time::Duration;
 
-use crate::model::{PlaybackSource, Track};
+use crate::model::{PlaybackSource, PlaylistInfo, Track};
 use crate::signals::{Signal, State, CONTINUE};
 use crate::{api, global_signal, i18n::tr, service, settings};
 use playqueue::{DurableQueue, HistoryQueue, Queue};
@@ -782,21 +782,38 @@ pub async fn play_artist_top_songs(artist_id: &str, shuffle: bool, position: usi
     Ok(())
 }
 
-pub async fn play_playlist(playlist_id: &str, shuffle: bool, position: usize) -> Result<()> {
+pub async fn play_playlist(playlist_id: &str, shuffle: bool) -> Result<()> {
     let id = playlist_id.to_string();
     let i = id.clone();
     let info = api::run(move || service::get_playlist_info(&i)).await?;
     let tracks = crate::cache::all_tracks(crate::cache::Job::Playlist(id)).await?;
     clear_queues();
     stop();
-    play_tracks(tracks, shuffle, position)?;
+    play_tracks(tracks, shuffle, 0)?;
     source_changed().set(Some(PlaybackSource::Playlist(info)));
     Ok(())
 }
 
-#[cfg(test)]
-fn playlist_start(_tracks: &[Track], _clicked: &Track, position: usize) -> Option<usize> {
-    Some(position)
+pub async fn play_playlist_track(info: PlaylistInfo, clicked: &Track, position: usize) -> Result<bool> {
+    let tracks = crate::cache::all_tracks(crate::cache::Job::Playlist(info.id.clone())).await?;
+    let Some(start) = playlist_start(&tracks, clicked, position) else {
+        return Ok(false);
+    };
+    play_tracklist(PlaybackSource::Playlist(info), tracks, false, start).await?;
+    Ok(true)
+}
+
+fn playlist_start(tracks: &[Track], clicked: &Track, position: usize) -> Option<usize> {
+    let matches = |track: &Track| {
+        track.id() == clicked.id()
+            && clicked.playlist_item_id.as_ref().is_none_or(|id| track.playlist_item_id.as_ref() == Some(id))
+    };
+    let start = if tracks.get(position).is_some_and(matches) {
+        Some(position)
+    } else {
+        tracks.iter().position(matches)
+    };
+    start.filter(|&index| tracks[index].info.streamable)
 }
 
 #[cfg(test)]
@@ -806,6 +823,7 @@ mod playlist_tests {
     fn track(id: &str, item: Option<&str>) -> Track {
         let mut track = Track::default();
         track.info.id = id.into();
+        track.info.streamable = true;
         track.playlist_item_id = item.map(str::to_owned);
         track
     }
@@ -831,6 +849,15 @@ mod playlist_tests {
         let clicked = track("B", Some("b2"));
         let fresh = [track("B", Some("b1")), track("C", Some("c"))];
         assert_eq!(playlist_start(&fresh, &clicked, 1), None);
+    }
+
+    #[test]
+    fn newly_unavailable_track_does_not_start_playback() {
+        let clicked = track("B", Some("b"));
+        let mut unavailable = clicked.clone();
+        unavailable.info.streamable = false;
+        let fresh = [unavailable, track("C", Some("c"))];
+        assert_eq!(playlist_start(&fresh, &clicked, 0), None);
     }
 
     #[test]

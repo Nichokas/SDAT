@@ -524,7 +524,7 @@ fn install_actions(app: &adw::Application, window: &adw::ApplicationWindow) {
 
     window.add_action(&with_string("player.play-track", |id| spawn_logged("play track", async move { player::play_track_id(&id).await })));
     window.add_action(&with_string("player.play-playlist", |id| {
-        spawn_logged("play playlist", async move { player::play_playlist(&id, false, 0).await });
+        spawn_logged("play playlist", async move { player::play_playlist(&id, false).await });
     }));
     window.add_action(&simple("player.shuffle", player::toggle_shuffle));
     accel(app, "win.player.shuffle", &[p("s")]);
