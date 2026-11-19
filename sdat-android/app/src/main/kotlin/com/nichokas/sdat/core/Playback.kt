@@ -38,6 +38,7 @@ import uniffi.tonearm_ffi.Quality
 import uniffi.tonearm_ffi.Shuffle
 import uniffi.tonearm_ffi.Stream
 import uniffi.tonearm_ffi.Track
+import uniffi.tonearm_ffi.homeMixes
 import uniffi.tonearm_ffi.stream
 
 /** The app's single player: the iOS Player's queues, the current track from the core's stream URL with the next one
@@ -421,6 +422,23 @@ class Playback(context: Context, private val prefs: Preferences, secrets: Secret
         syncPreload()
     }
 
+    private var mixesJob: Job? = null
+
+    /** Asks for the home mixes while a Discover queue taken over waits for its source, since Discover may have
+     * none loaded: without it, playback ends with the handed-over tracks. */
+    private fun fetchMixes() {
+        mixesJob?.cancel()
+        mixesJob = scope.launch {
+            var pause = 2_000L
+            while (awaitingMixes && infinite == null) {
+                val mixes = try { homeMixes() } catch (e: CancellationException) { throw e } catch (e: Exception) { emptyList() }
+                if (mixes.isNotEmpty()) return@launch resumeInfinite(mixes)
+                delay(pause)
+                pause = minOf(pause * 2, 60_000L)
+            }
+        }
+    }
+
     /** Gives a Discover queue its endless source once the home mixes load. */
     fun resumeInfinite(mixes: List<Mix>) {
         if (restoring) {
@@ -739,6 +757,7 @@ class Playback(context: Context, private val prefs: Preferences, secrets: Secret
         resumedBase = queue.original
         awaitingMixes = discover
         resumeInfinite(Discover.mixes)
+        if (discover) fetchMixes()
         start(current, resumeAt = state.position)
     }
 
@@ -786,6 +805,8 @@ class Playback(context: Context, private val prefs: Preferences, secrets: Secret
         restore.cancel()
         restoring = false
         request?.cancel()
+        // Mixes still on their way are this account's, not the next one's.
+        mixesJob?.cancel()
         liveEngine.cancelLive()
         dropPreload()
         player.pause()
