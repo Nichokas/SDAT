@@ -63,7 +63,7 @@ pub fn playlist_id(link: &str) -> Option<String> {
 /// Reads the playlist `id`. `progress(done, total)` follows the track lookups;
 /// `cancelled` is polled between them.
 pub fn fetch_playlist(id: &str, progress: &(dyn Fn(usize, usize) + Sync), cancelled: &(dyn Fn() -> bool + Sync)) -> Result<SpotifyPlaylist> {
-    let session = Session { playlist_id: id.to_owned(), token: Mutex::new(fetch_token(id)?) };
+    let session = Session { playlist_id: id.to_owned(), token: Mutex::new(fetch_token(id)?), cancelled };
     let resp = session.get(&format!("{SPCLIENT}/playlist/v2/playlist/{id}"))?;
     if resp.status() != StatusCode::OK {
         return Err(unexpected(resp.status()));
@@ -244,12 +244,13 @@ fn hex_id(base62: &str) -> Option<String> {
     Some(format!("{n:032x}"))
 }
 
-struct Session {
+struct Session<'a> {
+    cancelled: &'a (dyn Fn() -> bool + Sync),
     playlist_id: String,
     token: Mutex<String>,
 }
 
-impl Session {
+impl Session<'_> {
     /// GET with the anonymous token; waits out rate limits and replaces an expired token.
     fn get(&self, url: &str) -> Result<Response> {
         let mut attempt = 0;
@@ -269,7 +270,13 @@ impl Session {
                     if wait > MAX_RETRY_AFTER {
                         bail!("Spotify is limiting requests from this network. Try again later.");
                     }
-                    std::thread::sleep(wait);
+                    // In short steps, so that a cancel does not wait for Spotify.
+                    for _ in 0..wait.as_secs() * 4 {
+                        if (self.cancelled)() {
+                            return Err(CoreError::Cancelled("Spotify import cancelled".into()));
+                        }
+                        std::thread::sleep(Duration::from_millis(250));
+                    }
                 }
                 _ => return Ok(resp),
             }
