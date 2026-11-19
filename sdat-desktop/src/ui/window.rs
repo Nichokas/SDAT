@@ -440,24 +440,12 @@ fn sign_in(window: &adw::ApplicationWindow) {
             }
             Ok(resp) => {
                 let token = resp.refresh_token.clone();
-                // Over a session: the old one detaches with its own credentials first.
-                let replacing = state::signed_in_changed().get();
-                if replacing {
-                    crate::handoff::stop();
-                }
                 if let Err(e) = update_session(Some(token)).await {
                     log::error!("failed to store refresh token error={e:#}");
                     toast(&tr("Sign in failed: the keyring could not store the session"));
-                    if replacing {
-                        crate::handoff::start();
-                    }
                     return;
                 }
-                if replacing {
-                    crate::handoff::start();
-                }
                 toast(&trf("Signed in as %s", &[&resp.user.email]));
-                router::refresh();
             }
         }
     });
@@ -467,19 +455,43 @@ async fn update_session(refresh_token: Option<String>) -> anyhow::Result<()> {
     thread_local! {
         static CHANGING: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
     }
-    anyhow::ensure!(!CHANGING.replace(true), "another account change is in progress");
-    let favourites = crate::ui::components::favourite_button::track_favourites_available();
-    crate::ui::components::add_to_playlist::begin_account_change();
-    favourites.set(false);
-    let result = api::run(move || secrets::change_session(refresh_token.as_deref())).await;
-    if result.is_ok() {
-        crate::cache::allow_prefetch_again();
-        state::notify_signed_in_changed();
+    struct AccountChange;
+    impl Drop for AccountChange {
+        fn drop(&mut self) {
+            CHANGING.set(false);
+        }
     }
-    favourites.set(state::signed_in_changed().get());
-    crate::ui::components::add_to_playlist::end_account_change();
-    CHANGING.set(false);
-    result
+    anyhow::ensure!(!CHANGING.replace(true), "another account change is in progress");
+    let change = AccountChange;
+    // The keyring worker can finish after its caller stops waiting.
+    glib::spawn_future_local(async move {
+        let _change = change;
+        let was_signed_in = state::signed_in_changed().get();
+        if was_signed_in {
+            // Detach with the old account's credentials before replacing them.
+            crate::handoff::stop();
+        }
+        let favourites = crate::ui::components::favourite_button::track_favourites_available();
+        crate::ui::components::add_to_playlist::begin_account_change();
+        favourites.set(false);
+        let result = api::run(move || secrets::change_session(refresh_token.as_deref())).await;
+        if result.is_ok() {
+            crate::cache::allow_prefetch_again();
+            state::notify_signed_in_changed();
+        }
+        let signed_in = state::signed_in_changed().get();
+        if was_signed_in && signed_in {
+            crate::handoff::start();
+        }
+        favourites.set(signed_in);
+        crate::ui::components::add_to_playlist::end_account_change();
+        if result.is_ok() {
+            router::refresh();
+        }
+        result
+    })
+    .await
+    .map_err(|_| anyhow::anyhow!("account change task failed"))?
 }
 
 fn install_actions(app: &adw::Application, window: &adw::ApplicationWindow) {
@@ -569,17 +581,13 @@ fn install_actions(app: &adw::Application, window: &adw::ApplicationWindow) {
         }
     }));
     window.add_action(&simple("sign-out", || {
-        // Detach while the session still works.
-        crate::handoff::stop();
         glib::spawn_future_local(async {
             if let Err(e) = update_session(None).await {
                 log::error!("failed to delete refresh token error={e:#}");
                 toast(&tr("Sign out failed"));
-                crate::handoff::start();
                 return;
             }
             toast(&tr("Signed out"));
-            router::refresh();
         });
     }));
     accel(app, "win.sign-out", &["<Primary>l".into()]);
