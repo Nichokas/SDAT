@@ -142,12 +142,12 @@ object Live {
             guestControl = g.guestControl()
             mode = LiveMode.Joining
             // Only an accepted invitation clears an older system pause.
-            player.clearSystemPause()
+            player.liveEngine.clearSystemPause()
             val s = newSession()
-            val f = GuestFollower(g, player, s, ::resolve, { extraLatencyMs.toLong() }, SystemClock::uptimeMillis) { Log.i(TAG, it) }
+            val f = GuestFollower(g, player.liveEngine, s, ::resolve, { extraLatencyMs.toLong() }, SystemClock::uptimeMillis) { Log.i(TAG, it) }
             follower = f
-            player.liveFollowing = true
-            player.liveTarget = f::hostPosition
+            player.liveEngine.liveFollowing = true
+            player.liveEngine.liveTarget = f::hostPosition
             every(250) { if (mode == LiveMode.Joined) f.tick() }
         } catch (_: FfiException) {
             mode = LiveMode.Ended("This invitation isn't valid.")
@@ -190,7 +190,7 @@ object Live {
         outboxJob = null
         hostEnqueue.clear()
         hostEnqueueJob = null
-        player.liveEnded()
+        player.liveEngine.liveEnded()
         invite = null
         guests = emptyList()
         upNext = emptyList()
@@ -331,14 +331,14 @@ object Live {
     /** An explicit play also lifts a local system pause, otherwise the guest would stay silent once the host resumes. */
     private fun requestPlay(): Boolean {
         if (!route(LiveCommand.Play)) return false
-        if (guestControl && player.systemPaused) player.clearSystemPause()
+        if (guestControl && player.liveEngine.systemPaused) player.liveEngine.clearSystemPause()
         return true
     }
 
     /** Guest paused by the system while the host plays: "play" means resume here, not change the host. */
     private fun resumeLocally(): Boolean {
-        if (guest == null || !player.systemPaused) return false
-        player.clearSystemPause()
+        if (guest == null || !player.liveEngine.systemPaused) return false
+        player.liveEngine.clearSystemPause()
         return true
     }
 
@@ -417,7 +417,7 @@ object Live {
         val p = publisher ?: return
         val current = player.track
         val queue = listOfNotNull(current) + player.userQueue + player.upNext
-        p.publish(current?.id, queue.map { it.id }, player.livePublishedPlaying, player.livePublishedPositionMs)
+        p.publish(current?.id, queue.map { it.id }, player.liveEngine.livePublishedPlaying, player.liveEngine.livePublishedPositionMs)
     }
 
     // Guest

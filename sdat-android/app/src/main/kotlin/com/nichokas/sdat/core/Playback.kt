@@ -22,7 +22,6 @@ import com.google.common.util.concurrent.Futures
 import com.google.common.util.concurrent.ListenableFuture
 import com.nichokas.sdat.ui.TrackPlayer
 import kotlin.coroutines.cancellation.CancellationException
-import kotlin.math.abs
 import kotlinx.coroutines.Deferred
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.async
@@ -44,7 +43,7 @@ import uniffi.tonearm_ffi.stream
  * preloaded behind it, scrobbling, and the queue saved across restarts. */
 // ForwardingSimpleBasePlayer, which the session player is built on, is still marked unstable.
 @OptIn(UnstableApi::class)
-class Playback(context: Context, private val prefs: Preferences, secrets: Secrets) : TrackPlayer, LiveFollower {
+class Playback(context: Context, private val prefs: Preferences, secrets: Secrets) : TrackPlayer {
     private val scope = MainScope()
     private val player = ExoPlayer.Builder(context)
         .setAudioAttributes(
@@ -53,6 +52,36 @@ class Playback(context: Context, private val prefs: Preferences, secrets: Secret
         )
         .setHandleAudioBecomingNoisy(true)
         .build()
+    internal val liveEngine: LiveEngine = LiveEngine(object : LivePlaybackPort {
+        override val currentId get() = track?.id
+        override val engineId get() = player.currentMediaItem?.mediaId
+        override val requested get() = player.playWhenReady
+        override val advancing get() = player.isPlaying
+        override val logicalPlaying get() = playing
+        override val loading get() = this@Playback.loading
+        override val fetching get() = this@Playback.fetching
+        override val hasError get() = error != null
+        override val suppressed get() = player.playbackSuppressionReason != Player.PLAYBACK_SUPPRESSION_REASON_NONE
+        override val idle get() = player.playbackState == Player.STATE_IDLE
+        override val ended get() = player.playbackState == Player.STATE_ENDED
+        override val ready get() = player.playbackState == Player.STATE_READY
+        override val failed get() = player.playerError != null
+        override val positionMs get() = player.currentPosition
+        override val logicalPositionMs get() = (position * 1000).toLong()
+        override val durationMs get() = player.duration
+        override val bufferedMs get() = player.bufferedPosition
+
+        override fun playEngine() = player.play()
+        override fun pauseEngine() = player.pause()
+        override fun seekEngine(ms: Long) = player.seekTo(ms)
+        override fun setLogicalPosition(ms: Long) { position = ms / 1000.0 }
+        override fun setLogicalPlaying(playing: Boolean) { this@Playback.playing = playing }
+        override fun requestPause() = this@Playback.pause()
+        override fun seek(ms: Long) = this@Playback.seek(ms / 1000.0)
+        override fun toggle() = this@Playback.toggle()
+        override fun load(track: Track, atMs: Long, playing: Boolean) = loadLiveTrack(track, atMs, playing)
+        override fun followingChanged() = syncPreload()
+    }, scope, SystemClock::uptimeMillis)
     private var request: Job? = null
     private val queue = PlayQueue<Track> { it.id }
     private var infinite: Shuffle? = null
@@ -88,7 +117,6 @@ class Playback(context: Context, private val prefs: Preferences, secrets: Secret
     var playing by mutableStateOf(false)
         private set
     override val isPlaying get() = playing
-    override val currentId get() = track?.id
     val userQueue get() = queue.userQueue
     val upNext get() = queue.upNext
     val played get() = queue.played
@@ -101,9 +129,7 @@ class Playback(context: Context, private val prefs: Preferences, secrets: Secret
     val streamingQuality get() = prefs.streamingQuality
     private var fetching by mutableStateOf(false)
     private var buffering by mutableStateOf(false)
-    /** A Listen Together start waits for a buffer and for the host to reach the parked point. */
-    private var aligning by mutableStateOf(false)
-    override val loading get() = fetching || buffering || aligning
+    val loading: Boolean get() = fetching || buffering || liveEngine.aligning
     var error by mutableStateOf<String?>(null)
         private set
     /** The current track plays its downloaded copy. */
@@ -180,7 +206,7 @@ class Playback(context: Context, private val prefs: Preferences, secrets: Secret
             request?.cancel()
             fetching = false
             // A guest's start may still be aligning; left set, it reads as loading and the follower never reloads.
-            cancelLive()
+            liveEngine.cancelLive()
             player.playWhenReady = false
             return super.handleStop()
         }
@@ -214,12 +240,12 @@ class Playback(context: Context, private val prefs: Preferences, secrets: Secret
         player.addListener(object : Player.Listener {
             // The requested state, so the icon matches what a tap does even while audio focus suppresses output.
             override fun onEvents(player: Player, events: Player.Events) {
-                syncPlaying()
+                liveEngine.syncPlaying()
                 tick()
             }
 
             override fun onPlayWhenReadyChanged(playWhenReady: Boolean, reason: Int) {
-                if (playWhenReady) systemPaused = false else if (reason in systemPauses) systemPaused = true
+                liveEngine.playRequestChanged(playWhenReady, reason in systemPauses)
             }
 
             override fun onIsPlayingChanged(isPlaying: Boolean) {
@@ -237,9 +263,9 @@ class Playback(context: Context, private val prefs: Preferences, secrets: Secret
 
             override fun onPlaybackStateChanged(state: Int) {
                 buffering = state == Player.STATE_BUFFERING
-                if (state == Player.STATE_READY) loadResumeAtMs = null
+                if (state == Player.STATE_READY) liveEngine.clearLoadPosition()
                 // A Listen Together guest waits for the host's next track instead of advancing.
-                if (state == Player.STATE_ENDED) if (liveFollowing) player.pause() else advance(auto = true)
+                if (state == Player.STATE_ENDED) if (liveEngine.liveFollowing) player.pause() else advance(auto = true)
             }
 
             override fun onPlayerError(e: PlaybackException) {
@@ -253,7 +279,7 @@ class Playback(context: Context, private val prefs: Preferences, secrets: Secret
                     refetched = t.id to now
                 }
                 // A guest still aligning has the player parked paused, so the new item aligns again like a fresh start.
-                restart(t, position, online = true, play = player.playWhenReady || aligning)
+                restart(t, position, online = true, play = player.playWhenReady || liveEngine.aligning)
             }
         })
     }
@@ -559,13 +585,12 @@ class Playback(context: Context, private val prefs: Preferences, secrets: Secret
     private fun start(t: Track, play: Boolean = true, resumeAt: Double = 0.0, online: Boolean = false) {
         entry++
         request?.cancel()
-        cancelLive()
-        liveSettledAt = null
+        liveEngine.cancelLive()
         dropPreload()
         // Following a playing host: start only with a healthy buffer and on time, so nothing needs correcting after.
-        val align = liveFollowing && play && liveTarget != null
+        val align = liveEngine.shouldAlign(play)
         position = resumeAt
-        loadResumeAtMs = (resumeAt * 1000).toLong()
+        liveEngine.loadingFrom((resumeAt * 1000).toLong())
         duration = t.durationSecs.toDouble()
         fetching = true
         listen = newListen(t)
@@ -577,7 +602,7 @@ class Playback(context: Context, private val prefs: Preferences, secrets: Secret
         offline = false
         // Requested before the fetch so a pause tapped while the URL loads still holds after prepare().
         player.playWhenReady = play && !align
-        aligning = align
+        liveEngine.prepareAlignment(align)
         persist()
         request = scope.launch {
             try {
@@ -589,13 +614,7 @@ class Playback(context: Context, private val prefs: Preferences, secrets: Secret
                 fetching = false
                 started(t)
                 // Cleared by a pause tapped while the stream loaded.
-                if (aligning) {
-                    liveJob = scope.launch {
-                        liveAlign()
-                        aligning = false
-                        liveSettledAt = uptime()
-                    }
-                }
+                liveEngine.startAlignment()
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
@@ -606,8 +625,8 @@ class Playback(context: Context, private val prefs: Preferences, secrets: Secret
     }
 
     private fun fail(message: String) {
-        cancelLive()
-        loadResumeAtMs = null
+        liveEngine.cancelLive()
+        liveEngine.clearLoadPosition()
         error = message
         player.playWhenReady = false
     }
@@ -654,7 +673,7 @@ class Playback(context: Context, private val prefs: Preferences, secrets: Secret
      * preloadNext). Idempotent: called after anything that may change what plays next. */
     private fun syncPreload() {
         // A guest plays only what the host announces, so an item behind the current one would advance on its own.
-        val next = queue.preloadable?.takeIf { prefs.preloadNext && !liveFollowing && !fetching && player.currentMediaItem?.mediaId == track?.id }
+        val next = queue.preloadable?.takeIf { prefs.preloadNext && !liveEngine.liveFollowing && !fetching && player.currentMediaItem?.mediaId == track?.id }
         if (next != null && next.id == preloading?.id) return
         dropPreload()
         if (next == null) return
@@ -737,8 +756,8 @@ class Playback(context: Context, private val prefs: Preferences, secrets: Secret
     fun toggle() {
         val t = track ?: return
         controls++
-        if (dropLiveStart()) return
-        systemPaused = false
+        if (liveEngine.dropLiveStart()) return
+        liveEngine.clearSystemPause()
         val unprepared = error != null || !fetching && player.playbackState == Player.STATE_IDLE
         when (tapAction(unprepared, player.playbackState == Player.STATE_ENDED, player.playWhenReady)) {
             Tap.Retry -> start(t, resumeAt = position)
@@ -763,7 +782,7 @@ class Playback(context: Context, private val prefs: Preferences, secrets: Secret
         restore.cancel()
         restoring = false
         request?.cancel()
-        cancelLive()
+        liveEngine.cancelLive()
         dropPreload()
         player.pause()
         player.stop()
@@ -779,234 +798,22 @@ class Playback(context: Context, private val prefs: Preferences, secrets: Secret
         persist()
     }
 
-    // Listen Together. The host just plays normally and publishes [livePublishedPositionMs]; a guest follows.
+    val livePublishedPositionMs get() = liveEngine.livePublishedPositionMs
 
-    /** Following a host: the host decides what plays next, so a track's end waits for it instead of advancing. */
-    var liveFollowing = false
-        set(on) {
-            field = on
-            syncPreload()
-        }
-    /** Where the host is for the track loaded here; set by [Live]. */
-    var liveTarget: (() -> HostAt?)? = null
-    override var liveSeeking = false
-        private set
-    override var liveSettledAt: Long? = null
-        private set
-    override var systemPaused = false
-        private set
-    private var liveJob: Job? = null
-    /** [liveJob] is a resume that has not started playing yet ([playing] already shows it). */
-    private var liveResumePending = false
-    /** Set while [start] loads a new item: the engine still reports the previous item's position meanwhile. */
-    private var loadResumeAtMs: Long? = null
+    fun pause() {
+        controls++
+        if (!liveEngine.dropLiveStart()) player.pause()
+    }
 
-    /** Joining a session is a deliberate choice to listen: forget an older system pause. */
-    fun clearSystemPause() { systemPaused = false }
-
-    /** The position a host publishes: a track still loading is published at its start, not at the old item's time. */
-    // A restored queue or a failed fetch leaves no engine item for the track (see tick): its logical position stands.
-    val livePublishedPositionMs get() =
-        loadResumeAtMs ?: if (player.currentMediaItem?.mediaId == track?.id) player.currentPosition else (position * 1000).toLong()
-    // A failed load leaves the previous item in the engine: its position must not go out as the new track playing.
-    // While buffering or ducked out by a short focus loss, play stays requested but the position stops (iOS: isPlaying
-    // && !loading): published as playing, guests would run ahead and seek back.
-    val livePublishedPlaying get() = playing && !loading && player.playbackSuppressionReason == Player.PLAYBACK_SUPPRESSION_REASON_NONE &&
-        loadResumeAtMs == null && error == null
-
-    override val livePositionMs get() = player.currentPosition
-    override val liveHasItem get() = player.playbackState != Player.STATE_ENDED && (fetching || player.playbackState != Player.STATE_IDLE)
-    override val liveAdvancing get() = player.isPlaying
-
-    override fun livePlay(track: Track, atMs: Long, playing: Boolean) {
+    private fun loadLiveTrack(track: Track, atMs: Long, playing: Boolean) {
         queue.play(listOf(track), 0, "Listen Together")
         replaceInfinite(null)
         start(track, playing, resumeAt = maxOf(atMs, 0) / 1000.0)
     }
-
-    override fun pause() {
-        controls++
-        if (!dropLiveStart()) player.pause()
-    }
-
-    /** A pause during a live start that is still waiting for the host: it would otherwise call play() later. */
-    private fun dropLiveStart(): Boolean {
-        if (!liveResumePending && !aligning) return false
-        cancelLive()
-        player.pause()
-        syncPlaying()
-        return true
-    }
-
-    override fun seekTo(ms: Long) = seek(ms / 1000.0)
-
-    private fun syncPlaying() {
-        playing = player.playWhenReady && player.playbackState != Player.STATE_ENDED || liveResumePending
-    }
-
-    private fun cancelLive() {
-        liveJob?.cancel()
-        liveJob = null
-        liveSeeking = false
-        liveResumePending = false
-        aligning = false
-    }
-
-    /** The session ended: a resume or start still waiting for the host never happens, while a drift seek just lands. */
-    fun liveEnded() {
-        liveFollowing = false
-        liveTarget = null
-        val waiting = liveResumePending || aligning
-        cancelLive()
-        if (waiting) player.pause()
-        syncPlaying()
-    }
-
-    /**
-     * Large drift correction: a plain seek to where the host is, while playing. The destination is re-read when the
-     * seek starts, and a slow seek that still lands behind is followed by one more aiming ahead by the time the first
-     * took (capped), so it does not leave an error that triggers another seek. The speed is never changed.
-     */
-    override fun liveSeek(ms: Long) {
-        if (liveSeeking || track == null) return
-        liveSeeking = true
-        liveJob = scope.launch {
-            var lead = 0L
-            for (attempt in 0 until 2) {
-                val dest = maxOf((liveTarget?.invoke()?.ms ?: ms) + lead, 0)
-                val started = uptime()
-                player.seekTo(dest)
-                position = dest / 1000.0
-                awaitPlaying()
-                val host = liveTarget?.invoke()
-                if (host == null || !host.playing || host.ms - player.currentPosition <= LATE_TOLERANCE_MS) break
-                lead = minOf(uptime() - started, MAX_SEEK_LEAD_MS)
-            }
-            liveSeeking = false
-            liveSettledAt = uptime()
-        }
-    }
-
-    /** Waits until audio advances again after a seek, bounded so a stall cannot hold corrections forever. */
-    private suspend fun awaitPlaying() {
-        val deadline = uptime() + BUFFER_TIMEOUT_MS
-        delay(20)
-        while (!player.isPlaying && player.playWhenReady && uptime() < deadline) delay(20)
-    }
-
-    /**
-     * The host resumed after a pause: start in step with it. Too far from it (more than the buffer kept while paused
-     * covers) it joins like a fresh start instead: playing from the old spot would be the wrong part of the song.
-     */
-    override fun liveResume() {
-        if (playing) return
-        val host = liveTarget?.invoke()
-        val unprepared = error != null || player.playbackState == Player.STATE_IDLE || player.playbackState == Player.STATE_ENDED
-        if (host == null || !host.playing || unprepared) {
-            toggle()
-            return
-        }
-        val far = abs(player.currentPosition - host.ms) > RESUME_WINDOW_MS
-        systemPaused = false
-        liveResumePending = true
-        liveSeeking = true
-        syncPlaying()
-        liveJob = scope.launch {
-            if (far) liveAlign() else startInSync()
-            liveSeeking = false
-            liveResumePending = false
-            liveSettledAt = uptime()
-            syncPlaying()
-        }
-    }
-
-    /**
-     * Joins the host's playback without audible corrections: parks the item paused a little ahead of the host, waits
-     * for a buffer there, then plays when the host reaches that point. Slower to join, but nothing needs correcting
-     * right after. Leaves the player paused at the host position when the host pauses meanwhile.
-     */
-    private suspend fun liveAlign(): Boolean {
-        repeat(ALIGN_ATTEMPTS) attempt@{
-            player.pause()
-            val t = liveTarget?.invoke() ?: return false
-            if (!t.playing) {
-                player.seekTo(t.ms)
-                return false
-            }
-            val duration = player.duration
-            val startAt = (t.ms + JOIN_LEAD_MS).let { if (duration > 0) minOf(it, maxOf(duration - 1_000, t.ms)) else it }
-            player.seekTo(startAt)
-            awaitBuffer(startAt)
-            // The host stopped advancing (buffering) or jumped back: park again near its new position.
-            val deadline = uptime() + JOIN_LEAD_MS + BUFFER_TIMEOUT_MS
-            while (true) {
-                val now = liveTarget?.invoke() ?: return false
-                if (!now.playing || now.ms >= startAt) break
-                if (uptime() > deadline || startAt - now.ms > JOIN_LEAD_MS + LATE_TOLERANCE_MS) return@attempt
-                delay(minOf(50, startAt - now.ms))
-            }
-            val now = liveTarget?.invoke() ?: return false
-            if (!now.playing) {
-                player.seekTo(now.ms)
-                return false
-            }
-            if (now.ms - startAt > LATE_TOLERANCE_MS) return@attempt
-            if (systemPaused) return false
-            player.play()
-            return true
-        }
-        // Very slow network: start where the host is and let the player buffer.
-        val t = liveTarget?.invoke() ?: return false
-        player.seekTo(t.ms)
-        if (!t.playing || systemPaused) return false
-        player.play()
-        return true
-    }
-
-    /** Plays once the host reaches the paused position; a host already past it is followed at once (within tolerance). */
-    private suspend fun startInSync() {
-        val host = liveTarget?.invoke() ?: return
-        val startAt = uptime() + player.currentPosition - host.ms
-        while (true) {
-            val now = liveTarget?.invoke()
-            if (now == null || !now.playing || systemPaused) return
-            val left = startAt - uptime()
-            if (left <= 0) break
-            delay(minOf(50, left))
-        }
-        player.play()
-    }
-
-    /** Waits until [MIN_BUFFER_MS] is loaded after [fromMs] (or up to the end of the track), bounded. */
-    private suspend fun awaitBuffer(fromMs: Long) {
-        val deadline = uptime() + BUFFER_TIMEOUT_MS
-        while (uptime() < deadline && player.playerError == null) {
-            val duration = player.duration
-            val need = if (duration > 0) minOf(MIN_BUFFER_MS, maxOf(duration - fromMs - 500, 0)) else MIN_BUFFER_MS
-            if (player.playbackState == Player.STATE_READY && player.bufferedPosition - fromMs >= need) return
-            delay(100)
-        }
-    }
 }
 
-
-/** Pauses the system makes (headphones unplugged, audio focus lost); Listen Together must not undo them on its own. */
 private val systemPauses = setOf(Player.PLAY_WHEN_READY_CHANGE_REASON_AUDIO_BECOMING_NOISY, Player.PLAY_WHEN_READY_CHANGE_REASON_AUDIO_FOCUS_LOSS)
 
-private fun uptime() = SystemClock.uptimeMillis()
-
-/** How far ahead of the host a joining guest parks while it buffers. */
-private const val JOIN_LEAD_MS = 8_000L
-/** Buffer required ahead of the start point before playing. */
-private const val MIN_BUFFER_MS = 6_000L
-private const val BUFFER_TIMEOUT_MS = 15_000L
-/** Starting this much later than planned is fine (the core tolerates a few seconds); later than that, park again. */
-private const val LATE_TOLERANCE_MS = 1_000L
-private const val ALIGN_ATTEMPTS = 3
-/** Upper bound for aiming ahead of a slow drift seek. */
-private const val MAX_SEEK_LEAD_MS = 3_000L
-/** Largest guest-host gap a resume is synchronized over. */
-private const val RESUME_WINDOW_MS = 3_000L
 /** How long a Discover queue taken over waits for its handed-over tracks before it refills. */
 private const val UP_NEXT_WAIT_MS = 30_000L
 
