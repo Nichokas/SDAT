@@ -82,9 +82,22 @@ pub struct LocalPlayback {
     pub current: Option<String>,
     /// Track ids after the current one, in play order (play-next first).
     pub future: Vec<String>,
+    /// Track ids repeat all plays again after the last of `future`, in that
+    /// order: the part of the list before the current track.
+    pub past: Vec<String>,
+    /// The queue is Discover's endless shuffle.
+    pub discover: bool,
     pub position_ms: i64,
     pub playing: bool,
     pub repeat: Repeat,
+}
+
+impl LocalPlayback {
+    /// The repeat mode written to the queue. Discover never ends, and TIDAL
+    /// would hand its played tracks on as the ones to repeat.
+    fn queue_repeat(&self) -> Repeat {
+        if self.discover && self.repeat == Repeat::All { Repeat::Off } else { self.repeat }
+    }
 }
 
 /// Playback taken over from another device: the current track only, so it
@@ -95,6 +108,9 @@ pub struct Resume {
     pub current: Track,
     pub position_ms: i64,
     pub repeat: Repeat,
+    /// The queue is Discover's endless shuffle: go on with this device's own
+    /// once it runs out.
+    pub discover: bool,
 }
 
 /// The tracks after a resumed one.
@@ -117,7 +133,8 @@ pub enum HandoffEvent {
     MovedTo(Device),
     /// What follows the track of the last [`HandoffEvent::Arrived`] or
     /// [`Handoff::continue_here`], read after it. Append it while that track
-    /// is still the current one. Not sent when nothing follows.
+    /// is still the current one. Without tracks when nothing follows it or
+    /// that could not be read: the app need not wait for them.
     Upcoming(Upcoming),
 }
 
@@ -127,11 +144,15 @@ pub trait HandoffListener: Send + Sync {
     fn on_event(&self, ev: HandoffEvent);
 }
 
-/// A random installation key (UUID v4) for the app to keep in its settings.
-pub fn new_installation_key() -> String {
+fn uuid_v4() -> String {
     let b = rand::random::<u128>() & !(0xf000 << 64) & !(0xc << 60) | (0x4000 << 64) | (0x8 << 60);
     let h = format!("{b:032x}");
     format!("{}-{}-{}-{}-{}", &h[..8], &h[8..12], &h[12..16], &h[16..20], &h[20..])
+}
+
+/// A random installation key (UUID v4) for the app to keep in its settings.
+pub fn new_installation_key() -> String {
+    uuid_v4()
 }
 
 enum Cmd {
@@ -803,20 +824,21 @@ impl Worker {
         let from = from
             .or_else(|| head.updated_by.as_deref().and_then(|id| self.mirror.device(id)))
             .unwrap_or_else(|| Device { id: head.updated_by.clone().unwrap_or_default(), name: String::new() });
-        Ok(Resume { from, current: track, position_ms, repeat: head.repeat })
+        Ok(Resume { from, current: track, position_ms, repeat: head.repeat, discover: head.discover })
     }
 
-    /// Reads what follows a resumed track and tells the app. A failed read is
-    /// tried again a little later; after the last try the track plays alone
-    /// and TIDAL's queue is left as it is.
+    /// Reads what follows a resumed track and tells the app, also when that is
+    /// nothing. A failed read is tried again a little later; after the last
+    /// try the track plays alone and TIDAL's queue is left as it is.
     fn read_future(&mut self, mut r: Resumed) {
+        let nothing = |current: String| HandoffEvent::Upcoming(Upcoming { current, tracks: Vec::new() });
         match r.tail.take().map_or_else(|| Self::read_tail(&r.queue), Ok) {
-            Ok((_, tracks, _)) if tracks.is_empty() => {}
+            Ok((_, tracks, _)) if tracks.is_empty() => self.emit(nothing(r.track)),
             Ok((entries, tracks, revision)) => {
                 // The queue was rewritten since, here or elsewhere: what follows is no longer the resume's.
                 if !self.mirror.holds_adoption(&revision) {
                     log::info!("handoff: the resumed queue changed before what follows was read");
-                    return;
+                    return self.emit(nothing(r.track));
                 }
                 // Taken into the mirror only while the app's report of the track alone is held back: one
                 // already taken would plan a rewrite to that track. Without it, the app's append rewrites them.
@@ -834,7 +856,10 @@ impl Worker {
                 r.at = Instant::now() + FUTURE_RETRY;
                 self.future_due = Some(r);
             }
-            Err(e) => log::warn!("handoff: gave up reading what follows the resumed track error={e}"),
+            Err(e) => {
+                log::warn!("handoff: gave up reading what follows the resumed track error={e}");
+                self.emit(nothing(r.track));
+            }
         }
     }
 
@@ -1119,13 +1144,19 @@ impl Worker {
                 Write::NewQueue => self.mirror.queue_created(wire::create_queue()?),
                 Write::Queue(tracks) => {
                     let q = self.queue()?;
-                    wire::rewrite(&q, &tracks, local.repeat)?;
+                    let repeat = local.queue_repeat();
+                    let batch = wire::rewrite(&q, &tracks, repeat, local.discover)?;
                     let head = wire::head(&q)?;
                     let mut entries: Vec<wire::Entry> = head.current.into_iter().collect();
                     if !sending {
                         entries.extend(wire::future_entries(&q, MAX_FUTURE)?);
                     }
-                    self.mirror.queue_written(tracks, entries, head.revision, local.repeat);
+                    self.mirror.queue_written(tracks, entries, batch, head.revision, repeat);
+                }
+                Write::Append { batch, tracks, capped } => {
+                    let q = self.queue()?;
+                    let rev = wire::append(&q, &tracks, &batch, local.discover)?;
+                    self.mirror.appended(tracks, capped, wire::future_entries(&q, MAX_FUTURE)?, rev);
                 }
                 Write::Repeat(r) => {
                     let rev = wire::set_repeat(&self.queue()?, r)?;
@@ -1165,7 +1196,7 @@ mod tests {
     }
 
     fn playback(current: &str, future: &[&str], position_ms: i64) -> LocalPlayback {
-        LocalPlayback { current: Some(current.into()), future: future.iter().map(|t| (*t).to_string()).collect(), position_ms, playing: true, repeat: Repeat::Off }
+        LocalPlayback { current: Some(current.into()), future: future.iter().map(|t| (*t).to_string()).collect(), position_ms, playing: true, repeat: Repeat::Off, ..LocalPlayback::default() }
     }
 
     #[test]
@@ -1206,11 +1237,8 @@ mod tests {
         }
     }
 
-    /// Two installs of the signed-in account hand playback back and forth.
-    /// Needs `SDAT_LIVE_REFRESH_TOKEN`; changes the account's playback state.
-    #[test]
-    #[ignore = "live: writes the TIDAL account's playback state"]
-    fn live_handoff_between_two_installs() {
+    /// Signs the live tests in with `SDAT_LIVE_REFRESH_TOKEN`.
+    pub(super) fn live_sign_in() {
         struct Env;
         impl crate::auth::TokenStore for Env {
             fn has_refresh_token(&self) -> bool {
@@ -1224,6 +1252,14 @@ mod tests {
             }
         }
         crate::auth::install(Box::new(Env));
+    }
+
+    /// Two installs of the signed-in account hand playback back and forth.
+    /// Needs `SDAT_LIVE_REFRESH_TOKEN`; changes the account's playback state.
+    #[test]
+    #[ignore = "live: writes the TIDAL account's playback state"]
+    fn live_handoff_between_two_installs() {
+        live_sign_in();
         let wait = |log: &Log, what: &str| {
             let until = Instant::now() + Duration::from_secs(20);
             while Instant::now() < until {
@@ -1238,7 +1274,7 @@ mod tests {
         let a = Handoff::start(&std::env::var("SDAT_LIVE_KEY_A").unwrap_or_else(|_| new_installation_key()), "SDAT test A", Arc::clone(&la) as Arc<dyn HandoffListener>).expect("start a");
         let b = Handoff::start(&std::env::var("SDAT_LIVE_KEY_B").unwrap_or_else(|_| new_installation_key()), "SDAT test B", Arc::clone(&lb) as Arc<dyn HandoffListener>).expect("start b");
         let ids: Vec<String> = ["35707532", "60923645", "40475829", "504370449", "162358163"].map(String::from).to_vec();
-        a.report(LocalPlayback { current: Some(ids[0].clone()), future: ids[1..].to_vec(), position_ms: 30_000, playing: true, repeat: Repeat::Off });
+        a.report(LocalPlayback { current: Some(ids[0].clone()), future: ids[1..].to_vec(), position_ms: 30_000, playing: true, repeat: Repeat::Off, ..LocalPlayback::default() });
         // Playing, so not what a previous run left behind.
         wait(&lb, "elsewhere Some((\"SDAT test A\"*true))");
         let r = b.continue_here().expect("continue here");
@@ -1246,12 +1282,12 @@ mod tests {
         assert!(r.position_ms >= 30_000, "position {}", r.position_ms);
         wait(&lb, &format!("upcoming after {}: {}", ids[0], ids[1..].join(",")));
         wait(&la, "moved to SDAT test B");
-        a.report(LocalPlayback { current: Some(ids[0].clone()), future: ids[1..].to_vec(), position_ms: 31_000, playing: false, repeat: Repeat::Off });
+        a.report(LocalPlayback { current: Some(ids[0].clone()), future: ids[1..].to_vec(), position_ms: 31_000, playing: false, repeat: Repeat::Off, ..LocalPlayback::default() });
         // B still reports its old playback, then the resumed one, then moves on.
-        b.report(LocalPlayback { current: Some("1".into()), future: vec![], position_ms: 0, playing: false, repeat: Repeat::Off });
-        b.report(LocalPlayback { current: Some(ids[0].clone()), future: ids[1..].to_vec(), position_ms: r.position_ms, playing: true, repeat: Repeat::Off });
+        b.report(LocalPlayback { current: Some("1".into()), future: vec![], position_ms: 0, playing: false, repeat: Repeat::Off, ..LocalPlayback::default() });
+        b.report(LocalPlayback { current: Some(ids[0].clone()), future: ids[1..].to_vec(), position_ms: r.position_ms, playing: true, repeat: Repeat::Off, ..LocalPlayback::default() });
         std::thread::sleep(Duration::from_secs(1));
-        b.report(LocalPlayback { current: Some(ids[1].clone()), future: ids[2..].to_vec(), position_ms: 12_345, playing: true, repeat: Repeat::Off });
+        b.report(LocalPlayback { current: Some(ids[1].clone()), future: ids[2..].to_vec(), position_ms: 12_345, playing: true, repeat: Repeat::Off, ..LocalPlayback::default() });
         std::thread::sleep(Duration::from_secs(2));
         let a_id = b.devices().into_iter().find(|d| d.name == "SDAT test A").expect("a listed").id;
         b.send_to(&a_id).expect("send to a");

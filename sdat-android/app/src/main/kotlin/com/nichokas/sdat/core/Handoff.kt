@@ -110,7 +110,12 @@ object Handoff {
     private fun report() {
         val h = link ?: return
         if (Live.isGuest) return
-        h.report(handoffLocal(player.track?.id, player.userQueue.map { it.id }, player.upNext.map { it.id }, player.livePublishedPositionMs, player.playing, player.repeat))
+        h.report(
+            handoffLocal(
+                player.track?.id, player.userQueue.map { it.id }, player.upNext.map { it.id }, player.played.map { it.id }, player.endless,
+                player.livePublishedPositionMs, player.playing, player.repeat,
+            ),
+        )
     }
 
     fun continueHere() {
@@ -165,7 +170,7 @@ object Handoff {
         }
     }
 
-    private fun play(r: HandoffResume) = player.resume(r.current, r.positionMs, r.repeat.local)
+    private fun play(r: HandoffResume) = player.resume(r.current, r.positionMs, r.repeat.local, r.discover)
 
     /** The report this queue edit sends is what the core waits for. */
     private fun append(u: HandoffEvent.Upcoming) {
@@ -205,9 +210,16 @@ object Handoff {
 /** TIDAL lists installations it has no name for. */
 val HandoffDevice.label get() = name.ifEmpty { "another device" }
 
-/** The player as the core sees it: everything after [current] in play order, Play Next and Add to Queue first. */
-internal fun handoffLocal(current: String?, userQueue: List<String>, upNext: List<String>, positionMs: Long, playing: Boolean, repeat: Repeat) =
-    HandoffLocal(current, if (current == null) emptyList() else userQueue + upNext, positionMs, playing, repeat.handoff)
+/** The player as the core sees it: everything after [current] in play order, Play Next and Add to Queue first, and
+ * the base queue before it ([played]). [discover]: the queue is Discover's endless shuffle. */
+internal fun handoffLocal(
+    current: String?, userQueue: List<String>, upNext: List<String>, played: List<String>, discover: Boolean,
+    positionMs: Long, playing: Boolean, repeat: Repeat,
+) = if (current == null) {
+    HandoffLocal(null, emptyList(), emptyList(), false, positionMs, playing, repeat.handoff)
+} else {
+    HandoffLocal(current, userQueue + upNext, played, discover, positionMs, playing, repeat.handoff)
+}
 
 internal val Repeat.handoff get() = when (this) {
     Repeat.Off -> HandoffRepeat.OFF

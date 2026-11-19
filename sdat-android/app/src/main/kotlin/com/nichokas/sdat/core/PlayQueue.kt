@@ -37,6 +37,8 @@ class PlayQueue<T>(private val random: Random = Random.Default, private val id: 
     private val recentOrder = ArrayDeque<String>()
 
     val upNext get() = index?.let { tracks.drop(it + 1) } ?: tracks
+    /** The base queue before the current track: repeat all plays it again after the last. */
+    val played get() = index?.let { tracks.take(it) } ?: emptyList()
     val needsRefill get() = index?.let { tracks.size - it <= 5 } ?: false
 
     /** What a natural end plays next, without taking it: [advance]'s pick, except that repeat-one only loops the
@@ -288,9 +290,9 @@ private const val ENDLESS_BEHIND = 50
 private const val ENDLESS_AHEAD = 200
 
 /** Playback taken over from another device, as a saved queue for [PlayQueue.restore]: [current] alone, unshuffled;
- * what follows it arrives later. */
-internal fun <T> resumed(current: T, position: Double, repeat: Repeat): Pair<SavedQueue<T>, SavedState<T>> =
-    SavedQueue(0, 0, listOf(current), listOf(0), emptyList(), endless = false, source = null) to
+ * what follows it arrives later. [discover]: Discover's endless queue. */
+internal fun <T> resumed(current: T, position: Double, repeat: Repeat, discover: Boolean = false): Pair<SavedQueue<T>, SavedState<T>> =
+    SavedQueue(0, 0, listOf(current), listOf(0), emptyList(), endless = discover, source = PlayQueue.DISCOVER.takeIf { discover }) to
         SavedState(0, current, 0, position, repeat, shuffle = false)
 
 /** iOS PlaybackStore.window: the part of a base queue of [count] tracks worth saving around [index]. An endless

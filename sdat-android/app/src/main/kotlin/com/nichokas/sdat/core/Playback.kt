@@ -37,6 +37,7 @@ import uniffi.tonearm_ffi.Quality
 import uniffi.tonearm_ffi.Shuffle
 import uniffi.tonearm_ffi.Stream
 import uniffi.tonearm_ffi.Track
+import uniffi.tonearm_ffi.homeMixes
 import uniffi.tonearm_ffi.stream
 
 /** The app's single player: the iOS Player's queues, the current track from the core's stream URL with the next one
@@ -117,6 +118,7 @@ class Playback(context: Context, private val prefs: Preferences, secrets: Secret
     override val isPlaying get() = playing
     val userQueue get() = queue.userQueue
     val upNext get() = queue.upNext
+    val played get() = queue.played
     val shuffle get() = queue.shuffle
     val repeat get() = queue.repeat
     val source get() = queue.source
@@ -214,8 +216,14 @@ class Playback(context: Context, private val prefs: Preferences, secrets: Secret
     private val restore = scope.launch {
         val saved = saver.load()
         restoring = false
-        // Anything played meanwhile wins, and is saved now that persisting is on.
-        if (track != null) return@launch persist()
+        // Anything played meanwhile wins, and is saved now that persisting is on. A Discover queue among it still
+        // waits for its source.
+        if (track != null) {
+            persist()
+            pendingMixes?.let(::resumeInfinite)
+            pendingMixes = null
+            return@launch
+        }
         if (saved == null) return@launch
         val (state, queued) = saved
         queue.restore(queued, state)
@@ -413,6 +421,23 @@ class Playback(context: Context, private val prefs: Preferences, secrets: Secret
         syncPreload()
     }
 
+    private var mixesJob: Job? = null
+
+    /** Asks for the home mixes while a Discover queue restored or taken over waits for its source, since Discover
+     * may have none loaded: without it, playback ends with the tracks it has. */
+    private fun fetchMixes() {
+        mixesJob?.cancel()
+        mixesJob = scope.launch {
+            var pause = 2_000L
+            while (awaitingMixes && infinite == null) {
+                val mixes = try { homeMixes() } catch (e: CancellationException) { throw e } catch (e: Exception) { emptyList() }
+                if (mixes.isNotEmpty()) return@launch resumeInfinite(mixes)
+                delay(pause)
+                pause = minOf(pause * 2, 60_000L)
+            }
+        }
+    }
+
     /** Gives a Discover queue its endless source once the home mixes load. */
     fun resumeInfinite(mixes: List<Mix>) {
         if (restoring) {
@@ -475,7 +500,9 @@ class Playback(context: Context, private val prefs: Preferences, secrets: Secret
             return
         }
         // Endless queue ran dry before the refill landed: fetch, then go on.
-        val source = infinite ?: return stopAtEnd()
+        if (infinite == null && !awaitingMixes) return stopAtEnd()
+        // Restored or taken over, and its source is not here yet: asked for now.
+        if (infinite == null && mixesJob?.isActive != true) fetchMixes()
         val from = track
         val entryBefore = entry
         fetching = true
@@ -487,7 +514,21 @@ class Playback(context: Context, private val prefs: Preferences, secrets: Secret
             player.playWhenReady = true
         }
         scope.launch {
-            val more = fetchMore(source)
+            // A handoff's own tracks come first, when they are still on their way, and a Discover queue waits for
+            // its source. A track to play ends the wait, and so does another start. The tracks have a limit, for an
+            // answer of the core that never comes; the source is asked for until it comes.
+            val limit = SystemClock.elapsedRealtime() + HANDOFF_WAIT_MS
+            // Handed over, or added with Play Next meanwhile.
+            val queued = { queue.upNext.isNotEmpty() || queue.userQueue.isNotEmpty() }
+            while (track === from && entry == entryBefore && !queued()) {
+                val tracks = awaitingUpNext && SystemClock.elapsedRealtime() < limit
+                val source = awaitingMixes && infinite == null
+                if (!tracks && !source) break
+                delay(100)
+            }
+            // A track picked during the wait owns playback now: its queue is not this one's to refill.
+            if (track !== from || entry != entryBefore) return@launch
+            val more = queued() || infinite?.let { fetchMore(it) } == true
             // A track picked during the fetch owns playback now; a source replaced meanwhile had nothing more.
             if (track !== from || entry != entryBefore) return@launch
             fetching = false
@@ -514,8 +555,13 @@ class Playback(context: Context, private val prefs: Preferences, secrets: Secret
 
     private fun refillIfNeeded() {
         val source = infinite ?: return
+        // A handoff's own tracks come first: a refill before them would take their place.
+        if (awaitingUpNext) return
         if (queue.needsRefill) scope.launch { fetchMore(source) }
     }
+
+    /** What follows a handoff's resumed track may still come: its queue is the one playing, as the resume left it. */
+    private val awaitingUpNext get() = resumedBase.let { it != null && queue.original === it }
 
     /** Appends a new endless batch, skipping tracks already queued; one fetch at a time. */
     private suspend fun fetchMore(source: Shuffle): Boolean {
@@ -698,7 +744,8 @@ class Playback(context: Context, private val prefs: Preferences, secrets: Secret
         if (player.mediaItemCount > 1) player.removeMediaItems(1, player.mediaItemCount)
     }
 
-    private val endless get() = infinite != null || awaitingMixes
+    /** The queue is Discover's endless shuffle, also before its source is attached. */
+    val endless get() = infinite != null || awaitingMixes
 
     private fun persist() {
         sessionPlayer.refresh()
@@ -711,25 +758,32 @@ class Playback(context: Context, private val prefs: Preferences, secrets: Secret
      * playing. */
     var onChange: (() -> Unit)? = null
 
-    /** Another device's playback (Handoff), loaded like the queue saved at launch and played from [atMs]. */
-    fun resume(current: Track, atMs: Long, repeat: Repeat) {
+    /** Another device's playback (Handoff), loaded like the queue saved at launch and played from [atMs].
+     * [discover]: Discover's endless queue, which goes on with this device's own shuffle. */
+    fun resume(current: Track, atMs: Long, repeat: Repeat, discover: Boolean) {
         // An arrival that plays here is newer than a Continue here still on its way.
         controls++
-        val (saved, state) = resumed(current, maxOf(atMs, 0) / 1000.0, repeat)
+        val (saved, state) = resumed(current, maxOf(atMs, 0) / 1000.0, repeat, discover)
         queue.restore(saved, state)
         replaceInfinite(null)
         resumedBase = queue.original
+        awaitingMixes = discover
+        resumeInfinite(Discover.mixes)
+        if (discover) fetchMixes()
         start(current, resumeAt = state.position)
     }
 
     /** The rest of a resumed queue (Handoff), after its track [after], while that resume's queue still is the one
-     * playing. */
+     * playing. No [tracks]: nothing follows it, and a Discover queue goes on from its own source. */
     fun appendUpNext(after: String, tracks: List<Track>) {
         val base = resumedBase
         if (base == null || queue.original !== base || !upcomingApplies(after, track?.id, base.map { it.id })) return
         resumedBase = null
-        queue.extend(tracks)
-        changed()
+        if (tracks.isNotEmpty()) {
+            queue.extend(tracks)
+            changed()
+        }
+        refillIfNeeded()
     }
 
     /** After a failure or a controller's stop there is nothing prepared, so this starts the track again where it was;
@@ -763,6 +817,8 @@ class Playback(context: Context, private val prefs: Preferences, secrets: Secret
         restore.cancel()
         restoring = false
         request?.cancel()
+        // Mixes still on their way are this account's, not the next one's.
+        mixesJob?.cancel()
         liveEngine.cancelLive()
         dropPreload()
         player.pause()
@@ -794,6 +850,9 @@ class Playback(context: Context, private val prefs: Preferences, secrets: Secret
 }
 
 private val systemPauses = setOf(Player.PLAY_WHEN_READY_CHANGE_REASON_AUDIO_BECOMING_NOISY, Player.PLAY_WHEN_READY_CHANGE_REASON_AUDIO_FOCUS_LOSS)
+
+/** How long a queue that ran dry waits for the tracks a handoff still owes it. */
+private const val HANDOFF_WAIT_MS = 20_000L
 
 /** Where a track plays from; [offline] for its downloaded copy. */
 private class Source(val uri: String, val quality: Quality, val offline: Boolean)

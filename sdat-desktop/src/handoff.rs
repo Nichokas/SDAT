@@ -201,6 +201,8 @@ fn on_event(ev: HandoffEvent) {
             player::pause();
             player::toasts().notify(&trf("Playing on %s", &[&name(&d)]));
         }
+        // Nothing follows the resumed track: it plays alone, as it does already.
+        HandoffEvent::Upcoming(u) if u.tracks.is_empty() => {}
         HandoffEvent::Upcoming(u) => {
             UPCOMING.with(|s| *s.borrow_mut() = Some(u));
             apply_upcoming();
@@ -376,11 +378,14 @@ fn ids(tracks: &[crate::model::Track]) -> Vec<String> {
 }
 
 /// The player as the core sees it: everything after the current track in
-/// play order, the user queue ("play next") first.
-pub fn local(current: Option<String>, user: Vec<String>, base: Vec<String>, position: Duration, playing: bool, repeat: RepeatMode) -> LocalPlayback {
+/// play order, the user queue ("play next") first. `played`: the list's
+/// tracks that play nowhere else, which a queue repeat brings back.
+pub fn local(current: Option<String>, user: Vec<String>, base: Vec<String>, played: Vec<String>, position: Duration, playing: bool, repeat: RepeatMode) -> LocalPlayback {
     LocalPlayback {
         current,
         future: user.into_iter().chain(base).collect(),
+        past: played,
+        discover: false,
         position_ms: i64::try_from(position.as_millis()).unwrap_or(i64::MAX),
         playing,
         repeat: match repeat {
@@ -413,10 +418,12 @@ fn local_now(seek_target: Option<Duration>) -> LocalPlayback {
         changed
     });
     let position = if changed { Duration::ZERO } else { seek_target.or_else(player::position).unwrap_or(ps.position) };
+    let played = player::base_queue().played(current.as_deref().unwrap_or_default(), &player::user_queue().source_occurrences());
     local(
         current,
         player::user_queue().entries().with(|t| ids(t)),
         player::base_queue().entries().with(|t| ids(t)),
+        ids(&played),
         position,
         // Not while buffering: the position stands still then.
         ps.status == PlaybackStatus::Playing && !ps.loading && !ps.buffering,
@@ -513,15 +520,18 @@ mod tests {
     #[test]
     fn future_is_play_next_then_the_rest() {
         let s = |v: &[&str]| v.iter().map(|s| (*s).to_string()).collect::<Vec<_>>();
-        let l = local(Some("1".into()), s(&["2", "3"]), s(&["4"]), Duration::from_millis(12_345), true, RepeatMode::Queue);
-        assert_eq!(l, LocalPlayback { current: Some("1".into()), future: s(&["2", "3", "4"]), position_ms: 12_345, playing: true, repeat: Repeat::All });
-        assert_eq!(local(None, vec![], vec![], Duration::ZERO, false, RepeatMode::None), LocalPlayback::default());
+        let l = local(Some("1".into()), s(&["2", "3"]), s(&["4"]), s(&["0"]), Duration::from_millis(12_345), true, RepeatMode::Queue);
+        assert_eq!(
+            l,
+            LocalPlayback { current: Some("1".into()), future: s(&["2", "3", "4"]), past: s(&["0"]), discover: false, position_ms: 12_345, playing: true, repeat: Repeat::All }
+        );
+        assert_eq!(local(None, vec![], vec![], vec![], Duration::ZERO, false, RepeatMode::None), LocalPlayback::default());
     }
 
     #[test]
     fn repeat_round_trips() {
         for m in [RepeatMode::None, RepeatMode::Track, RepeatMode::Queue] {
-            assert_eq!(repeat_mode(local(None, vec![], vec![], Duration::ZERO, false, m).repeat), m);
+            assert_eq!(repeat_mode(local(None, vec![], vec![], vec![], Duration::ZERO, false, m).repeat), m);
         }
     }
 

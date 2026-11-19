@@ -112,6 +112,7 @@ final class HandoffHub {
         let secs = player.liveHasItem ? player.liveHostPosition : player.position
         return HandoffLocal(current: player.current?.id,
                             future: player.userQueue.map(\.id) + player.upNext.map(\.id),
+                            past: player.played.map(\.id), discover: player.endless,
                             positionMs: Int64(max(secs, 0) * 1000),
                             playing: player.isPlaying, repeat: r)
     }
@@ -178,7 +179,7 @@ final class HandoffHub {
 
     private func play(_ r: HandoffResume) {
         let rep: Player.Repeat = switch r.repeat { case .off: .off; case .all: .all; case .one: .one }
-        player.resume([r.current], at: Double(r.positionMs) / 1000, repeat: rep, from: r.from.name)
+        player.resume([r.current], at: Double(r.positionMs) / 1000, repeat: rep, from: r.from.name, discover: r.discover)
     }
 
     /// The report after the append is what the core waits for.

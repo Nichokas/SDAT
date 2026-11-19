@@ -118,12 +118,22 @@ pub struct DurableQueue {
     played: Cell<usize>,
     upcoming: RefCell<Vec<usize>>,
     last_taken: Cell<Option<usize>>,
+    /// The source entries that started playing or were skipped, each once, in the order they last did.
+    taken: RefCell<Vec<Rc<Track>>>,
 }
 
 impl DurableQueue {
     #[cfg(test)]
     pub fn append(&self, t: Track) {
         self.extend(&[t]);
+    }
+
+    /// Records that source entry `index` plays or is skipped now.
+    fn took(&self, index: usize) {
+        let entry = Rc::clone(&self.source.borrow()[index]);
+        let mut taken = self.taken.borrow_mut();
+        taken.retain(|t| !Rc::ptr_eq(t, &entry));
+        taken.push(entry);
     }
 
     fn publish(&self) {
@@ -176,9 +186,34 @@ impl DurableQueue {
     pub fn pop(&self) -> Option<Track> {
         let index = self.take_head()?;
         let track = self.source.borrow()[index].as_ref().clone();
+        self.took(index);
         self.last_taken.set(Some(index));
         self.publish();
         Some(track)
+    }
+
+    /// The source tracks that [`DurableQueue::rewind`] brings back and that
+    /// play nowhere else: not queued here, not in the user queue
+    /// (`user_occurrences`) and not the one playing. In the source's order,
+    /// which a rewind plays them in. A rewind of a shuffled queue is shuffled
+    /// again: there the ones that played come last, in the order they did,
+    /// so the list only grows at its end.
+    pub fn played(&self, current_id: &str, user_occurrences: &[Weak<Track>]) -> Vec<Track> {
+        let src = self.source.borrow();
+        let current = self.last_taken.get().filter(|&i| src[i].id() == current_id);
+        let upcoming: std::collections::HashSet<usize> = self.upcoming.borrow().iter().copied().collect();
+        let queued: std::collections::HashSet<_> = user_occurrences.iter().map(Weak::as_ptr).collect();
+        let taken: std::collections::HashMap<_, _> = self.taken.borrow().iter().enumerate().map(|(at, entry)| (Rc::as_ptr(entry), at + 1)).collect();
+        let mut left: Vec<&Rc<Track>> = src
+            .iter()
+            .enumerate()
+            .filter(|(i, entry)| Some(*i) != current && !upcoming.contains(i) && !queued.contains(&Rc::as_ptr(entry)))
+            .map(|(_, entry)| entry)
+            .collect();
+        if self.shuffled.get() {
+            left.sort_by_key(|entry| taken.get(&Rc::as_ptr(entry)).copied().unwrap_or(0));
+        }
+        left.into_iter().map(|entry| entry.as_ref().clone()).collect()
     }
 
     pub fn take_for_gapless(&self) -> Option<HistoryEntry> {
@@ -212,6 +247,7 @@ impl DurableQueue {
         *self.source.borrow_mut() = std::iter::once(selected).chain(rest.into_iter().map(Rc::new)).collect();
         self.played.set(1);
         self.last_taken.set(Some(0));
+        self.taken.borrow_mut().clear();
         self.publish();
     }
 
@@ -220,7 +256,8 @@ impl DurableQueue {
             let mut upcoming = self.upcoming.borrow_mut();
             if i >= upcoming.len() { bail!("track not found"); }
             let removed = upcoming.remove(i);
-            self.source.borrow_mut().remove(removed);
+            let entry = self.source.borrow_mut().remove(removed);
+            self.taken.borrow_mut().retain(|t| !Rc::ptr_eq(t, &entry));
             for index in upcoming.iter_mut() {
                 *index -= usize::from(*index > removed);
             }
@@ -245,6 +282,7 @@ impl DurableQueue {
     pub fn rewind(&self) {
         self.played.set(0);
         self.last_taken.set(None);
+        self.taken.borrow_mut().clear();
         self.restore();
     }
 
@@ -253,6 +291,7 @@ impl DurableQueue {
         *self.source.borrow_mut() = tracks.into_iter().map(Rc::new).collect();
         self.played.set(0);
         self.last_taken.set(None);
+        self.taken.borrow_mut().clear();
         self.publish();
     }
 
@@ -280,6 +319,9 @@ impl DurableQueue {
     pub fn select_history_occurrence(&self, occurrence: Option<&Weak<Track>>) {
         let origin = occurrence.and_then(Weak::upgrade);
         let index = origin.and_then(|track| self.source.borrow().iter().position(|entry| Rc::ptr_eq(entry, &track)));
+        if let Some(i) = index {
+            self.took(i);
+        }
         self.last_taken.set(index);
     }
 
@@ -290,6 +332,7 @@ impl DurableQueue {
         let skipped = {
             self.upcoming.borrow_mut().drain(..n).map(|i| {
                 self.played.set(self.played.get().max(i + 1));
+                self.took(i);
                 self.history_entry(i)
             }).collect()
         };
@@ -512,6 +555,42 @@ mod tests {
         q.remove_at(0).unwrap();
         q.rewind();
         assert_eq!(q.len(), 19, "removed tracks are gone from the source");
+    }
+
+    #[test]
+    fn played_is_what_a_rewind_brings_back() -> Result<()> {
+        let played = |q: &DurableQueue, current: &str| q.played(current, &[]).iter().map(|t| t.id().to_string()).collect::<Vec<_>>();
+        let q = DurableQueue::default();
+        q.set((0..5).map(|i| t(&i.to_string())).collect());
+        assert!(played(&q, "").is_empty());
+        // Started at the third track: the first two come back too.
+        q.skip(2)?;
+        q.pop();
+        assert_eq!(played(&q, "2"), ["0", "1"]);
+        // Played out of the source's order, which a rewind restores.
+        q.move_entry(0, 1);
+        q.pop();
+        q.pop();
+        assert_eq!(played(&q, "3"), ["0", "1", "2", "4"]);
+        q.set((0..5).map(|i| t(&i.to_string())).collect());
+        q.skip(2)?;
+        q.pop();
+        // Shuffled: the others follow in the order they play.
+        q.shuffle("2", &[]);
+        assert!(played(&q, "2").is_empty());
+        let next = q.pop().unwrap();
+        let after = q.pop().unwrap();
+        assert_eq!(played(&q, after.id()), ["2", next.id()]);
+        // A track moved to the user queue counts once it plays from there.
+        let moved = q.take_for_gapless().unwrap();
+        assert_eq!(q.played(after.id(), &[moved.occurrence.clone().unwrap()]).len(), 2);
+        q.select_history_occurrence(moved.occurrence.as_ref());
+        assert_eq!(played(&q, moved.track.id()), ["2", next.id(), after.id()]);
+        let last = q.pop().unwrap();
+        assert_eq!(played(&q, last.id()), ["2", next.id(), after.id(), moved.track.id()]);
+        q.rewind();
+        assert!(played(&q, "").is_empty());
+        Ok(())
     }
 
     #[test]

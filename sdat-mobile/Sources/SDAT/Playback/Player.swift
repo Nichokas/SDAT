@@ -44,6 +44,10 @@ final class Player: LivePlaybackPort {
     var progress: Double { duration > 0 ? min(position / duration, 1) : 0 }
     /// Base-queue tracks after the current one.
     var upNext: ArraySlice<Track> { index.map { queue.dropFirst($0 + 1) } ?? queue[...] }
+    /// Base-queue tracks before the current one: repeat all plays them again after the last.
+    var played: ArraySlice<Track> { index.map { queue.prefix($0) } ?? [] }
+    /// The queue is Discover's endless shuffle, also before its source is attached again.
+    var endless: Bool { infinite != nil || restoredInfinite }
     /// Base queue in its unshuffled order, restored when shuffle is turned off.
     private var original: [Track] = [] { didSet { queueVersion &+= 1 } }
 
@@ -157,16 +161,17 @@ final class Player: LivePlaybackPort {
 
     /// Playback taken over from another device (Handoff): `tracks` already are in
     /// play order, so shuffle is off and the personal queue is replaced too.
-    func resume(_ tracks: [Track], at secs: Double, repeat r: Repeat, from device: String) {
+    /// `discover`: Discover's endless queue, which goes on with this device's own shuffle.
+    func resume(_ tracks: [Track], at secs: Double, repeat r: Repeat, from device: String, discover: Bool = false) {
         guard !tracks.isEmpty else { return }
         recentIDs = []; recentOrder = []
-        restoredInfinite = false
+        restoredInfinite = discover
         infinite = nil
         shuffle = false
         original = tracks
         queue = tracks
         userQueue = []
-        sourceTitle = device.isEmpty ? nil : device
+        sourceTitle = discover ? "Discover" : (device.isEmpty ? nil : device)
         repeatMode = r
         // `start` swaps the item only once the new stream is fetched; the old song must not keep playing meanwhile.
         avPlayer.pause()
@@ -175,18 +180,41 @@ final class Player: LivePlaybackPort {
         exactResume = true
         load(0, resumeAt: max(secs, 0))
         resumedVersion = queueVersion
+        if discover { attachDiscover() }
+    }
+
+    /// Asks for the home mixes while a Discover queue restored or taken over waits for its source: without it,
+    /// playback ends with the tracks it has.
+    private func attachDiscover() {
+        discoverWait &+= 1
+        let wait = discoverWait
+        Task {
+            var pause = 2.0
+            // A newer resume or a sign-out ends it: mixes on their way are not that queue's.
+            while wait == discoverWait, restoredInfinite {
+                if let mixes = try? await homeMixes(), !mixes.isEmpty {
+                    if wait == discoverWait { resumeInfinite(mixes: mixes) }
+                    return
+                }
+                try? await Task.sleep(for: .seconds(pause))
+                pause = min(pause * 2, 60)
+            }
+        }
     }
 
     /// What follows a handoff's resumed track `id`, only while the queues still are what that resume set up: else
-    /// the user started or queued something else, or it is a duplicate.
+    /// the user started or queued something else, or it is a duplicate. No tracks: nothing follows it, and a
+    /// Discover queue goes on from its own source. Returns whether tracks were appended.
     @discardableResult
     func appendUpNext(after id: String, _ tracks: [Track]) -> Bool {
-        guard resumedVersion == queueVersion, index != nil, current?.id == id, !tracks.isEmpty else { return false }
+        guard resumedVersion == queueVersion, index != nil, current?.id == id else { return false }
         resumedVersion = nil
+        guard !tracks.isEmpty else { refillIfNeeded(); return false }
         queue.append(contentsOf: tracks)
         original.append(contentsOf: tracks)
         invalidatePreload()
         persist()
+        refillIfNeeded()
         return true
     }
 
@@ -434,21 +462,30 @@ final class Player: LivePlaybackPort {
     private func advance(auto: Bool) {
         guard let (t, fromUser, newIndex) = following(manual: !auto) else {
             // Endless (Discover) queue ran dry before the refill landed: fetch, then go on.
-            if let source = infinite {
-                loading = true
-                Task {
+            guard infinite != nil || restoredInfinite else { stopAtEnd(); return }
+            loading = true
+            // Restored or taken over, and its source is not here yet: asked for now.
+            if infinite == nil { attachDiscover() }
+            let started = starts
+            Task {
+                // A handoff's own tracks come first, when they are still on their way.
+                await awaitHandoff(manual: !auto, started: started)
+                // Something else plays by now, or nothing does (a sign-out).
+                guard starts == started, current != nil else { return }
+                // The handed-over tracks play without the source.
+                if following(manual: !auto) == nil {
+                    guard let source = infinite else { loading = false; stopAtEnd(); return }
                     let more = await fetchMore(from: source)
-                    guard infinite === source else { return }
-                    loading = false
-                    guard more else { stopAtEnd(); return }
-                    // A pause while the refill loaded holds for the track it starts.
-                    let held = holdAutoplay
-                    advance(auto: auto)
-                    if held { holdAutoplay = true }
+                    // Another Next tapped meanwhile waited too, and went on first.
+                    guard infinite === source, starts == started else { return }
+                    guard more else { loading = false; stopAtEnd(); return }
                 }
-                return
+                loading = false
+                // A pause while the refill loaded holds for the track it starts.
+                let held = holdAutoplay
+                advance(auto: auto)
+                if held { holdAutoplay = true }
             }
-            stopAtEnd()
             return
         }
         if fromUser {
@@ -741,8 +778,23 @@ final class Player: LivePlaybackPort {
         advance(auto: true)
     }
 
+    /// Waits while a queue that ran dry may still get more: the tracks after a handoff's resumed one and the
+    /// source of a Discover queue. A track to play ends it, and so does another start (`starts` is no longer
+    /// `started`). The tracks have a limit, for an answer of the core that never comes; the source is asked for
+    /// until it comes.
+    private func awaitHandoff(manual: Bool, started: Int) async {
+        let limit = Date().addingTimeInterval(Self.handoffWait)
+        while starts == started, current != nil, following(manual: manual) == nil {
+            let tracks = resumedVersion == queueVersion && Date() < limit
+            let source = restoredInfinite && infinite == nil
+            guard tracks || source else { return }
+            try? await Task.sleep(for: .milliseconds(100))
+        }
+    }
+
     private func refillIfNeeded() {
-        guard let source = infinite, let i = index, queue.count - i <= 5 else { return }
+        // A handoff's own tracks come first: a refill before them would take their place.
+        guard resumedVersion != queueVersion, let source = infinite, let i = index, queue.count - i <= 5 else { return }
         Task { _ = await fetchMore(from: source) }
     }
 
@@ -787,6 +839,9 @@ final class Player: LivePlaybackPort {
     /// `queueVersion` right after a handoff resume, until what follows its track is appended: any change to the
     /// queues since ends it, a restart or a repeat does not.
     @ObservationIgnored private var resumedVersion: Int?
+    /// Bumped by every Discover resume and by a sign-out: an older request for the home mixes is dropped.
+    @ObservationIgnored private var discoverWait = 0
+    private static let handoffWait: TimeInterval = 20
     /// Bumped by every play or pause command, a resume of the same track too.
     @ObservationIgnored private(set) var plays = 0
     @ObservationIgnored private var restoredInfinite = false
@@ -1118,7 +1173,7 @@ extension Player {
         queue = []; original = []; userQueue = []; index = nil; current = nil
         isPlaying = false; loading = false; liveEngine.loadResumeAt = nil; position = 0; duration = 0; stream = nil; sourceTitle = nil
         MPNowPlayingInfoCenter.default().nowPlayingInfo = nil
-        needsStart = false; restoredInfinite = false
+        needsStart = false; restoredInfinite = false; discoverWait &+= 1
         // With `current` nil any later persist() (tick, scene change) only clears again;
         // the store's serial queue keeps this delete after any save already queued.
         PlaybackStore.clear()
