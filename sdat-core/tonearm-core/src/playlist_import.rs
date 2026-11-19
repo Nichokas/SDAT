@@ -104,8 +104,9 @@ pub fn import_playlist(source: &SpotifyPlaylist, progress: &dyn Fn(Progress), ca
         bail!("TIDAL has none of the tracks of this playlist.");
     }
 
-    stop()?;
+    // The account first: reading it can take a request, and a cancel during it must still count.
     let account = api::account()?;
+    stop()?;
     let saving = |done| progress(Progress { stage: Stage::Saving, done, total: matched.len() });
     saving(0);
     let name = if source.name.trim().is_empty() { "Spotify playlist" } else { source.name.trim() };
