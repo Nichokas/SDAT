@@ -58,6 +58,7 @@ final class Downloads {
     private(set) var failures: [String: String] = [:]
     @ObservationIgnored private var pending: [Track] = []
     @ObservationIgnored private var worker: Task<Void, Never>?
+    @ObservationIgnored private var removal: Task<Void, Never>?
     private var currentID: String?
     /// Remote cover URL → local file, so covers show offline.
     @ObservationIgnored private var coverMap: [String: URL] = [:]
@@ -109,7 +110,9 @@ final class Downloads {
 
     /// Saves artwork for entries without it: memory cache first, then the network (low priority).
     func backfillCovers() async {
+        guard removal == nil else { return }
         for (id, e) in entries where e.cover == nil {
+            guard removal == nil, entries[id] != nil else { continue }
             guard let t = DiscoverCache.decode([e.track]).first, let a = t.album,
                   let remote = a.coverUrlLarge ?? a.coverUrl else { continue }
             let cname = "cover-\(a.id).jpg"
@@ -117,12 +120,12 @@ final class Downloads {
             if !FileManager.default.fileExists(atPath: cf.path) {
                 var data = [remote, a.coverUrl].compactMap { $0 }.lazy.compactMap { ImageStore.shared.cached($0)?.jpegData(compressionQuality: 0.9) }.first
                 if data == nil, let u = URL(string: remote) { data = try? await URLSession.shared.data(from: u).0 }
-                guard let data, UIImage(data: data) != nil else { continue }
+                guard removal == nil, entries[id] != nil, let data, UIImage(data: data) != nil else { continue }
                 try? data.write(to: cf, options: .atomic)
             }
             entries[id]?.cover = cname
         }
-        saveIndex()
+        if removal == nil, !entries.isEmpty { saveIndex() }
     }
 
     // MARK: queries
@@ -159,13 +162,14 @@ final class Downloads {
     /// Set while the background task expired: the on-disk queue must survive the teardown.
     @ObservationIgnored private var frozen = false
     private func savePending() {
-        guard !frozen else { return }
+        guard !frozen, removal == nil else { return }
         let list = DiscoverCache.encode(activeOrder.compactMap { activeTracks[$0] })
         if list.isEmpty { try? FileManager.default.removeItem(at: Self.pendingURL) }
         else { try? JSONEncoder().encode(list).write(to: Self.pendingURL, options: .atomic) }
     }
     /// Background time ran out: stop the worker but keep the queue (not failed) for next launch.
     func suspend() {
+        guard removal == nil else { return }
         savePending()
         frozen = true
         pending = []; progress = [:]; activeOrder = []; activeTracks = [:]
@@ -174,6 +178,7 @@ final class Downloads {
     }
     /// Re-queues downloads interrupted by expiry, a kill or a crash.
     func resumePending() {
+        guard removal == nil else { return }
         frozen = false
         guard let d = try? Data(contentsOf: Self.pendingURL),
               let list = try? JSONDecoder().decode([DiscoverCache.T].self, from: d) else { return }
@@ -202,6 +207,7 @@ final class Downloads {
 
     /// Queues tracks; already downloaded / queued / unstreamable ones are skipped.
     func download(_ list: [Track]) {
+        guard removal == nil else { return }
         var added = 0
         for t in list where t.streamable && entries[t.id] == nil && progress[t.id] == nil {
             failures[t.id] = nil
@@ -241,10 +247,20 @@ final class Downloads {
     /// Cancels queued / in-flight downloads, waits for the worker to stop, then deletes
     /// every file (tracks, covers, index). Nothing can be recreated afterwards.
     func removeAll() async {
+        if let removal { await removal.value; return }
+        let task = Task {
+            defer { removal = nil }
+            await deleteDownloads()
+        }
+        removal = task
+        await task.value
+    }
+
+    private func deleteDownloads() async {
         pending = []
         progress = [:]; activeOrder = []; activeTracks = [:]
         currentID = nil
-        while let w = worker { w.cancel(); await w.value; if worker == w { worker = nil } }
+        if let worker { worker.cancel(); await worker.value }
         failures = [:]; entries = [:]; coverMap = [:]
         await indexWrite?.value; indexWrite = nil
         let d = Self.dir
@@ -254,7 +270,7 @@ final class Downloads {
     // MARK: worker
 
     private func pump() {
-        guard worker == nil else { return }
+        guard removal == nil, worker == nil, !pending.isEmpty else { return }
         worker = Task { [weak self] in
             while let self, let t = self.pending.first {
                 self.pending.removeFirst()
