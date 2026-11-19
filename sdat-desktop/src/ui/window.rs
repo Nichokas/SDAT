@@ -1,5 +1,5 @@
 //! Port of `internal/ui/window*.go`: the main window, its actions, dialogs and popups.
-use std::cell::RefCell;
+use std::cell::{Cell, RefCell};
 use std::rc::Rc;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -16,6 +16,39 @@ use crate::{api, model, player, router, secrets, settings, state};
 
 thread_local! {
     static WINDOW: RefCell<Option<adw::ApplicationWindow>> = const { RefCell::new(None) };
+    static ACCOUNT_CHANGING: Cell<bool> = const { Cell::new(false) };
+}
+
+enum AccountChangeStatus {
+    Completed,
+    InProgress,
+}
+
+#[derive(Default)]
+struct AccountChangeGuard {
+    paused: bool,
+}
+
+impl AccountChangeGuard {
+    fn pause(&mut self) {
+        self.paused = true;
+        crate::ui::components::add_to_playlist::begin_account_change();
+        crate::ui::components::favourite_button::track_favourites_available().set(false);
+    }
+
+    fn resume(&mut self) {
+        if std::mem::take(&mut self.paused) {
+            crate::ui::components::favourite_button::track_favourites_available().set(state::signed_in_changed().get());
+            crate::ui::components::add_to_playlist::end_account_change();
+        }
+    }
+}
+
+impl Drop for AccountChangeGuard {
+    fn drop(&mut self) {
+        self.resume();
+        ACCOUNT_CHANGING.set(false);
+    }
 }
 
 pub fn window() -> Option<adw::ApplicationWindow> {
@@ -440,42 +473,50 @@ fn sign_in(window: &adw::ApplicationWindow) {
             }
             Ok(resp) => {
                 let token = resp.refresh_token.clone();
-                // Over a session: the old one detaches with its own credentials first.
-                let replacing = state::signed_in_changed().get();
-                if replacing {
-                    crate::handoff::stop();
-                }
-                if let Err(e) = api::run(move || secrets::set_refresh_token(&token)).await {
-                    log::error!("failed to store refresh token error={e:#}");
-                    toast(&tr("Sign in failed: the keyring could not store the session"));
-                    if replacing {
-                        crate::handoff::start();
+                match update_session(Some(token)).await {
+                    Ok(AccountChangeStatus::Completed) => toast(&trf("Signed in as %s", &[&resp.user.email])),
+                    Ok(AccountChangeStatus::InProgress) => {}
+                    Err(e) => {
+                        log::error!("failed to store refresh token error={e:#}");
+                        toast(&tr("Sign in failed: the keyring could not store the session"));
                     }
-                    return;
                 }
-                session_changed().await;
-                state::notify_signed_in_changed();
-                if replacing {
-                    crate::handoff::start();
-                }
-                toast(&trf("Signed in as %s", &[&resp.user.email]));
-                router::refresh();
             }
         }
     });
 }
 
-/// Off the UI thread: busting a favourites cache waits for any fetch of it
-/// in flight.
-async fn session_changed() {
-    crate::ui::components::add_to_playlist::begin_account_change();
-    drop(api::run(|| {
-        tonearm_core::auth::session_changed();
-        anyhow::Ok(())
+async fn update_session(refresh_token: Option<String>) -> anyhow::Result<AccountChangeStatus> {
+    if ACCOUNT_CHANGING.replace(true) {
+        toast(&tr("An account change is already in progress"));
+        return Ok(AccountChangeStatus::InProgress);
+    }
+    let mut change = AccountChangeGuard::default();
+    // The keyring worker can finish after its caller stops waiting.
+    glib::spawn_future_local(async move {
+        let was_signed_in = state::signed_in_changed().get();
+        if was_signed_in {
+            // Detach with the old account's credentials before replacing them.
+            crate::handoff::stop();
+        }
+        change.pause();
+        let result = api::run(move || secrets::change_session(refresh_token.as_deref())).await;
+        if result.is_ok() {
+            crate::cache::allow_prefetch_again();
+            state::notify_signed_in_changed();
+        }
+        let signed_in = state::signed_in_changed().get();
+        if was_signed_in && signed_in {
+            crate::handoff::start();
+        }
+        change.resume();
+        if result.is_ok() {
+            router::refresh();
+        }
+        result.map(|()| AccountChangeStatus::Completed)
     })
-    .await);
-    crate::cache::allow_prefetch_again();
-    crate::ui::components::add_to_playlist::end_account_change();
+    .await
+    .map_err(|_| anyhow::anyhow!("account change task failed"))?
 }
 
 fn install_actions(app: &adw::Application, window: &adw::ApplicationWindow) {
@@ -565,19 +606,15 @@ fn install_actions(app: &adw::Application, window: &adw::ApplicationWindow) {
         }
     }));
     window.add_action(&simple("sign-out", || {
-        // Detach while the session still works.
-        crate::handoff::stop();
         glib::spawn_future_local(async {
-            if let Err(e) = api::run(secrets::delete_refresh_token).await {
-                log::error!("failed to delete refresh token error={e:#}");
-                toast(&tr("Sign out failed"));
-                crate::handoff::start();
-                return;
+            match update_session(None).await {
+                Ok(AccountChangeStatus::Completed) => toast(&tr("Signed out")),
+                Ok(AccountChangeStatus::InProgress) => {}
+                Err(e) => {
+                    log::error!("failed to delete refresh token error={e:#}");
+                    toast(&tr("Sign out failed"));
+                }
             }
-            session_changed().await;
-            state::notify_signed_in_changed();
-            toast(&tr("Signed out"));
-            router::refresh();
         });
     }));
     accel(app, "win.sign-out", &["<Primary>l".into()]);
@@ -1008,6 +1045,43 @@ async fn lastfm_configure(window: Option<adw::ApplicationWindow>) -> anyhow::Res
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn overlapping_account_change_reports_that_the_first_is_still_running() {
+        ACCOUNT_CHANGING.set(true);
+        let _active = AccountChangeGuard::default();
+        let notices = Rc::new(RefCell::new(Vec::new()));
+        let seen = Rc::clone(&notices);
+        let subscription = player::toasts().on(move |message| {
+            seen.borrow_mut().push(message.clone());
+            false
+        });
+        let status = glib::MainContext::new().block_on(update_session(None)).unwrap();
+        player::toasts().unsubscribe(subscription);
+        assert!(matches!(status, AccountChangeStatus::InProgress));
+        assert!(ACCOUNT_CHANGING.get());
+        assert_eq!(notices.borrow().as_slice(), &[tr("An account change is already in progress")]);
+    }
+
+    #[test]
+    fn dropping_an_account_change_restores_track_favourites() {
+        let signed_in = state::signed_in_changed();
+        let was_signed_in = signed_in.get();
+        signed_in.set(true);
+        let favourites = crate::ui::components::favourite_button::track_favourites_available();
+        favourites.set(true);
+        ACCOUNT_CHANGING.set(true);
+        let mut change = AccountChangeGuard::default();
+        change.pause();
+        assert!(!favourites.get());
+
+        drop(change);
+
+        assert!(favourites.get());
+        assert!(!ACCOUNT_CHANGING.get());
+        signed_in.set(was_signed_in);
+        favourites.set(was_signed_in);
+    }
 
     #[test]
     fn release_builds_are_stable() {
