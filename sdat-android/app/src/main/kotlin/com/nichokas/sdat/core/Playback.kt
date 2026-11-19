@@ -106,8 +106,6 @@ class Playback(context: Context, private val prefs: Preferences, secrets: Secret
     /** The base queue a Handoff resume restored, until what follows its track is appended. Any new list replaces it;
      * a restart or a repeat keeps it. */
     private var resumedBase: List<Track>? = null
-    /** When that resume was ([SystemClock.elapsedRealtime]). */
-    private var resumedAt = 0L
     /** Bumped by every play or pause command, so a late handoff result knows the user acted. */
     var controls = 0
         private set
@@ -523,10 +521,8 @@ class Playback(context: Context, private val prefs: Preferences, secrets: Secret
 
     private fun refillIfNeeded() {
         val source = infinite ?: return
-        // A handoff's own tracks come first: a refill before them would take their place. They come within seconds
-        // of the resume, or nothing follows its track.
-        val awaitingUpNext = resumedBase.let { it != null && queue.original === it } && SystemClock.elapsedRealtime() - resumedAt < UP_NEXT_WAIT_MS
-        if (awaitingUpNext) return
+        // A handoff's own tracks come first: a refill before them would take their place.
+        if (resumedBase.let { it != null && queue.original === it }) return
         if (queue.needsRefill) scope.launch { fetchMore(source) }
     }
 
@@ -733,11 +729,19 @@ class Playback(context: Context, private val prefs: Preferences, secrets: Secret
         val (saved, state) = resumed(current, maxOf(atMs, 0) / 1000.0, repeat, discover)
         queue.restore(saved, state)
         replaceInfinite(null)
-        resumedBase = queue.original
-        resumedAt = SystemClock.elapsedRealtime()
+        val base = queue.original
+        resumedBase = base
         awaitingMixes = discover
         resumeInfinite(Discover.mixes)
         start(current, resumeAt = state.position)
+        if (!discover) return
+        // What follows the handed-over track comes within seconds, or nothing does: Discover goes on then.
+        scope.launch {
+            delay(UP_NEXT_WAIT_MS)
+            if (resumedBase !== base || queue.original !== base) return@launch
+            resumedBase = null
+            refillIfNeeded()
+        }
     }
 
     /** The rest of a resumed queue (Handoff), after its track [after], while that resume's queue still is the one

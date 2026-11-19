@@ -182,7 +182,15 @@ final class Player: LivePlaybackPort {
         exactResume = true
         load(0, resumeAt: max(secs, 0))
         resumedVersion = queueVersion
-        resumedAt = Date()
+        guard discover else { return }
+        // What follows the handed-over track comes within seconds, or nothing does: Discover goes on then.
+        let version = queueVersion
+        Task {
+            try? await Task.sleep(for: .seconds(Self.upNextWait))
+            guard resumedVersion == version, queueVersion == version else { return }
+            resumedVersion = nil
+            refillIfNeeded()
+        }
     }
 
     /// What follows a handoff's resumed track `id`, only while the queues still are what that resume set up: else
@@ -751,10 +759,8 @@ final class Player: LivePlaybackPort {
     }
 
     private func refillIfNeeded() {
-        // A handoff's own tracks come first: a refill before them would take their place. They come within
-        // seconds of the resume, or nothing follows its track.
-        let awaitingUpNext = resumedVersion == queueVersion && Date().timeIntervalSince(resumedAt) < Self.upNextWait
-        guard !awaitingUpNext, let source = infinite, let i = index, queue.count - i <= 5 else { return }
+        // A handoff's own tracks come first: a refill before them would take their place.
+        guard resumedVersion != queueVersion, let source = infinite, let i = index, queue.count - i <= 5 else { return }
         Task { _ = await fetchMore(from: source) }
     }
 
@@ -799,9 +805,8 @@ final class Player: LivePlaybackPort {
     /// `queueVersion` right after a handoff resume, until what follows its track is appended: any change to the
     /// queues since ends it, a restart or a repeat does not.
     @ObservationIgnored private var resumedVersion: Int?
-    /// When that resume was.
-    @ObservationIgnored private var resumedAt = Date.distantPast
-    private static let upNextWait: TimeInterval = 30
+    /// How long a Discover queue taken over waits for its handed-over tracks before it refills.
+    private static let upNextWait = 30.0
     /// Bumped by every play or pause command, a resume of the same track too.
     @ObservationIgnored private(set) var plays = 0
     @ObservationIgnored private var restoredInfinite = false

@@ -72,8 +72,11 @@ impl Written {
             }
             match repeat {
                 // TIDAL repeats the whole batch, the tracks before an entry after its last: the list has to be
-                // all of it, and an append would land inside the repeated list.
-                Repeat::All => (tracks.strip_prefix(rest) == Some(before) && (own || k == 0)).then_some(tracks.len()),
+                // exactly that, and an append would land inside the repeated list.
+                Repeat::All => {
+                    let whole = tracks.len() == self.wrote.len() && tracks.starts_with(rest) && tracks.ends_with(before);
+                    (whole && (own || k == 0)).then_some(tracks.len())
+                }
                 _ if rest == tracks => Some(tracks.len()),
                 Repeat::Off if own => tracks.starts_with(rest).then_some(rest.len()),
                 // Under repeat one TIDAL shows nothing after the current item: the entry of an appended track could not be read.
@@ -650,6 +653,10 @@ mod tests {
         assert_eq!(m.plan(&repeating("2", &["3"], &["1"]), 0), vec![Write::Current { index: 0, position_ms: 0 }]);
         // A track added to the list is no append: it would land after the repeated ones.
         assert!(matches!(m.plan(&repeating("1", &["2", "3", "4"], &[]), 0).first(), Some(Write::Queue(_))));
+        // Nor is a list that differs after the tracks that follow, or before them, the written one.
+        assert!(matches!(m.plan(&repeating("2", &["3"], &["9"]), 0).first(), Some(Write::Queue(_))));
+        assert!(matches!(m.plan(&repeating("3", &["9"], &["2"]), 0).first(), Some(Write::Queue(_))));
+        assert!(matches!(m.plan(&repeating("3", &[], &["2", "1"]), 0).first(), Some(Write::Queue(_))));
     }
 
     #[test]
