@@ -629,7 +629,7 @@ async fn feed() -> Response {
         .map(|activity| (feed_activity_key(&activity.followable_activity.occurred_at, &Local), activity))
         .collect();
     // A clock rollback across midnight can put adjacent instants on reversed local dates.
-    acts.sort_by_key(|(key, _)| std::cmp::Reverse(*key));
+    acts.sort_by_key(|((date, instant), _)| std::cmp::Reverse((*date, *instant)));
 
     let body = gtk::Box::new(gtk::Orientation::Vertical, 36).vmargin(20);
     let mut stage = TimeStage::Today;
