@@ -62,7 +62,7 @@
 
         packages.sdat-desktop = pkgs.rustPlatform.buildRustPackage (finalAttrs: {
           pname = "sdat-desktop";
-          version = "2.2.2";
+          version = "2.3.0";
           # The Cargo workspace (sdat-core + sdat-desktop) lives at the monorepo root.
           src = pkgs.lib.cleanSource ../.;
           cargoLock.lockFile = ../Cargo.lock;

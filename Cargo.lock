@@ -3668,7 +3668,7 @@ dependencies = [
 
 [[package]]
 name = "sdat-desktop"
-version = "2.2.2"
+version = "2.3.0"
 dependencies = [
  "anyhow",
  "async-channel",

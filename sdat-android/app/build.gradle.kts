@@ -14,8 +14,8 @@ android {
         applicationId = "com.nichokas.sdat"
         minSdk = 33
         targetSdk = 37
-        versionCode = 8
-        versionName = "2.3.2"
+        versionCode = 9
+        versionName = "2.4.0"
     }
     // One APK per ABI (the only two the Rust core is built for): a phone installs just its own copy of the core.
     splits {
