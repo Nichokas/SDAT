@@ -814,7 +814,12 @@ fn playlist_start(tracks: &[Track], clicked: &Track, position: usize) -> Option<
     let start = if tracks.get(position).is_some_and(matches) {
         Some(position)
     } else {
-        tracks.iter().position(matches)
+        let mut candidates = tracks.iter().enumerate().filter(|(_, track)| matches(track));
+        let (index, _) = candidates.next()?;
+        if candidates.next().is_some() {
+            return None;
+        }
+        Some(index)
     };
     start.filter(|&index| tracks[index].info.streamable)
 }
@@ -881,7 +886,8 @@ mod playlist_tests {
         let clicked = track("B", None);
         let fresh = [clicked.clone(), track("C", None), clicked.clone()];
         assert_eq!(playlist_start(&fresh, &clicked, 2), Some(2));
-        assert_eq!(playlist_start(&fresh, &clicked, 1), Some(0));
+        assert_eq!(playlist_start(&fresh, &clicked, 1), None);
+        assert_eq!(playlist_start(&fresh[..2], &clicked, 1), Some(0));
         assert_eq!(playlist_start(&fresh, &track("A", None), 1), None);
     }
 }
