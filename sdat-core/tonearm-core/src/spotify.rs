@@ -48,8 +48,9 @@ pub fn playlist_id(link: &str) -> Option<String> {
     let link = link.trim();
     let id = if let Some(rest) = link.strip_prefix("spotify:playlist:") {
         rest
-    } else if let Some((_, rest)) = link.split_once("/playlist/") {
-        if !link.contains("spotify.com/") {
+    } else if let Some((page, rest)) = link.split_once("/playlist/") {
+        let page = page.strip_prefix("https://").or_else(|| page.strip_prefix("http://")).unwrap_or(page);
+        if page.split('/').next() != Some("open.spotify.com") {
             return None;
         }
         rest.split(['?', '/', '#']).next()?
@@ -296,6 +297,7 @@ mod tests {
         let id = Some("37i9dQZF1DXcBWIGoYBM5M".to_owned());
         assert_eq!(playlist_id("https://open.spotify.com/playlist/37i9dQZF1DXcBWIGoYBM5M?si=abc123"), id);
         assert_eq!(playlist_id(" https://open.spotify.com/intl-es/playlist/37i9dQZF1DXcBWIGoYBM5M/ "), id);
+        assert_eq!(playlist_id("open.spotify.com/playlist/37i9dQZF1DXcBWIGoYBM5M"), id);
         assert_eq!(playlist_id("spotify:playlist:37i9dQZF1DXcBWIGoYBM5M"), id);
         assert_eq!(playlist_id("37i9dQZF1DXcBWIGoYBM5M"), id);
     }
@@ -304,6 +306,7 @@ mod tests {
     fn rejects_links_that_are_not_spotify_playlists() {
         assert_eq!(playlist_id("https://open.spotify.com/album/37i9dQZF1DXcBWIGoYBM5M"), None);
         assert_eq!(playlist_id("https://tidal.com/playlist/37i9dQZF1DXcBWIGoYBM5M"), None);
+        assert_eq!(playlist_id("https://example.com/open.spotify.com/playlist/37i9dQZF1DXcBWIGoYBM5M"), None);
         assert_eq!(playlist_id("https://open.spotify.com/playlist/short"), None);
         assert_eq!(playlist_id(""), None);
     }

@@ -159,8 +159,10 @@ fn same_recording(track: &SpotifyTrack, title: &str, artists: &[String], duratio
 /// The title without what the services write differently: `(feat. X)`, `[Live]`, ` - Remastered 2011`.
 /// A dash is part of the song's name unless a decoration follows it (`Love - Hate`).
 fn plain_title(title: &str) -> &str {
-    const DECORATIONS: [&str; 18] =
-        ["remaster", "version", "edit", "mix", "feat", "live", "mono", "stereo", "deluxe", "bonus", "from", "single", "original", "acoustic", "demo", "instrumental", "karaoke", "recorded"];
+    const DECORATIONS: [&str; 23] = [
+        "remaster", "version", "edit", "mix", "remix", "feat", "live", "mono", "stereo", "deluxe", "bonus", "from", "single", "original", "acoustic", "demo", "instrumental",
+        "karaoke", "recorded", "sped", "slowed", "acapella", "cappella",
+    ];
     let dash = title.match_indices(" - ").map(|(at, _)| at).find(|at| {
         let part = title[at + 3..].split(" - ").next().unwrap_or_default().to_lowercase();
         part.split(|c: char| !c.is_alphanumeric()).any(|word| word.starts_with(|c: char| c.is_ascii_digit()) || DECORATIONS.iter().any(|d| word.starts_with(d)))
@@ -257,6 +259,7 @@ mod tests {
         assert_eq!(plain_title("(I Can't Get No) Satisfaction"), "(I Can't Get No) Satisfaction");
         assert_eq!(plain_title("Song (feat. X) [Live]"), "Song");
         assert_eq!(plain_title("Song - 2011 Remaster"), "Song");
+        assert_eq!(plain_title("Song - Remix"), "Song");
         assert_eq!(plain_title("Love - Hate"), "Love - Hate");
         assert_eq!(plain_title("Love - Hate - Radio Edit"), "Love - Hate");
     }
