@@ -991,4 +991,17 @@ mod tests {
         assert!(t[0] >= t[1] && t[1] > t[2]);
         assert_eq!(TimeStage::Older.threshold(now), None);
     }
+
+    #[test]
+    fn feed_keeps_the_last_day_of_august_in_last_month() {
+        let now = Local.with_ymd_and_hms(2026, 9, 25, 12, 0, 0).unwrap();
+        let release = Local.with_ymd_and_hms(2026, 8, 31, 23, 59, 59).unwrap();
+        let mut stage = TimeStage::Today;
+        while let Some(threshold) = stage.threshold(now)
+            && release < threshold
+        {
+            stage = stage.next();
+        }
+        assert_eq!(stage, TimeStage::LastMonth);
+    }
 }
