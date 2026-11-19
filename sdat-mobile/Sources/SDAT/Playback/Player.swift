@@ -447,7 +447,10 @@ final class Player: LivePlaybackPort {
             if let source = infinite {
                 loading = true
                 Task {
-                    let more = await fetchMore(from: source)
+                    // A handoff's own tracks come first, when they are still on their way.
+                    await awaitUpNext()
+                    let handed = following(manual: !auto) != nil
+                    let more = handed ? true : await fetchMore(from: source)
                     guard infinite === source else { return }
                     loading = false
                     guard more else { stopAtEnd(); return }
@@ -751,6 +754,15 @@ final class Player: LivePlaybackPort {
         advance(auto: true)
     }
 
+    /// Waits while what follows a handoff's resumed track may still come. The core tells when nothing does; the
+    /// limit is for an answer that never comes.
+    private func awaitUpNext() async {
+        let limit = Date().addingTimeInterval(Self.upNextWait)
+        while resumedVersion == queueVersion, Date() < limit {
+            try? await Task.sleep(for: .milliseconds(100))
+        }
+    }
+
     private func refillIfNeeded() {
         // A handoff's own tracks come first: a refill before them would take their place.
         guard resumedVersion != queueVersion, let source = infinite, let i = index, queue.count - i <= 5 else { return }
@@ -798,6 +810,7 @@ final class Player: LivePlaybackPort {
     /// `queueVersion` right after a handoff resume, until what follows its track is appended: any change to the
     /// queues since ends it, a restart or a repeat does not.
     @ObservationIgnored private var resumedVersion: Int?
+    private static let upNextWait: TimeInterval = 20
     /// Bumped by every play or pause command, a resume of the same track too.
     @ObservationIgnored private(set) var plays = 0
     @ObservationIgnored private var restoredInfinite = false

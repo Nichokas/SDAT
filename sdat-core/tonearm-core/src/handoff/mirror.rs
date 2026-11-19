@@ -601,6 +601,17 @@ mod tests {
     }
 
     #[test]
+    fn a_track_added_to_a_queue_of_one_is_read_and_selected() {
+        let mut m = active_with(&["1"]);
+        assert_eq!(m.plan(&local("1", &["2"], 0, true), 0), vec![append(&["2"])]);
+        m.appended(ids(&["2"]), false, "r".into());
+        assert_eq!(m.plan(&local("2", &[], 0, true), 0), vec![Write::Current { index: 1, position_ms: 0 }]);
+        // The current entry is the last one known: what was read follows it.
+        m.entries_read(entries(&["2"]));
+        assert_eq!(m.entry(1).map(|e| e.item_id), Some("i2".into()));
+    }
+
+    #[test]
     fn an_appended_entry_that_cannot_be_read_rewrites() {
         let mut m = active_with(&["1", "2"]);
         m.appended(ids(&["3"]), false, "r".into());

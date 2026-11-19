@@ -32,6 +32,7 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.MainScope
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withTimeoutOrNull
 import uniffi.tonearm_ffi.Mix
 import uniffi.tonearm_ffi.Quality
 import uniffi.tonearm_ffi.Shuffle
@@ -494,7 +495,10 @@ class Playback(context: Context, private val prefs: Preferences, secrets: Secret
             player.playWhenReady = true
         }
         scope.launch {
-            val more = fetchMore(source)
+            // A handoff's own tracks come first, when they are still on their way. The core tells when none are; the
+            // limit is for an answer that never comes.
+            withTimeoutOrNull(UP_NEXT_WAIT_MS) { while (awaitingUpNext) delay(100) }
+            val more = queue.upNext.isNotEmpty() || fetchMore(source)
             // A track picked during the fetch owns playback now; a source replaced meanwhile had nothing more.
             if (track !== from || entry != entryBefore) return@launch
             fetching = false
@@ -522,9 +526,12 @@ class Playback(context: Context, private val prefs: Preferences, secrets: Secret
     private fun refillIfNeeded() {
         val source = infinite ?: return
         // A handoff's own tracks come first: a refill before them would take their place.
-        if (resumedBase.let { it != null && queue.original === it }) return
+        if (awaitingUpNext) return
         if (queue.needsRefill) scope.launch { fetchMore(source) }
     }
+
+    /** What follows a handoff's resumed track may still come: its queue is the one playing, as the resume left it. */
+    private val awaitingUpNext get() = resumedBase.let { it != null && queue.original === it }
 
     /** Appends a new endless batch, skipping tracks already queued; one fetch at a time. */
     private suspend fun fetchMore(source: Shuffle): Boolean {
@@ -810,6 +817,9 @@ class Playback(context: Context, private val prefs: Preferences, secrets: Secret
 }
 
 private val systemPauses = setOf(Player.PLAY_WHEN_READY_CHANGE_REASON_AUDIO_BECOMING_NOISY, Player.PLAY_WHEN_READY_CHANGE_REASON_AUDIO_FOCUS_LOSS)
+
+/** How long the end of a resumed track waits for what follows it (Handoff). */
+private const val UP_NEXT_WAIT_MS = 20_000L
 
 /** Where a track plays from; [offline] for its downloaded copy. */
 private class Source(val uri: String, val quality: Quality, val offline: Boolean)
