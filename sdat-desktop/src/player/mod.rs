@@ -787,11 +787,7 @@ pub async fn play_playlist(playlist_id: &str, shuffle: bool) -> Result<()> {
     let i = id.clone();
     let info = api::run(move || service::get_playlist_info(&i)).await?;
     let tracks = crate::cache::all_tracks(crate::cache::Job::Playlist(id)).await?;
-    clear_queues();
-    stop();
-    play_tracks(tracks, shuffle, 0)?;
-    source_changed().set(Some(PlaybackSource::Playlist(info)));
-    Ok(())
+    play_tracklist(PlaybackSource::Playlist(info), tracks, shuffle, 0).await
 }
 
 pub async fn play_playlist_track(info: PlaylistInfo, clicked: &Track, position: usize) -> Result<bool> {
@@ -834,6 +830,24 @@ mod playlist_tests {
         let fresh = [track("C", Some("c")), track("A", Some("a")), clicked.clone()];
         let started = playlist_start(&fresh, &clicked, 1).and_then(|index| fresh.get(index));
         assert_eq!(started.map(Track::id), Some("B"));
+    }
+
+    #[test]
+    fn clicking_playlist_row_replaces_the_pending_queue() -> Result<()> {
+        let info = PlaylistInfo { id: "test-playlist-row-replaces-queue".into(), ..Default::default() };
+        let key = crate::cache::playlist_key(&info.id);
+        let clicked = track("B", Some("b"));
+        let tracks = vec![track("A", Some("a")), clicked.clone(), track("C", Some("c"))];
+        assert!(crate::cache::put(&key, crate::cache::generation(&key), tracks));
+        user_queue().append(track("queued", None));
+
+        let started = glib::MainContext::new().block_on(play_playlist_track(info, &clicked, 0));
+        crate::cache::invalidate(&key);
+
+        assert!(started?);
+        assert!(user_queue().is_empty());
+        assert_eq!(base_queue().peek().as_ref().map(Track::id), Some("C"));
+        Ok(())
     }
 
     #[test]
