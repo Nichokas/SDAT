@@ -285,6 +285,13 @@ typedef void (*UniffiCallbackInterfaceHandoffObserverMethod0)(uint64_t, RustBuff
     );
 
 #endif
+#ifndef UNIFFI_FFIDEF_CALLBACK_INTERFACE_IMPORT_LISTENER_METHOD0
+#define UNIFFI_FFIDEF_CALLBACK_INTERFACE_IMPORT_LISTENER_METHOD0
+typedef void (*UniffiCallbackInterfaceImportListenerMethod0)(uint64_t, RustBuffer, void* _Nonnull, 
+        RustCallStatus *_Nonnull uniffiCallStatus
+    );
+
+#endif
 #ifndef UNIFFI_FFIDEF_CALLBACK_INTERFACE_LIVE_CONTROL_OBSERVER_METHOD0
 #define UNIFFI_FFIDEF_CALLBACK_INTERFACE_LIVE_CONTROL_OBSERVER_METHOD0
 typedef void (*UniffiCallbackInterfaceLiveControlObserverMethod0)(uint64_t, int8_t, void* _Nonnull, 
@@ -349,6 +356,15 @@ typedef struct UniffiVTableCallbackInterfaceHandoffObserver {
     UniffiCallbackInterfaceClone _Nonnull uniffiClone;
     UniffiCallbackInterfaceHandoffObserverMethod0 _Nonnull onEvent;
 } UniffiVTableCallbackInterfaceHandoffObserver;
+
+#endif
+#ifndef UNIFFI_FFIDEF_V_TABLE_CALLBACK_INTERFACE_IMPORT_LISTENER
+#define UNIFFI_FFIDEF_V_TABLE_CALLBACK_INTERFACE_IMPORT_LISTENER
+typedef struct UniffiVTableCallbackInterfaceImportListener {
+    UniffiCallbackInterfaceFree _Nonnull uniffiFree;
+    UniffiCallbackInterfaceClone _Nonnull uniffiClone;
+    UniffiCallbackInterfaceImportListenerMethod0 _Nonnull onProgress;
+} UniffiVTableCallbackInterfaceImportListener;
 
 #endif
 #ifndef UNIFFI_FFIDEF_V_TABLE_CALLBACK_INTERFACE_LIVE_CONTROL_OBSERVER
@@ -542,6 +558,46 @@ void uniffi_tonearm_ffi_fn_init_callback_vtable_handoffobserver(const UniffiVTab
 #ifndef UNIFFI_FFIDEF_UNIFFI_TONEARM_FFI_FN_METHOD_HANDOFFOBSERVER_ON_EVENT
 #define UNIFFI_FFIDEF_UNIFFI_TONEARM_FFI_FN_METHOD_HANDOFFOBSERVER_ON_EVENT
 void uniffi_tonearm_ffi_fn_method_handoffobserver_on_event(uint64_t ptr, RustBuffer event, RustCallStatus *_Nonnull out_status
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_TONEARM_FFI_FN_CLONE_IMPORTLISTENER
+#define UNIFFI_FFIDEF_UNIFFI_TONEARM_FFI_FN_CLONE_IMPORTLISTENER
+uint64_t uniffi_tonearm_ffi_fn_clone_importlistener(uint64_t handle, RustCallStatus *_Nonnull out_status
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_TONEARM_FFI_FN_FREE_IMPORTLISTENER
+#define UNIFFI_FFIDEF_UNIFFI_TONEARM_FFI_FN_FREE_IMPORTLISTENER
+void uniffi_tonearm_ffi_fn_free_importlistener(uint64_t handle, RustCallStatus *_Nonnull out_status
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_TONEARM_FFI_FN_INIT_CALLBACK_VTABLE_IMPORTLISTENER
+#define UNIFFI_FFIDEF_UNIFFI_TONEARM_FFI_FN_INIT_CALLBACK_VTABLE_IMPORTLISTENER
+void uniffi_tonearm_ffi_fn_init_callback_vtable_importlistener(const UniffiVTableCallbackInterfaceImportListener* _Nonnull vtable
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_TONEARM_FFI_FN_METHOD_IMPORTLISTENER_ON_PROGRESS
+#define UNIFFI_FFIDEF_UNIFFI_TONEARM_FFI_FN_METHOD_IMPORTLISTENER_ON_PROGRESS
+void uniffi_tonearm_ffi_fn_method_importlistener_on_progress(uint64_t ptr, RustBuffer progress, RustCallStatus *_Nonnull out_status
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_TONEARM_FFI_FN_CLONE_SPOTIFYIMPORT
+#define UNIFFI_FFIDEF_UNIFFI_TONEARM_FFI_FN_CLONE_SPOTIFYIMPORT
+uint64_t uniffi_tonearm_ffi_fn_clone_spotifyimport(uint64_t handle, RustCallStatus *_Nonnull out_status
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_TONEARM_FFI_FN_FREE_SPOTIFYIMPORT
+#define UNIFFI_FFIDEF_UNIFFI_TONEARM_FFI_FN_FREE_SPOTIFYIMPORT
+void uniffi_tonearm_ffi_fn_free_spotifyimport(uint64_t handle, RustCallStatus *_Nonnull out_status
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_TONEARM_FFI_FN_METHOD_SPOTIFYIMPORT_CANCEL
+#define UNIFFI_FFIDEF_UNIFFI_TONEARM_FFI_FN_METHOD_SPOTIFYIMPORT_CANCEL
+void uniffi_tonearm_ffi_fn_method_spotifyimport_cancel(uint64_t ptr, RustCallStatus *_Nonnull out_status
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_TONEARM_FFI_FN_METHOD_SPOTIFYIMPORT_RUN
+#define UNIFFI_FFIDEF_UNIFFI_TONEARM_FFI_FN_METHOD_SPOTIFYIMPORT_RUN
+uint64_t uniffi_tonearm_ffi_fn_method_spotifyimport_run(uint64_t ptr, uint64_t listener
 );
 #endif
 #ifndef UNIFFI_FFIDEF_UNIFFI_TONEARM_FFI_FN_CLONE_ALBUMPAGER
@@ -967,6 +1023,16 @@ int8_t uniffi_tonearm_ffi_fn_func_diag_verbose(RustCallStatus *_Nonnull out_stat
 #define UNIFFI_FFIDEF_UNIFFI_TONEARM_FFI_FN_FUNC_HANDOFF_NEW_INSTALLATION_KEY
 RustBuffer uniffi_tonearm_ffi_fn_func_handoff_new_installation_key(RustCallStatus *_Nonnull out_status
     
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_TONEARM_FFI_FN_FUNC_IS_SPOTIFY_PLAYLIST_LINK
+#define UNIFFI_FFIDEF_UNIFFI_TONEARM_FFI_FN_FUNC_IS_SPOTIFY_PLAYLIST_LINK
+int8_t uniffi_tonearm_ffi_fn_func_is_spotify_playlist_link(RustBuffer link, RustCallStatus *_Nonnull out_status
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_TONEARM_FFI_FN_FUNC_SPOTIFY_IMPORT
+#define UNIFFI_FFIDEF_UNIFFI_TONEARM_FFI_FN_FUNC_SPOTIFY_IMPORT
+uint64_t uniffi_tonearm_ffi_fn_func_spotify_import(RustBuffer link, RustCallStatus *_Nonnull out_status
 );
 #endif
 #ifndef UNIFFI_FFIDEF_UNIFFI_TONEARM_FFI_FN_FUNC_ADD_TO_PLAYLIST
@@ -1537,6 +1603,18 @@ uint16_t uniffi_tonearm_ffi_checksum_func_handoff_new_installation_key(void
     
 );
 #endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_TONEARM_FFI_CHECKSUM_FUNC_IS_SPOTIFY_PLAYLIST_LINK
+#define UNIFFI_FFIDEF_UNIFFI_TONEARM_FFI_CHECKSUM_FUNC_IS_SPOTIFY_PLAYLIST_LINK
+uint16_t uniffi_tonearm_ffi_checksum_func_is_spotify_playlist_link(void
+    
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_TONEARM_FFI_CHECKSUM_FUNC_SPOTIFY_IMPORT
+#define UNIFFI_FFIDEF_UNIFFI_TONEARM_FFI_CHECKSUM_FUNC_SPOTIFY_IMPORT
+uint16_t uniffi_tonearm_ffi_checksum_func_spotify_import(void
+    
+);
+#endif
 #ifndef UNIFFI_FFIDEF_UNIFFI_TONEARM_FFI_CHECKSUM_FUNC_ADD_TO_PLAYLIST
 #define UNIFFI_FFIDEF_UNIFFI_TONEARM_FFI_CHECKSUM_FUNC_ADD_TO_PLAYLIST
 uint16_t uniffi_tonearm_ffi_checksum_func_add_to_playlist(void
@@ -1852,6 +1930,24 @@ uint16_t uniffi_tonearm_ffi_checksum_method_handoff_stop(void
 #ifndef UNIFFI_FFIDEF_UNIFFI_TONEARM_FFI_CHECKSUM_METHOD_HANDOFFOBSERVER_ON_EVENT
 #define UNIFFI_FFIDEF_UNIFFI_TONEARM_FFI_CHECKSUM_METHOD_HANDOFFOBSERVER_ON_EVENT
 uint16_t uniffi_tonearm_ffi_checksum_method_handoffobserver_on_event(void
+    
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_TONEARM_FFI_CHECKSUM_METHOD_IMPORTLISTENER_ON_PROGRESS
+#define UNIFFI_FFIDEF_UNIFFI_TONEARM_FFI_CHECKSUM_METHOD_IMPORTLISTENER_ON_PROGRESS
+uint16_t uniffi_tonearm_ffi_checksum_method_importlistener_on_progress(void
+    
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_TONEARM_FFI_CHECKSUM_METHOD_SPOTIFYIMPORT_CANCEL
+#define UNIFFI_FFIDEF_UNIFFI_TONEARM_FFI_CHECKSUM_METHOD_SPOTIFYIMPORT_CANCEL
+uint16_t uniffi_tonearm_ffi_checksum_method_spotifyimport_cancel(void
+    
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_TONEARM_FFI_CHECKSUM_METHOD_SPOTIFYIMPORT_RUN
+#define UNIFFI_FFIDEF_UNIFFI_TONEARM_FFI_CHECKSUM_METHOD_SPOTIFYIMPORT_RUN
+uint16_t uniffi_tonearm_ffi_checksum_method_spotifyimport_run(void
     
 );
 #endif

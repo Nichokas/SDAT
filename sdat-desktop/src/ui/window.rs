@@ -313,6 +313,7 @@ fn build_sidebar_header(app: &adw::Application, window: &adw::ApplicationWindow)
     let menu = gio::Menu::new();
     menu.append(Some(&tr("Sign In…")), Some("win.sign-in"));
     menu.append(Some(&tr("Set as Default Page")), Some("win.set-as-default"));
+    menu.append(Some(&tr("Import Spotify Playlist…")), Some("win.import-spotify"));
     menu.append(Some(&tr("Keyboard Shortcuts")), Some("app.shortcuts"));
     menu.append(Some(&tr("Preferences")), Some("app.preferences"));
     menu.append(Some(&tr("About SDAT")), Some("app.about"));
@@ -558,6 +559,12 @@ fn install_actions(app: &adw::Application, window: &adw::ApplicationWindow) {
         }
     }));
     accel(app, "win.close", &[p("w")]);
+    let ww = wa.clone();
+    window.add_action(&simple("import-spotify", move || {
+        if let Some(w) = ww() {
+            crate::ui::components::spotify_import::present(&w);
+        }
+    }));
     window.add_action(&simple("navigate-back", router::back));
     accel(app, "win.navigate-back", &["<Alt>Left".into()]);
     window.add_action(&simple("search", || router::navigate("search")));

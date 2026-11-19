@@ -1959,6 +1959,210 @@ public func FfiConverterTypeHandoffObserver_lower(_ value: HandoffObserver) -> U
 
 
 /**
+ * Called on a worker thread.
+ */
+public protocol ImportListener: AnyObject, Sendable {
+    
+    func onProgress(progress: ImportProgress) 
+    
+}
+/**
+ * Called on a worker thread.
+ */
+open class ImportListenerImpl: ImportListener, @unchecked Sendable {
+    fileprivate let handle: UInt64
+
+    /// Used to instantiate a [FFIObject] without an actual handle, for fakes in tests, mostly.
+#if swift(>=5.8)
+    @_documentation(visibility: private)
+#endif
+    public struct NoHandle {
+        public init() {}
+    }
+
+    // TODO: We'd like this to be `private` but for Swifty reasons,
+    // we can't implement `FfiConverter` without making this `required` and we can't
+    // make it `required` without making it `public`.
+#if swift(>=5.8)
+    @_documentation(visibility: private)
+#endif
+    required public init(unsafeFromHandle handle: UInt64) {
+        self.handle = handle
+    }
+
+    // This constructor can be used to instantiate a fake object.
+    // - Parameter noHandle: Placeholder value so we can have a constructor separate from the default empty one that may be implemented for classes extending [FFIObject].
+    //
+    // - Warning:
+    //     Any object instantiated with this constructor cannot be passed to an actual Rust-backed object. Since there isn't a backing handle the FFI lower functions will crash.
+#if swift(>=5.8)
+    @_documentation(visibility: private)
+#endif
+    public init(noHandle: NoHandle) {
+        self.handle = 0
+    }
+
+#if swift(>=5.8)
+    @_documentation(visibility: private)
+#endif
+    public func uniffiCloneHandle() -> UInt64 {
+        return try! rustCall { uniffi_tonearm_ffi_fn_clone_importlistener(self.handle, $0) }
+    }
+    // No primary constructor declared for this class.
+
+    deinit {
+        if handle == 0 {
+            // Mock objects have handle=0 don't try to free them
+            return
+        }
+
+        try! rustCall { uniffi_tonearm_ffi_fn_free_importlistener(handle, $0) }
+    }
+
+    
+
+    
+open func onProgress(progress: ImportProgress)  {try! rustCall() {
+        uniffiCallStatus in
+    uniffi_tonearm_ffi_fn_method_importlistener_on_progress(
+            self.uniffiCloneHandle(),
+        FfiConverterTypeImportProgress_lower(progress),uniffiCallStatus
+    )
+}
+}
+    
+
+    
+}
+
+
+
+// Put the implementation in a struct so we don't pollute the top-level namespace
+fileprivate struct UniffiCallbackInterfaceImportListener {
+
+    // Create the VTable using a series of closures.
+    // Swift automatically converts these into C callback functions.
+    //
+    // Store the vtable directly.
+    static let vtable: UniffiVTableCallbackInterfaceImportListener = UniffiVTableCallbackInterfaceImportListener(
+        uniffiFree: { (uniffiHandle: UInt64) -> () in
+            do {
+                try FfiConverterTypeImportListener.handleMap.remove(handle: uniffiHandle)
+            } catch {
+                print("Uniffi callback interface ImportListener: handle missing in uniffiFree")
+            }
+        },
+        uniffiClone: { (uniffiHandle: UInt64) -> UInt64 in
+            do {
+                return try FfiConverterTypeImportListener.handleMap.clone(handle: uniffiHandle)
+            } catch {
+                fatalError("Uniffi callback interface ImportListener: handle missing in uniffiClone")
+            }
+        },
+        onProgress: { (
+            uniffiHandle: UInt64,
+            progress: RustBuffer,
+            uniffiOutReturn: UnsafeMutableRawPointer,
+            uniffiCallStatus: UnsafeMutablePointer<RustCallStatus>
+        ) in
+            let makeCall = {
+                () throws -> () in
+                guard let uniffiObj = try? FfiConverterTypeImportListener.handleMap.get(handle: uniffiHandle) else {
+                    throw UniffiInternalError.unexpectedStaleHandle
+                }
+                return uniffiObj.onProgress(
+                     progress: try FfiConverterTypeImportProgress_lift(progress)
+                )
+            }
+
+            
+            let writeReturn = { () }
+            uniffiTraitInterfaceCall(
+                callStatus: uniffiCallStatus,
+                makeCall: makeCall,
+                writeReturn: writeReturn
+            )
+        }
+    )
+
+    // Rust stores this pointer for future callback invocations, so it must live
+    // for the process lifetime (not just for the init function call).
+    //
+    // `nonisolated(unsafe)` is needed under Swift 6 strict concurrency.
+    // This is safe because the pointee is initialized once during static init
+    // and never mutated by either side of the FFI.  Its fields are C function pointers.
+    nonisolated(unsafe) static let vtablePtr: UnsafePointer<UniffiVTableCallbackInterfaceImportListener> = {
+        let ptr = UnsafeMutablePointer<UniffiVTableCallbackInterfaceImportListener>.allocate(capacity: 1)
+        ptr.initialize(to: vtable)
+        return UnsafePointer(ptr)
+    }()
+}
+
+private func uniffiCallbackInitImportListener() {
+    uniffi_tonearm_ffi_fn_init_callback_vtable_importlistener(UniffiCallbackInterfaceImportListener.vtablePtr)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeImportListener: FfiConverter {
+    fileprivate static let handleMap = UniffiHandleMap<ImportListener>()
+
+    typealias FfiType = UInt64
+    typealias SwiftType = ImportListener
+
+    public static func lift(_ handle: UInt64) throws -> ImportListener {
+        if ((handle & 1) == 0) {
+            // Rust-generated handle, construct a new class that uses the handle to implement the
+            // interface
+            return ImportListenerImpl(unsafeFromHandle: handle)
+        } else {
+            // Swift-generated handle, get the object from the handle map
+            return try handleMap.remove(handle: handle)
+        }
+    }
+
+    public static func lower(_ value: ImportListener) -> UInt64 {
+         if let rustImpl = value as? ImportListenerImpl {
+             // Rust-implemented object.  Clone the handle and return it
+            return rustImpl.uniffiCloneHandle()
+         } else {
+            // Swift object, generate a new vtable handle and return that.
+            return handleMap.insert(obj: value)
+         }
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> ImportListener {
+        let handle: UInt64 = try readInt(&buf)
+        return try lift(handle)
+    }
+
+    public static func write(_ value: ImportListener, into buf: inout [UInt8]) {
+        writeInt(&buf, lower(value))
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeImportListener_lift(_ handle: UInt64) throws -> ImportListener {
+    return try FfiConverterTypeImportListener.lift(handle)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeImportListener_lower(_ value: ImportListener) -> UInt64 {
+    return FfiConverterTypeImportListener.lower(value)
+}
+
+
+
+
+
+
+/**
  * Guest playback control, kept apart from [`LiveObserver`] so adding it
  * does not change [`LiveUpdate`]. Implemented in Swift; called from a
  * background thread. Install it with `set_control_observer`.
@@ -3609,6 +3813,152 @@ public func FfiConverterTypeShuffle_lift(_ handle: UInt64) throws -> Shuffle {
 #endif
 public func FfiConverterTypeShuffle_lower(_ value: Shuffle) -> UInt64 {
     return FfiConverterTypeShuffle.lower(value)
+}
+
+
+
+
+
+
+/**
+ * An import of one public Spotify playlist into a new TIDAL playlist.
+ */
+public protocol SpotifyImportProtocol: AnyObject, Sendable {
+    
+    func cancel() 
+    
+    /**
+     * Runs the import; `Cancelled` after [`Self::cancel`].
+     */
+    func run(listener: ImportListener) async throws  -> ImportReport
+    
+}
+/**
+ * An import of one public Spotify playlist into a new TIDAL playlist.
+ */
+open class SpotifyImport: SpotifyImportProtocol, @unchecked Sendable {
+    fileprivate let handle: UInt64
+
+    /// Used to instantiate a [FFIObject] without an actual handle, for fakes in tests, mostly.
+#if swift(>=5.8)
+    @_documentation(visibility: private)
+#endif
+    public struct NoHandle {
+        public init() {}
+    }
+
+    // TODO: We'd like this to be `private` but for Swifty reasons,
+    // we can't implement `FfiConverter` without making this `required` and we can't
+    // make it `required` without making it `public`.
+#if swift(>=5.8)
+    @_documentation(visibility: private)
+#endif
+    required public init(unsafeFromHandle handle: UInt64) {
+        self.handle = handle
+    }
+
+    // This constructor can be used to instantiate a fake object.
+    // - Parameter noHandle: Placeholder value so we can have a constructor separate from the default empty one that may be implemented for classes extending [FFIObject].
+    //
+    // - Warning:
+    //     Any object instantiated with this constructor cannot be passed to an actual Rust-backed object. Since there isn't a backing handle the FFI lower functions will crash.
+#if swift(>=5.8)
+    @_documentation(visibility: private)
+#endif
+    public init(noHandle: NoHandle) {
+        self.handle = 0
+    }
+
+#if swift(>=5.8)
+    @_documentation(visibility: private)
+#endif
+    public func uniffiCloneHandle() -> UInt64 {
+        return try! rustCall { uniffi_tonearm_ffi_fn_clone_spotifyimport(self.handle, $0) }
+    }
+    // No primary constructor declared for this class.
+
+    deinit {
+        if handle == 0 {
+            // Mock objects have handle=0 don't try to free them
+            return
+        }
+
+        try! rustCall { uniffi_tonearm_ffi_fn_free_spotifyimport(handle, $0) }
+    }
+
+    
+
+    
+open func cancel()  {try! rustCall() {
+        uniffiCallStatus in
+    uniffi_tonearm_ffi_fn_method_spotifyimport_cancel(
+            self.uniffiCloneHandle(),uniffiCallStatus
+    )
+}
+}
+    
+    /**
+     * Runs the import; `Cancelled` after [`Self::cancel`].
+     */
+open func run(listener: ImportListener)async throws  -> ImportReport  {
+    return
+        try  await uniffiRustCallAsync(
+            rustFutureFunc: {
+                uniffi_tonearm_ffi_fn_method_spotifyimport_run(
+                        self.uniffiCloneHandle(),FfiConverterTypeImportListener_lower(listener)
+                )
+            },
+            pollFunc: ffi_tonearm_ffi_rust_future_poll_rust_buffer,
+            completeFunc: ffi_tonearm_ffi_rust_future_complete_rust_buffer,
+            freeFunc: ffi_tonearm_ffi_rust_future_free_rust_buffer,
+            liftFunc: FfiConverterTypeImportReport_lift,
+            errorHandler: FfiConverterTypeFfiError_lift
+        )
+}
+    
+
+    
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeSpotifyImport: FfiConverter {
+    typealias FfiType = UInt64
+    typealias SwiftType = SpotifyImport
+
+    public static func lift(_ handle: UInt64) throws -> SpotifyImport {
+        return SpotifyImport(unsafeFromHandle: handle)
+    }
+
+    public static func lower(_ value: SpotifyImport) -> UInt64 {
+        return value.uniffiCloneHandle()
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> SpotifyImport {
+        let handle: UInt64 = try readInt(&buf)
+        return try lift(handle)
+    }
+
+    public static func write(_ value: SpotifyImport, into buf: inout [UInt8]) {
+        writeInt(&buf, lower(value))
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeSpotifyImport_lift(_ handle: UInt64) throws -> SpotifyImport {
+    return try FfiConverterTypeSpotifyImport.lift(handle)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeSpotifyImport_lower(_ value: SpotifyImport) -> UInt64 {
+    return FfiConverterTypeSpotifyImport.lower(value)
 }
 
 
@@ -5284,6 +5634,157 @@ public func FfiConverterTypeHandoffResume_lower(_ value: HandoffResume) -> RustB
 
 
 /**
+ * `total` is 0 until the stage knows its size.
+ */
+public struct ImportProgress: Equatable, Hashable {
+    public var stage: ImportStage
+    public var done: UInt32
+    public var total: UInt32
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(stage: ImportStage, done: UInt32, total: UInt32) {
+        self.stage = stage
+        self.done = done
+        self.total = total
+    }
+
+    
+
+    
+}
+
+#if compiler(>=6)
+extension ImportProgress: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeImportProgress: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> ImportProgress {
+        return
+            try ImportProgress(
+                stage: FfiConverterTypeImportStage.read(from: &buf), 
+                done: FfiConverterUInt32.read(from: &buf), 
+                total: FfiConverterUInt32.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: ImportProgress, into buf: inout [UInt8]) {
+        FfiConverterTypeImportStage.write(value.stage, into: &buf)
+        FfiConverterUInt32.write(value.done, into: &buf)
+        FfiConverterUInt32.write(value.total, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeImportProgress_lift(_ buf: RustBuffer) throws -> ImportProgress {
+    return try FfiConverterTypeImportProgress.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeImportProgress_lower(_ value: ImportProgress) -> RustBuffer {
+    return FfiConverterTypeImportProgress.lower(value)
+}
+
+
+public struct ImportReport: Equatable, Hashable {
+    /**
+     * The new TIDAL playlist.
+     */
+    public var playlistId: String
+    public var name: String
+    /**
+     * Tracks added to it.
+     */
+    public var imported: UInt32
+    /**
+     * `Artist – Title` of each track TIDAL does not have.
+     */
+    public var missing: [String]
+    /**
+     * Spotify entries that are not catalogue tracks (local files, podcast episodes).
+     */
+    public var skipped: UInt32
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(
+        /**
+         * The new TIDAL playlist.
+         */playlistId: String, name: String, 
+        /**
+         * Tracks added to it.
+         */imported: UInt32, 
+        /**
+         * `Artist – Title` of each track TIDAL does not have.
+         */missing: [String], 
+        /**
+         * Spotify entries that are not catalogue tracks (local files, podcast episodes).
+         */skipped: UInt32) {
+        self.playlistId = playlistId
+        self.name = name
+        self.imported = imported
+        self.missing = missing
+        self.skipped = skipped
+    }
+
+    
+
+    
+}
+
+#if compiler(>=6)
+extension ImportReport: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeImportReport: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> ImportReport {
+        return
+            try ImportReport(
+                playlistId: FfiConverterString.read(from: &buf), 
+                name: FfiConverterString.read(from: &buf), 
+                imported: FfiConverterUInt32.read(from: &buf), 
+                missing: FfiConverterSequenceString.read(from: &buf), 
+                skipped: FfiConverterUInt32.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: ImportReport, into buf: inout [UInt8]) {
+        FfiConverterString.write(value.playlistId, into: &buf)
+        FfiConverterString.write(value.name, into: &buf)
+        FfiConverterUInt32.write(value.imported, into: &buf)
+        FfiConverterSequenceString.write(value.missing, into: &buf)
+        FfiConverterUInt32.write(value.skipped, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeImportReport_lift(_ buf: RustBuffer) throws -> ImportReport {
+    return try FfiConverterTypeImportReport.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeImportReport_lower(_ value: ImportReport) -> RustBuffer {
+    return FfiConverterTypeImportReport.lower(value)
+}
+
+
+/**
  * Last.fm web authorisation: open `url`, then [`lastfm_finish_auth`] with `token`.
  */
 public struct LastFmAuth: Equatable, Hashable {
@@ -6373,7 +6874,7 @@ public struct FfiConverterTypeTrack: FfiConverterRustBuffer {
                 streamable: FfiConverterBool.read(from: &buf), 
                 artists: FfiConverterSequenceTypeArtistRef.read(from: &buf), 
                 album: FfiConverterOptionTypeAlbumRef.read(from: &buf), 
-                bpm: FfiConverterOptionDouble.read(from: &buf),
+                bpm: FfiConverterOptionDouble.read(from: &buf), 
                 playlistItemId: FfiConverterOptionString.read(from: &buf)
         )
     }
@@ -6996,6 +7497,88 @@ public func FfiConverterTypeHandoffRepeat_lift(_ buf: RustBuffer) throws -> Hand
 #endif
 public func FfiConverterTypeHandoffRepeat_lower(_ value: HandoffRepeat) -> RustBuffer {
     return FfiConverterTypeHandoffRepeat.lower(value)
+}
+
+
+
+
+public enum ImportStage: Equatable, Hashable {
+    
+    /**
+     * Reading the playlist from Spotify.
+     */
+    case reading
+    /**
+     * Finding its tracks on TIDAL.
+     */
+    case matching
+    /**
+     * Writing the TIDAL playlist.
+     */
+    case saving
+
+
+
+
+
+}
+
+#if compiler(>=6)
+extension ImportStage: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeImportStage: FfiConverterRustBuffer {
+    typealias SwiftType = ImportStage
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> ImportStage {
+        let variant: Int32 = try readInt(&buf)
+        switch variant {
+        
+        case 1: return .reading
+        
+        case 2: return .matching
+        
+        case 3: return .saving
+        
+        default: throw UniffiInternalError.unexpectedEnumCase
+        }
+    }
+
+    public static func write(_ value: ImportStage, into buf: inout [UInt8]) {
+        switch value {
+        
+        
+        case .reading:
+            writeInt(&buf, Int32(1))
+        
+        
+        case .matching:
+            writeInt(&buf, Int32(2))
+        
+        
+        case .saving:
+            writeInt(&buf, Int32(3))
+        
+        }
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeImportStage_lift(_ buf: RustBuffer) throws -> ImportStage {
+    return try FfiConverterTypeImportStage.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeImportStage_lower(_ value: ImportStage) -> RustBuffer {
+    return FfiConverterTypeImportStage.lower(value)
 }
 
 
@@ -8748,6 +9331,25 @@ public func handoffNewInstallationKey() -> String  {
     )
 })
 }
+/**
+ * Whether `link` is a Spotify playlist link, URI or ID.
+ */
+public func isSpotifyPlaylistLink(link: String) -> Bool  {
+    return try!  FfiConverterBool.lift(try! rustCall() {
+        uniffiCallStatus in
+    uniffi_tonearm_ffi_fn_func_is_spotify_playlist_link(
+        FfiConverterString.lower(link),uniffiCallStatus
+    )
+})
+}
+public func spotifyImport(link: String) -> SpotifyImport  {
+    return try!  FfiConverterTypeSpotifyImport_lift(try! rustCall() {
+        uniffiCallStatus in
+    uniffi_tonearm_ffi_fn_func_spotify_import(
+        FfiConverterString.lower(link),uniffiCallStatus
+    )
+})
+}
 public func addToPlaylist(playlistId: String, trackId: String)async throws   {
     return
         try  await uniffiRustCallAsync(
@@ -9329,6 +9931,12 @@ private let initializationResult: InitializationResult = {
     if (uniffi_tonearm_ffi_checksum_func_handoff_new_installation_key() != 5680) {
         return InitializationResult.apiChecksumMismatch
     }
+    if (uniffi_tonearm_ffi_checksum_func_is_spotify_playlist_link() != 47227) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_tonearm_ffi_checksum_func_spotify_import() != 5713) {
+        return InitializationResult.apiChecksumMismatch
+    }
     if (uniffi_tonearm_ffi_checksum_func_add_to_playlist() != 46053) {
         return InitializationResult.apiChecksumMismatch
     }
@@ -9488,6 +10096,15 @@ private let initializationResult: InitializationResult = {
     if (uniffi_tonearm_ffi_checksum_method_handoffobserver_on_event() != 33460) {
         return InitializationResult.apiChecksumMismatch
     }
+    if (uniffi_tonearm_ffi_checksum_method_importlistener_on_progress() != 26625) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_tonearm_ffi_checksum_method_spotifyimport_cancel() != 45886) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_tonearm_ffi_checksum_method_spotifyimport_run() != 62141) {
+        return InitializationResult.apiChecksumMismatch
+    }
     if (uniffi_tonearm_ffi_checksum_method_albumpager_next_page() != 49338) {
         return InitializationResult.apiChecksumMismatch
     }
@@ -9612,6 +10229,7 @@ private let initializationResult: InitializationResult = {
     uniffiCallbackInitAppConfig()
     uniffiCallbackInitDiagSink()
     uniffiCallbackInitHandoffObserver()
+    uniffiCallbackInitImportListener()
     uniffiCallbackInitLiveControlObserver()
     uniffiCallbackInitLiveObserver()
     uniffiCallbackInitLivePlayNextObserver()

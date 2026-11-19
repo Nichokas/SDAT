@@ -74,6 +74,7 @@ fun SettingsView(session: Session, prefs: Preferences, secrets: Secrets, crashRe
     val scope = rememberCoroutineScope()
     var confirmLogout by remember { mutableStateOf(false) }
     var confirmErase by remember { mutableStateOf(false) }
+    var showSpotifyImport by remember { mutableStateOf(false) }
     var lastFmUser by remember { mutableStateOf(secrets.get(Secrets.LASTFM_USER)) }
     var lastFmPending by rememberSaveable { mutableStateOf<String?>(null) }
     var lastFmError by remember { mutableStateOf<String?>(null) }
@@ -202,6 +203,11 @@ fun SettingsView(session: Session, prefs: Preferences, secrets: Secrets, crashRe
             }
         }
         item {
+            Section("Library") {
+                GlasmioListRow("Import Spotify playlist", showTopSeparator = false, onClick = { showSpotifyImport = true })
+            }
+        }
+        item {
             Section("TIDAL") {
                 GlasmioListRow("Country / Region", detail = Region.label, showTopSeparator = false, onClick = { Chrome.push(Route.Country) })
             }
@@ -224,6 +230,7 @@ fun SettingsView(session: Session, prefs: Preferences, secrets: Secrets, crashRe
         item { Spacer(Modifier.navigationBarsPadding().height(86.dp)) }
     }
 
+    if (showSpotifyImport) SpotifyImportSheet(onDismiss = { showSpotifyImport = false })
     if (confirmErase) {
         Confirm("Erase all app data?", "This cannot be undone.", "Erase everything", onDismiss = { confirmErase = false }) {
             eraseAll(context, session, prefs, secrets, crashReporting)

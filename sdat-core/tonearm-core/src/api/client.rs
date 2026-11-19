@@ -694,6 +694,68 @@ pub fn playlist_add_track(playlist_id: &str, track_id: &str) -> Result<()> {
     Ok(())
 }
 
+/// The signed-in account, held for a run of writes that must all reach the same account
+/// even if the user signs out or switches account meanwhile.
+#[derive(Debug)]
+pub struct Account(String);
+
+/// The account signed in now.
+pub fn account() -> Result<Account> {
+    user_bearer().map(Account)
+}
+
+/// Most tracks TIDAL takes in one [`playlist_add_tracks`] request.
+pub const PLAYLIST_TRACKS_PER_REQUEST: usize = 50;
+
+/// Appends up to [`PLAYLIST_TRACKS_PER_REQUEST`] tracks, in order, to one of the account's
+/// playlists, including those it already has.
+pub fn playlist_add_tracks(account: &Account, playlist_id: &str, track_ids: &[&str]) -> Result<()> {
+    let mut body = add_items_body(track_ids);
+    body["meta"] = serde_json::json!({ "onDuplicates": "ADD" });
+    openapi_call_with(&account.0, Method::POST, &format!("/v2/playlists/{playlist_id}/relationships/items"), Some(&body))?;
+    Ok(())
+}
+
+/// JSON:API body for creating a private playlist.
+pub fn create_playlist_body(name: &str, description: &str) -> serde_json::Value {
+    serde_json::json!({ "data": { "type": "playlists", "attributes": { "name": name, "description": description, "accessType": "UNLISTED" } } })
+}
+
+/// Creates an empty private playlist owned by the account and returns its ID.
+pub fn playlist_create(account: &Account, name: &str, description: &str) -> Result<String> {
+    let created = openapi_call_with(&account.0, Method::POST, "/v2/playlists", Some(&create_playlist_body(name, description)))?;
+    match created["data"]["id"].as_str() {
+        Some(id) if !id.is_empty() => Ok(id.to_owned()),
+        _ => Err(CoreError::Decode("TIDAL returned no ID for the new playlist".into())),
+    }
+}
+
+/// Most ISRCs TIDAL takes in one [`tracks_by_isrc`] request.
+pub const ISRCS_PER_REQUEST: usize = 20;
+
+/// Catalogue tracks with any of up to [`ISRCS_PER_REQUEST`] ISRCs; an unknown ISRC has none.
+///
+/// TIDAL answers several ISRCs with one track each on a single page, and one ISRC with
+/// every track that has it, in pages.
+pub fn tracks_by_isrc(isrcs: &[&str]) -> Result<Vec<openapi::TrackData>> {
+    const MAX_PAGES: usize = 3;
+    let mut out = Vec::new();
+    let mut cursor = String::new();
+    for _ in 0..MAX_PAGES {
+        let mut q = vec![("filter[isrc]", isrcs.join(","))];
+        if !cursor.is_empty() {
+            q.push(("page[cursor]", cursor));
+        }
+        let page: openapi::Response<Vec<openapi::TrackData>> = get_json(&openapi("/v2/tracks"), &q)?;
+        out.extend(page.data);
+        match page.links.meta.and_then(|m| m.next_cursor).filter(|c| !c.is_empty()) {
+            Some(next) => cursor = next,
+            None => break,
+        }
+    }
+    Ok(out)
+}
+
 /// Removes a track occurrence identified by the playlist relationship's `meta.itemId`.
 pub fn playlist_remove_item(playlist_id: &str, track_id: &str, item_id: &str) -> Result<()> {
     if item_id.is_empty() {
