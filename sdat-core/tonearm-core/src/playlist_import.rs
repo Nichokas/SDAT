@@ -142,8 +142,7 @@ fn best_by_isrc(tracks: &[openapi::TrackData]) -> HashMap<String, String> {
 
 /// TIDAL's first search hit that is the same recording as `track`.
 fn search(track: &SpotifyTrack, cancelled: &dyn Fn() -> bool) -> Result<Option<String>> {
-    let name = parts(&track.title).next().unwrap_or_default();
-    let query = format!("{name} {}", track.artists.first().map_or("", String::as_str));
+    let query = telling(&track.title).chain(track.artists.first().map(String::as_str)).collect::<Vec<_>>().join(" ");
     let found = match patiently(cancelled, || api::search(query.trim(), &["tracks.artists"])) {
         Ok(found) => found,
         // TIDAL rejects some queries; that track is simply not found.
@@ -166,8 +165,8 @@ fn same_recording(track: &SpotifyTrack, title: &str, artists: &[String], duratio
 /// TIDAL keeps `Live` or `Remastered 2011` in a track's version, and some titles repeat it
 /// after the name.
 fn with_version(title: &str, version: &str) -> String {
-    let version_folded = fold(version);
-    if version_folded.is_empty() || parts(title).skip(1).any(|part| fold(part).contains(&version_folded)) {
+    let words = spaced(version);
+    if words.trim().is_empty() || parts(title).skip(1).any(|part| spaced(part).contains(&words)) {
         title.to_owned()
     } else {
         format!("{title} ({version})")
@@ -182,18 +181,30 @@ fn parts(title: &str) -> impl Iterator<Item = &str> {
 /// Words the services add or leave out for the same recording.
 const NEUTRAL: [&str; 13] = ["remaster", "remastered", "mono", "stereo", "deluxe", "bonus", "edition", "track", "version", "digital", "anniversary", "the", "a"];
 
-/// The title in a form equal for the same recording on both services.
+/// The parts of a title that tell which recording it is.
 ///
-/// It drops only the parts that say nothing about which recording it is: featured artists,
-/// the film a song is from, and remaster or edition notes. Any other part stays (`Live`,
-/// `Part 2`, `Taylor's Version`), so that a doubtful match is reported missing, not imported.
-fn comparable(title: &str) -> String {
+/// It drops only the parts that say nothing about that: featured artists, the film a song
+/// is from, and remaster or edition notes. Any other part stays (`Live`, `Part 2`,
+/// `Taylor's Version`), so that a doubtful match is reported missing, not imported.
+fn telling(title: &str) -> impl Iterator<Item = &str> {
     let says_nothing = |part: &str| {
         let part = part.to_lowercase();
         let mut words = part.split(|c: char| !c.is_alphanumeric()).filter(|w| !w.is_empty()).peekable();
         matches!(words.peek(), Some(&("feat" | "ft" | "featuring" | "from"))) || words.all(|w| NEUTRAL.contains(&w) || is_year(w))
     };
-    parts(title).enumerate().filter(|(i, part)| *i == 0 || !says_nothing(part)).map(|(_, part)| fold(part)).collect()
+    parts(title).enumerate().filter(move |(i, part)| *i == 0 || !says_nothing(part)).map(|(_, part)| part)
+}
+
+/// The title in a form equal for the same recording on both services.
+fn comparable(title: &str) -> String {
+    telling(title).map(fold).collect()
+}
+
+/// Lower-case words between single spaces, with one at each end, to look for whole words in.
+fn spaced(s: &str) -> String {
+    let lower = s.to_lowercase();
+    let words: Vec<&str> = lower.split(|c: char| !c.is_alphanumeric()).filter(|w| !w.is_empty()).collect();
+    format!(" {} ", words.join(" "))
 }
 
 fn is_year(word: &str) -> bool {
@@ -265,6 +276,7 @@ mod tests {
     fn a_tidal_version_joins_the_title_unless_the_title_repeats_it() {
         assert_eq!(with_version("Live Forever", "Live"), "Live Forever (Live)");
         assert_eq!(with_version("Song (Live at Wembley)", "Live"), "Song (Live at Wembley)");
+        assert_eq!(with_version("Song (Credit Mix)", "Edit"), "Song (Credit Mix) (Edit)");
         assert_eq!(with_version("Song", ""), "Song");
     }
 
@@ -275,5 +287,6 @@ mod tests {
         assert_eq!(comparable("Song (Deluxe Edition) - Remastered Version"), "song");
         assert_eq!(comparable("(I Can't Get No) Satisfaction - Mono"), "icantgetnosatisfaction");
         assert_eq!(comparable("Love - Hate - Radio Edit"), "lovehateradioedit");
+        assert_eq!(telling("(I Can't Get No) Satisfaction - Mono").collect::<Vec<_>>(), ["I Can't Get No", "Satisfaction"]);
     }
 }
