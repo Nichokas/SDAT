@@ -613,6 +613,10 @@ fn feed_activity_key(occurred_at: &str, zone: &impl TimeZone) -> (NaiveDate, Dat
     (instant.with_timezone(zone).date_naive(), instant)
 }
 
+fn feed_needs_separator(seen: bool, next_seen: Option<bool>) -> bool {
+    !seen && next_seen == Some(true)
+}
+
 async fn feed() -> Response {
     let uid = secrets::user_id();
     if uid.is_empty() {
@@ -685,7 +689,7 @@ async fn feed() -> Response {
         if !a.seen {
             has_unseen = true;
         }
-        if !a.seen && acts.get(i + 1).is_some_and(|(_, next)| next.seen) {
+        if feed_needs_separator(a.seen, acts.get(i + 1).map(|(_, next)| next.seen)) {
             let sep = gtk::Separator::new(gtk::Orientation::Vertical).css("separator { background-color: var(--accent-color); padding-top: 2px; border-radius: 5px; }");
             bx.append(&sep);
         }
@@ -1019,5 +1023,19 @@ mod tests {
         let (at_midnight, _) = feed_activity_key("2026-09-24T15:00:00Z", &zone);
         assert!(before_midnight < threshold);
         assert_eq!(at_midnight, threshold);
+    }
+
+    #[test]
+    fn feed_marks_seen_status_changes_after_a_midnight_rollback() {
+        let summer = chrono::FixedOffset::west_opt(9_000).unwrap();
+        let winter = chrono::FixedOffset::west_opt(12_600).unwrap();
+        let seen = feed_activity_key("1987-10-25T02:30:59Z", &summer);
+        let unseen = feed_activity_key("1987-10-25T02:31:00Z", &winter);
+        assert!(seen.1 < unseen.1);
+        assert!(seen > unseen);
+        assert!(feed_needs_separator(true, Some(false)));
+        assert!(feed_needs_separator(false, Some(true)));
+        assert!(!feed_needs_separator(false, Some(false)));
+        assert!(!feed_needs_separator(false, None));
     }
 }
