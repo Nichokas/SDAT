@@ -142,7 +142,8 @@ fn best_by_isrc(tracks: &[openapi::TrackData]) -> HashMap<String, String> {
 
 /// TIDAL's first search hit that is the same recording as `track`.
 fn search(track: &SpotifyTrack, cancelled: &dyn Fn() -> bool) -> Result<Option<String>> {
-    let query = format!("{} {}", plain_title(&track.title), track.artists.first().map_or("", String::as_str));
+    let name = parts(&track.title).next().unwrap_or_default();
+    let query = format!("{name} {}", track.artists.first().map_or("", String::as_str));
     let found = match patiently(cancelled, || api::search(query.trim(), &["tracks.artists"])) {
         Ok(found) => found,
         // TIDAL rejects some queries; that track is simply not found.
@@ -151,56 +152,38 @@ fn search(track: &SpotifyTrack, cancelled: &dyn Fn() -> bool) -> Result<Option<S
     };
     Ok(found.included.tracks(&found.data.relationships.tracks.data).into_iter().find_map(|t| {
         let artists: Vec<String> = t.included.artists(&t.data.relationships.artists.data).into_iter().map(|a| a.data.attributes.name).collect();
-        let title = format!("{} ({})", t.data.attributes.title, t.data.attributes.version);
-        (streamable(&t.data) && same_recording(track, &title, &artists, t.data.attributes.duration)).then_some(t.data.id)
+        let a = &t.data.attributes;
+        // TIDAL keeps `Live` or `Remastered 2011` in `version`, and some titles repeat it.
+        let title = if fold(&a.title).contains(&fold(&a.version)) { a.title.clone() } else { format!("{} ({})", a.title, a.version) };
+        (streamable(&t.data) && same_recording(track, &title, &artists, a.duration)).then_some(t.data.id)
     }))
 }
 
 fn same_recording(track: &SpotifyTrack, title: &str, artists: &[String], duration: Duration) -> bool {
     let wanted: Vec<String> = track.artists.iter().map(|a| fold(a)).collect();
-    fold(plain_title(&track.title)) == fold(plain_title(title))
-        && renditions(&track.title) == renditions(title)
-        && track.duration.abs_diff(duration) <= LENGTH_TOLERANCE
-        && artists.iter().any(|a| wanted.contains(&fold(a)))
+    comparable(&track.title) == comparable(title) && track.duration.abs_diff(duration) <= LENGTH_TOLERANCE && artists.iter().any(|a| wanted.contains(&fold(a)))
 }
 
-/// The title without what the services write differently: `(feat. X)`, `[Live]`, ` - Remastered 2011`.
-/// A dash is part of the song's name unless a decoration follows it (`Love - Hate`).
-fn plain_title(title: &str) -> &str {
-    const DECORATIONS: [&str; 23] = [
-        "remaster", "version", "edit", "mix", "remix", "feat", "live", "mono", "stereo", "deluxe", "bonus", "from", "single", "original", "acoustic", "demo", "instrumental",
-        "karaoke", "recorded", "sped", "slowed", "acapella", "cappella",
-    ];
-    let dash = title.match_indices(" - ").map(|(at, _)| at).find(|at| {
-        let part = title[at + 3..].split(" - ").next().unwrap_or_default().to_lowercase();
-        part.split(|c: char| !c.is_alphanumeric()).any(|word| word.starts_with(|c: char| c.is_ascii_digit()) || DECORATIONS.iter().any(|d| word.starts_with(d)))
-    });
-    let end = [dash, title.find(" ("), title.find(" [")].into_iter().flatten().min().unwrap_or(title.len());
-    &title[..end]
+/// The name of a title and what follows it in brackets or after a dash: `Song (feat. X) - Live`.
+fn parts(title: &str) -> impl Iterator<Item = &str> {
+    title.split(['(', ')', '[', ']']).flat_map(|part| part.split(" - ")).map(str::trim).filter(|part| !part.is_empty())
 }
 
-/// Words that make a title another recording of the song, unlike `Remastered` or `feat. X`.
-const RENDITIONS: [&str; 11] = ["live", "acoustic", "remix", "remixed", "instrumental", "demo", "karaoke", "acapella", "cappella", "sped", "slowed"];
-/// Words that number one of several songs with the same name: `Song (Part 2)`.
-const NUMBERINGS: [&str; 4] = ["part", "pt", "vol", "volume"];
+/// Words the services add or leave out for the same recording.
+const NEUTRAL: [&str; 13] = ["remaster", "remastered", "mono", "stereo", "deluxe", "bonus", "edition", "track", "version", "digital", "anniversary", "the", "a"];
 
-/// The [`RENDITIONS`] and numbered parts named in the decorations of `title`, as whole words.
-fn renditions(title: &str) -> Vec<String> {
-    let decorations = title[plain_title(title).len()..].to_lowercase();
-    let words: Vec<&str> = decorations.split(|c: char| !c.is_alphanumeric()).filter(|w| !w.is_empty()).collect();
-    let mut named = Vec::new();
-    for (i, word) in words.iter().enumerate() {
-        if RENDITIONS.contains(word) {
-            named.push((*word).to_owned());
-        } else if NUMBERINGS.contains(word)
-            && let Some(number) = words.get(i + 1)
-        {
-            named.push(format!("part {number}"));
-        }
-    }
-    named.sort_unstable();
-    named.dedup();
-    named
+/// The title in a form equal for the same recording on both services.
+///
+/// It drops only the parts that say nothing about which recording it is: featured artists,
+/// the film a song is from, and remaster or edition notes. Any other part stays (`Live`,
+/// `Part 2`, `Taylor's Version`), so that a doubtful match is reported missing, not imported.
+fn comparable(title: &str) -> String {
+    let says_nothing = |part: &str| {
+        let part = part.to_lowercase();
+        let mut words = part.split(|c: char| !c.is_alphanumeric()).filter(|w| !w.is_empty()).peekable();
+        matches!(words.peek(), Some(&("feat" | "ft" | "featuring" | "from"))) || words.all(|w| NEUTRAL.contains(&w) || w.starts_with(|c: char| c.is_ascii_digit()))
+    };
+    parts(title).enumerate().filter(|(i, part)| *i == 0 || !says_nothing(part)).map(|(_, part)| fold(part)).collect()
 }
 
 /// Letters and digits in lower case, so punctuation and spacing do not matter.
@@ -252,23 +235,23 @@ mod tests {
 
     #[test]
     fn another_rendition_of_the_song_does_not_match() {
-        let live = spotify("Song (Live)", &["Band"], 200);
-        assert!(!same_recording(&live, "Song (Acoustic)", &["Band".into()], Duration::from_secs(202)));
-        assert!(!same_recording(&live, "Song ()", &["Band".into()], Duration::from_secs(200)));
-        assert!(same_recording(&live, "Song (Live at Wembley)", &["Band".into()], Duration::from_secs(200)));
-        assert!(!same_recording(&spotify("Song", &["Band"], 200), "Song - Sped Up", &["Band".into()], Duration::from_secs(200)));
-        assert!(!same_recording(&spotify("Song (Part 1)", &["Band"], 200), "Song (Pt. 2)", &["Band".into()], Duration::from_secs(200)));
-        assert!(same_recording(&spotify("Song (Part 2)", &["Band"], 200), "Song (Pt. 2)", &["Band".into()], Duration::from_secs(200)));
-        assert!(same_recording(&spotify("Song (feat. Oliver)", &["Band"], 200), "Song ()", &["Band".into()], Duration::from_secs(200)), "a name that contains a rendition word");
+        let same = |spotify_title: &str, tidal_title: &str| same_recording(&spotify(spotify_title, &["Band"], 200), tidal_title, &["Band".into()], Duration::from_secs(200));
+        assert!(same("Song (Live)", "Song - Live"));
+        assert!(!same("Song (Live)", "Song (Acoustic)"));
+        assert!(!same("Song (Live)", "Song"));
+        assert!(!same("Song", "Song - Sped Up"));
+        assert!(!same("Song (Part 1)", "Song (Part 2)"));
+        assert!(!same("Intro (Dawn)", "Intro (Dusk)"));
+        assert!(!same("Love - Hate", "Love"));
+        assert!(!same("Song (Taylor's Version)", "Song"));
     }
 
     #[test]
-    fn decorations_are_cut_from_the_end_of_a_title_only() {
-        assert_eq!(plain_title("(I Can't Get No) Satisfaction"), "(I Can't Get No) Satisfaction");
-        assert_eq!(plain_title("Song (feat. X) [Live]"), "Song");
-        assert_eq!(plain_title("Song - 2011 Remaster"), "Song");
-        assert_eq!(plain_title("Song - Remix"), "Song");
-        assert_eq!(plain_title("Love - Hate"), "Love - Hate");
-        assert_eq!(plain_title("Love - Hate - Radio Edit"), "Love - Hate");
+    fn notes_that_say_nothing_about_the_recording_are_ignored() {
+        assert_eq!(comparable("Song (feat. Live) [2011 Remaster]"), "song");
+        assert_eq!(comparable("Song - From \"The Film\""), "song");
+        assert_eq!(comparable("Song (Deluxe Edition) - Remastered Version"), "song");
+        assert_eq!(comparable("(I Can't Get No) Satisfaction - Mono"), "icantgetnosatisfaction");
+        assert_eq!(comparable("Love - Hate - Radio Edit"), "lovehateradioedit");
     }
 }

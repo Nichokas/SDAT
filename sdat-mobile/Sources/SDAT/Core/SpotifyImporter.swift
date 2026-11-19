@@ -23,9 +23,7 @@ final class SpotifyImporter {
         Task {
             let result: State
             do {
-                let report = try await job.run(listener: ImportBridge(job: job))
-                await OwnPlaylists.shared.load(force: true)
-                result = .done(report)
+                result = .done(try await job.run(listener: ImportBridge(job: job)))
             } catch FfiError.Cancelled {
                 result = .idle
             } catch FfiError.Other(let detail) {
@@ -34,6 +32,8 @@ final class SpotifyImporter {
             } catch {
                 result = .failed(friendlyMessage(error))
             }
+            // A failed import may have created its playlist too.
+            if case .idle = result {} else { await OwnPlaylists.shared.load(force: true) }
             // An import the account's sign-out cleared reports nothing to the next account.
             guard running === job else { return }
             running = nil
