@@ -189,8 +189,9 @@ const NEUTRAL: [&str; 13] = ["remaster", "remastered", "mono", "stereo", "deluxe
 fn telling(title: &str) -> impl Iterator<Item = &str> {
     let says_nothing = |part: &str| {
         let part = part.to_lowercase();
-        let mut words = part.split(|c: char| !c.is_alphanumeric()).filter(|w| !w.is_empty()).peekable();
-        matches!(words.peek(), Some(&("feat" | "ft" | "featuring" | "from"))) || words.all(|w| NEUTRAL.contains(&w) || is_year(w))
+        let words: Vec<&str> = part.split(|c: char| !c.is_alphanumeric()).filter(|w| !w.is_empty()).collect();
+        // A year alone can tell two recordings apart; beside `Remastered` it only dates the note.
+        matches!(words.first(), Some(&("feat" | "ft" | "featuring" | "from"))) || (words.iter().all(|w| NEUTRAL.contains(w) || is_year(w)) && !words.iter().all(|w| is_year(w)))
     };
     parts(title).enumerate().filter(move |(i, part)| *i == 0 || !says_nothing(part)).map(|(_, part)| part)
 }
@@ -270,6 +271,7 @@ mod tests {
         assert!(!same("Love - Hate", "Love"));
         assert!(!same("Song (Taylor's Version)", "Song"));
         assert!(!same("Song (1st Version)", "Song (2nd Version)"));
+        assert!(!same("Song (1980)", "Song (1981)"));
     }
 
     #[test]
