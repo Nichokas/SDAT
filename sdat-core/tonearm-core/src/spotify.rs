@@ -7,7 +7,7 @@
 //!
 //! All functions are blocking.
 
-use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::{Mutex, OnceLock, PoisonError};
 use std::time::Duration;
 
@@ -71,14 +71,20 @@ pub fn fetch_playlist(id: &str, progress: &(dyn Fn(usize, usize) + Sync), cancel
     let ids: Vec<&str> = entries.iter().filter_map(|uri| uri.strip_prefix("spotify:track:")).collect();
 
     let next = AtomicUsize::new(0);
-    let done = AtomicUsize::new(0);
+    // Counted and reported under one lock, so the reports arrive in order.
+    let done = Mutex::new(0);
+    let stopped = AtomicBool::new(false);
     let found: Mutex<Vec<Option<SpotifyTrack>>> = Mutex::new(vec![None; ids.len()]);
     let failure: Mutex<Option<CoreError>> = Mutex::new(None);
     std::thread::scope(|scope| {
         for _ in 0..WORKERS.min(ids.len()) {
             scope.spawn(|| loop {
                 let i = next.fetch_add(1, Ordering::SeqCst);
-                if i >= ids.len() || cancelled() || lock(&failure).is_some() {
+                if i >= ids.len() || lock(&failure).is_some() {
+                    return;
+                }
+                if cancelled() {
+                    stopped.store(true, Ordering::SeqCst);
                     return;
                 }
                 match session.track(ids[i]) {
@@ -88,11 +94,13 @@ pub fn fetch_playlist(id: &str, progress: &(dyn Fn(usize, usize) + Sync), cancel
                         return;
                     }
                 }
-                progress(done.fetch_add(1, Ordering::SeqCst) + 1, ids.len());
+                let mut done = lock(&done);
+                *done += 1;
+                progress(*done, ids.len());
             });
         }
     });
-    if cancelled() {
+    if stopped.load(Ordering::SeqCst) || cancelled() {
         return Err(CoreError::Cancelled("Spotify import cancelled".into()));
     }
     if let Some(e) = lock(&failure).take() {

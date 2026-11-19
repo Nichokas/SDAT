@@ -64,12 +64,8 @@ pub fn import_playlist(source: &SpotifyPlaylist, progress: &dyn Fn(Progress), ca
     let stop = || if cancelled() { Err(CoreError::Cancelled("Spotify import cancelled".into())) } else { Ok(()) };
 
     let total = source.tracks.len();
-    let mut done = 0;
-    let mut advance = |by| {
-        done += by;
-        progress(Progress { stage: Stage::Matching, done, total });
-    };
-    advance(0);
+    let matching = |done| progress(Progress { stage: Stage::Matching, done, total });
+    matching(0);
     let mut by_isrc: HashMap<String, String> = HashMap::new();
     let mut isrcs: Vec<&str> = source.tracks.iter().map(|t| t.isrc.as_str()).filter(|i| !i.is_empty()).collect();
     isrcs.sort_unstable();
@@ -77,9 +73,10 @@ pub fn import_playlist(source: &SpotifyPlaylist, progress: &dyn Fn(Progress), ca
     for chunk in isrcs.chunks(api::ISRCS_PER_REQUEST) {
         stop()?;
         by_isrc.extend(best_by_isrc(&patiently(|| api::tracks_by_isrc(chunk))?));
-        advance(source.tracks.iter().filter(|t| chunk.contains(&t.isrc.as_str()) && by_isrc.contains_key(&t.isrc)).count());
+        matching(source.tracks.iter().filter(|t| by_isrc.contains_key(&t.isrc)).count());
     }
     let mut found: Vec<Option<String>> = source.tracks.iter().map(|t| by_isrc.get(&t.isrc).cloned()).collect();
+    let mut done = found.iter().flatten().count();
     let mut missing = Vec::new();
     for (track, id) in source.tracks.iter().zip(&mut found) {
         if id.is_some() {
@@ -90,7 +87,8 @@ pub fn import_playlist(source: &SpotifyPlaylist, progress: &dyn Fn(Progress), ca
         if id.is_none() {
             missing.push(format!("{} – {}", track.artists.join(", "), track.title));
         }
-        advance(1);
+        done += 1;
+        matching(done);
     }
     let matched: Vec<&str> = found.iter().flatten().map(String::as_str).collect();
     if matched.is_empty() {
@@ -172,12 +170,27 @@ fn plain_title(title: &str) -> &str {
 }
 
 /// Words that make a title another recording of the song, unlike `Remastered` or `feat. X`.
-const RENDITIONS: [&str; 9] = ["live", "acoustic", "remix", "instrumental", "demo", "karaoke", "acapella", "spedup", "slowed"];
+const RENDITIONS: [&str; 11] = ["live", "acoustic", "remix", "remixed", "instrumental", "demo", "karaoke", "acapella", "cappella", "sped", "slowed"];
+/// Words that number one of several songs with the same name: `Song (Part 2)`.
+const NUMBERINGS: [&str; 4] = ["part", "pt", "vol", "volume"];
 
-/// The [`RENDITIONS`] named in the decorations of `title`.
-fn renditions(title: &str) -> Vec<&'static str> {
-    let decorations = fold(&title[plain_title(title).len()..]);
-    RENDITIONS.into_iter().filter(|r| decorations.contains(r)).collect()
+/// The [`RENDITIONS`] and numbered parts named in the decorations of `title`, as whole words.
+fn renditions(title: &str) -> Vec<String> {
+    let decorations = title[plain_title(title).len()..].to_lowercase();
+    let words: Vec<&str> = decorations.split(|c: char| !c.is_alphanumeric()).filter(|w| !w.is_empty()).collect();
+    let mut named = Vec::new();
+    for (i, word) in words.iter().enumerate() {
+        if RENDITIONS.contains(word) {
+            named.push((*word).to_owned());
+        } else if NUMBERINGS.contains(word)
+            && let Some(number) = words.get(i + 1)
+        {
+            named.push(format!("part {number}"));
+        }
+    }
+    named.sort_unstable();
+    named.dedup();
+    named
 }
 
 /// Letters and digits in lower case, so punctuation and spacing do not matter.
@@ -234,6 +247,9 @@ mod tests {
         assert!(!same_recording(&live, "Song ()", &["Band".into()], Duration::from_secs(200)));
         assert!(same_recording(&live, "Song (Live at Wembley)", &["Band".into()], Duration::from_secs(200)));
         assert!(!same_recording(&spotify("Song", &["Band"], 200), "Song - Sped Up", &["Band".into()], Duration::from_secs(200)));
+        assert!(!same_recording(&spotify("Song (Part 1)", &["Band"], 200), "Song (Pt. 2)", &["Band".into()], Duration::from_secs(200)));
+        assert!(same_recording(&spotify("Song (Part 2)", &["Band"], 200), "Song (Pt. 2)", &["Band".into()], Duration::from_secs(200)));
+        assert!(same_recording(&spotify("Song (feat. Oliver)", &["Band"], 200), "Song ()", &["Band".into()], Duration::from_secs(200)), "a name that contains a rendition word");
     }
 
     #[test]

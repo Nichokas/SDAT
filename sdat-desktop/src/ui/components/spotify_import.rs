@@ -90,9 +90,10 @@ fn run(window: &adw::ApplicationWindow, link: String) {
         .await;
         ticker.remove();
         ad.force_close();
+        // A failed import may have created its playlist too.
+        super::add_to_playlist::forget();
         match result {
             Ok(report) => {
-                super::add_to_playlist::forget();
                 router::navigate(&format!("playlist/{}", report.playlist_id));
                 match window.upgrade() {
                     Some(w) if !report.missing.is_empty() => present_missing(&w, &report),
