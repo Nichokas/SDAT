@@ -32,7 +32,7 @@ jobs:
       - name: Install Arch dependencies
         run: |
           pacman -Sy --noconfirm --needed archlinux-keyring
-          pacman -Syu --noconfirm --needed git rust cmake glib2-devel desktop-file-utils \
+          pacman -Syu --noconfirm --needed git rust cmake jq glib2-devel desktop-file-utils \
             dconf glib-networking gst-plugins-base gst-plugins-good gst-plugins-bad \
             gtk4 hicolor-icon-theme libadwaita libsecret
       - uses: actions/checkout@v4
