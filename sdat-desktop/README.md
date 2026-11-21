@@ -88,15 +88,11 @@ cargo run --release -p sdat-desktop
 ```
 The GSettings schema is compiled by `build.rs`, so the binary runs from the build tree without installing the schema. For a system install, also install `sdat-desktop/internal/settings/com.nichokas.SDAT.Desktop.gschema.xml` (plus the legacy `dev.dergs.Tonearm.gschema.xml`, read once to migrate old settings), the desktop file and metainfo from `sdat-desktop/build/`, and the icons from `sdat-desktop/internal/icons/hicolor`, then run `glib-compile-schemas`.
 
-Packages for Fedora (COPR) and Arch Linux are coming soon.
-
 ### Flatpak
 ```sh
 flatpak-builder --user --install build-dir sdat-desktop/build/flatpak/com.nichokas.SDAT.Desktop.yaml
 ```
 `build/flatpak/cargo-sources.json` is generated from `Cargo.lock` with [flatpak-cargo-generator](https://github.com/flatpak/flatpak-builder-tools/tree/master/cargo) and must be regenerated whenever dependencies change.
-
-Currently the only tested installation method is the Nix flake provided in the repository. If you want to package this software for another distro or marketplace, please do open an issue so we can coordinate.
 
 ### NixOS (Flake)
 This assumes that your system configuration is already done using a system flake. First add this repository as an input to your flake.
@@ -133,12 +129,13 @@ then add this anywhere in your system configuration as you see fit
 }
 ```
 
-### Arch Linux (AUR) 
-You will require an AUR helper, such as yay or paru.
+### Arch Linux (AUR)
 
-This assumes you are using the [yay helper](https://github.com/Jguer/yay). If using paru, adapt the commands accordingly.
-```
-yay -S tonearm
+Once [sdat-bin](https://aur.archlinux.org/packages/sdat-bin) is published, install
+the prebuilt x86_64 package with yay.
+
+```sh
+yay -S sdat-bin
 ```
 
 ### Building a release

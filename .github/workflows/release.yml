@@ -140,6 +140,17 @@ jobs:
     secrets:
       SENTRY_DSN_DESKTOP: ${{ secrets.SENTRY_DSN_DESKTOP }}
 
+  desktop-arch:
+    needs: [bump, release]
+    if: needs.bump.outputs.desktop != ''
+    permissions:
+      contents: write
+    uses: ./.github/workflows/desktop-arch.yml
+    with:
+      tag: ${{ needs.bump.outputs.desktop }}
+    secrets:
+      SENTRY_DSN_DESKTOP: ${{ secrets.SENTRY_DSN_DESKTOP }}
+
   ios:
     needs: [bump, release]
     if: needs.bump.outputs.ios != ''

@@ -1,0 +1,116 @@
+name: Desktop Arch Linux
+
+on:
+  workflow_call:
+    inputs:
+      tag:
+        type: string
+        required: true
+    secrets:
+      SENTRY_DSN_DESKTOP:
+        required: false
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Existing desktop release tag
+        type: string
+        required: true
+  pull_request:
+    paths:
+      - "sdat-desktop/packaging/arch/**"
+      - ".github/workflows/desktop-arch.yml"
+      - ".github/workflows/release.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    container: archlinux:base-devel
+    steps:
+      - name: Install Arch dependencies
+        run: |
+          pacman -Sy --noconfirm --needed archlinux-keyring
+          pacman -Syu --noconfirm --needed git rust cmake glib2-devel desktop-file-utils \
+            dconf glib-networking gst-plugins-base gst-plugins-good gst-plugins-bad \
+            gtk4 hicolor-icon-theme libadwaita libsecret
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Select source and version
+        shell: bash
+        env:
+          RELEASE_TAG: ${{ inputs.tag }}
+        run: |
+          set -euo pipefail
+          if [[ -n "$RELEASE_TAG" ]]; then
+            [[ "$RELEASE_TAG" =~ ^desktop-v[0-9]+\.[0-9]+\.[0-9]+$ ]]
+            git fetch --depth=1 origin "refs/tags/$RELEASE_TAG"
+            git worktree add --detach release-source FETCH_HEAD
+            echo "SOURCE_DIR=release-source" >> "$GITHUB_ENV"
+          else
+            RELEASE_TAG="desktop-v$(sed -n 's/^version = "\([^"]*\)"/\1/p' sdat-desktop/Cargo.toml)"
+            echo "SOURCE_DIR=." >> "$GITHUB_ENV"
+          fi
+          echo "RELEASE_TAG=$RELEASE_TAG" >> "$GITHUB_ENV"
+      - uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: desktop-arch
+          save-if: ${{ github.ref == 'refs/heads/main' }}
+      - name: Build binary archive
+        env:
+          CARGO_TARGET_DIR: ${{ github.workspace }}/target
+          SENTRY_DSN: ${{ inputs.tag != '' && secrets.SENTRY_DSN_DESKTOP || '' }}
+        run: bash sdat-desktop/packaging/arch/build-release.sh "$RELEASE_TAG" "$SOURCE_DIR" dist
+      - name: Verify the pacman package
+        shell: bash
+        run: |
+          set -euo pipefail
+          archive="dist/sdat-desktop-${RELEASE_TAG#desktop-v}-arch-x86_64.tar.zst"
+          bash sdat-desktop/packaging/arch/make-pkgbuild.sh "$archive" aur-package
+          cp "$archive" aur-package/
+          useradd --create-home aur-builder
+          chown -R aur-builder aur-package
+          cd aur-package
+          runuser -u aur-builder -- makepkg --noconfirm
+          pacman -U --noconfirm sdat-bin-*.pkg.tar.zst
+          gsettings list-keys com.nichokas.SDAT.Desktop >/dev/null
+          gsettings list-keys dev.dergs.Tonearm >/dev/null
+          for element in playbin3 souphttpsrc flacdec fdkaacdec rgvolume rglimiter; do
+            gst-inspect-1.0 "$element" >/dev/null
+          done
+          ldd /usr/bin/sdat-desktop | tee shared-libraries
+          ! grep -F 'not found' shared-libraries
+      - uses: actions/upload-artifact@v4
+        with:
+          name: desktop-arch-x86_64
+          path: dist/*.tar.zst
+          if-no-files-found: error
+
+  upload:
+    if: inputs.tag != ''
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    concurrency:
+      group: desktop-arch-${{ inputs.tag }}
+      cancel-in-progress: false
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: desktop-arch-x86_64
+      - name: Publish the binary archive
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          RELEASE_TAG: ${{ inputs.tag }}
+        run: |
+          set -euo pipefail
+          asset="sdat-desktop-${RELEASE_TAG#desktop-v}-arch-x86_64.tar.zst"
+          existing=$(gh release view "$RELEASE_TAG" --json assets --jq '.assets[] | select(.state == "uploaded") | .name')
+          # Rebuilding the same version must preserve the checksum used by the AUR.
+          if ! grep -Fxq "$asset" <<<"$existing"; then
+            gh release upload "$RELEASE_TAG" "$asset"
+          fi
