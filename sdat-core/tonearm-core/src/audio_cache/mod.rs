@@ -180,6 +180,8 @@ fn evictions<'a>(entries: &[(&'a str, u64, u64)], limit: u64, protect: &[&str]) 
 
 #[derive(Debug, Default)]
 struct Fill {
+    /// Names its `.part`, so a fill that replaced a cancelled one never shares its file.
+    serial: u64,
     cancel: AtomicBool,
     result: Mutex<Option<CoreResult<Cached>>>,
     done: Condvar,
@@ -210,6 +212,7 @@ struct State {
     /// while they are here, even by `purge` or `remove`; the next `open` removes what nothing indexes.
     recent: VecDeque<String>,
     fills: HashMap<String, Arc<Fill>>,
+    next_fill: u64,
 }
 
 impl State {
@@ -237,7 +240,7 @@ impl Store {
         fs::create_dir_all(&dir)?;
         let index = fs::read(dir.join(INDEX)).ok().and_then(|b| serde_json::from_slice(&b).ok()).unwrap_or_default();
         let index = reconcile(&dir, index)?;
-        let store = Self { dir, upstream, state: Mutex::new(State { index, limit, recent: VecDeque::new(), fills: HashMap::new() }) };
+        let store = Self { dir, upstream, state: Mutex::new(State { index, limit, recent: VecDeque::new(), fills: HashMap::new(), next_fill: 0 }) };
         let mut st = store.lock();
         store.evict(&mut st, None);
         store.save(&st);
@@ -337,24 +340,27 @@ impl Store {
             if let Some(e) = st.index.entries.get(id.as_str()).filter(|e| serves(e.requested, e.quality, quality)) {
                 return Ok(self.cached(id.as_str(), e));
             }
-            if let Some(running) = st.fills.get(id.as_str()).map(Arc::clone) {
+            // A cancelled fill may take a while to notice; a new request starts its own instead of failing with it.
+            if let Some(running) = st.fills.get(id.as_str()).filter(|f| !f.cancel.load(Ordering::Relaxed)).map(Arc::clone) {
                 drop(st);
                 running.wait()?;
                 continue;
             }
-            let fill = Arc::new(Fill::default());
+            st.next_fill += 1;
+            let fill = Arc::new(Fill { serial: st.next_fill, ..Fill::default() });
             st.fills.insert(id.0.clone(), Arc::clone(&fill));
             break fill;
         };
-        let result = self.download(&id, quality, label, &fill.cancel);
-        let _ = fs::remove_file(self.part(&id));
-        self.lock().fills.remove(id.as_str());
+        let part = self.dir.join(format!("{}.{}.part", id.as_str(), fill.serial));
+        let result = self.download(&id, quality, label, &fill.cancel, &part);
+        let _ = fs::remove_file(&part);
+        let mut st = self.lock();
+        if st.fills.get(id.as_str()).is_some_and(|f| Arc::ptr_eq(f, &fill)) {
+            st.fills.remove(id.as_str());
+        }
+        drop(st);
         fill.finish(result.clone());
         result
-    }
-
-    fn part(&self, id: &TrackId) -> PathBuf {
-        self.dir.join(format!("{}.part", id.as_str()))
     }
 
     /// Three attempts, 1 s then 2 s apart: on a poor network a failed request is a stall, not the end of the fill.
@@ -375,7 +381,7 @@ impl Store {
         }
     }
 
-    fn download(&self, id: &TrackId, quality: TrackQuality, label: Vec<u8>, cancel: &AtomicBool) -> CoreResult<Cached> {
+    fn download(&self, id: &TrackId, quality: TrackQuality, label: Vec<u8>, cancel: &AtomicBool, part: &Path) -> CoreResult<Cached> {
         use std::io::Write;
         let manifest = self.upstream.manifest(id, quality)?;
         let (mut text, mut base) = if let Some(text) = hls::decode_data_url(&manifest.url)? {
@@ -391,8 +397,7 @@ impl Store {
             base = Some(from);
         }
         let media = hls::media(&text, base.as_ref())?;
-        let part = self.part(id);
-        let mut file = fs::File::create(&part)?;
+        let mut file = fs::File::create(part)?;
         let mut sizes = Vec::with_capacity(media.segments.len() + 1);
         for url in std::iter::once(&media.map).chain(media.segments.iter().map(|s| &s.uri)) {
             let (body, _) = self.get(url, cancel)?;
@@ -410,7 +415,7 @@ impl Store {
             let _ = fs::remove_file(playlist_tmp);
             return Err(cancelled());
         }
-        fs::rename(&part, self.dir.join(&mp4))?;
+        fs::rename(part, self.dir.join(&mp4))?;
         fs::rename(&playlist_tmp, self.dir.join(format!("{stem}.m3u8")))?;
         st.index.clock += 1;
         let entry = Entry {

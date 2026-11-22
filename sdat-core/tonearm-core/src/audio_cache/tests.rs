@@ -237,6 +237,30 @@ fn a_cancelled_fill_leaves_nothing_behind() {
 }
 
 #[test]
+fn a_fill_after_a_cancel_starts_its_own_instead_of_failing() {
+    let dir = TempDir::new();
+    let fake = Arc::new(Fake { hold: Mutex::new(true), ..Fake::default() });
+    let store = Arc::new(open(&dir, LIMIT_DEFAULT, &fake));
+    let s = Arc::clone(&store);
+    let first = std::thread::spawn(move || s.fill("1", Q, Vec::new()));
+    while store.lock().fills.get("1").is_none_or(|f| Arc::strong_count(f) < 2) {
+        std::thread::yield_now();
+    }
+    store.cancel("1");
+    let s = Arc::clone(&store);
+    let second = std::thread::spawn(move || s.fill("1", Q, Vec::new()));
+    while store.lock().fills.get("1").is_none_or(|f| f.cancel.load(Ordering::Relaxed)) {
+        std::thread::yield_now();
+    }
+    fake.release();
+    assert!(matches!(first.join().unwrap(), Err(CoreError::Cancelled(_))));
+    second.join().unwrap().expect("the new fill is not the cancelled one");
+    assert_eq!(store.usage().tracks, 1);
+    assert_eq!(files(&dir).len(), 3, "index, mp4 and playlist; no stray .part");
+    assert!(store.lock().fills.is_empty());
+}
+
+#[test]
 fn a_failed_request_is_retried() {
     let dir = TempDir::new();
     let fake = Arc::new(Fake { flaky: AtomicUsize::new(1), ..Fake::default() });
