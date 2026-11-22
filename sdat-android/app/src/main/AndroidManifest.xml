@@ -23,6 +23,7 @@
 
     <application
         android:name=".SdatApp"
+        android:icon="@mipmap/ic_launcher"
         android:label="SDAT"
         android:supportsRtl="true"
         android:theme="@android:style/Theme.Material.NoActionBar">
