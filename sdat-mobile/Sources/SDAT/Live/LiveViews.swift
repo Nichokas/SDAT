@@ -96,17 +96,21 @@ struct QRCode: View {
 }
 
 struct LiveScannerSheet: View {
+    private enum CameraAccess { case checking, authorized, denied }
     @Environment(\.dismiss) private var dismiss
-    @State private var denied = false
+    @State private var access: CameraAccess = .checking
 
     var body: some View {
         NavigationStack {
             Group {
-                if denied {
+                switch access {
+                case .checking:
+                    ProgressView()
+                case .authorized:
+                    QRScanner { Live.shared.open($0) }.ignoresSafeArea()
+                case .denied:
                     ContentUnavailableView("Camera access needed", systemImage: "camera",
                         description: Text("Allow camera access for SDAT in Settings to scan invitations."))
-                } else {
-                    QRScanner { Live.shared.open($0) }.ignoresSafeArea()
                 }
             }
             .navigationTitle("Scan invitation")
@@ -115,9 +119,9 @@ struct LiveScannerSheet: View {
         }
         .task {
             switch AVCaptureDevice.authorizationStatus(for: .video) {
-            case .notDetermined: denied = !(await AVCaptureDevice.requestAccess(for: .video))
-            case .authorized: denied = false
-            default: denied = true
+            case .notDetermined: access = await AVCaptureDevice.requestAccess(for: .video) ? .authorized : .denied
+            case .authorized: access = .authorized
+            default: access = .denied
             }
         }
     }
@@ -132,6 +136,7 @@ struct QRScanner: UIViewControllerRepresentable {
 
     final class Controller: UIViewController, AVCaptureMetadataOutputObjectsDelegate {
         private let session = AVCaptureSession()
+        private let sessionQueue = DispatchQueue(label: "com.nichokas.sdat.qr-scanner")
         private let onCode: (String) -> Void
         private var preview: AVCaptureVideoPreviewLayer?
         private var done = false
@@ -149,13 +154,14 @@ struct QRScanner: UIViewControllerRepresentable {
             guard session.canAddOutput(out) else { return }
             session.addOutput(out)
             out.setMetadataObjectsDelegate(self, queue: .main)
+            guard out.availableMetadataObjectTypes.contains(.qr) else { return }
             out.metadataObjectTypes = [.qr]
             let p = AVCaptureVideoPreviewLayer(session: session)
             p.videoGravity = .resizeAspectFill
             view.layer.addSublayer(p)
             preview = p
             let s = session
-            DispatchQueue.global(qos: .userInitiated).async { s.startRunning() }
+            sessionQueue.async { s.startRunning() }
         }
 
         override func viewDidLayoutSubviews() { super.viewDidLayoutSubviews(); preview?.frame = view.bounds }
@@ -163,7 +169,7 @@ struct QRScanner: UIViewControllerRepresentable {
         override func viewWillDisappear(_ animated: Bool) {
             super.viewWillDisappear(animated)
             let s = session
-            DispatchQueue.global(qos: .userInitiated).async { s.stopRunning() }
+            sessionQueue.async { s.stopRunning() }
         }
 
         func metadataOutput(_ output: AVCaptureMetadataOutput, didOutput objs: [AVMetadataObject], from c: AVCaptureConnection) {

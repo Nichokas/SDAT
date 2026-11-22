@@ -387,6 +387,9 @@ enum DiscoverCache {
     static func save(_ tracks: [Track]) {
         try? JSONEncoder().encode(encode(tracks)).write(to: url, options: .atomic)
     }
+    static func clear() {
+        try? FileManager.default.removeItem(at: url)
+    }
     static func encode(_ tracks: [Track]) -> [T] {
         tracks.map { t in
             T(id: t.id, title: t.title, version: t.version, dur: t.durationSecs, explicit: t.explicit, streamable: t.streamable,

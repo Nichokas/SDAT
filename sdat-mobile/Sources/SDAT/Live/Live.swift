@@ -106,6 +106,7 @@ final class Live {
             switching = nil
             player.liveEngine.liveFollowing = true
             player.liveEngine.liveTarget = { [weak self] in self?.hostPosition() }
+            player.liveEngine.prepareLiveJoin()
             run(every: 0.25) { $0.guestTick() }
         } catch {
             mode = .ended("This invitation isn't valid.")

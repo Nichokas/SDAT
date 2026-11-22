@@ -63,12 +63,15 @@ final class OwnPlaylists {
     static let shared = OwnPlaylists()
     private(set) var list: [OwnPlaylist] = []
     private var loaded = false
+    @ObservationIgnored private var generation = 0
     func ids() -> Set<String> { Set(list.map(\.id)) }
     func load(force: Bool = false) async {
         guard force || !loaded else { return }
-        if let l = try? await ownPlaylists() { list = l; loaded = true }
+        let gen = generation
+        if let l = try? await ownPlaylists(), gen == generation { list = l; loaded = true }
     }
     func contains(_ id: String) -> Bool { list.contains { $0.id == id } }
+    func reset() { generation &+= 1; list = []; loaded = false }
 }
 
 /// The user's TIDAL profile picture, cached across launches.
@@ -77,10 +80,12 @@ final class Profile {
     static let shared = Profile()
     private(set) var pictureURL: String? = UserDefaults.standard.string(forKey: "profilePicture320")
     private var loaded = false
+    @ObservationIgnored private var generation = 0
     func load() async {
         guard !loaded else { return }
         if pictureURL == nil { pictureURL = UserDefaults.standard.string(forKey: "profilePicture320") }
-        if let u = try? await profilePictureUrl() {
+        let gen = generation
+        if let u = try? await profilePictureUrl(), gen == generation {
             loaded = true
             pictureURL = u
             UserDefaults.standard.set(u, forKey: "profilePicture320")
@@ -112,22 +117,31 @@ final class Favs {
     private(set) var tracks: [String: Bool] = [:] { didSet { onChange?() } }
     /// Lets the player keep the lock-screen like button in sync with any change.
     @ObservationIgnored var onChange: (() -> Void)?
+    @ObservationIgnored private var generation = 0
     func known(_ id: String) -> Bool? { tracks[id] }
     func mark(_ ids: [String], _ v: Bool) { for i in ids { tracks[i] = v } }
     func check(_ id: String) async {
         guard tracks[id] == nil else { return }
-        if let v = try? await isFavourite(kind: .track, id: id) { tracks[id] = v }
+        let gen = generation
+        if let v = try? await isFavourite(kind: .track, id: id), gen == generation { tracks[id] = v }
     }
     func toggle(_ id: String) {
         let target = !(tracks[id] ?? false)
+        let gen = generation
         tracks[id] = target
         Task {
             do {
                 try await setFavourite(kind: .track, id: id, favourite: target)
+                guard gen == generation else { return }
                 Chrome.shared.flash(target ? "Added to favourites" : "Removed from favourites")
-            } catch { tracks[id] = !target; Chrome.shared.flash(friendlyMessage(error)) }
+            } catch {
+                guard gen == generation else { return }
+                tracks[id] = !target
+                Chrome.shared.flash(friendlyMessage(error))
+            }
         }
     }
+    func reset() { generation &+= 1; tracks = [:] }
 }
 
 /// Memory-cached image loader with request coalescing (Discover canvas, covers, artwork).
@@ -240,7 +254,12 @@ struct AvatarGlyph: Shape {
 }
 
 extension Profile {
-    func reset() { pictureURL = nil; loaded = false }
+    func reset() {
+        generation &+= 1
+        pictureURL = nil
+        loaded = false
+        UserDefaults.standard.removeObject(forKey: "profilePicture320")
+    }
 }
 
 extension ImageStore {
