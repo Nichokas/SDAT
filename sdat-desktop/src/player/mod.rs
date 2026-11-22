@@ -12,6 +12,7 @@ pub mod statemachine;
 use anyhow::{anyhow, Result};
 use gst::prelude::*;
 use std::cell::{Cell, OnceCell};
+use std::hash::{BuildHasher, RandomState};
 use std::rc::Rc;
 use std::sync::Arc;
 use std::time::Duration;
@@ -459,6 +460,28 @@ fn track_matches(a: &Track, b: &Track) -> bool {
     a.id() == b.id() && a.playlist_item_id == b.playlist_item_id
 }
 
+fn random_index(len: usize) -> usize {
+    thread_local! {
+        static COUNTER: Cell<u64> = const { Cell::new(0) };
+    }
+    let n = len as u64;
+    if n <= 1 {
+        return 0;
+    }
+    let threshold = n.wrapping_neg() % n;
+    loop {
+        let step = COUNTER.with(|c| {
+            let next = c.get().wrapping_add(1);
+            c.set(next);
+            next
+        });
+        let sample = RandomState::new().hash_one(step);
+        if sample >= threshold {
+            return (sample % n) as usize;
+        }
+    }
+}
+
 fn peek_next_queue_entry() -> Option<(Track, GaplessSource)> {
     if let Some(t) = user_queue().entries().with(|v| v.iter().find(|t| t.info.streamable).cloned()) {
         return Some((t, GaplessSource::UserQueue));
@@ -471,11 +494,25 @@ fn peek_next_queue_entry() -> Option<(Track, GaplessSource)> {
     }
     // Sentinel id never matches a real track, so all source tracks are visible
     // without mutating `base_queue` during a peek.
-    base_queue()
+    let mut streamable = base_queue()
         .played("\0", &user_queue().source_occurrences())
         .into_iter()
-        .find(|t| t.info.streamable)
-        .map(|t| (t, GaplessSource::BaseQueue { rewound: true }))
+        .filter(|t| t.info.streamable);
+    let next = if shuffle_state_changed().get() {
+        let mut candidates: Vec<_> = streamable.collect();
+        if candidates.is_empty() {
+            return None;
+        }
+        if let Some(current_id) = current_track_id()
+            && candidates.iter().any(|t| t.id() != current_id)
+        {
+            candidates.retain(|t| t.id() != current_id);
+        }
+        candidates.swap_remove(random_index(candidates.len()))
+    } else {
+        streamable.next()?
+    };
+    Some((next, GaplessSource::BaseQueue { rewound: true }))
 }
 
 fn pop_next_streamable_from_queue() -> Option<Track> {
@@ -1187,6 +1224,126 @@ mod playlist_tests {
         assert!(!did_repeat);
         assert!(popped.is_some());
         assert_eq!(base_queue().entries().with(Vec::len), 1);
+
+        shuffle_state_changed().set(false);
+        set_repeat_mode(RepeatMode::None);
+        clear_queues();
+        track_changed().set(None);
+    }
+
+    #[test]
+    fn shuffle_repeat_queue_wraparound_peek_is_randomized_and_non_mutating() {
+        use std::collections::HashSet;
+
+        clear_queues();
+        set_repeat_mode(RepeatMode::Queue);
+        let mut unavailable = track("U", Some("u1"));
+        unavailable.info.streamable = false;
+        let tracks = vec![
+            track("A", Some("a1")),
+            track("B", Some("b1")),
+            track("B", Some("b2")),
+            track("C", Some("c1")),
+            unavailable,
+            track("D", Some("d1")),
+        ];
+        let all_streamable: HashSet<(String, Option<String>)> = tracks
+            .iter()
+            .filter(|t| t.info.streamable)
+            .map(|t| (t.id().to_string(), t.playlist_item_id.clone()))
+            .collect();
+        base_queue().set(tracks);
+        set_shuffle(true, "");
+
+        let mut last_streamable = None;
+        while let Some(t) = base_queue().pop() {
+            if t.info.streamable {
+                last_streamable = Some(t);
+            }
+        }
+        let current = last_streamable.unwrap();
+        let current_id = current.id().to_string();
+        track_changed().set(Some(statemachine::TrackChangedEvent { track: current, skip_history: false }));
+        assert!(base_queue().is_empty());
+
+        let played_before: Vec<(String, Option<String>)> = base_queue()
+            .played("\0", &[])
+            .into_iter()
+            .map(|t| (t.id().to_string(), t.playlist_item_id))
+            .collect();
+        let first_streamable_key = base_queue()
+            .played("\0", &[])
+            .into_iter()
+            .find(|t| t.info.streamable)
+            .map(|t| (t.id().to_string(), t.playlist_item_id));
+        let expected: HashSet<(String, Option<String>)> = all_streamable
+            .iter()
+            .filter(|(id, _)| id != &current_id)
+            .cloned()
+            .collect();
+        assert!(expected.len() >= 3);
+
+        let mut seen = HashSet::new();
+        let mut chosen_non_first = None;
+        for _ in 0..256 {
+            let entry = peek_gapless().unwrap();
+            assert!(!entry.did_repeat);
+            assert_eq!(entry.source, GaplessSource::BaseQueue { rewound: true });
+            assert!(entry.track.info.streamable);
+            assert_ne!(entry.track.id(), current_id, "wraparound peek must avoid immediately repeating the current track");
+            assert!(base_queue().is_empty(), "wraparound peek must not mutate base_queue");
+
+            let key = (entry.track.id().to_string(), entry.track.playlist_item_id.clone());
+            if first_streamable_key.as_ref() != Some(&key) && chosen_non_first.is_none() {
+                chosen_non_first = Some(entry);
+            }
+            seen.insert(key);
+        }
+
+        let played_after: Vec<(String, Option<String>)> = base_queue()
+            .played("\0", &[])
+            .into_iter()
+            .map(|t| (t.id().to_string(), t.playlist_item_id))
+            .collect();
+        assert_eq!(played_after, played_before, "repeated peeks must leave base_queue history untouched");
+        assert_eq!(seen, expected, "wraparound peek should randomize across all eligible non-current candidates");
+
+        let chosen = chosen_non_first.unwrap();
+        let chosen_key = (chosen.track.id().to_string(), chosen.track.playlist_item_id.clone());
+        commit_gapless(&chosen);
+        assert!(base_queue().is_shuffled());
+        assert!(base_queue().current_occurrence(&chosen.track).is_some());
+        let remaining_streamable: HashSet<(String, Option<String>)> = base_queue().entries().with(|rows| {
+            assert!(!rows.iter().any(|t| track_matches(t, &chosen.track)));
+            rows.iter()
+                .filter(|t| t.info.streamable)
+                .map(|t| (t.id().to_string(), t.playlist_item_id.clone()))
+                .collect()
+        });
+        let mut expected_remaining = all_streamable;
+        assert!(expected_remaining.remove(&chosen_key));
+        assert_eq!(remaining_streamable, expected_remaining);
+
+        // When all streamable tracks share the current track id, wraparound must still succeed.
+        clear_queues();
+        let mut only_unstreamable = track("U2", Some("u2"));
+        only_unstreamable.info.streamable = false;
+        base_queue().set(vec![track("S", Some("s1")), track("S", Some("s2")), only_unstreamable]);
+        set_shuffle(true, "");
+        let mut only = None;
+        while let Some(t) = base_queue().pop() {
+            if t.info.streamable {
+                only = Some(t);
+            }
+        }
+        track_changed().set(Some(statemachine::TrackChangedEvent { track: only.unwrap(), skip_history: false }));
+        let wrapped = peek_gapless().unwrap();
+        assert_eq!(wrapped.track.id(), "S");
+        assert_eq!(wrapped.source, GaplessSource::BaseQueue { rewound: true });
+        assert!(base_queue().is_empty());
+        commit_gapless(&wrapped);
+        assert!(base_queue().current_occurrence(&wrapped.track).is_some());
+        assert!(base_queue().entries().with(|rows| !rows.iter().any(|t| track_matches(t, &wrapped.track))));
 
         shuffle_state_changed().set(false);
         set_repeat_mode(RepeatMode::None);
