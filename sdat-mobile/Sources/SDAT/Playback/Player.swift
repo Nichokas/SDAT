@@ -880,7 +880,13 @@ final class Player: LivePlaybackPort {
     /// Appends a new endless batch, skipping tracks already in the queue. One fetch at a time;
     /// returns whether anything was added.
     private func fetchMore(from source: Shuffle) async -> Bool {
-        if let r = refilling { return await r.value }
+        if let r = refilling {
+            let gen = refillGen
+            let added = await r.value
+            // Cancelled while this caller waited, so it never answered it: ask again for the same source.
+            if added || refillGen == gen || infinite !== source { return added }
+            return await fetchMore(from: source)
+        }
         refillGen &+= 1
         let gen = refillGen
         let task = Task { @MainActor () -> Bool in
