@@ -805,7 +805,8 @@ final class Player: LivePlaybackPort {
                 while !Task.isCancelled, filling == next.id, duration - position > Self.fillDeadline {
                     try? await Task.sleep(for: .milliseconds(500))
                 }
-                if !Task.isCancelled, filling == next.id { cancelFill() }
+                // A cancelled preload leaves a fill that a new one for the same track still waits on.
+                if filling == next.id, !Task.isCancelled || following()?.0.id != next.id { cancelFill() }
             }
             guard let s = try? await Self.source(next.id),
                   !Task.isCancelled, !liveEngine.liveFollowing, starts == started,
@@ -830,7 +831,13 @@ final class Player: LivePlaybackPort {
         let gen = fillGen
         let quality = Preferences.shared.streamingQuality
         Task {
-            _ = try? await audioCacheFill(track: t, quality: quality)
+            guard fillGen == gen else { return }
+            do {
+                _ = try await audioCacheFill(track: t, quality: quality)
+            } catch FfiError.Cancelled {
+            } catch {
+                AudioCache.log.warning("failed to cache track \(t.id, privacy: .public): \(String(describing: error), privacy: .public)")
+            }
             if fillGen == gen { filling = nil }
             AudioCache.shared.refresh()
         }

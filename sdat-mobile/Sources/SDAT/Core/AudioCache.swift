@@ -1,9 +1,11 @@
 import Foundation
 import Observation
+import os
 
 @MainActor @Observable
 final class AudioCache {
     static let shared = AudioCache()
+    nonisolated static let log = Logger(subsystem: "com.nichokas.SDAT", category: "audio-cache")
 
     private(set) var usage = CacheUsage(bytes: 0, tracks: 0, limitBytes: 0)
     /// Most recently played first.
@@ -16,7 +18,11 @@ final class AudioCache {
     private init() { refresh() }
 
     static func open() {
-        try? audioCacheOpen(dir: dir.path, limitBytes: Preferences.shared.audioCacheLimit)
+        do {
+            try audioCacheOpen(dir: dir.path, limitBytes: Preferences.shared.audioCacheLimit)
+        } catch {
+            log.error("failed to open the audio cache: \(String(describing: error), privacy: .public)")
+        }
     }
 
     func refresh() {
