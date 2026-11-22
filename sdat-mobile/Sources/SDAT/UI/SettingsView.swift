@@ -14,12 +14,14 @@ struct SettingsView: View {
     @State private var lastFmError: String?
     @State private var listenBrainzToken = ""
     @State private var confirmErase = false
+    @State private var confirmClearCache = false
     @State private var hasListenBrainz = Keychain.get("listenbrainz.token") != nil
     @State private var country = preferredCountry()
     @State private var automatic: Country?
 
     var body: some View {
         @Bindable var prefs = prefs
+        let cache = AudioCache.shared
         List {
             Section("Account") {
                 Button("Sessions and devices") { openURL(URL(string: "https://account.tidal.com/")!) }
@@ -40,6 +42,24 @@ struct SettingsView: View {
                 NavigationLink(value: Route.downloads) {
                     LabeledContent("Manage downloads", value: Fmt.bytes(Downloads.shared.totalSize))
                 }
+            }
+
+            Section {
+                let u = cache.usage
+                LabeledContent("Cached songs", value: u.limitBytes == 0 ? "Off"
+                    : "\(Fmt.cacheBytes(u.bytes)) of \(Fmt.cacheBytes(u.limitBytes)) · \(u.tracks) tracks")
+                Picker("Cache size", selection: Binding(
+                    get: { prefs.audioCacheLimit },
+                    set: { prefs.audioCacheLimit = $0; cache.refresh() }
+                )) {
+                    ForEach(audioCacheLimitPresets(), id: \.self) { b in
+                        Text(b == 0 ? "Off" : Fmt.cacheBytes(b)).tag(b)
+                    }
+                }
+                Button("Clear Cache", role: .destructive) { confirmClearCache = true }
+                    .disabled(u.tracks == 0)
+            } header: { Text("Cache") } footer: {
+                Text("Songs you play are kept so they start instantly next time; the oldest go when the cache is full. Downloads do not count toward it and are never removed.")
             }
 
             Section("Scrobbling") {
@@ -84,11 +104,15 @@ struct SettingsView: View {
         .navigationTitle("Settings")
         .navigationBarTitleDisplayMode(.inline)
         .task { automatic = await automaticCountry() }
+        .onAppear { cache.refresh() }
         .sheet(item: $safariURL, onDismiss: finishLastFm) { u in SafariView(url: u.url).ignoresSafeArea() }
         .sheet(isPresented: $showSpotifyImport) { SpotifyImportSheet() }
         .confirmationDialog("Erase all app data?", isPresented: $confirmErase, titleVisibility: .visible) {
             Button("Erase everything", role: .destructive) { session.eraseAll() }
         } message: { Text("This cannot be undone.") }
+        .confirmationDialog("Clear the cache?", isPresented: $confirmClearCache, titleVisibility: .visible) {
+            Button("Clear \(Fmt.cacheBytes(cache.usage.bytes))", role: .destructive) { cache.purge() }
+        } message: { Text("Downloads stay.") }
         .confirmationDialog("Log out of TIDAL?", isPresented: $confirmLogout, titleVisibility: .visible) {
             Button("Log out", role: .destructive) { session.logOut() }
         }
