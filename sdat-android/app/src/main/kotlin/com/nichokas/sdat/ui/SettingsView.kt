@@ -13,6 +13,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -33,6 +34,7 @@ import androidx.compose.ui.unit.dp
 import androidx.core.net.toUri
 import androidx.lifecycle.compose.LifecycleResumeEffect
 import com.nichokas.sdat.R
+import com.nichokas.sdat.core.AudioCache
 import com.nichokas.sdat.core.Chrome
 import com.nichokas.sdat.core.CrashReporting
 import com.nichokas.sdat.core.Downloads
@@ -47,6 +49,7 @@ import com.nichokas.sdat.core.eraseAll
 import com.nichokas.sdat.core.label
 import com.nichokas.sdat.core.qualities
 import io.github.neoruaa.glasmio.core.GlasmioTheme
+import io.github.neoruaa.glasmio.core.IosTypography
 import io.github.neoruaa.glasmio.ui.GlasmioAlertButtonLayout
 import io.github.neoruaa.glasmio.ui.GlasmioAlertButtonRole
 import io.github.neoruaa.glasmio.ui.GlasmioAlertButtonSpec
@@ -62,6 +65,7 @@ import io.github.neoruaa.glasmio.ui.GlasmioTextField
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.launch
 import uniffi.tonearm_ffi.Quality
+import uniffi.tonearm_ffi.audioCacheLimitPresets
 import uniffi.tonearm_ffi.lastfmBeginAuth
 import uniffi.tonearm_ffi.lastfmFinishAuth
 import uniffi.tonearm_ffi.lastfmUsername
@@ -73,6 +77,7 @@ fun SettingsView(session: Session, prefs: Preferences, secrets: Secrets, crashRe
     val scope = rememberCoroutineScope()
     var confirmLogout by remember { mutableStateOf(false) }
     var confirmErase by remember { mutableStateOf(false) }
+    var confirmClearCache by remember { mutableStateOf(false) }
     var showSpotifyImport by remember { mutableStateOf(false) }
     var lastFmUser by remember { mutableStateOf(secrets.get(Secrets.LASTFM_USER)) }
     var lastFmPending by rememberSaveable { mutableStateOf<String?>(null) }
@@ -82,6 +87,7 @@ fun SettingsView(session: Session, prefs: Preferences, secrets: Secrets, crashRe
     var browserOpened by rememberSaveable { mutableStateOf(false) }
     val destructive = GlasmioTheme.colors.destructive
     LaunchedEffect(Unit) { Region.loadAutomatic() }
+    LaunchedEffect(Unit) { AudioCache.refresh() }
 
     // iOS finishes the Last.fm handshake when its Safari sheet closes; here, when the browser hands back.
     // Reads the state live: the browser can pause the app before a recomposition would restart a keyed effect.
@@ -132,6 +138,19 @@ fun SettingsView(session: Session, prefs: Preferences, secrets: Secrets, crashRe
                 ToggleRow("Download over cellular", prefs.downloadOverCellular, { prefs.downloadOverCellular = it })
                 GlasmioListRow("Manage downloads", detail = Fmt.bytes(Downloads.totalSize), onClick = { Chrome.push(Route.Downloads) })
             }
+        }
+        item {
+            val usage = AudioCache.usage
+            Section("Cache") {
+                GlasmioListRow(
+                    "Used",
+                    detail = if (AudioCache.on) "${Fmt.cacheBytes(usage.bytes.toLong())} of ${Fmt.cacheBytes(AudioCache.limit)} · ${usage.tracks} tracks" else "Off",
+                    showTopSeparator = false,
+                )
+                GlasmioListRow("Size limit", trailing = { CacheLimitMenu(AudioCache.limit, AudioCache::setLimit) })
+                GlasmioListRow("Clear Cache", titleColor = destructive, enabled = usage.tracks > 0u, showDisclosure = false, onClick = { confirmClearCache = true })
+            }
+            GlasmioGroupedTableFooter("Played and upcoming tracks stay on disk, so they start sooner and play without a connection. When the cache is full, the tracks played longest ago go first.")
         }
         item {
             Section("Scrobbling") {
@@ -235,6 +254,9 @@ fun SettingsView(session: Session, prefs: Preferences, secrets: Secrets, crashRe
             eraseAll(context, session, prefs, secrets, crashReporting)
         }
     }
+    if (confirmClearCache) {
+        Confirm("Clear the cache?", "Cached tracks are deleted. They download again when you play them.", "Clear Cache", onDismiss = { confirmClearCache = false }, onConfirm = AudioCache::purge)
+    }
     if (confirmLogout) {
         Confirm("Log out of TIDAL?", null, "Log out", onDismiss = { confirmLogout = false }, onConfirm = session::signOut)
     }
@@ -278,6 +300,32 @@ fun QualityMenu(selection: Quality, onSelect: (Quality) -> Unit, label: @Composa
                 subtitle = q.detail,
                 onClick = { onSelect(q); close() },
                 systemName = if (q == selection) "checkmark" else null,
+                backdrop = backdrop,
+            )
+        }
+    }
+}
+
+@Composable
+private fun CacheLimitMenu(selection: Long, onSelect: (Long) -> Unit) {
+    var open by remember { mutableStateOf(false) }
+    val presets = remember { audioCacheLimitPresets().map { it.toLong() } }
+    val label = { bytes: Long -> if (bytes == 0L) "Off" else Fmt.cacheBytes(bytes) }
+    GlasmioMenu(expanded = open, onExpandedChange = { open = it }, itemCount = presets.size, anchor = { toggle ->
+        Row(
+            Modifier.clickable(role = Role.Button, onClickLabel = "Size limit", onClick = toggle),
+            horizontalArrangement = Arrangement.spacedBy(4.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Text(label(selection), style = IosTypography.body, color = GlasmioTheme.colors.secondaryContent)
+            SdatIcon("chevron.up.chevron.down", contentDescription = null, size = 12.dp, tint = GlasmioTheme.colors.secondaryContent)
+        }
+    }) { backdrop, close ->
+        presets.forEach { bytes ->
+            GlasmioMenuItem(
+                title = label(bytes),
+                onClick = { onSelect(bytes); close() },
+                systemName = if (bytes == selection) "checkmark" else null,
                 backdrop = backdrop,
             )
         }
