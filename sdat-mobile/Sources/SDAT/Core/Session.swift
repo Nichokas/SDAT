@@ -11,6 +11,7 @@ final class Session {
     private(set) var pending: DeviceLogin?
     var error: String?
     private var loginAttempt: UUID?
+    @ObservationIgnored private var teardown: (id: UUID, task: Task<Void, Never>)?
     var startingLogin: Bool { loginAttempt != nil && pending == nil }
     private init() {
         try? FileManager.default.createDirectory(
@@ -27,6 +28,10 @@ final class Session {
         let attempt = UUID()
         loginAttempt = attempt
         error = nil
+        while let pendingTeardown = teardown?.task {
+            await pendingTeardown.value
+            guard loginAttempt == attempt else { return }
+        }
         do {
             let login = try await startDeviceLogin()
             guard loginAttempt == attempt else { login.cancel(); return }
@@ -38,6 +43,7 @@ final class Session {
             tokens.save(result)
             HandoffHub.shared.signedIn()
             sessionChanged()
+            clearAccountState()
             Boot.shared.start()   // first-time warm-up, only after a fresh sign-in
             signedIn = true
         } catch {
@@ -54,29 +60,40 @@ final class Session {
         pending = nil
     }
 
-    /// Stops playback (nothing restores on next login), cancels and deletes all
-    /// downloads, then clears the credentials.
+    /// Stops playback (nothing restores on next login), clears credentials and
+    /// account caches, then cancels and deletes all downloads.
     func logOut() {
-        SpotifyImporter.shared.clear()
-        HandoffHub.shared.signOut()
-        Live.shared.signOut()
-        Player.shared.stopAndClear()
-        Task {
-            await Downloads.shared.removeAll()
-            clearAccountState()
-            tokens.clear()
-            sessionChanged()
-            signedIn = false
-        }
+        beginSignOut()
+        enqueueTeardown { await Downloads.shared.removeAll() }
     }
 
     /// Dev: wipes Keychain, defaults, caches and files, stops playback, back to login.
     func eraseAll() {
+        beginSignOut()
+        enqueueTeardown { await self.eraseRest() }
+    }
+
+    private func beginSignOut() {
+        cancelLogin()
         SpotifyImporter.shared.clear()
         HandoffHub.shared.signOut()
         Live.shared.signOut()
         Player.shared.stopAndClear()
-        Task { await eraseRest() }
+        tokens.clear()
+        sessionChanged()
+        clearAccountState()
+        signedIn = false
+    }
+
+    private func enqueueTeardown(_ work: @escaping @MainActor () async -> Void) {
+        let prev = teardown?.task
+        let id = UUID()
+        let task = Task {
+            await prev?.value
+            await work()
+            if teardown?.id == id { teardown = nil }
+        }
+        teardown = (id, task)
     }
 
     private func eraseRest() async {
@@ -102,7 +119,6 @@ final class Session {
         try? fm.createDirectory(at: fm.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0], withIntermediateDirectories: true)
         clearAccountState()
         sessionChanged()
-        signedIn = false
     }
 
     private func clearAccountState() {
