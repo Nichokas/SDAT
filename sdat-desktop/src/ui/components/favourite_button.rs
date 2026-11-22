@@ -202,6 +202,12 @@ pub fn track_favourite_button() -> (gtk::Button, SetId) {
                         return;
                     }
                     if secrets::session_generation() != generation {
+                        if !track_favourites_available().get() {
+                            if let Some(b) = w.upgrade() {
+                                render(&b, false, false);
+                            }
+                            return;
+                        }
                         continue;
                     }
                     match result {
