@@ -261,7 +261,6 @@ struct Inner {
     reorder: RefCell<Option<ReorderFn>>,
     reorderable: State<bool>,
     drag: RefCell<Option<DragState>>,
-    list_rev: Cell<u64>,
     view: glib::WeakRef<gtk::ListView>,
     drop_target: RefCell<Option<gtk::DropTargetAsync>>,
     /// Rows after the tracks that stand for tracks not loaded yet.
@@ -318,7 +317,6 @@ impl TrackList {
             reorder: RefCell::new(None),
             reorderable: State::new(false),
             drag: RefCell::new(None),
-            list_rev: Cell::new(0),
             view: view.downgrade(),
             drop_target: RefCell::new(None),
             placeholders: Cell::new(0),
@@ -396,7 +394,6 @@ impl TrackList {
     pub fn add_track(&self, t: Track) {
         let i = &self.0;
         clear_drag(i);
-        i.list_rev.set(i.list_rev.get().wrapping_add(1));
         i.tracks.borrow_mut().push(t);
         i.store.append(&empty());
     }
@@ -497,28 +494,23 @@ fn leave_drag(i: &Inner) {
 /// Never inserts without removing the expected row first, and aborts if a
 /// re-entrant list mutation occurs while the store removes `from`.
 fn move_row(i: &Inner, from: usize, to: usize, expected_id: &str) -> Option<usize> {
-    let rev = i.list_rev.get();
-    let removed = {
+    let dst = {
         let mut tracks = i.tracks.borrow_mut();
         if i.store.n_items() as usize != tracks.len() + i.placeholders.get()
             || tracks.get(from).is_none_or(|t| t.id() != expected_id)
         {
             return None;
         }
-        tracks.remove(from)
-    };
-    // Never hold the tracks borrow while touching the store (items-changed re-enters bind()).
-    i.store.remove(from as u32);
-    if i.list_rev.get() != rev {
-        return None;
-    }
-    let dst = {
-        let mut tracks = i.tracks.borrow_mut();
+        let t = tracks.remove(from);
         let dst = to.min(tracks.len());
-        tracks.insert(dst, removed);
+        tracks.insert(dst, t);
         dst
     };
-    i.store.insert(dst as u32, &empty());
+    // `tracks` is already final, so the one items-changed below (which re-enters bind())
+    // never sees a row missing from it.
+    let (lo, hi) = (from.min(dst), from.max(dst));
+    let rows: Vec<glib::Object> = (lo..=hi).map(|_| empty()).collect();
+    i.store.splice(lo as u32, rows.len() as u32, &rows);
     Some(dst)
 }
 
@@ -596,7 +588,6 @@ fn drop_drag(i: &Inner, y: f64, on_finish: impl FnOnce(gdk::DragAction)) -> bool
 /// (and other handlers) that borrow `tracks` again.
 fn sync(i: &Inner, new: &[Track]) {
     clear_drag(i);
-    i.list_rev.set(i.list_rev.get().wrapping_add(1));
     let old = std::mem::replace(&mut *i.tracks.borrow_mut(), new.to_vec());
     for (idx, op) in diff_ops(&old, new) {
         match op {
