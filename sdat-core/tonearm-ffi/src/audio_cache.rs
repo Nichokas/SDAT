@@ -69,12 +69,15 @@ pub fn audio_cache_lookup(track_id: String, quality: Quality) -> Option<CachedTr
 /// Downloads `track` into the cache unless a copy at `quality` or better is there.
 ///
 /// A fill of a track that is already being filled waits for that one. Fails with `Cancelled` after
-/// `audio_cache_cancel` or `audio_cache_purge`, and while the cache is off.
+/// `audio_cache_cancel` or `audio_cache_purge`, and while the cache is off. A cancel reaches every fill from the
+/// moment this call starts.
 #[uniffi::export]
 pub async fn audio_cache_fill(track: Track, quality: Quality) -> Result<CachedTrack, FfiError> {
     let id = track.id.clone();
     let label = serde_json::to_vec(&Track { playlist_item_id: None, ..track }).map_err(|e| FfiError::Decode { detail: e.to_string() })?;
-    let c = run(move || audio_cache::fill(&id, quality.into(), label)).await?;
+    // Registered before the first await, so a cancel never misses a fill that has not started downloading.
+    let job = audio_cache::begin(&id, quality.into(), label)?;
+    let c = run(move || audio_cache::finish(job)).await?;
     cached_track(c).ok_or_else(|| FfiError::Decode { detail: "cached track label".into() })
 }
 
@@ -107,10 +110,11 @@ pub fn audio_cache_remove(track_id: String) {
     audio_cache::remove(&track_id);
 }
 
-/// Empties the cache. The files of what is playing go once it stops playing.
+/// Empties the cache. With `keep_playing` (Clear Cache), the files of what plays now and next go once they stop
+/// playing; without it (sign-out, after playback stopped), they go now.
 #[uniffi::export]
-pub fn audio_cache_purge() {
-    audio_cache::purge();
+pub fn audio_cache_purge(keep_playing: bool) {
+    audio_cache::purge(keep_playing);
 }
 
 #[cfg(test)]

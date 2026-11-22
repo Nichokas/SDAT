@@ -147,6 +147,10 @@ pub fn on_playback_state(s: &PlaybackState) {
         // A stalled stream needs the bandwidth more than the fills; they plan again once it has headroom.
         let planned = PLANNED.with(RefCell::take);
         if !planned.is_empty() {
+            let mut p = PLAN.lock().unwrap_or_else(PoisonError::into_inner);
+            p.generation += 1;
+            p.tracks.clear();
+            drop(p);
             for id in &planned {
                 audio_cache::cancel(id);
             }

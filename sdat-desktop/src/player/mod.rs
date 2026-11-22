@@ -359,7 +359,8 @@ fn on_bus_message(msg: &gst::Message) {
 fn stream_after_cached_copy_failed(id: &str) {
     let current = track_changed().with(|t| t.as_ref().map(|e| e.track.clone()));
     match current {
-        Some(t) if t.id() == id && with(|p| p.machine.preparing()).unwrap_or(false) => fire(Trigger::PlayTrack(t, false)),
+        // Its start already went into the history.
+        Some(t) if t.id() == id && with(|p| p.machine.preparing()).unwrap_or(false) => fire(Trigger::PlayTrack(t, true)),
         _ => fire(Trigger::TokenExpired),
     }
 }

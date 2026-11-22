@@ -959,8 +959,7 @@ void uniffi_tonearm_ffi_fn_func_audio_cache_open(RustBuffer dir, uint64_t limit_
 #endif
 #ifndef UNIFFI_FFIDEF_UNIFFI_TONEARM_FFI_FN_FUNC_AUDIO_CACHE_PURGE
 #define UNIFFI_FFIDEF_UNIFFI_TONEARM_FFI_FN_FUNC_AUDIO_CACHE_PURGE
-void uniffi_tonearm_ffi_fn_func_audio_cache_purge(RustCallStatus *_Nonnull out_status
-    
+void uniffi_tonearm_ffi_fn_func_audio_cache_purge(int8_t keep_playing, RustCallStatus *_Nonnull out_status
 );
 #endif
 #ifndef UNIFFI_FFIDEF_UNIFFI_TONEARM_FFI_FN_FUNC_AUDIO_CACHE_REMOVE

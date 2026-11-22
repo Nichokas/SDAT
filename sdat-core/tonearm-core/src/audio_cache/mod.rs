@@ -176,6 +176,22 @@ fn evictions<'a>(entries: &[(&'a str, u64, u64)], limit: u64, protect: &[&str]) 
     out
 }
 
+/// A fill [`Store::begin`] registered.
+#[derive(Debug)]
+pub struct Job {
+    id: TrackId,
+    quality: TrackQuality,
+    label: Vec<u8>,
+    step: Step,
+}
+
+#[derive(Debug)]
+enum Step {
+    Hit(Cached),
+    Join(Arc<Fill>),
+    Own(Arc<Fill>),
+}
+
 #[derive(Debug, Default)]
 struct Fill {
     file: u64,
@@ -354,26 +370,46 @@ impl Store {
     /// Downloads `track_id` at `quality` unless a cached copy already serves it. Blocking. A second call for a track
     /// that is being filled waits for that fill instead of downloading it again.
     pub fn fill(&self, track_id: &str, quality: TrackQuality, label: Vec<u8>) -> CoreResult<Cached> {
+        let job = self.begin(track_id, quality, label)?;
+        self.finish(job)
+    }
+
+    /// The non-blocking start of [`Store::fill`]: from its return, a cancel of `track_id` stops this fill.
+    pub fn begin(&self, track_id: &str, quality: TrackQuality, label: Vec<u8>) -> CoreResult<Job> {
         let id = TrackId::parse(track_id)?;
-        let fill = loop {
-            let mut st = self.lock();
-            if st.limit == 0 {
-                return Err(CoreError::Cancelled("audio cache is off".into()));
-            }
-            if let Some(c) = self.hit(&mut st, id.as_str(), quality) {
-                self.save(&st);
-                return Ok(c);
-            }
-            // A cancelled fill may take a while to notice; a new request starts its own instead of failing with it.
-            if let Some(running) = st.fills.get(id.as_str()).filter(|f| !f.cancel.load(Ordering::Relaxed)).map(Arc::clone) {
-                drop(st);
-                running.wait()?;
-                continue;
-            }
+        let mut st = self.lock();
+        if st.limit == 0 {
+            return Err(CoreError::Cancelled("audio cache is off".into()));
+        }
+        let entries = st.index.entries.len();
+        let hit = self.hit(&mut st, id.as_str(), quality);
+        if st.index.entries.len() != entries {
+            self.save(&st);
+        }
+        let step = if let Some(c) = hit {
+            Step::Hit(c)
+        // A cancelled fill may take a while to notice; a new request starts its own instead of failing with it.
+        } else if let Some(running) = st.fills.get(id.as_str()).filter(|f| !f.cancel.load(Ordering::Relaxed)) {
+            Step::Join(Arc::clone(running))
+        } else {
             st.index.clock += 1;
             let fill = Arc::new(Fill { file: st.index.clock, ..Fill::default() });
             st.fills.insert(id.0.clone(), Arc::clone(&fill));
-            break fill;
+            Step::Own(fill)
+        };
+        Ok(Job { id, quality, label, step })
+    }
+
+    /// The blocking rest of [`Store::fill`].
+    pub fn finish(&self, job: Job) -> CoreResult<Cached> {
+        let Job { id, quality, label, step } = job;
+        let fill = match step {
+            Step::Hit(c) => return Ok(c),
+            Step::Join(running) => {
+                running.wait()?;
+                return self.fill(id.as_str(), quality, label);
+            }
+            Step::Own(fill) => fill,
         };
         let part = self.dir.join(format!("{}.part", stem(id.as_str(), fill.file)));
         let result = self.download(&id, quality, label, &fill, &part);
@@ -407,6 +443,9 @@ impl Store {
     fn download(&self, id: &TrackId, quality: TrackQuality, label: Vec<u8>, fill: &Fill, part: &Path) -> CoreResult<Cached> {
         use std::io::Write;
         let cancel = &fill.cancel;
+        if cancel.load(Ordering::Relaxed) {
+            return Err(cancelled());
+        }
         let manifest = self.upstream.manifest(id, quality)?;
         let (mut text, mut base) = if let Some(text) = hls::decode_data_url(&manifest.url)? {
             (text, None)
@@ -488,6 +527,11 @@ impl Store {
     pub fn set_limit(&self, bytes: u64) {
         let mut st = self.lock();
         st.limit = bytes;
+        if bytes == 0 {
+            for f in st.fills.values() {
+                f.cancel.store(true, Ordering::Relaxed);
+            }
+        }
         self.evict(&mut st, None);
         self.save(&st);
     }
@@ -504,15 +548,20 @@ impl Store {
         }
     }
 
-    /// Drops every entry and stops every fill.
-    pub fn purge(&self) {
+    /// Drops every entry and stops every fill. With `keep_playing`, the files of the last tracks looked up stay until
+    /// they stop playing; without it, nothing stays.
+    pub fn purge(&self, keep_playing: bool) {
         let mut st = self.lock();
         for f in st.fills.values() {
             f.cancel.store(true, Ordering::Relaxed);
         }
+        let released = if keep_playing { VecDeque::new() } else { std::mem::take(&mut st.recent) };
         let entries = std::mem::take(&mut st.index.entries);
         for (id, e) in entries {
             self.delete_files(&st, &id, e.file);
+        }
+        for id in &released {
+            self.delete_unindexed_files(&st, id);
         }
         self.save(&st);
     }
@@ -561,8 +610,20 @@ pub fn lookup(track_id: &str, wanted: TrackQuality) -> Option<Cached> {
     STORE.get()?.lookup(track_id, wanted)
 }
 
+fn store() -> CoreResult<&'static Store> {
+    STORE.get().ok_or_else(|| CoreError::Other("the audio cache is not open".into()))
+}
+
 pub fn fill(track_id: &str, quality: TrackQuality, label: Vec<u8>) -> CoreResult<Cached> {
-    STORE.get().ok_or_else(|| CoreError::Other("the audio cache is not open".into()))?.fill(track_id, quality, label)
+    store()?.fill(track_id, quality, label)
+}
+
+pub fn begin(track_id: &str, quality: TrackQuality, label: Vec<u8>) -> CoreResult<Job> {
+    store()?.begin(track_id, quality, label)
+}
+
+pub fn finish(job: Job) -> CoreResult<Cached> {
+    store()?.finish(job)
 }
 
 pub fn cancel(track_id: &str) {
@@ -591,9 +652,9 @@ pub fn remove(track_id: &str) {
     }
 }
 
-pub fn purge() {
+pub fn purge(keep_playing: bool) {
     if let Some(s) = STORE.get() {
-        s.purge();
+        s.purge(keep_playing);
     }
 }
 

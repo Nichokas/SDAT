@@ -236,6 +236,49 @@ fn a_cancelled_fill_leaves_nothing_behind() {
 }
 
 #[test]
+fn a_cancel_after_begin_stops_the_fill_before_any_request() {
+    let dir = TempDir::new();
+    let fake = Arc::new(Fake::default());
+    let store = open(&dir, LIMIT_DEFAULT, &fake);
+    let job = store.begin("1", Q, Vec::new()).unwrap();
+    store.cancel("1");
+    assert!(matches!(store.finish(job), Err(CoreError::Cancelled(_))));
+    assert_eq!(fake.requests(), 0);
+    assert_eq!(files(&dir), [INDEX]);
+}
+
+#[test]
+fn turning_the_cache_off_stops_a_running_fill() {
+    let dir = TempDir::new();
+    let fake = Arc::new(Fake { hold: Mutex::new(true), ..Fake::default() });
+    let store = Arc::new(open(&dir, LIMIT_DEFAULT, &fake));
+    let s = Arc::clone(&store);
+    let fill = std::thread::spawn(move || s.fill("1", Q, Vec::new()));
+    while store.lock().fills.get("1").is_none_or(|f| Arc::strong_count(f) < 2) {
+        std::thread::yield_now();
+    }
+    store.set_limit(0);
+    fake.release();
+    assert!(matches!(fill.join().unwrap(), Err(CoreError::Cancelled(_))));
+    let gets = fake.requests();
+    assert!(gets < 1 + 2 + 1 + SEGMENTS, "stopped before the last fragment, after {gets} requests");
+}
+
+#[test]
+fn a_purge_after_playback_stopped_leaves_no_audio() {
+    let dir = TempDir::new();
+    let fake = Arc::new(Fake::default());
+    let store = open(&dir, LIMIT_DEFAULT, &fake);
+    store.fill("1", Q, Vec::new()).unwrap();
+    store.lookup("1", Q).unwrap();
+    store.purge(true);
+    store.fill("2", Q, Vec::new()).unwrap();
+    store.lookup("2", Q).unwrap();
+    store.purge(false);
+    assert_eq!(files(&dir), [INDEX]);
+}
+
+#[test]
 fn a_removed_track_does_not_come_back_from_its_running_fill() {
     let dir = TempDir::new();
     let fake = Arc::new(Fake { hold: Mutex::new(true), ..Fake::default() });
@@ -387,7 +430,7 @@ fn a_new_fill_never_writes_over_the_playing_copy() {
     let playing = store.fill("1", Q, Vec::new()).unwrap();
     store.lookup("1", Q).unwrap();
     let (mp4, playlist) = (fs::read(&playing.mp4).unwrap(), fs::read(&playing.playlist).unwrap());
-    store.purge();
+    store.purge(true);
     let refilled = store.fill("1", Q, Vec::new()).unwrap();
     assert_ne!(refilled.mp4, playing.mp4);
     assert_eq!((fs::read(&playing.mp4).unwrap(), fs::read(&playing.playlist).unwrap()), (mp4, playlist));
@@ -419,7 +462,7 @@ fn purge_and_remove_keep_the_playing_files() {
     store.lookup("1", Q).unwrap();
     store.remove("3");
     assert!(!c.mp4.exists());
-    store.purge();
+    store.purge(true);
     assert_eq!(store.usage(), Usage { bytes: 0, tracks: 0, limit: LIMIT_DEFAULT });
     assert_eq!(store.lookup("1", Q), None);
     assert!(a.mp4.exists() && a.playlist.exists(), "still playing");

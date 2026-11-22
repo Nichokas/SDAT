@@ -639,7 +639,7 @@ fn install_actions(app: &adw::Application, window: &adw::ApplicationWindow) {
                 Ok(AccountChangeStatus::Completed) => {
                     toast(&tr("Signed out"));
                     let purge = || {
-                        tonearm_core::audio_cache::purge();
+                        tonearm_core::audio_cache::purge(false);
                         anyhow::Ok(())
                     };
                     if let Err(e) = api::run(purge).await {
@@ -778,7 +778,7 @@ fn audio_cache_group(d: &adw::PreferencesDialog) -> adw::PreferencesGroup {
             let (dw, r) = (dw.clone(), Rc::clone(&r));
             glib::spawn_future_local(async move {
                 let purge = || {
-                    audio_cache::purge();
+                    audio_cache::purge(true);
                     anyhow::Ok(())
                 };
                 if api::run(purge).await.is_ok() {

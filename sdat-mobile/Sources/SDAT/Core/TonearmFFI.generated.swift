@@ -9401,7 +9401,8 @@ public func audioCacheCancel(trackId: String)  {try! rustCall() {
  * Downloads `track` into the cache unless a copy at `quality` or better is there.
  *
  * A fill of a track that is already being filled waits for that one. Fails with `Cancelled` after
- * `audio_cache_cancel` or `audio_cache_purge`, and while the cache is off.
+ * `audio_cache_cancel` or `audio_cache_purge`, and while the cache is off. A cancel reaches every fill from the
+ * moment this call starts.
  */
 public func audioCacheFill(track: Track, quality: Quality)async throws  -> CachedTrack  {
     return
@@ -9461,11 +9462,13 @@ public func audioCacheOpen(dir: String, limitBytes: UInt64)throws   {try rustCal
 }
 }
 /**
- * Empties the cache. The files of what is playing go once it stops playing.
+ * Empties the cache. With `keep_playing` (Clear Cache), the files of what plays now and next go once they stop
+ * playing; without it (sign-out, after playback stopped), they go now.
  */
-public func audioCachePurge()  {try! rustCall() {
+public func audioCachePurge(keepPlaying: Bool)  {try! rustCall() {
         uniffiCallStatus in
-    uniffi_tonearm_ffi_fn_func_audio_cache_purge(uniffiCallStatus
+    uniffi_tonearm_ffi_fn_func_audio_cache_purge(
+        FfiConverterBool.lower(keepPlaying),uniffiCallStatus
     )
 }
 }
@@ -10250,7 +10253,7 @@ private let initializationResult: InitializationResult = {
     if (uniffi_tonearm_ffi_checksum_func_audio_cache_cancel() != 15826) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_tonearm_ffi_checksum_func_audio_cache_fill() != 44089) {
+    if (uniffi_tonearm_ffi_checksum_func_audio_cache_fill() != 59007) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_tonearm_ffi_checksum_func_audio_cache_limit_default() != 16931) {
@@ -10265,7 +10268,7 @@ private let initializationResult: InitializationResult = {
     if (uniffi_tonearm_ffi_checksum_func_audio_cache_open() != 57295) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_tonearm_ffi_checksum_func_audio_cache_purge() != 9712) {
+    if (uniffi_tonearm_ffi_checksum_func_audio_cache_purge() != 6113) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_tonearm_ffi_checksum_func_audio_cache_remove() != 43560) {
