@@ -534,3 +534,42 @@ fn render_png() {
         win.close();
     });
 }
+
+#[test]
+fn drag_targets_the_row_under_the_pointer_in_a_scrolled_list() {
+    run_gtk_test(|| {
+        let list = TrackList::new(vec![Col::position(), Col::title()]);
+        let tracks: Vec<Track> = (0..200)
+            .map(|k| {
+                let mut t = Track::default();
+                t.info.id = k.to_string();
+                t
+            })
+            .collect();
+        list.replace_all(&tracks);
+        // Same nesting as the real pages (routes::tracklist_scroller).
+        let sw = gtk::ScrolledWindow::new();
+        sw.set_policy(gtk::PolicyType::Never, gtk::PolicyType::External);
+        sw.set_child(Some(&crate::ui::components::main_content_scrollable(list.widget())));
+        let win = gtk::Window::new();
+        win.set_default_size(400, 400);
+        win.set_child(Some(&sw));
+        win.present();
+        let ctx = glib::MainContext::default();
+        let settle = || {
+            for _ in 0..40 {
+                while ctx.iteration(false) {}
+                std::thread::sleep(std::time::Duration::from_millis(5));
+            }
+        };
+        settle();
+        let h = list.0.view.upgrade().and_then(|v| v.first_child()).map_or(1, |c| c.height()).max(1);
+        sw.vadjustment().set_value(50.0 * f64::from(h));
+        settle();
+        let top = sw.vadjustment().value();
+        assert!(top > 0.0, "the list must scroll for this test");
+        let first_visible = (top / f64::from(h)).floor() as usize;
+        assert_eq!(row_index_at(&list.0, 0.5 * f64::from(h)), Some(first_visible));
+        win.close();
+    });
+}

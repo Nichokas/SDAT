@@ -263,6 +263,8 @@ struct Inner {
     drag: RefCell<Option<DragState>>,
     view: glib::WeakRef<gtk::ListView>,
     drop_target: RefCell<Option<gtk::DropTargetAsync>>,
+    /// Last laid-out row height: rows read 0 between a store change and the next layout.
+    row_height: Cell<i32>,
     /// Rows after the tracks that stand for tracks not loaded yet.
     placeholders: Cell<usize>,
     on_placeholder: RefCell<Option<PlaceholderFn>>,
@@ -319,6 +321,7 @@ impl TrackList {
             drag: RefCell::new(None),
             view: view.downgrade(),
             drop_target: RefCell::new(None),
+            row_height: Cell::new(1),
             placeholders: Cell::new(0),
             on_placeholder: RefCell::new(None),
         });
@@ -476,11 +479,16 @@ fn row_index_at(i: &Inner, y: f64) -> Option<usize> {
         return None;
     }
     let view = i.view.upgrade()?;
-    let h = std::iter::successors(view.first_child(), gtk::Widget::next_sibling)
+    if let Some(h) = std::iter::successors(view.first_child(), gtk::Widget::next_sibling)
         .map(|c| c.height())
         .find(|&h| h > 0)
-        .unwrap_or(1);
-    let idx = (y / f64::from(h)).floor() as usize;
+    {
+        i.row_height.set(h);
+    }
+    let h = i.row_height.get();
+    // Drop coordinates are relative to the visible part of the list.
+    let top = view.vadjustment().map_or(0.0, |a| a.value());
+    let idx = ((y + top) / f64::from(h)).floor() as usize;
     (idx < i.tracks.borrow().len()).then_some(idx)
 }
 
