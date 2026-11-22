@@ -360,11 +360,16 @@ fn stream_after_cached_copy_failed(id: &str) {
     let current = track_changed().with(|t| t.as_ref().map(|e| e.track.clone()));
     match current {
         Some(t) if t.id() == id && with(|p| p.machine.preparing()).unwrap_or(false) => {
-            if with(|p| p.machine.preparing_paused()).unwrap_or(false) {
+            // The new start drops the pause, so it loads paused and takes the pause again, as `play_at` starts.
+            let paused = with(|p| p.machine.preparing_paused()).unwrap_or(false);
+            if paused {
                 statemachine::start_paused(id);
             }
             // Its start already went into the history.
             fire(Trigger::PlayTrack(t, true));
+            if paused {
+                fire(Trigger::Pause);
+            }
         }
         Some(t) if t.id() == id => fire(Trigger::TokenExpired),
         // During a gapless handoff the failed copy is the next track's: the current one restarts and hands off to its

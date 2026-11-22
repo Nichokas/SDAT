@@ -297,7 +297,6 @@ thread_local! {
     /// A track whose next start loads paused (a handoff seeks it first).
     static START_PAUSED: RefCell<Option<(String, u64)>> = const { RefCell::new(None) };
     static START_PAUSED_TOKEN: Cell<u64> = const { Cell::new(0) };
-    static STARTED_PAUSED: Cell<bool> = const { Cell::new(false) };
 }
 
 /// The next start loads paused instead of playing, if it is `track_id`.
@@ -320,7 +319,6 @@ pub async fn on_play_track(playbin: &dyn Playbin, track: Track, skip_history: bo
     // Only the start it was asked for takes it, before its fetch, so a failed
     // fetch leaves nothing behind. A start that never comes is cleared by `play_at`.
     let paused = START_PAUSED.with(|s| s.borrow_mut().take_if(|(id, _)| id == track.id()).is_some());
-    STARTED_PAUSED.set(paused);
     let manifest = fetch_and_enqueue_track(playbin, track.id()).await?;
     playbin.set_state(if paused { gst::State::Paused } else { gst::State::Playing })?;
     let duration = track.duration();
@@ -547,9 +545,9 @@ impl Machine {
         self.state.get() == State::Preparing
     }
 
-    /// Whether the track preparing now was asked to start paused, or was paused while it prepared.
+    /// Whether the track preparing now starts paused: paused while it prepared, or a start that seeks first.
     pub fn preparing_paused(&self) -> bool {
-        self.pause_on_start.get() || STARTED_PAUSED.get()
+        self.pause_on_start.get()
     }
 
     /// Whether the machine is stopped and nothing is about to start playback.
