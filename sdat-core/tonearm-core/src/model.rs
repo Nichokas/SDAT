@@ -8,12 +8,16 @@ use std::time::Duration;
 
 use crate::api::{legacy, openapi};
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, serde::Serialize, serde::Deserialize)]
 pub enum TrackQuality {
     #[default]
+    #[serde(rename = "HI_RES_LOSSLESS")]
     HighResLossless,
+    #[serde(rename = "LOSSLESS")]
     Lossless,
+    #[serde(rename = "HIGH")]
     High,
+    #[serde(rename = "LOW")]
     Lossy,
 }
 
@@ -356,7 +360,7 @@ impl PlaybackSource {
     }
 }
 
-#[derive(Debug, Clone, Copy, Default, PartialEq)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct Normalization {
     pub peak: f64,
     pub gain: f64,
