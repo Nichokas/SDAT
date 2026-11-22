@@ -752,6 +752,10 @@ fn audio_cache_group(d: &adw::PreferencesDialog) -> adw::PreferencesGroup {
         Rc::new(move || {
             let Some(row) = row.upgrade() else { return };
             let u = audio_cache::usage();
+            if u.limit == 0 {
+                row.set_subtitle(&tr("Off"));
+                return;
+            }
             let n = i64::from(u.tracks);
             let used = glib::format_size_full(u.bytes, glib::FormatSizeFlags::IEC_UNITS);
             row.set_subtitle(&trn("%s of %s · %d track", "%s of %s · %d tracks", n, &[&used, &cache_size_label(u.limit), &n]));
