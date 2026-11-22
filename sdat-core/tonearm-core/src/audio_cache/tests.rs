@@ -242,7 +242,7 @@ fn a_cancel_after_begin_stops_the_fill_before_any_request() {
     let store = open(&dir, LIMIT_DEFAULT, &fake);
     let job = store.begin("1", Q, Vec::new()).unwrap();
     store.cancel("1");
-    assert!(matches!(store.finish(job), Err(CoreError::Cancelled(_))));
+    assert!(matches!(job.finish(), Err(CoreError::Cancelled(_))));
     assert_eq!(fake.requests(), 0);
     assert_eq!(files(&dir), [INDEX]);
 }
@@ -487,4 +487,46 @@ fn a_removed_copy_that_failed_goes_once_its_track_stops_playing() {
     store.lookup("3", Q);
     assert!(!failed.mp4.exists() && !failed.playlist.exists());
     assert!(next.mp4.exists() && next.playlist.exists(), "indexed files stay");
+}
+
+#[test]
+fn a_job_dropped_unfinished_releases_the_fill_that_joined_it() {
+    let dir = TempDir::new();
+    let fake = Arc::new(Fake::default());
+    let store = Arc::new(open(&dir, LIMIT_DEFAULT, &fake));
+    let job = store.begin("1", Q, Vec::new()).unwrap();
+    let s = Arc::clone(&store);
+    let joined = std::thread::spawn(move || s.fill("1", Q, Vec::new()));
+    while store.lock().fills.get("1").is_none_or(|f| Arc::strong_count(f) < 3) {
+        std::thread::yield_now();
+    }
+    drop(job);
+    assert!(matches!(joined.join().unwrap(), Err(CoreError::Cancelled(_))));
+    assert!(store.lock().fills.is_empty());
+    assert!(store.fill("1", Q, Vec::new()).is_ok());
+}
+
+#[test]
+fn a_fill_that_joined_a_lower_tier_fills_its_own_tier() {
+    let dir = TempDir::new();
+    let fake = Arc::new(Fake::default());
+    let store = open(&dir, LIMIT_DEFAULT, &fake);
+    let low = store.begin("1", TrackQuality::High, Vec::new()).unwrap();
+    let high = store.begin("1", TrackQuality::Lossless, Vec::new()).unwrap();
+    assert_eq!(low.finish().unwrap().quality, TrackQuality::High);
+    assert_eq!(high.finish().unwrap().quality, TrackQuality::Lossless);
+}
+
+#[test]
+fn a_fill_that_joined_a_lower_tier_stops_after_a_purge() {
+    let dir = TempDir::new();
+    let fake = Arc::new(Fake::default());
+    let store = open(&dir, LIMIT_DEFAULT, &fake);
+    let low = store.begin("1", TrackQuality::High, Vec::new()).unwrap();
+    let high = store.begin("1", TrackQuality::Lossless, Vec::new()).unwrap();
+    low.finish().unwrap();
+    store.purge(false);
+    assert!(matches!(high.finish(), Err(CoreError::Cancelled(_))));
+    assert_eq!(store.usage().tracks, 0);
+    assert_eq!(files(&dir), [INDEX]);
 }

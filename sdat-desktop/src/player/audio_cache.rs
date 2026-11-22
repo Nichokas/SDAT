@@ -65,10 +65,15 @@ fn fill_planned_tracks() -> ! {
         };
         done = generation;
         for id in tracks {
-            if PLAN.lock().unwrap_or_else(PoisonError::into_inner).generation != generation {
-                break;
-            }
-            match audio_cache::fill(&id, quality, Vec::new()) {
+            // Begun under the plan's lock: a stall that replaces the plan then cancels this fill, or it never begins.
+            let job = {
+                let p = PLAN.lock().unwrap_or_else(PoisonError::into_inner);
+                if p.generation != generation {
+                    break;
+                }
+                audio_cache::begin(&id, quality, Vec::new())
+            };
+            match job.and_then(audio_cache::Job::finish) {
                 Ok(_) => {}
                 // A purge (Clear, sign-out) or a new plan: the rest of this one must not fill the cache again.
                 Err(CoreError::Cancelled(_)) => break,

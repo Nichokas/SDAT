@@ -23,6 +23,8 @@ const INDEX: &str = "index.json";
 const TRIES: u32 = 3;
 /// What plays now and what plays next.
 const PROTECTED: usize = 2;
+/// Far more than a segment or playlist: a bigger body is not one, and must not fill the memory.
+const MAX_RESPONSE: usize = 64 << 20;
 
 /// A TIDAL track id: digits only, because it becomes a file name.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
@@ -104,7 +106,7 @@ impl Upstream for Tidal {
     fn get(&self, url: &Url, cancel: &AtomicBool) -> CoreResult<(Vec<u8>, Url)> {
         let mut resp = self.0.get(url.clone()).send()?.error_for_status()?;
         let from = resp.url().clone();
-        let mut body = Vec::with_capacity(resp.content_length().unwrap_or(0).min(64 << 20) as usize);
+        let mut body = Vec::with_capacity(resp.content_length().unwrap_or(0).min(MAX_RESPONSE as u64) as usize);
         let mut buf = vec![0; 64 * 1024];
         loop {
             if cancel.load(Ordering::Relaxed) {
@@ -113,6 +115,9 @@ impl Upstream for Tidal {
             let n = resp.read(&mut buf).map_err(|e| CoreError::Network(e.to_string()))?;
             if n == 0 {
                 return Ok((body, from));
+            }
+            if body.len() + n > MAX_RESPONSE {
+                return Err(CoreError::Network(format!("response from {from} is over {MAX_RESPONSE} bytes")));
             }
             body.extend_from_slice(&buf[..n]);
         }
@@ -176,13 +181,50 @@ fn evictions<'a>(entries: &[(&'a str, u64, u64)], limit: u64, protect: &[&str]) 
     out
 }
 
-/// A fill [`Store::begin`] registered.
+/// A fill [`Store::begin`] registered. Dropped unfinished, it releases the fills that joined it.
 #[derive(Debug)]
-pub struct Job {
+pub struct Job<'a> {
+    store: &'a Store,
     id: TrackId,
     quality: TrackQuality,
     label: Vec<u8>,
+    /// [`State::stops`] at [`Store::begin`].
+    stops: u64,
     step: Step,
+}
+
+impl Job<'_> {
+    /// The blocking rest of [`Store::fill`].
+    pub fn finish(mut self) -> CoreResult<Cached> {
+        let fill = match &self.step {
+            Step::Hit(c) => return Ok(c.clone()),
+            Step::Join(running) => {
+                let c = running.wait()?;
+                if rank(running.requested) >= rank(self.quality) {
+                    return Ok(c);
+                }
+                // That fill was for a lower tier. A cancel or purge since this job began must stop this one too, but
+                // it found that fill only, which has left the store.
+                let label = std::mem::take(&mut self.label);
+                return self.store.begin_since(self.id.as_str(), self.quality, label, Some(self.stops))?.finish();
+            }
+            Step::Own(fill) => Arc::clone(fill),
+        };
+        let store = self.store;
+        let part = store.dir.join(format!("{}.part", stem(self.id.as_str(), fill.file)));
+        let result = store.download(&self.id, self.quality, std::mem::take(&mut self.label), &fill, &part);
+        let _ = fs::remove_file(&part);
+        store.release(&self.id, &fill, result.clone());
+        result
+    }
+}
+
+impl Drop for Job<'_> {
+    fn drop(&mut self) {
+        if let Step::Own(fill) = &self.step {
+            self.store.release(&self.id, fill, Err(cancelled()));
+        }
+    }
 }
 
 #[derive(Debug)]
@@ -195,6 +237,7 @@ enum Step {
 #[derive(Debug, Default)]
 struct Fill {
     file: u64,
+    requested: TrackQuality,
     cancel: AtomicBool,
     result: Mutex<Option<CoreResult<Cached>>>,
     done: Condvar,
@@ -211,8 +254,9 @@ impl Fill {
         }
     }
 
+    /// The first result is the one every joined fill gets.
     fn finish(&self, r: CoreResult<Cached>) {
-        *self.result.lock().unwrap_or_else(PoisonError::into_inner) = Some(r);
+        self.result.lock().unwrap_or_else(PoisonError::into_inner).get_or_insert(r);
         self.done.notify_all();
     }
 }
@@ -225,6 +269,8 @@ struct State {
     /// `remove`. Files nothing indexes go when their track leaves.
     recent: VecDeque<String>,
     fills: HashMap<String, Arc<Fill>>,
+    /// Counts the calls that stop fills: cancel, remove, purge and turning the cache off.
+    stops: u64,
 }
 
 impl State {
@@ -252,7 +298,7 @@ impl Store {
         fs::create_dir_all(&dir)?;
         let index = fs::read(dir.join(INDEX)).ok().and_then(|b| serde_json::from_slice(&b).ok()).unwrap_or_default();
         let index = reconcile(&dir, index)?;
-        let store = Self { dir, upstream, state: Mutex::new(State { index, limit, recent: VecDeque::new(), fills: HashMap::new() }) };
+        let store = Self { dir, upstream, state: Mutex::new(State { index, limit, recent: VecDeque::new(), fills: HashMap::new(), stops: 0 }) };
         let mut st = store.lock();
         store.evict(&mut st, None);
         store.save(&st);
@@ -370,16 +416,23 @@ impl Store {
     /// Downloads `track_id` at `quality` unless a cached copy already serves it. Blocking. A second call for a track
     /// that is being filled waits for that fill instead of downloading it again.
     pub fn fill(&self, track_id: &str, quality: TrackQuality, label: Vec<u8>) -> CoreResult<Cached> {
-        let job = self.begin(track_id, quality, label)?;
-        self.finish(job)
+        self.begin(track_id, quality, label)?.finish()
     }
 
     /// The non-blocking start of [`Store::fill`]: from its return, a cancel of `track_id` stops this fill.
-    pub fn begin(&self, track_id: &str, quality: TrackQuality, label: Vec<u8>) -> CoreResult<Job> {
+    pub fn begin(&self, track_id: &str, quality: TrackQuality, label: Vec<u8>) -> CoreResult<Job<'_>> {
+        self.begin_since(track_id, quality, label, None)
+    }
+
+    /// Fails as cancelled if fills were stopped after `stops`.
+    fn begin_since(&self, track_id: &str, quality: TrackQuality, label: Vec<u8>, stops: Option<u64>) -> CoreResult<Job<'_>> {
         let id = TrackId::parse(track_id)?;
         let mut st = self.lock();
         if st.limit == 0 {
             return Err(CoreError::Cancelled("audio cache is off".into()));
+        }
+        if stops.is_some_and(|s| s != st.stops) {
+            return Err(cancelled());
         }
         let entries = st.index.entries.len();
         let hit = self.hit(&mut st, id.as_str(), quality);
@@ -393,34 +446,20 @@ impl Store {
             Step::Join(Arc::clone(running))
         } else {
             st.index.clock += 1;
-            let fill = Arc::new(Fill { file: st.index.clock, ..Fill::default() });
+            let fill = Arc::new(Fill { file: st.index.clock, requested: quality, ..Fill::default() });
             st.fills.insert(id.0.clone(), Arc::clone(&fill));
             Step::Own(fill)
         };
-        Ok(Job { id, quality, label, step })
+        Ok(Job { store: self, id, quality, label, stops: st.stops, step })
     }
 
-    /// The blocking rest of [`Store::fill`].
-    pub fn finish(&self, job: Job) -> CoreResult<Cached> {
-        let Job { id, quality, label, step } = job;
-        let fill = match step {
-            Step::Hit(c) => return Ok(c),
-            Step::Join(running) => {
-                running.wait()?;
-                return self.fill(id.as_str(), quality, label);
-            }
-            Step::Own(fill) => fill,
-        };
-        let part = self.dir.join(format!("{}.part", stem(id.as_str(), fill.file)));
-        let result = self.download(&id, quality, label, &fill, &part);
-        let _ = fs::remove_file(&part);
+    fn release(&self, id: &TrackId, fill: &Arc<Fill>, result: CoreResult<Cached>) {
         let mut st = self.lock();
-        if st.fills.get(id.as_str()).is_some_and(|f| Arc::ptr_eq(f, &fill)) {
+        if st.fills.get(id.as_str()).is_some_and(|f| Arc::ptr_eq(f, fill)) {
             st.fills.remove(id.as_str());
         }
         drop(st);
-        fill.finish(result.clone());
-        result
+        fill.finish(result);
     }
 
     fn get_with_retry(&self, url: &Url, cancel: &AtomicBool) -> CoreResult<(Vec<u8>, Url)> {
@@ -505,7 +544,9 @@ impl Store {
 
     /// Stops a running fill of `track_id` at its next read; it deletes its partial file.
     pub fn cancel(&self, track_id: &str) {
-        if let Some(f) = self.lock().fills.get(track_id) {
+        let mut st = self.lock();
+        st.stops += 1;
+        if let Some(f) = st.fills.get(track_id) {
             f.cancel.store(true, Ordering::Relaxed);
         }
     }
@@ -528,6 +569,7 @@ impl Store {
         let mut st = self.lock();
         st.limit = bytes;
         if bytes == 0 {
+            st.stops += 1;
             for f in st.fills.values() {
                 f.cancel.store(true, Ordering::Relaxed);
             }
@@ -539,6 +581,7 @@ impl Store {
     /// Also stops a running fill of `track_id`, so it does not come back.
     pub fn remove(&self, track_id: &str) {
         let mut st = self.lock();
+        st.stops += 1;
         if let Some(f) = st.fills.get(track_id) {
             f.cancel.store(true, Ordering::Relaxed);
         }
@@ -552,6 +595,7 @@ impl Store {
     /// they stop playing; without it, nothing stays.
     pub fn purge(&self, keep_playing: bool) {
         let mut st = self.lock();
+        st.stops += 1;
         for f in st.fills.values() {
             f.cancel.store(true, Ordering::Relaxed);
         }
@@ -618,12 +662,8 @@ pub fn fill(track_id: &str, quality: TrackQuality, label: Vec<u8>) -> CoreResult
     store()?.fill(track_id, quality, label)
 }
 
-pub fn begin(track_id: &str, quality: TrackQuality, label: Vec<u8>) -> CoreResult<Job> {
+pub fn begin(track_id: &str, quality: TrackQuality, label: Vec<u8>) -> CoreResult<Job<'static>> {
     store()?.begin(track_id, quality, label)
-}
-
-pub fn finish(job: Job) -> CoreResult<Cached> {
-    store()?.finish(job)
 }
 
 pub fn cancel(track_id: &str) {

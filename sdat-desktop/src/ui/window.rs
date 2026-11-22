@@ -745,7 +745,12 @@ fn cache_size_label(bytes: u64) -> String {
 }
 
 fn audio_cache_group(d: &adw::PreferencesDialog) -> adw::PreferencesGroup {
+    use std::sync::atomic::AtomicU64;
+    use std::sync::{Mutex, PoisonError};
     use tonearm_core::audio_cache::{self, LIMIT_DEFAULT, LIMIT_PRESETS};
+    // The workers of quick successive size choices run in any order, so each applies the newest choice.
+    static CHOSEN: AtomicU64 = AtomicU64::new(0);
+    static APPLYING: Mutex<()> = Mutex::new(());
     let usage = adw::ActionRow::builder().title(tr("Cached Tracks")).build();
     let refresh: Rc<dyn Fn()> = {
         let row = usage.downgrade();
@@ -803,10 +808,12 @@ fn audio_cache_group(d: &adw::PreferencesDialog) -> adw::PreferencesGroup {
     limit.connect_selected_notify(move |row| {
         let Some(&bytes) = LIMIT_PRESETS.get(row.selected() as usize) else { return };
         settings::set_audio_cache_limit(bytes);
+        CHOSEN.store(bytes, Ordering::SeqCst);
         let r = Rc::clone(&refresh);
         glib::spawn_future_local(async move {
-            let apply = move || {
-                audio_cache::set_limit(bytes);
+            let apply = || {
+                let _one = APPLYING.lock().unwrap_or_else(PoisonError::into_inner);
+                audio_cache::set_limit(CHOSEN.load(Ordering::SeqCst));
                 anyhow::Ok(())
             };
             if api::run(apply).await.is_ok() {

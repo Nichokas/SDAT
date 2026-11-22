@@ -77,7 +77,7 @@ pub async fn audio_cache_fill(track: Track, quality: Quality) -> Result<CachedTr
     let label = serde_json::to_vec(&Track { playlist_item_id: None, ..track }).map_err(|e| FfiError::Decode { detail: e.to_string() })?;
     // Registered before the first await, so a cancel never misses a fill that has not started downloading.
     let job = audio_cache::begin(&id, quality.into(), label)?;
-    let c = run(move || audio_cache::finish(job)).await?;
+    let c = run(move || job.finish()).await?;
     cached_track(c).ok_or_else(|| FfiError::Decode { detail: "cached track label".into() })
 }
 
