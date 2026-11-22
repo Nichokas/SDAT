@@ -65,7 +65,12 @@ object AudioCache {
     suspend fun lookup(id: String, quality: Quality): CachedTrack? = withContext(Dispatchers.IO) { audioCacheLookup(id, quality) }
 
     /** Downloads [t] unless a copy at [quality] or better is there; a fill of a track already filling joins it. */
-    suspend fun fill(t: Track, quality: Quality): CachedTrack = audioCacheFill(t, quality).also { refresh() }
+    suspend fun fill(t: Track, quality: Quality): CachedTrack = try {
+        audioCacheFill(t, quality)
+    } finally {
+        // A fill cancelled here may still land in the core.
+        refresh()
+    }
 
     private fun update(change: () -> Unit) {
         scope.launch {

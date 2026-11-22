@@ -824,12 +824,13 @@ class Playback(context: Context, private val prefs: Preferences, secrets: Secret
         }
         filling = t.id
         val fill = scope.async { AudioCache.fill(t, prefs.streamingQuality) }
+        var landed = false
         try {
             while (fill.isActive) {
                 if (fillStep(remainingMs(), headroom = true, blocked = false) == FillStep.GiveUp) return null
                 delay(FILL_POLL_MS)
             }
-            return fill.await()
+            return fill.await().also { landed = true }
         } catch (e: CancellationException) {
             throw e
         } catch (_: Exception) {
@@ -837,7 +838,7 @@ class Playback(context: Context, private val prefs: Preferences, secrets: Secret
         } finally {
             if (filling == t.id) filling = null
             // The core's fill runs on its own thread: cancelling the call leaves it downloading.
-            if (fill.isActive) {
+            if (!landed) {
                 AudioCache.cancel(t.id)
                 fill.cancel()
             }
