@@ -57,9 +57,13 @@ swiftly install --assume-yes --post-install-file "$post_install" "$(cat "$repo/s
 if [ -s "$post_install" ]; then sudo bash "$post_install"; fi
 rm -f "$post_install"
 # The toolchain links libxml2.so.2, but Ubuntu 25.10+ ships only libxml2.so.16. A symlink next to the toolchain's libraries fixes it without touching the system.
-if ! ldconfig -p | grep -q 'libxml2\.so\.2 '; then
-  swift_lib="$(swiftly use --print-location)/usr/lib/swift/linux"
-  ln -sf "$(ldconfig -p | awk '/libxml2\.so\.16 / {print $NF; exit}')" "$swift_lib/libxml2.so.2"
+ldcache="$(ldconfig -p)"
+if [[ "$ldcache" != *'libxml2.so.2 '* ]]; then
+  libxml2="$(awk '/libxml2\.so\.16 / && !p {p=$NF} END {print p}' <<< "$ldcache")"
+  if [ -n "$libxml2" ]; then
+    swift_lib="$(swiftly use --print-location)/usr/lib/swift/linux"
+    ln -sf "$libxml2" "$swift_lib/libxml2.so.2"
+  fi
 fi
 if ! command -v xtool >/dev/null; then
   curl -fL "https://github.com/xtool-org/xtool/releases/latest/download/xtool-$(uname -m).AppImage" -o /tmp/xtool

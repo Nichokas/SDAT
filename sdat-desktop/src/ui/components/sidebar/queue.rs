@@ -1,7 +1,6 @@
 //! Port of `components/sidebar/queue`.
 use std::cell::Cell;
 use std::rc::Rc;
-use std::time::Duration;
 
 use adw::prelude::*;
 
@@ -11,6 +10,7 @@ use crate::ui::components::{Col, TrackList};
 use crate::ui::dsl::{W, vstack, on_state};
 
 const SCROLL_MARGIN: f64 = 75.0;
+const MAX_SCROLL_SPEED: f64 = 4000.0;
 
 fn empty_page() -> adw::StatusPage {
     adw::StatusPage::builder().title(tr("No Tracks in Queue")).icon_name("music-queue-empty-symbolic").vexpand(true).build()
@@ -27,9 +27,10 @@ fn queue_tracklist(kind: QueueKind) -> TrackList {
     let list = TrackList::new(vec![
         Col::cover(),
         Col::title_album(),
-        Col::custom_widget_button(move |_, pos, _| {
+        Col::custom_widget_button(move |_, pos| {
             let b = gtk::Button::from_icon_name("user-trash-symbolic").tooltip(&tr("Remove Track from Queue")).class("flat").mend(10);
             b.connect_clicked(move |_| {
+                let Some(pos) = pos.get() else { return };
                 let r = match kind {
                     QueueKind::User => player::remove_from_user_queue(pos),
                     QueueKind::Base => player::base_queue().remove_at(pos),
@@ -67,31 +68,53 @@ fn queue_list() -> gtk::ScrolledWindow {
     let content = vstack(&[&user_w, base.widget()]).valign(gtk::Align::Start);
     let sw = gtk::ScrolledWindow::new().hmargin(12).vexp(true);
     sw.set_child(Some(&content));
-    // Auto-scroll while dragging near the edges.
-    let action = Rc::new(Cell::new(0.0f64));
-    let (a, w) = (Rc::clone(&action), sw.downgrade());
-    glib::timeout_add_local(Duration::from_millis(10), move || {
-        let Some(sw) = w.upgrade() else { return glib::ControlFlow::Break };
-        if a.get() != 0.0 {
-            let adj = sw.vadjustment();
-            adj.set_value(adj.value() + a.get() * 10.0);
-        }
-        glib::ControlFlow::Continue
-    });
+    // Auto-scroll on the display frame clock only while dragging near an edge.
+    let speed = Rc::new(Cell::new(0.0));
+    let tick = Rc::new(Cell::new(None));
     let motion = gtk::DropControllerMotion::new();
-    let (a, w) = (Rc::clone(&action), sw.downgrade());
+    let (speed_cb, tick_cb, sw_weak) = (Rc::clone(&speed), Rc::clone(&tick), sw.downgrade());
     motion.connect_motion(move |_, _, y| {
-        let Some(sw) = w.upgrade() else { return };
-        let h = f64::from(sw.height());
-        if y < SCROLL_MARGIN {
-            a.set((SCROLL_MARGIN - y) / SCROLL_MARGIN * -4.0);
-        } else if h - y < SCROLL_MARGIN {
-            a.set((SCROLL_MARGIN - (h - y)) / SCROLL_MARGIN * 4.0);
+        let Some(sw) = sw_weak.upgrade() else { return };
+        let height = f64::from(sw.height());
+        let next_speed = if y < SCROLL_MARGIN {
+            (SCROLL_MARGIN - y) / SCROLL_MARGIN * -MAX_SCROLL_SPEED
+        } else if height - y < SCROLL_MARGIN {
+            (SCROLL_MARGIN - (height - y)) / SCROLL_MARGIN * MAX_SCROLL_SPEED
         } else {
-            a.set(0.0);
+            0.0
+        };
+        speed_cb.set(next_speed);
+        if next_speed != 0.0 {
+            let id = tick_cb.take().unwrap_or_else(|| {
+                let speed = Rc::clone(&speed_cb);
+                let tick = Rc::clone(&tick_cb);
+                let last_us = Cell::new(None);
+                sw.add_tick_callback(move |sw, clock| {
+                    let cur_speed = speed.get();
+                    if cur_speed == 0.0 {
+                        tick.set(None);
+                        return glib::ControlFlow::Break;
+                    }
+                    let now = clock.frame_time();
+                    let dt_secs = last_us
+                        .replace(Some(now))
+                        .map_or(1.0 / 60.0, |prev| (now.saturating_sub(prev) as f64 / 1_000_000.0).clamp(0.0, 0.05));
+                    let adj = sw.vadjustment();
+                    adj.set_value(adj.value() + cur_speed * dt_secs);
+                    glib::ControlFlow::Continue
+                })
+            });
+            tick_cb.set(Some(id));
+        } else if let Some(id) = tick_cb.take() {
+            id.remove();
         }
     });
-    motion.connect_leave(move |_| action.set(0.0));
+    motion.connect_leave(move |_| {
+        speed.set(0.0);
+        if let Some(id) = tick.take() {
+            id.remove();
+        }
+    });
     sw.add_controller(motion);
     // Keep the tracklists alive with the scrolled window.
     sw.connect_destroy(move |_| {

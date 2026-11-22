@@ -119,7 +119,9 @@ fn parse_po(src: &str) -> Catalog {
     let mut field = F::None;
     let (mut id, mut id_plural, mut strs): (String, String, Vec<String>) = Default::default();
     let mut has_entry = false;
-    let flush = |id: &mut String, id_plural: &mut String, strs: &mut Vec<String>, cat: &mut Catalog| {
+    let mut entry_fuzzy = false;
+    let mut pending_fuzzy = false;
+    let flush = |id: &mut String, id_plural: &mut String, strs: &mut Vec<String>, fuzzy: &mut bool, cat: &mut Catalog| {
         if id.is_empty() {
             if let Some(h) = strs.first() {
                 for line in h.lines() {
@@ -128,26 +130,44 @@ fn parse_po(src: &str) -> Catalog {
                     }
                 }
             }
-        } else if !id_plural.is_empty() {
-            if strs.iter().any(|s| !s.is_empty()) {
-                cat.plural.insert(id.clone(), strs.clone());
-            }
-        } else if let Some(s) = strs.first()
-            && !s.is_empty() {
+        } else if !*fuzzy {
+            if !id_plural.is_empty() {
+                if strs.iter().any(|s| !s.is_empty()) {
+                    cat.plural.insert(id.clone(), strs.clone());
+                }
+            } else if let Some(s) = strs.first()
+                && !s.is_empty()
+            {
                 cat.singular.insert(id.clone(), s.clone());
             }
+        }
         id.clear();
         id_plural.clear();
         strs.clear();
+        *fuzzy = false;
     };
     for line in src.lines() {
         let line = line.trim();
-        if line.starts_with('#') || line.is_empty() {
+        if line.is_empty() {
+            pending_fuzzy = false;
+            continue;
+        }
+        if let Some(flags) = line.strip_prefix("#,") {
+            if flags.split(|c: char| c == ',' || c.is_whitespace()).any(|flag| flag == "fuzzy") {
+                pending_fuzzy = true;
+            }
+            continue;
+        }
+        if line.starts_with("#~") {
+            pending_fuzzy = false;
+            continue;
+        }
+        if line.starts_with('#') {
             continue;
         }
         if line.starts_with("msgctxt ") {
             if has_entry {
-                flush(&mut id, &mut id_plural, &mut strs, &mut cat);
+                flush(&mut id, &mut id_plural, &mut strs, &mut entry_fuzzy, &mut cat);
             }
             has_entry = false;
             field = F::Ctx;
@@ -156,9 +176,10 @@ fn parse_po(src: &str) -> Catalog {
             field = F::IdPlural;
         } else if let Some(rest) = line.strip_prefix("msgid ") {
             if has_entry {
-                flush(&mut id, &mut id_plural, &mut strs, &mut cat);
+                flush(&mut id, &mut id_plural, &mut strs, &mut entry_fuzzy, &mut cat);
             }
             has_entry = true;
+            entry_fuzzy = std::mem::take(&mut pending_fuzzy);
             id = unquote(rest);
             field = F::Id;
         } else if let Some(rest) = line.strip_prefix("msgstr[") {
@@ -183,7 +204,7 @@ fn parse_po(src: &str) -> Catalog {
         }
     }
     if has_entry {
-        flush(&mut id, &mut id_plural, &mut strs, &mut cat);
+        flush(&mut id, &mut id_plural, &mut strs, &mut entry_fuzzy, &mut cat);
     }
     cat
 }
@@ -331,5 +352,57 @@ mod tests {
         assert_eq!(sprintf("%d Pistas de %s", &[&3, &"x"]), "3 Pistas de x");
         assert_eq!(PluralRule::Russian.index(22), 1);
         assert_eq!(PluralRule::Russian.index(11), 2);
+    }
+
+    #[test]
+    fn skips_fuzzy_entries() {
+        let po = "\
+#, fuzzy
+msgid \"\"
+msgstr \"\"
+\"Plural-Forms: nplurals=3; plural=(n%10==1 && n%100!=11 ? 0 : 1);\\n\"
+
+msgid \"Before\"
+msgstr \"Vorher\"
+#, fuzzy
+msgid \"Adjacent Fuzzy\"
+msgstr \"Stale\"
+
+#, fuzzy, c-format
+msgid \"Format %s\"
+msgstr \"Missing placeholder\"
+
+#, fuzzy
+msgid \"%d Song\"
+msgid_plural \"%d Songs\"
+msgstr[0] \"%d Old\"
+msgstr[1] \"%d Olds\"
+
+#, not-fuzzy
+msgid \"Kept\"
+msgstr \"Behalten\"
+
+#, fuzzy
+#~ msgid \"Obsolete\"
+#~ msgstr \"Veraltet\"
+
+msgid \"After Obsolete\"
+msgstr \"Danach\"
+";
+        let c = parse_po(po);
+        assert_eq!(c.plural_rule.index(22), 1);
+        assert_eq!(c.singular.get("Before").map(String::as_str), Some("Vorher"));
+        assert!(!c.singular.contains_key("Adjacent Fuzzy"));
+        assert!(!c.singular.contains_key("Format %s"));
+        assert!(!c.plural.contains_key("%d Song"));
+        assert_eq!(c.singular.get("Kept").map(String::as_str), Some("Behalten"));
+        assert_eq!(c.singular.get("After Obsolete").map(String::as_str), Some("Danach"));
+
+        let bg = catalog_for(["bg"]);
+        let secret_err = "An unknown error occurred when checking for a secret service provider.\n\nSigning in may or may not work. Please see the raw error message for more details:\n\n%s";
+        assert!(!bg.singular.contains_key(secret_err));
+        assert!(sprintf(bg.singular.get(secret_err).map_or(secret_err, String::as_str), &[&"dbus error"]).contains("dbus error"));
+        assert!(!bg.singular.contains_key("Add to Queue"));
+        assert_eq!(bg.singular.get("Album").map(String::as_str), Some("Албум"));
     }
 }

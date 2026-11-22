@@ -44,31 +44,39 @@ class PagedLoader<T>(
 ) : AutoCloseable {
     var list by mutableStateOf(PagedList<T>())
         private set
+    private var closed = false
 
     /** Loads the next page unless one is loading, the end was reached, or an error waits for [retry]. */
     fun more(): Job? {
-        if (!list.canLoad) return null
+        if (closed || !list.canLoad) return null
         list = list.started()
         return scope.launch {
+            if (closed) {
+                list = list.copy(loading = false)
+                return@launch
+            }
             try {
                 val page = next()
-                list = list.loaded(page)
+                list = if (closed) list.copy(loading = false) else list.loaded(page)
             } catch (e: CancellationException) {
                 list = list.copy(loading = false)
                 throw e
             } catch (e: Exception) {
-                list = list.failed(friendlyMessage(e))
+                list = if (closed) list.copy(loading = false) else list.failed(friendlyMessage(e))
             }
         }
     }
 
     fun retry(): Job? {
+        if (closed) return null
         list = list.retried()
         return more()
     }
 
     // The FFI keeps its own reference for a call in flight, so closing here is safe mid-page.
     override fun close() {
+        if (closed) return
+        closed = true
         pager?.close()
     }
 }

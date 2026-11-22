@@ -27,6 +27,7 @@ final class Recents {
 
     func reset() {
         items.removeAll()
+        UserDefaults.standard.removeObject(forKey: key)
     }
 
     func add(_ item: Item) {

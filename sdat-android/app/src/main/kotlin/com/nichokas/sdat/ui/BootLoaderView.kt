@@ -16,6 +16,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableDoubleStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -28,7 +29,6 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import com.nichokas.sdat.core.Boot
 import kotlin.math.sin
-import kotlinx.coroutines.delay
 
 /**
  * First-sign-in loader: the mini-player's dashed ring filling white with the warm-up's progress, and three squares
@@ -39,11 +39,10 @@ fun BootLoaderView(progress: Double, size: Dp = 96.dp) {
     val context = LocalContext.current
     val reduceMotion = remember { Settings.Global.getFloat(context.contentResolver, Settings.Global.ANIMATOR_DURATION_SCALE, 1f) == 0f }
     var t by remember { mutableDoubleStateOf(0.0) }
-    LaunchedEffect(reduceMotion) {
-        val start = System.nanoTime()
+    LaunchedEffect(Unit) {
+        val start = withFrameNanos { it }
         while (true) {
-            t = (System.nanoTime() - start) / 1e9
-            delay(if (reduceMotion) 33 else 100)
+            withFrameNanos { now -> t = (now - start) / 1e9 }
         }
     }
     Box(

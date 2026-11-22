@@ -6,6 +6,8 @@ func friendlyMessage(_ error: Error, file: StaticString = #fileID, line: UInt = 
     // Frames only, and only for the unexpected errors, which become Sentry reports.
     diagRecord(level: level, target: "app", message: "\(diagSummary(error)) at \(file):\(line)",
                backtrace: level == .error ? Thread.callStackSymbols.joined(separator: "\n") : nil)
+    if let e = error as? Downloads.Failure, let msg = e.errorDescription { return msg }
+    if let e = error as? DeadlineError, let msg = e.errorDescription { return msg }
     guard let e = error as? FfiError else {
         if (error as? URLError) != nil { return "Can't reach TIDAL. Check your connection." }
         return "Something went wrong. Please try again."
@@ -31,7 +33,8 @@ func friendlyMessage(_ error: Error, file: StaticString = #fileID, line: UInt = 
 /// Offline, cancelled, signed-out, Last.fm and 4xx errors are expected: they stay in the log and become Sentry
 /// breadcrumbs, while anything else is reported as an error.
 private func diagLevel(for error: Error) -> DiagLevel {
-    if error is URLError { return .warn }
+    if error is URLError || error is DeadlineError { return .warn }
+    if case Downloads.Failure.encrypted = error { return .warn }
     // A Rust panic surfaces as the generated, fileprivate `UniffiInternalError.rustPanic`; the core's panic hook
     // already reported it with its own backtrace. The type's other cases are binding bugs and stay errors.
     if (error as NSError).domain.hasSuffix("UniffiInternalError"), String(describing: error).hasPrefix("rustPanic(") {
@@ -49,6 +52,13 @@ private func diagLevel(for error: Error) -> DiagLevel {
 private func diagSummary(_ error: Error) -> String {
     switch error {
     case let e as URLError: return "URLError \(e.code.rawValue)"
+    case is DeadlineError: return "Request timed out"
+    case let e as Downloads.Failure:
+        switch e {
+        case .encrypted: return "Download encrypted"
+        case .unsupported(let kind): return "Download unsupported (\(kind))"
+        case .unplayable: return "Download unplayable"
+        }
     case let e as FfiError:
         switch e {
         case .NotSignedIn: return "Not signed in"

@@ -74,7 +74,7 @@ object Discover {
         } catch (e: CancellationException) {
             throw e
         } catch (e: Exception) {
-            if (pool.tracks.isEmpty() && !hadCache) error = e.message ?: e.javaClass.simpleName
+            if (pool.tracks.isEmpty() && !hadCache) error = friendlyMessage(e)
         }
         // The cached plane stays on screen this session; the fresh pool shows on the next launch.
         if (!hadCache) tracks = pool.tracks.toList()

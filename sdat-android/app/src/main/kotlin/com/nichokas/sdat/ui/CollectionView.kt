@@ -25,6 +25,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.nichokas.sdat.core.Chrome
+import com.nichokas.sdat.core.Downloads
 import com.nichokas.sdat.core.Favs
 import com.nichokas.sdat.core.Live
 import com.nichokas.sdat.core.LocalRecent
@@ -98,8 +99,8 @@ fun CollectionView() {
         collapsesChrome = true,
         actions = {
             GlasmioIconButton({ Live.showScanner = true }) { SdatIcon("qrcode.viewfinder", "Scan Listen Together invitation", size = 20.dp) }
-            // Clear of the profile button, which floats over the top bar's trailing edge.
-            Spacer(Modifier.width(52.dp))
+            // Clear of the floating buttons over the top bar's trailing edge (profile, plus download status while downloading).
+            Spacer(Modifier.width(if (Downloads.queue.isActive) 104.dp else 52.dp))
         },
     ) {
         item(key = "sections") {

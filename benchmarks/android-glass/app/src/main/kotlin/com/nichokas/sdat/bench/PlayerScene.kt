@@ -15,6 +15,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.foundation.rememberScrollState
@@ -69,7 +70,7 @@ internal fun Player(covers: List<Cover>, images: ImageCounter, seconds: State<Fl
         },
         overlayContent = {
             HorizontalPager(pager, Modifier.fillMaxSize()) { page ->
-                if (page == 0) NowPlaying(art, images, seconds) else Queue(covers, images)
+                if (page == 0) NowPlaying(art, images, seconds) else Queue(covers, images, seconds)
             }
         },
     )
@@ -99,14 +100,25 @@ private fun NowPlaying(art: Cover, images: ImageCounter, seconds: State<Float>) 
         }
         Spacer(Modifier.height(16.dp))
         // A pulse like the cover's play/pause spring, so the page redraws every frame.
-        Box(Modifier.size(8.dp).graphicsLayer { val s = 1f + 0.3f * sin(seconds.value * 6f); scaleX = s; scaleY = s }.background(Color.White, CircleShape))
+        Pulse(seconds)
     }
     }
 }
 
 @Composable
-private fun Queue(covers: List<Cover>, images: ImageCounter) {
-    LazyColumn(Modifier.fillMaxSize().statusBarsPadding(), contentPadding = PaddingValues(bottom = 24.dp)) {
-        items(80) { i -> CoverRow(covers[(i + 5) % covers.size], "Up next ${i + 1}", "Artist", images) }
+private fun Queue(covers: List<Cover>, images: ImageCounter, seconds: State<Float>) {
+    val list = rememberLazyListState()
+    AutoScroll(list, speedDp = 1200f)
+    Box(Modifier.fillMaxSize()) {
+        LazyColumn(Modifier.fillMaxSize().statusBarsPadding(), state = list, contentPadding = PaddingValues(bottom = 24.dp)) {
+            items(80) { i -> CoverRow(covers[(i + 5) % covers.size], "Up next ${i + 1}", "Artist", images) }
+        }
+        // Keeps frames submitting on AutoScroll's first and turnaround frames, where dispatchRawDelta can return 0.
+        Pulse(seconds, Modifier.align(Alignment.BottomCenter).padding(bottom = 12.dp))
     }
+}
+
+@Composable
+private fun Pulse(seconds: State<Float>, modifier: Modifier = Modifier) {
+    Box(modifier.size(8.dp).graphicsLayer { val s = 1f + 0.3f * sin(seconds.value * 6f); scaleX = s; scaleY = s }.background(Color.White, CircleShape))
 }

@@ -373,6 +373,9 @@ struct CoverBackdrop: View {
 }
 
 enum BackdropArt {
+    // Reused across renders; CIContext is thread-safe and expensive to construct per cover.
+    private static let context = CIContext()
+
     /// A 64 px copy blurred until no detail is left: the screen stretches it into smooth colour
     /// fields with plain linear filtering, with no blur left to run per frame.
     static func render(_ image: UIImage) -> UIImage? {
@@ -386,7 +389,7 @@ enum BackdropArt {
             .applyingGaussianBlur(sigma: 5)
             .applyingFilter("CIColorControls", parameters: [kCIInputSaturationKey: 1.8])
             .cropped(to: small.extent)
-        guard let res = CIContext().createCGImage(out, from: out.extent) else { return nil }
+        guard let res = context.createCGImage(out, from: out.extent) else { return nil }
         return UIImage(cgImage: res)
     }
 }

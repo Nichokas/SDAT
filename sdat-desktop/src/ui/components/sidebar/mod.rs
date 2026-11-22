@@ -5,6 +5,9 @@ pub mod lyrics;
 pub mod player_view;
 pub mod queue;
 
+use std::cell::Cell;
+use std::rc::Rc;
+
 use adw::prelude::*;
 use gtk::pango;
 
@@ -38,36 +41,51 @@ pub fn mini_player() -> adw::Bin {
     title.set_ellipsize(pango::EllipsizeMode::End);
     let album = label("").class("dimmed").halign(gtk::Align::Start);
     album.set_ellipsize(pango::EllipsizeMode::End);
+    let token = Rc::new(Cell::new(0u64));
     on_state(player::track_changed(), &cover, {
         let (title, album) = (title.downgrade(), album.downgrade());
         move |img, ev| {
-            let Some(ev) = ev else { return };
-            let c = ev.track.cover(80);
-            if !c.has_static() {
-                log::error!("Failed to load cover URL");
-                return;
-            }
-            let w = img.downgrade();
-            glib::spawn_future_local(async move {
-                if let (Some(t), Some(i)) = (imgutil::fetch(&c.static_).await, w.upgrade()) {
-                    i.set_paintable(Some(&t));
+            let mine = token.get().wrapping_add(1);
+            token.set(mine);
+            let Some(ev) = ev else {
+                if let Some(t) = title.upgrade() {
+                    t.set_text("");
                 }
-            });
+                if let Some(a) = album.upgrade() {
+                    a.set_text("");
+                }
+                img.set_paintable(Some(&imgutil::missing_album()));
+                return;
+            };
             if let Some(t) = title.upgrade() {
                 t.set_text(&ev.track.formatted_title());
             }
             if let Some(a) = album.upgrade() {
-                a.set_text(&ev.track.album.as_ref().map(|a| a.title.clone()).unwrap_or_default());
+                a.set_text(ev.track.album.as_ref().map_or("", |a| a.title.as_str()));
             }
+            img.set_paintable(Some(&imgutil::missing_album()));
+            let c = ev.track.cover(80);
+            if !c.has_static() {
+                return;
+            }
+            let (w, tok) = (img.downgrade(), Rc::clone(&token));
+            glib::spawn_future_local(async move {
+                if let (Some(t), Some(i)) = (imgutil::fetch(&c.static_).await, w.upgrade())
+                    && tok.get() == mine
+                {
+                    i.set_paintable(Some(&t));
+                }
+            });
         }
     });
     let texts = spacing(vstack(&[title.upcast_ref(), album.upcast_ref()]), 3).valign(gtk::Align::Center).halign(gtk::Align::Start).hexp(true);
+    let spinner = adw::Spinner::new();
     let pp = gtk::Button::from_icon_name("play-symbolic").tooltip(&tr("Play / Pause")).class("flat");
     pp.connect_clicked(|_| crate::live::user_play_pause());
-    on_state(player::playback_state_changed(), &pp, |b, ps| {
+    on_state(player::playback_state_changed(), &pp, move |b, ps| {
         b.set_sensitive(!ps.loading);
         if ps.loading {
-            b.set_child(Some(&adw::Spinner::new()));
+            b.set_child(Some(&spinner));
         } else {
             b.set_icon_name(if ps.status == PlaybackStatus::Playing { "pause-symbolic" } else { "play-symbolic" });
         }

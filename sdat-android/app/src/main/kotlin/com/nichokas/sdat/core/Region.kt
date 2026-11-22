@@ -28,6 +28,7 @@ object Region {
     fun select(code: String?) {
         setPreferredCountry(code)
         preferred = preferredCountry()
+        ArtistCache.clear()
     }
 
     suspend fun loadAutomatic() {

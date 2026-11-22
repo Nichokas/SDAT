@@ -91,7 +91,7 @@ jobs:
           tool: cargo-ndk
       - uses: gradle/actions/setup-gradle@v4
         with:
-          cache-read-only: ${{ github.event_name == 'api' }}
+          cache-read-only: ${{ github.ref != 'refs/heads/main' || github.event_name == 'api' }}
       - name: Build, lint and test
         working-directory: sdat-android
         env:

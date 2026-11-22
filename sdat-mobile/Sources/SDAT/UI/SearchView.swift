@@ -25,10 +25,10 @@ struct SearchView: View {
                     }
                     switch filter {
                     case .top: top
-                    case .tracks: PagedTracks(title: "Search", pager: searchTracks(query: debounced)).id(debounced)
-                    case .artists: PagedArtists(title: "Search", pager: searchArtists(query: debounced)).id(debounced)
-                    case .albums: PagedAlbums(title: "Search", pager: searchAlbums(query: debounced)).id(debounced)
-                    case .playlists: PagedPlaylists(title: "Search", pager: searchPlaylists(query: debounced)).id(debounced)
+                    case .tracks: PagedTracks(title: "Search", makePager: { searchTracks(query: debounced) }).id(debounced)
+                    case .artists: PagedArtists(title: "Search", makePager: { searchArtists(query: debounced) }).id(debounced)
+                    case .albums: PagedAlbums(title: "Search", makePager: { searchAlbums(query: debounced) }).id(debounced)
+                    case .playlists: PagedPlaylists(title: "Search", makePager: { searchPlaylists(query: debounced) }).id(debounced)
                     }
                 }
             }
@@ -38,15 +38,22 @@ struct SearchView: View {
         .searchable(text: $query, placement: .navigationBarDrawer(displayMode: .always), prompt: "Artists, songs, albums")
         .task(id: query) {
             let q = query.trimmingCharacters(in: .whitespaces)
-            if q.isEmpty { debounced = ""; results = nil; topArtist = nil; error = nil; return }
             // One-letter queries return junk; wait for at least two characters.
-            guard q.count >= 2 else { return }
+            guard q.count >= 2 else {
+                generation += 1
+                debounced = ""; results = nil; topArtist = nil; error = nil; searching = false
+                return
+            }
             // Re-appearing (tab switch, chrome changes) must not search again.
-            if q == debounced, results != nil || error != nil { return }
-            try? await Task.sleep(for: .milliseconds(300))
-            guard !Task.isCancelled else { return }
+            if q == debounced, results != nil || error != nil {
+                searching = false
+                return
+            }
             generation += 1
             let gen = generation
+            defer { if gen == generation { searching = false } }
+            try? await Task.sleep(for: .milliseconds(300))
+            guard !Task.isCancelled else { return }
             searching = true
             if debounced != q, results == nil { debounced = q }
             do {

@@ -26,7 +26,12 @@ impl Sink for Events {
 #[test]
 fn filtered_search_uses_opaque_id_and_reports_a_rejected_page() {
     const TRACKS: &str = "/v2/searchResults/result%2Fid/relationships/tracks";
-    const FIRST: &str = r#"{"data":[{"id":"1","type":"tracks"}],"included":[{"id":"1","type":"tracks"}],"links":{"meta":{"nextCursor":"next+page"}}}"#;
+    const FIRST: &str = r#"{"data":[{"id":"1","type":"tracks"}],"included":[
+        {"id":"1","type":"tracks","relationships":{"artists":{"data":[{"id":"a-track","type":"artists"}]},"albums":{"data":[{"id":"alb-1","type":"albums"}]}}},
+        {"id":"alb-1","type":"albums","attributes":{"title":"Compilation"},"relationships":{"artists":{"data":[{"id":"a-album","type":"artists"}]}}},
+        {"id":"a-track","type":"artists","attributes":{"name":"Track Artist"}},
+        {"id":"a-album","type":"artists","attributes":{"name":"Various Artists"}}
+    ],"links":{"meta":{"nextCursor":"next+page"}}}"#;
     const SECOND: &str = r#"{"data":[{"id":"2","type":"tracks"}],"included":[{"id":"2","type":"tracks"}]}"#;
 
     let listener = TcpListener::bind("127.0.0.1:0").expect("bind mock TIDAL");
@@ -35,8 +40,8 @@ fn filtered_search_uses_opaque_id_and_reports_a_rejected_page() {
     diag::init(None, Some(Box::new(Events(events_tx))));
 
     let server = std::thread::spawn(move || {
-        let first_request = format!("GET {TRACKS}?include=tracks.albums.coverArt%2Ctracks.albums.artists&");
-        let next_request = format!("GET {TRACKS}?page%5Bcursor%5D=next%2Bpage&");
+        let first_request = format!("GET {TRACKS}?include=tracks.artists%2Ctracks.albums.coverArt&");
+        let next_request = format!("GET {TRACKS}?page%5Bcursor%5D=next%2Bpage&include=tracks.artists%2Ctracks.albums.coverArt&");
         for (expected, status, body) in [
             ("GET /v1/country/context?", "200 OK", r#"{"countryCode":"US"}"#),
             ("POST /v1/oauth2/token ", "200 OK", r#"{"access_token":"test-token","expires_in":3600}"#),
@@ -69,7 +74,9 @@ fn filtered_search_uses_opaque_id_and_reports_a_rejected_page() {
     });
 
     let mut tracks = search_tracks(SearchTarget::Query("just keep watching"));
-    assert_eq!(tracks.next_page().expect("first page")[0].id(), "1");
+    let first_page = tracks.next_page().expect("first page");
+    assert_eq!(first_page[0].id(), "1");
+    assert_eq!(first_page[0].artist_names(), ["Track Artist"]);
     assert!(matches!(tracks.next_page(), Err(CoreError::Http { status: 400, .. })));
 
     let event = events_rx.try_recv().expect("search error reached the diagnostics sink");

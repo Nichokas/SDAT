@@ -9,7 +9,6 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import com.nichokas.sdat.core.Region
 import io.github.neoruaa.glasmio.core.GlasmioTheme
-import io.github.neoruaa.glasmio.scaffold.GlasmioPinnedListPage
 import io.github.neoruaa.glasmio.ui.GlasmioGroupedList
 import io.github.neoruaa.glasmio.ui.GlasmioGroupedTableFooter
 import io.github.neoruaa.glasmio.ui.GlasmioListRow
@@ -18,7 +17,7 @@ import io.github.neoruaa.glasmio.ui.GlasmioListRow
 @Composable
 fun CountryView(onBack: () -> Unit) {
     LaunchedEffect(Unit) { Region.loadAutomatic() }
-    GlasmioPinnedListPage(title = "Country / Region", showsLargeTitle = false, onNavigateBack = onBack) {
+    SdatPage(title = "Country / Region", onBack = onBack, showsLargeTitle = false, bottomPaddingValues = null) {
         item {
             GlasmioGroupedList {
                 Choice(Region.automaticLabel, Region.preferred == null, first = true) { Region.select(null) }

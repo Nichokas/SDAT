@@ -21,7 +21,7 @@ struct Session {
 
 impl Session {
     fn generation(&self) -> u64 {
-        self.generation.load(Ordering::Relaxed)
+        self.generation.load(Ordering::Acquire)
     }
 
     fn run<T>(&self, generation: u64, operation: impl FnOnce() -> tonearm_core::CoreResult<T>) -> tonearm_core::CoreResult<Option<T>> {
@@ -35,13 +35,18 @@ impl Session {
     fn change(&self, edit: impl FnOnce() -> anyhow::Result<()>) -> anyhow::Result<()> {
         let _guard = self.gate.write().unwrap_or_else(std::sync::PoisonError::into_inner);
         edit()?;
-        self.generation.fetch_add(1, Ordering::Relaxed);
+        self.generation.fetch_add(1, Ordering::Release);
         Ok(())
     }
 }
 
 pub(crate) fn session_generation() -> u64 {
     SESSION.generation()
+}
+
+#[cfg(test)]
+pub(crate) fn bump_session_for_test() {
+    let _ = SESSION.change(|| Ok(()));
 }
 
 pub(crate) fn with_session<T>(
