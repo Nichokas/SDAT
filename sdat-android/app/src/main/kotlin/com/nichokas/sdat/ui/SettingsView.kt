@@ -255,7 +255,7 @@ fun SettingsView(session: Session, prefs: Preferences, secrets: Secrets, crashRe
         }
     }
     if (confirmClearCache) {
-        Confirm("Clear the cache?", "Cached tracks are deleted. They download again when you play them.", "Clear Cache", onDismiss = { confirmClearCache = false }, onConfirm = AudioCache::purge)
+        Confirm("Clear the cache?", "Cached tracks are deleted. They download again when you play them.", "Clear Cache", onDismiss = { confirmClearCache = false }, onConfirm = { AudioCache.purge(keepPlaying = true) })
     }
     if (confirmLogout) {
         Confirm("Log out of TIDAL?", null, "Log out", onDismiss = { confirmLogout = false }, onConfirm = session::signOut)

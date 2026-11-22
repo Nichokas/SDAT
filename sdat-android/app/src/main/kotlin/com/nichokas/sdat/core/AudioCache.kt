@@ -6,6 +6,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import java.io.File
+import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.MainScope
 import kotlinx.coroutines.launch
@@ -58,12 +59,13 @@ object AudioCache {
     fun remove(id: String) = update { audioCacheRemove(id) }
 
     /** Also stops the running fills. */
-    fun purge() = update { audioCachePurge() }
+    /** [keepPlaying] for Clear Cache; false once playback stopped, as at sign-out. */
+    fun purge(keepPlaying: Boolean) = update { audioCachePurge(keepPlaying) }
 
     fun cancel(id: String) = audioCacheCancel(id)
 
     /** The copy of [id] at [quality] or better. */
-    suspend fun lookup(id: String, quality: Quality): CachedTrack? = withContext(Dispatchers.IO) { audioCacheLookup(id, quality) }
+    suspend fun lookup(id: String, quality: Quality): CachedTrack? = withContext(io) { audioCacheLookup(id, quality) }
 
     /** Downloads [t] unless a copy at [quality] or better is there; a fill of a track already filling joins it. */
     suspend fun fill(t: Track, quality: Quality): CachedTrack = try {
@@ -74,7 +76,8 @@ object AudioCache {
     }
 
     private fun update(change: () -> Unit) {
-        scope.launch {
+        // Enters the queue now, so a lookup after a removal sees it.
+        scope.launch(start = CoroutineStart.UNDISPATCHED) {
             val (t, u) = withContext(io) {
                 runCatching(change).onFailure { Log.w("SDAT/audio-cache", "audio cache call failed: $it") }
                 audioCacheTracks() to audioCacheUsage()

@@ -827,7 +827,8 @@ class Playback(context: Context, private val prefs: Preferences, secrets: Secret
             }
         }
         filling = t.id
-        val fill = scope.async { AudioCache.fill(t, prefs.streamingQuality) }
+        // Undispatched, the core registers the fill before this returns, so the cancel below always reaches it.
+        val fill = scope.async(start = CoroutineStart.UNDISPATCHED) { AudioCache.fill(t, prefs.streamingQuality) }
         var landed = false
         try {
             while (fill.isActive) {

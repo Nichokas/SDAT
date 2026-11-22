@@ -69,7 +69,7 @@ class Session(context: Context) : TokenStore {
         Discover.reset()
         DiscoverCache.of(app).clear()
         Downloads.removeAll()
-        AudioCache.purge()
+        AudioCache.purge(keepPlaying = false)
         prefs.edit { clear() }
         picture.value = null
         Favs.clear()
