@@ -221,6 +221,19 @@ private fun Scrubber(playback: Playback, modifier: Modifier = Modifier) {
     // A new queue entry, even of the same track, drops the slider and any drag on it, so a release can't seek it to the old one's place.
     key(playback.entry) {
         var scrub by remember { mutableStateOf<Double?>(null) }
+        var dragEnd by remember { mutableStateOf<Double?>(null) }
+        val locked = Live.playbackLocked
+        // GlasmioSlider keys pointerInput on enabled and valueRange: clear scrub if a lock or track change cancels the drag, and freeze the range while dragging.
+        LaunchedEffect(locked) {
+            if (locked) {
+                scrub = null
+                dragEnd = null
+            }
+        }
+        LaunchedEffect(playback.track?.id) {
+            scrub = null
+            dragEnd = null
+        }
         val advancing = playback.playing && !playback.loading && scrub == null
         var shown by remember { mutableDoubleStateOf(playback.position) }
         LaunchedEffect(playback.position, playback.entry, advancing) {
@@ -234,14 +247,19 @@ private fun Scrubber(playback: Playback, modifier: Modifier = Modifier) {
                 }
             }
         }
-        val end = maxOf(playback.duration, 1.0)
-        val displayed = scrub ?: shown
+        val end = dragEnd ?: maxOf(playback.duration, 1.0)
+        val displayed = if (locked) shown else scrub ?: shown
         Column(modifier, verticalArrangement = Arrangement.spacedBy(4.dp)) {
             GlasmioSlider(
                 value = displayed.coerceIn(0.0, end).toFloat(),
-                onValueChange = { scrub = it.toDouble() },
+                onValueChange = {
+                    if (!Live.playbackLocked) {
+                        if (dragEnd == null) dragEnd = end
+                        scrub = it.toDouble()
+                    }
+                },
                 valueRange = 0f..end.toFloat(),
-                enabled = !Live.playbackLocked,
+                enabled = !locked,
                 onValueChangeFinished = {
                     scrub?.let {
                         if (!Live.userSeek(it)) {
@@ -250,6 +268,7 @@ private fun Scrubber(playback: Playback, modifier: Modifier = Modifier) {
                         }
                     }
                     scrub = null
+                    dragEnd = null
                 },
             )
             Row(Modifier.fillMaxWidth()) {

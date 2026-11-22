@@ -211,7 +211,7 @@ fn search_paginator<T: Clone + 'static>(
 }
 
 pub fn search_tracks(target: SearchTarget<'_>) -> Paginator<Track> {
-    search_paginator(target, "tracks", &["tracks.albums.coverArt", "tracks.albums.artists"], resolve_tracks)
+    search_paginator(target, "tracks", &["tracks.artists", "tracks.albums.coverArt"], resolve_tracks)
 }
 pub fn search_albums(target: SearchTarget<'_>) -> Paginator<Album> {
     search_paginator(target, "albums", &["albums.coverArt", "albums.artists"], |r| r.included.albums(&r.data).iter().map(album_from_openapi).collect())

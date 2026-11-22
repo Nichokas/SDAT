@@ -25,17 +25,17 @@ pub(super) struct Follower {
     /// Not connected (also before the first connection, and for good when
     /// the thread could not start), so the worker polls instead.
     down: Arc<AtomicBool>,
-    /// The thread gave up for good (no client): replace this follower.
+    /// The thread gave up for good (no client or account changed): replace this follower.
     dead: Arc<AtomicBool>,
 }
 
 impl Follower {
-    pub(super) fn spawn(url: String, tx: Sender<Cmd>) -> Self {
+    pub(super) fn spawn(url: String, account: String, tx: Sender<Cmd>) -> Self {
         let stop = Arc::new(AtomicBool::new(false));
         let down = Arc::new(AtomicBool::new(true));
         let dead = Arc::new(AtomicBool::new(false));
         let (u, s, d, x) = (url.clone(), Arc::clone(&stop), Arc::clone(&down), Arc::clone(&dead));
-        let spawned = std::thread::Builder::new().name("handoff-follow".into()).spawn(move || run(&u, &tx, &s, &d, &x));
+        let spawned = std::thread::Builder::new().name("handoff-follow".into()).spawn(move || run(&u, &account, &tx, &s, &d, &x));
         if let Err(e) = spawned {
             log::warn!("handoff: no stream thread error={e}");
             dead.store(true, Ordering::Relaxed);
@@ -63,7 +63,37 @@ fn trusted(url: &str) -> bool {
     url::Url::parse(url).is_ok_and(|u| u.scheme() == "https" && u.host_str().is_some_and(|h| h == "tidal.com" || h.ends_with(".tidal.com")))
 }
 
-fn run(url: &str, tx: &Sender<Cmd>, stop: &AtomicBool, down: &AtomicBool, dead: &AtomicBool) {
+#[derive(Debug, PartialEq, Eq)]
+enum Bearer {
+    Token(String),
+    AccountChanged,
+    Failed(String),
+}
+
+/// Fetches the user token and confirms the owning account is still signed in,
+/// so a token from a replacement account is never sent to this stream.
+fn account_bearer(
+    account: &str,
+    fetch_token: impl FnOnce() -> crate::error::CoreResult<String>,
+    current_user: impl FnOnce() -> String,
+) -> Bearer {
+    let token = match fetch_token() {
+        Ok(t) => t,
+        Err(e) => {
+            return if current_user() == account {
+                Bearer::Failed(e.to_string())
+            } else {
+                Bearer::AccountChanged
+            };
+        }
+    };
+    if current_user() != account {
+        return Bearer::AccountChanged;
+    }
+    Bearer::Token(token)
+}
+
+fn run(url: &str, account: &str, tx: &Sender<Cmd>, stop: &AtomicBool, down: &AtomicBool, dead: &AtomicBool) {
     if !trusted(url) {
         log::warn!("handoff: not following an event stream outside TIDAL url={url}");
         return;
@@ -80,9 +110,15 @@ fn run(url: &str, tx: &Sender<Cmd>, stop: &AtomicBool, down: &AtomicBool, dead: 
     let mut backoff = Duration::from_secs(1);
     while !stop.load(Ordering::Relaxed) {
         let opened = Instant::now();
-        let resp = crate::api::user_bearer().map_err(|e| e.to_string()).and_then(|t| {
-            send(client.get(url).bearer_auth(t).header("Accept", "text/event-stream")).map_err(|e| e.to_string())
-        });
+        let resp = match account_bearer(account, crate::api::user_bearer, || crate::auth::tokens().user_id()) {
+            Bearer::Token(t) => send(client.get(url).bearer_auth(t).header("Accept", "text/event-stream")).map_err(|e| e.to_string()),
+            Bearer::AccountChanged => {
+                down.store(true, Ordering::Relaxed);
+                dead.store(true, Ordering::Relaxed);
+                return;
+            }
+            Bearer::Failed(e) => Err(e),
+        };
         match resp {
             Ok(r) if r.status().is_success() => {
                 down.store(false, Ordering::Relaxed);
@@ -118,11 +154,36 @@ fn run(url: &str, tx: &Sender<Cmd>, stop: &AtomicBool, down: &AtomicBool, dead: 
 
 #[cfg(test)]
 mod tests {
+    use super::{Bearer, account_bearer};
+    use crate::error::CoreError;
+
     #[test]
     fn follows_tidal_streams_only() {
         assert!(super::trusted("https://pulsar.tidal.com/userPlaybackStates/x"));
         assert!(!super::trusted("http://pulsar.tidal.com/x"));
         assert!(!super::trusted("https://pulsar.tidal.com.evil.example/x"));
         assert!(!super::trusted("https://eviltidal.com/x"));
+    }
+
+    #[test]
+    fn account_bearer_rejects_mismatched_account() {
+        assert_eq!(account_bearer("user-a", || Ok("tok-a".into()), || "user-a".into()), Bearer::Token("tok-a".into()));
+        assert_eq!(account_bearer("user-a", || Ok("tok-b".into()), || "user-b".into()), Bearer::AccountChanged);
+        assert_eq!(account_bearer("user-a", || Err(CoreError::NotSignedIn), String::new), Bearer::AccountChanged);
+        assert!(matches!(
+            account_bearer("user-a", || Err(CoreError::Network("timeout".into())), || "user-a".into()),
+            Bearer::Failed(_)
+        ));
+    }
+
+    #[test]
+    fn run_marks_follower_dead_and_down_when_account_changes() {
+        let (tx, _rx) = std::sync::mpsc::channel();
+        let stop = std::sync::atomic::AtomicBool::new(false);
+        let down = std::sync::atomic::AtomicBool::new(false);
+        let dead = std::sync::atomic::AtomicBool::new(false);
+        super::run("https://pulsar.tidal.com/userPlaybackStates/x", "user-a", &tx, &stop, &down, &dead);
+        assert!(down.load(std::sync::atomic::Ordering::Relaxed));
+        assert!(dead.load(std::sync::atomic::Ordering::Relaxed));
     }
 }
