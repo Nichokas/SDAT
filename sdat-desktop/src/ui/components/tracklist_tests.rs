@@ -362,150 +362,151 @@ fn invalid_drop_is_rejected_and_restores_original_order() {
 #[test]
 #[ignore = "perf probe, needs a display"]
 fn scroll_cost() {
-    crate::ensure_schema();
-    gtk::init().unwrap();
-    let _ = adw::init();
-    crate::register_resources();
-    let cols = match std::env::var("PROBE_COLS").as_deref() {
-        Ok("nocontrols") => vec![Col::cover(), Col::title_album(), Col::artists(), Col::duration()],
-        Ok("controls") => vec![Col::controls()],
-        Ok("cover") => vec![Col::cover()],
-        Ok("text") => vec![Col::title_album(), Col::artists(), Col::duration()],
-        _ => vec![Col::cover(), Col::title_album(), Col::artists(), Col::duration(), Col::controls()],
-    };
-    let rows: usize = std::env::var("PROBE_ROWS").ok().and_then(|v| v.parse().ok()).unwrap_or(1000);
-    let list = TrackList::new(cols);
-    for k in 0..rows {
-        let mut t = Track::default();
-        t.info.id = k.to_string();
-        t.info.title = format!("Track number {k} with a reasonably long title");
-        t.info.streamable = k % 7 != 0;
-        list.add_track(t);
-    }
-    // Same nesting as the real pages (routes::tracklist_scroller).
-    let sw = gtk::ScrolledWindow::new();
-    sw.set_policy(gtk::PolicyType::Never, gtk::PolicyType::External);
-    sw.set_child(Some(&crate::ui::components::main_content_scrollable(list.widget())));
-    let win = gtk::Window::new();
-    win.set_default_size(1000, 800);
-    win.set_child(Some(&sw));
-    win.present();
-    let ctx = glib::MainContext::default();
-    let settle = || {
-        let t = std::time::Instant::now();
-        while t.elapsed() < std::time::Duration::from_millis(300) {
+    run_gtk_test(|| {
+        crate::ensure_schema();
+        crate::register_resources();
+        let cols = match std::env::var("PROBE_COLS").as_deref() {
+            Ok("nocontrols") => vec![Col::cover(), Col::title_album(), Col::artists(), Col::duration()],
+            Ok("controls") => vec![Col::controls()],
+            Ok("cover") => vec![Col::cover()],
+            Ok("text") => vec![Col::title_album(), Col::artists(), Col::duration()],
+            _ => vec![Col::cover(), Col::title_album(), Col::artists(), Col::duration(), Col::controls()],
+        };
+        let rows: usize = std::env::var("PROBE_ROWS").ok().and_then(|v| v.parse().ok()).unwrap_or(1000);
+        let list = TrackList::new(cols);
+        for k in 0..rows {
+            let mut t = Track::default();
+            t.info.id = k.to_string();
+            t.info.title = format!("Track number {k} with a reasonably long title");
+            t.info.streamable = k % 7 != 0;
+            list.add_track(t);
+        }
+        // Same nesting as the real pages (routes::tracklist_scroller).
+        let sw = gtk::ScrolledWindow::new();
+        sw.set_policy(gtk::PolicyType::Never, gtk::PolicyType::External);
+        sw.set_child(Some(&crate::ui::components::main_content_scrollable(list.widget())));
+        let win = gtk::Window::new();
+        win.set_default_size(1000, 800);
+        win.set_child(Some(&sw));
+        win.present();
+        let ctx = glib::MainContext::default();
+        let settle = || {
+            let t = std::time::Instant::now();
+            while t.elapsed() < std::time::Duration::from_millis(300) {
+                while ctx.iteration(false) {}
+                std::thread::sleep(std::time::Duration::from_millis(5));
+            }
+        };
+        settle();
+        let adj = sw.vadjustment();
+        // Scroll the whole list in 300px steps; report per tenth of the list.
+        let steps = ((adj.upper() - adj.page_size()) / 300.0).ceil().max(1.0) as usize;
+        let mut seg = vec![(0.0f64, 0.0f64, 0usize); 10];
+        for k in 0..=steps {
+            let t = std::time::Instant::now();
+            adj.set_value(k as f64 * 300.0);
             while ctx.iteration(false) {}
-            std::thread::sleep(std::time::Duration::from_millis(5));
+            let ms = t.elapsed().as_secs_f64() * 1000.0;
+            if ms > 16.0 {
+                eprintln!("PROBE slow step={k} ms={ms:.1}");
+            }
+            let s = &mut seg[(k * 10 / (steps + 1)).min(9)];
+            s.0 += ms;
+            s.1 = s.1.max(ms);
+            s.2 += 1;
         }
-    };
-    settle();
-    let adj = sw.vadjustment();
-    // Scroll the whole list in 300px steps; report per tenth of the list.
-    let steps = ((adj.upper() - adj.page_size()) / 300.0).ceil().max(1.0) as usize;
-    let mut seg = vec![(0.0f64, 0.0f64, 0usize); 10];
-    for k in 0..=steps {
-        let t = std::time::Instant::now();
-        adj.set_value(k as f64 * 300.0);
-        while ctx.iteration(false) {}
-        let ms = t.elapsed().as_secs_f64() * 1000.0;
-        if ms > 16.0 {
-            eprintln!("PROBE slow step={k} ms={ms:.1}");
+        for (i, (tot, worst, n)) in seg.iter().enumerate() {
+            eprintln!("PROBE rows={rows} part={}0% avg_step_ms={:.2} worst_ms={:.2}", i, tot / *n.max(&1) as f64, worst);
         }
-        let s = &mut seg[(k * 10 / (steps + 1)).min(9)];
-        s.0 += ms;
-        s.1 = s.1.max(ms);
-        s.2 += 1;
-    }
-    for (i, (tot, worst, n)) in seg.iter().enumerate() {
-        eprintln!("PROBE rows={rows} part={}0% avg_step_ms={:.2} worst_ms={:.2}", i, tot / *n.max(&1) as f64, worst);
-    }
-    eprintln!("PROBE upper={} steps={steps}", adj.upper());
-    win.close();
+        eprintln!("PROBE upper={} steps={steps}", adj.upper());
+        win.close();
+    });
 }
 
 #[test]
 #[ignore = "needs a display (gtk::init)"]
 fn placeholders_are_taken_over_by_loaded_tracks() {
-    gtk::init().unwrap();
-    let tk = |id: &str| {
-        let mut t = Track::default();
-        t.info.id = id.into();
-        t
-    };
-    let list = TrackList::new(vec![Col::duration()]);
-    list.replace_all(&[tk("a"), tk("b")]);
-    list.set_placeholders(3000);
-    assert_eq!(list.0.store.n_items(), 3002);
-    // a page arrives: rows replace placeholders, the length stays the same
-    list.replace_all(&[tk("a"), tk("b"), tk("c"), tk("d")]);
-    assert_eq!(list.0.store.n_items(), 3002);
-    assert_eq!(list.0.placeholders.get(), 2998);
-    // the player then reports the new unloaded count
-    list.set_placeholders(2990);
-    assert_eq!(list.0.store.n_items(), 2994);
-    // playing on pops the head; total shrinks by one
-    list.replace_all(&[tk("b"), tk("c"), tk("d")]);
-    assert_eq!(list.0.store.n_items(), 2993);
-    list.set_placeholders(0);
-    assert_eq!(list.0.store.n_items(), 3);
+    run_gtk_test(|| {
+        let tk = |id: &str| {
+            let mut t = Track::default();
+            t.info.id = id.into();
+            t
+        };
+        let list = TrackList::new(vec![Col::duration()]);
+        list.replace_all(&[tk("a"), tk("b")]);
+        list.set_placeholders(3000);
+        assert_eq!(list.0.store.n_items(), 3002);
+        // a page arrives: rows replace placeholders, the length stays the same
+        list.replace_all(&[tk("a"), tk("b"), tk("c"), tk("d")]);
+        assert_eq!(list.0.store.n_items(), 3002);
+        assert_eq!(list.0.placeholders.get(), 2998);
+        // the player then reports the new unloaded count
+        list.set_placeholders(2990);
+        assert_eq!(list.0.store.n_items(), 2994);
+        // playing on pops the head; total shrinks by one
+        list.replace_all(&[tk("b"), tk("c"), tk("d")]);
+        assert_eq!(list.0.store.n_items(), 2993);
+        list.set_placeholders(0);
+        assert_eq!(list.0.store.n_items(), 3);
+    });
 }
 
 /// Renders a track list with real-length texts to a PNG (`PROBE_PNG` path).
 #[test]
 #[ignore = "visual probe, needs a display"]
 fn render_png() {
-    crate::ensure_schema();
-    gtk::init().unwrap();
-    let _ = adw::init();
-    crate::register_resources();
-    let data = [
-        ("Con Calma", "Con Calma", "Daddy Yankee, Snow"),
-        ("No You Girls", "Tonight", "Franz Ferdinand"),
-        ("Como Me Ves, Te Veras", "Made in Japan", "Siniestro Total"),
-        ("Reptilia", "Room On Fire", "The Strokes"),
-        ("Jesus of Suburbia", "American Idiot", "Green Day"),
-        ("A very very long track title that should be ellipsized somewhere", "Album", "X"),
-        ("Short", "An album with quite a long name indeed", "A, B, C, D, E, F, G and many more artists here"),
-    ];
-    let position = std::env::var_os("PROBE_POSITION").is_some();
-    let cols = if position {
-        vec![Col::position(), Col::title(), Col::artists(), Col::duration(), Col::controls()]
-    } else {
-        vec![Col::cover(), Col::title_album(), Col::artists(), Col::duration(), Col::controls()]
-    };
-    let list = TrackList::new(cols);
-    for (k, (t, a, ar)) in data.iter().enumerate() {
-        let mut tr = Track::default();
-        tr.info.id = k.to_string();
-        tr.info.title = (*t).into();
-        tr.info.streamable = true;
-        tr.album = Some(crate::model::AlbumInfo { title: (*a).into(), ..Default::default() });
-        tr.artists = ar.split(", ").map(|n| crate::model::ArtistInfo { name: n.into(), ..Default::default() }).collect();
-        list.add_track(tr);
-    }
-    if let Some(n) = std::env::var("PROBE_PLACEHOLDERS").ok().and_then(|v| v.parse().ok()) {
-        list.set_placeholders(n);
-    }
-    let sw = gtk::ScrolledWindow::new();
-    sw.set_policy(gtk::PolicyType::Never, gtk::PolicyType::External);
-    sw.set_child(Some(&crate::ui::components::main_content_scrollable(list.widget())));
-    let win = gtk::Window::new();
-    win.set_default_size(900, 600);
-    win.set_child(Some(&sw));
-    win.present();
-    let ctx = glib::MainContext::default();
-    let t = std::time::Instant::now();
-    while t.elapsed() < std::time::Duration::from_millis(800) {
-        while ctx.iteration(false) {}
-        std::thread::sleep(std::time::Duration::from_millis(5));
-    }
-    let w = win.upcast_ref::<gtk::Widget>();
-    let paintable = gtk::WidgetPaintable::new(Some(w));
-    let snap = gtk::Snapshot::new();
-    paintable.snapshot(&snap, f64::from(w.width()), f64::from(w.height()));
-    let node = snap.to_node().unwrap();
-    let renderer = w.native().unwrap().renderer().unwrap();
-    let tex = renderer.render_texture(&node, None);
-    tex.save_to_png(std::env::var("PROBE_PNG").unwrap_or_else(|_| "/tmp/tracklist.png".into())).unwrap();
-    win.close();
+    run_gtk_test(|| {
+        crate::ensure_schema();
+        crate::register_resources();
+        let data = [
+            ("Con Calma", "Con Calma", "Daddy Yankee, Snow"),
+            ("No You Girls", "Tonight", "Franz Ferdinand"),
+            ("Como Me Ves, Te Veras", "Made in Japan", "Siniestro Total"),
+            ("Reptilia", "Room On Fire", "The Strokes"),
+            ("Jesus of Suburbia", "American Idiot", "Green Day"),
+            ("A very very long track title that should be ellipsized somewhere", "Album", "X"),
+            ("Short", "An album with quite a long name indeed", "A, B, C, D, E, F, G and many more artists here"),
+        ];
+        let position = std::env::var_os("PROBE_POSITION").is_some();
+        let cols = if position {
+            vec![Col::position(), Col::title(), Col::artists(), Col::duration(), Col::controls()]
+        } else {
+            vec![Col::cover(), Col::title_album(), Col::artists(), Col::duration(), Col::controls()]
+        };
+        let list = TrackList::new(cols);
+        for (k, (t, a, ar)) in data.iter().enumerate() {
+            let mut tr = Track::default();
+            tr.info.id = k.to_string();
+            tr.info.title = (*t).into();
+            tr.info.streamable = true;
+            tr.album = Some(crate::model::AlbumInfo { title: (*a).into(), ..Default::default() });
+            tr.artists = ar.split(", ").map(|n| crate::model::ArtistInfo { name: n.into(), ..Default::default() }).collect();
+            list.add_track(tr);
+        }
+        if let Some(n) = std::env::var("PROBE_PLACEHOLDERS").ok().and_then(|v| v.parse().ok()) {
+            list.set_placeholders(n);
+        }
+        let sw = gtk::ScrolledWindow::new();
+        sw.set_policy(gtk::PolicyType::Never, gtk::PolicyType::External);
+        sw.set_child(Some(&crate::ui::components::main_content_scrollable(list.widget())));
+        let win = gtk::Window::new();
+        win.set_default_size(900, 600);
+        win.set_child(Some(&sw));
+        win.present();
+        let ctx = glib::MainContext::default();
+        let t = std::time::Instant::now();
+        while t.elapsed() < std::time::Duration::from_millis(800) {
+            while ctx.iteration(false) {}
+            std::thread::sleep(std::time::Duration::from_millis(5));
+        }
+        let w = win.upcast_ref::<gtk::Widget>();
+        let paintable = gtk::WidgetPaintable::new(Some(w));
+        let snap = gtk::Snapshot::new();
+        paintable.snapshot(&snap, f64::from(w.width()), f64::from(w.height()));
+        let node = snap.to_node().unwrap();
+        let renderer = w.native().unwrap().renderer().unwrap();
+        let tex = renderer.render_texture(&node, None);
+        tex.save_to_png(std::env::var("PROBE_PNG").unwrap_or_else(|_| "/tmp/tracklist.png".into())).unwrap();
+        win.close();
+    });
 }
