@@ -131,11 +131,3 @@ final class Session {
         Chrome.shared.tab = .discover
     }
 }
-
-extension DiscoverCache {
-    static func clear() {
-        let url = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask)[0]
-            .appendingPathComponent("discover.json")
-        try? FileManager.default.removeItem(at: url)
-    }
-}
