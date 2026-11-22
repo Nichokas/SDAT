@@ -351,6 +351,28 @@ mod tests {
     }
 
     #[test]
+    fn play_next_lands_after_an_armed_base_entry_behind_unstreamable_rows() {
+        clear_queues();
+        set_repeat_mode(RepeatMode::None);
+        let mut unstreamable = track("U", None);
+        unstreamable.info.streamable = false;
+        base_queue().set(vec![unstreamable, track("B", None), track("C", None)]);
+        let armed = peek_gapless().unwrap();
+        assert_eq!((armed.track.id(), armed.source), ("B", GaplessSource::BaseQueue { rewound: false }));
+
+        insert_tracklist_next_after(vec![track("X", None)], Some(armed));
+        // The armed B moves ahead of the Play Next entries, so the queue view shows the playback order.
+        assert_eq!(
+            user_queue().entries().with(|v| v.iter().map(|t| t.id().to_string()).collect::<Vec<_>>()),
+            vec!["B", "X"],
+        );
+        assert_eq!(base_queue().entries().with(|v| v.iter().map(|t| t.id().to_string()).collect::<Vec<_>>()), vec!["C"]);
+
+        clear_queues();
+        track_changed().set(None);
+    }
+
+    #[test]
     fn next_track_pop_skips_unstreamable_prefixes_and_updates_pinned() {
         clear_queues();
         set_repeat_mode(RepeatMode::None);

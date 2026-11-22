@@ -498,10 +498,13 @@ fn insert_tracklist_next_after(tracks: Vec<Track>, armed: Option<GaplessEntry>) 
             next::find_streamable_index(rows, None).filter(|&i| track_matches(&rows[i], &armed)).map_or(0, |i| i + 1)
         }),
         Some(GaplessEntry { source: GaplessSource::BaseQueue { rewound: false }, track: armed, .. }) => {
-            if user_queue().is_empty()
-                && base_queue().peek().is_some_and(|head| track_matches(&head, &armed))
-                && let Some(head) = base_queue().take_for_gapless()
-            {
+            let next_in_base = user_queue().is_empty()
+                && next::first_streamable(base_queue().entries()).is_some_and(|t| track_matches(&t, &armed));
+            if next_in_base {
+                // The unstreamable rows ahead of it would be skipped at the commit anyway.
+                next::drain_unstreamable_base_prefix();
+            }
+            if next_in_base && let Some(head) = base_queue().take_for_gapless() {
                 user_queue().prepend(head);
                 with(|p| p.machine.move_gapless_to_user_queue());
                 1
