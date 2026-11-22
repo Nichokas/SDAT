@@ -1,5 +1,5 @@
 //! Port of `components/media_viewer.go`: a full-window image viewer overlay.
-use std::cell::{Cell, RefCell};
+use std::cell::Cell;
 
 use adw::prelude::*;
 use gtk::{gdk, gio, gsk};
@@ -12,7 +12,6 @@ pub struct MediaViewer {
     back: gtk::Button,
     zoom: Cell<f64>,
     base: Cell<(i32, i32)>,
-    media: RefCell<Option<gdk::Texture>>,
 }
 
 thread_local! {
@@ -117,7 +116,7 @@ impl MediaViewer {
         revealer.connect_show(|_| {
             get().back.grab_focus();
         });
-        MediaViewer { revealer, picture, back, zoom: Cell::new(1.0), base: Cell::new((0, 0)), media: RefCell::new(None) }
+        MediaViewer { revealer, picture, back, zoom: Cell::new(1.0), base: Cell::new((0, 0)) }
     }
 
     pub fn widget(&self) -> &gtk::Revealer {
@@ -125,8 +124,27 @@ impl MediaViewer {
     }
 
     fn copy_media(&self) {
-        if let (Some(d), Some(t)) = (gdk::Display::default(), self.media.borrow().as_ref()) {
-            d.clipboard().set_texture(t);
+        let (Some(display), Some(paintable)) = (gdk::Display::default(), self.picture.paintable()) else { return };
+        if let Some(texture) = paintable.downcast_ref::<gdk::Texture>() {
+            display.clipboard().set_texture(texture);
+            return;
+        }
+        let mut width = f64::from(paintable.intrinsic_width());
+        let mut height = f64::from(paintable.intrinsic_height());
+        if width <= 0.0 {
+            width = 1440.0;
+        }
+        if height <= 0.0 {
+            height = 1440.0;
+        }
+        let snap = gtk::Snapshot::new();
+        paintable.snapshot(&snap, width, height);
+        if let Some(node) = snap.to_node() {
+            let renderer = gsk::CairoRenderer::new();
+            if renderer.realize_for_display(&display).is_ok() {
+                display.clipboard().set_texture(&renderer.render_texture(&node, None));
+                renderer.unrealize();
+            }
         }
     }
 
@@ -135,23 +153,6 @@ impl MediaViewer {
         self.picture.set_paintable(Some(paintable));
         self.revealer.set_visible(true);
         self.revealer.set_reveal_child(true);
-        let mut w = f64::from(paintable.intrinsic_width());
-        let mut h = f64::from(paintable.intrinsic_height());
-        if w <= 0.0 {
-            w = 1440.0;
-        }
-        if h <= 0.0 {
-            h = 1440.0;
-        }
-        let snap = gtk::Snapshot::new();
-        paintable.snapshot(&snap, w, h);
-        if let Some(node) = snap.to_node() {
-            let r = gsk::CairoRenderer::new();
-            if r.realize_for_display(&gdk::Display::default().expect("a GTK display is open while the app runs")).is_ok() {
-                *self.media.borrow_mut() = Some(r.render_texture(&node, None));
-                r.unrealize();
-            }
-        }
     }
 
     pub fn hide(&self) {
@@ -161,7 +162,9 @@ impl MediaViewer {
         self.revealer.set_reveal_child(false);
         let r = self.revealer.downgrade();
         glib::timeout_add_local_once(std::time::Duration::from_millis(u64::from(self.revealer.transition_duration())), move || {
-            if let Some(r) = r.upgrade() {
+            if let Some(r) = r.upgrade()
+                && !r.reveals_child()
+            {
                 r.set_visible(false);
             }
         });

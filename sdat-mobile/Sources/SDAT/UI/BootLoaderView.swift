@@ -13,7 +13,7 @@ struct BootLoaderView: View {
             Color(.systemBackground).ignoresSafeArea()
             ZStack {
                 ProgressRing(progress: progress, lineWidth: 3, color: .primary)
-                TimelineView(.animation(minimumInterval: reduceMotion ? 1 / 30 : 0.1)) { ctx in
+                TimelineView(.animation) { ctx in
                     let t = ctx.date.timeIntervalSinceReferenceDate
                     HStack(spacing: size * 0.08) {
                         ForEach(0..<3) { i in

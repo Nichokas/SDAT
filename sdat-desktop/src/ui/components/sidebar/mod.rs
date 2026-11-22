@@ -62,12 +62,13 @@ pub fn mini_player() -> adw::Bin {
         }
     });
     let texts = spacing(vstack(&[title.upcast_ref(), album.upcast_ref()]), 3).valign(gtk::Align::Center).halign(gtk::Align::Start).hexp(true);
+    let spinner = adw::Spinner::new();
     let pp = gtk::Button::from_icon_name("play-symbolic").tooltip(&tr("Play / Pause")).class("flat");
     pp.connect_clicked(|_| crate::live::user_play_pause());
-    on_state(player::playback_state_changed(), &pp, |b, ps| {
+    on_state(player::playback_state_changed(), &pp, move |b, ps| {
         b.set_sensitive(!ps.loading);
         if ps.loading {
-            b.set_child(Some(&adw::Spinner::new()));
+            b.set_child(Some(&spinner));
         } else {
             b.set_icon_name(if ps.status == PlaybackStatus::Playing { "pause-symbolic" } else { "play-symbolic" });
         }

@@ -28,9 +28,9 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
@@ -43,6 +43,7 @@ import androidx.compose.ui.input.key.KeyEventType
 import androidx.compose.ui.input.key.key
 import androidx.compose.ui.input.key.onKeyEvent
 import androidx.compose.ui.input.key.type
+import androidx.compose.ui.layout.layout
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.disabled
@@ -52,6 +53,7 @@ import androidx.compose.ui.semantics.role
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Constraints
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import com.nichokas.sdat.core.Chrome
@@ -89,9 +91,15 @@ internal fun BottomChrome(playback: Playback, nav: NavState, modifier: Modifier)
         if (morphs) clock.animateTo(if (bar.collapsed) 1f else 0f, tween(Morph.DURATION_MS, easing = LinearEasing)) else clock.snapTo(0f)
     }
     BoxWithConstraints(modifier.fillMaxWidth().navigationBarsPadding().padding(start = 24.dp, end = 24.dp, bottom = 12.dp)) {
-        val f = Morph.frame(maxWidth.value, if (morphs) clock.value else 0f, bar.collapsing)
+        val widthDp = maxWidth.value
+        // Deferred out of composition so the 400 ms morph drives layout and draw phases directly instead of recomposing every frame.
+        val frame = remember(widthDp, morphs, bar.collapsing) {
+            derivedStateOf { Morph.frame(widthDp, if (morphs) clock.value else 0f, bar.collapsing) }
+        }
         // Glasmio lerps the bar from its width constraint to compactSize, which at tabMax is exactly Morph's tab width.
-        val compact = rememberUpdatedState(if (morphs) f.tabFraction else 0f)
+        val compact = remember(frame, morphs) {
+            derivedStateOf { if (morphs) frame.value.tabFraction else 0f }
+        }
         if (!nav.inDetail) {
             GlasmioNavigationBar(
                 items = tabItems,
@@ -101,22 +109,33 @@ internal fun BottomChrome(playback: Playback, nav: NavState, modifier: Modifier)
                 compactProgress = compact,
                 compactSize = Morph.ROUND.dp,
                 modifier = Modifier.align(Alignment.CenterStart)
-                    .then(if (hasMini) Modifier.width(Morph.tabMax(maxWidth.value).dp) else Modifier.fillMaxWidth()),
+                    .then(if (hasMini) Modifier.width(Morph.tabMax(widthDp).dp) else Modifier.fillMaxWidth()),
             )
         }
         if (hasMini) {
             val wide = nav.inDetail
+            val style by remember(frame, wide) {
+                derivedStateOf {
+                    when {
+                        wide -> MiniStyle.Wide
+                        frame.value.miniFraction >= 0.5f -> MiniStyle.Capsule
+                        else -> MiniStyle.Circle
+                    }
+                }
+            }
             MiniPlayer(
                 playback,
-                style = when {
-                    wide -> MiniStyle.Wide
-                    f.miniFraction >= 0.5f -> MiniStyle.Capsule
-                    else -> MiniStyle.Circle
-                },
-                fraction = if (wide) 1f else f.miniFraction,
+                style = style,
+                fraction = { if (wide) 1f else frame.value.miniFraction },
                 modifier = Modifier.align(Alignment.CenterEnd).then(
                     if (wide) Modifier.fillMaxWidth().height(Morph.CIRCLE.dp)
-                    else Modifier.width(f.miniWidth.dp).height((Morph.CIRCLE - 8 * f.miniFraction).dp),
+                    else Modifier.layout { measurable, constraints ->
+                        val f = frame.value
+                        val w = f.miniWidth.dp.roundToPx().coerceIn(constraints.minWidth, constraints.maxWidth)
+                        val h = (Morph.CIRCLE - 8 * f.miniFraction).dp.roundToPx().coerceIn(constraints.minHeight, constraints.maxHeight)
+                        val placeable = measurable.measure(Constraints.fixed(w, h))
+                        layout(w, h) { placeable.place(0, 0) }
+                    },
                 ),
             )
         }
@@ -128,7 +147,7 @@ internal fun BottomChrome(playback: Playback, nav: NavState, modifier: Modifier)
  * player and the ring toggles play; wide adds next. [fraction] runs the crossfade from circle (0) to capsule (1).
  */
 @Composable
-private fun MiniPlayer(playback: Playback, style: MiniStyle, fraction: Float, modifier: Modifier) {
+private fun MiniPlayer(playback: Playback, style: MiniStyle, fraction: () -> Float, modifier: Modifier) {
     val track = playback.track
     val openPlayer = { Chrome.showPlayer = true }
     GlassSurface(modifier, shape = capsule) {
@@ -139,8 +158,8 @@ private fun MiniPlayer(playback: Playback, style: MiniStyle, fraction: Float, mo
                 wide = style == MiniStyle.Wide,
                 onOpen = openPlayer,
                 modifier = Modifier.align(Alignment.CenterEnd).morphLayer(
-                    if (style == MiniStyle.Wide) 1f else Morph.inAlpha(fraction),
-                    if (style == MiniStyle.Wide) 1f else Morph.inScale(fraction),
+                    alpha = { if (style == MiniStyle.Wide) 1f else Morph.inAlpha(fraction()) },
+                    scale = { if (style == MiniStyle.Wide) 1f else Morph.inScale(fraction()) },
                     pivotX = 1f,
                 ),
                 enabled = style != MiniStyle.Circle,
@@ -149,18 +168,25 @@ private fun MiniPlayer(playback: Playback, style: MiniStyle, fraction: Float, mo
         CircleContent(
             playback,
             onOpen = openPlayer,
-            modifier = Modifier.align(Alignment.CenterEnd)
-                .morphLayer(if (style == MiniStyle.Wide) 0f else Morph.outAlpha(fraction), Morph.outScale(fraction)),
+            modifier = Modifier.align(Alignment.CenterEnd).morphLayer(
+                alpha = { if (style == MiniStyle.Wide) 0f else Morph.outAlpha(fraction()) },
+                scale = { Morph.outScale(fraction()) },
+            ),
             enabled = style == MiniStyle.Circle,
         )
     }
     if (Chrome.showPlayer && track != null) PlayerSheet(playback) { Chrome.showPlayer = false }
 }
 
-private fun Modifier.morphLayer(alpha: Float, scale: Float, pivotX: Float = 0.5f) = graphicsLayer {
-    this.alpha = alpha
-    scaleX = scale
-    scaleY = scale
+private fun Modifier.morphLayer(
+    alpha: () -> Float,
+    scale: () -> Float,
+    pivotX: Float = 0.5f,
+) = graphicsLayer {
+    this.alpha = alpha()
+    val s = scale()
+    scaleX = s
+    scaleY = s
     transformOrigin = TransformOrigin(pivotX, 0.5f)
 }
 
@@ -199,7 +225,7 @@ private fun CircleContent(playback: Playback, onOpen: () -> Unit, modifier: Modi
             }),
         contentAlignment = Alignment.Center,
     ) {
-        RingIcon(playback, Morph.CIRCLE.dp)
+        RingIcon(playback, Morph.CIRCLE.dp, active = enabled)
     }
 }
 
@@ -223,7 +249,7 @@ private fun CapsuleContent(playback: Playback, track: Track, wide: Boolean, onOp
             Modifier.clickable(enabled = enabled, onClickLabel = label, role = Role.Button, interactionSource = null, indication = null) { Live.userToggle() }
                 .alpha(if (Live.playbackLocked) 0.4f else 1f)
                 .semantics { contentDescription = label },
-        ) { RingIcon(playback, 40.dp) }
+        ) { RingIcon(playback, 40.dp, active = enabled) }
         if (wide) {
             Box(
                 Modifier.size(36.dp, 40.dp).clickable(enabled = enabled, role = Role.Button, interactionSource = null, indication = null) { Live.userNext() }
@@ -241,7 +267,7 @@ private fun playLabel(playback: Playback) = when {
 }
 
 @Composable
-private fun RingIcon(playback: Playback, size: Dp) {
+private fun RingIcon(playback: Playback, size: Dp, active: Boolean) {
     val symbol = when {
         playback.error != null -> "exclamationmark.triangle.fill"
         playback.playing -> "pause.fill"
@@ -251,6 +277,7 @@ private fun RingIcon(playback: Playback, size: Dp) {
     Box(Modifier.size(size), contentAlignment = Alignment.Center) {
         // Hidden, not removed, while loading: the ring spins instead of a spinner.
         SdatIcon(symbol, contentDescription = null, size = size * 0.32f, tint = tint, modifier = Modifier.alpha(if (playback.loading) 0f else 1f))
-        ProgressRing({ playback.progress }, playback.loading, Modifier.fillMaxSize().padding(size * 0.14f))
+        // Only the visible style spins so the hidden alpha=0 ring doesn't run a second infinite transition.
+        ProgressRing({ if (playback.loading) 0.0 else playback.progress }, playback.loading && active, Modifier.fillMaxSize().padding(size * 0.14f))
     }
 }
