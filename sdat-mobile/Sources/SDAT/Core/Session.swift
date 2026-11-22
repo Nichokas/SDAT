@@ -111,10 +111,8 @@ final class Session {
         let fm = FileManager.default
         for dir in [FileManager.SearchPathDirectory.cachesDirectory, .applicationSupportDirectory, .documentDirectory] {
             for base in fm.urls(for: dir, in: .userDomainMask) {
-                // The core keeps both open: diag.log, and the audio cache emptied at sign-out, whose fills need it.
                 for f in (try? fm.contentsOfDirectory(at: base, includingPropertiesForKeys: nil)) ?? []
-                where !(dir == .applicationSupportDirectory && f.lastPathComponent == "diag")
-                    && !(dir == .cachesDirectory && f.lastPathComponent == AudioCache.dir.lastPathComponent) {
+                where !(dir == .applicationSupportDirectory && f.lastPathComponent == "diag") {
                     try? fm.removeItem(at: f)
                 }
             }
