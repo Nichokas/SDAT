@@ -274,11 +274,13 @@ def run_review(name: str, base: str) -> Result:
             timeout=REVIEW_TIMEOUT_SECONDS,
         )
     except subprocess.TimeoutExpired as exc:
-        for stream in (exc.stdout, exc.stderr):
-            if stream:
-                text = stream.decode(errors="replace") if isinstance(stream, bytes) else stream
-                print(text, file=sys.stderr)
-        return Result(name, Status.FAILED, note="Timed out.")
+        stdout, stderr = (
+            stream.decode(errors="replace") if isinstance(stream, bytes) else (stream or "")
+            for stream in (exc.stdout, exc.stderr)
+        )
+        print(stdout, stderr, sep="\n", file=sys.stderr)
+        partial = reviewer.parse(name, Output(stdout, stderr, 124))
+        return Result(name, Status.FAILED, findings=partial.findings, note="Timed out.")
     # Errors stay in the job log, where GitHub masks secrets; the public comment links to it.
     print(process.stdout, process.stderr, sep="\n", file=sys.stderr)
     return reviewer.parse(name, Output(process.stdout, process.stderr, process.returncode))

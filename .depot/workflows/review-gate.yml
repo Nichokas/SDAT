@@ -27,8 +27,6 @@ jobs:
           persist-credentials: false
       - name: Wait for the review bot
         if: github.event.pull_request.head.repo.full_name == github.repository
-        # Step timeout concludes the job as failure instead of cancelled.
-        timeout-minutes: 55
         env:
           GH_TOKEN: ${{ github.token }}
           PR: ${{ github.event.pull_request.number }}

@@ -461,6 +461,53 @@ class RunReviewTests(unittest.TestCase):
         self.assertEqual(result, Result("cubic", Status.FAILED, note="Timed out."))
         self.assertEqual(run.call_args.kwargs["timeout"], review_bot.REVIEW_TIMEOUT_SECONDS)
 
+    def test_macroscope_timeout_preserves_emitted_findings(self):
+        event = {"path": "a.rs", "line": 3, "severity": "medium", "body": "Bad thing. More detail."}
+        stderr = f"review_session_id=x\nissue_event={json.dumps(event)}\nissue_event={{truncated".encode()
+        timeout = subprocess.TimeoutExpired(
+            cmd=["macroscope"],
+            timeout=review_bot.REVIEW_TIMEOUT_SECONDS,
+            output=None,
+            stderr=stderr,
+        )
+        with mock.patch.dict(os.environ, {"PATH": ""}, clear=True), \
+                mock.patch("shutil.which", return_value="/usr/bin/macroscope"), \
+                mock.patch("subprocess.run", side_effect=timeout):
+            result = review_bot.run_review("macroscope", "main")
+        self.assertEqual(
+            result,
+            Result(
+                "macroscope",
+                Status.FAILED,
+                findings=[Finding("minor", "a.rs", 3, "Bad thing", "More detail.")],
+                note="Timed out.",
+            ),
+        )
+
+    def test_cubic_timeout_keeps_failed_status_when_findings_were_emitted(self):
+        stdout = json.dumps(
+            {"issues": [{"priority": "P0", "file": "a.rs", "line": 3, "title": "t", "description": "d"}]}
+        )
+        timeout = subprocess.TimeoutExpired(
+            cmd=["cubic"],
+            timeout=review_bot.REVIEW_TIMEOUT_SECONDS,
+            output=stdout,
+            stderr=None,
+        )
+        with mock.patch.dict(os.environ, {"PATH": ""}, clear=True), \
+                mock.patch("shutil.which", return_value="/usr/bin/cubic"), \
+                mock.patch("subprocess.run", side_effect=timeout):
+            result = review_bot.run_review("cubic", "main")
+        self.assertEqual(
+            result,
+            Result(
+                "cubic",
+                Status.FAILED,
+                findings=[Finding("critical", "a.rs", 3, "t", "d")],
+                note="Timed out.",
+            ),
+        )
+
 
 if __name__ == "__main__":
     unittest.main()
