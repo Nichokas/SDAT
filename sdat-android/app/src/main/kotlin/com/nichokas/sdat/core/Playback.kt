@@ -766,6 +766,8 @@ class Playback(context: Context, private val prefs: Preferences, secrets: Secret
         if (next != null && next.id == preloading?.id) return
         dropPreload()
         if (next == null) return syncReplay()
+        // The next track's fill comes first: the replay waits for it and starts again once it is settled.
+        dropReplay()
         preloading = next
         preload = scope.launch {
             val src = try {

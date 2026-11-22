@@ -28,6 +28,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.DialogProperties
 import androidx.navigation3.runtime.NavEntry
 import com.nichokas.sdat.core.AppTab
+import com.nichokas.sdat.core.AudioCache
 import com.nichokas.sdat.core.Boot
 import com.nichokas.sdat.core.Chrome
 import com.nichokas.sdat.core.CrashReporting
@@ -76,6 +77,8 @@ fun RootView(session: Session, playback: Playback, prefs: Preferences, secrets: 
     LaunchedEffect(session.signedIn) {
         if (!session.signedIn) {
             playback.stop()
+            // The sign-out's purge, once nothing plays from the cache, so it leaves no file behind.
+            AudioCache.purge(keepPlaying = false)
             Chrome.reset()
         }
     }
