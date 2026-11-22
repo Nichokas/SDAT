@@ -1,6 +1,7 @@
 package com.nichokas.sdat.core
 
 import android.content.Context
+import android.util.Log
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
@@ -75,7 +76,7 @@ object AudioCache {
     private fun update(change: () -> Unit) {
         scope.launch {
             val (t, u) = withContext(io) {
-                runCatching(change)
+                runCatching(change).onFailure { Log.w("SDAT/audio-cache", "audio cache call failed: $it") }
                 audioCacheTracks() to audioCacheUsage()
             }
             tracks = t

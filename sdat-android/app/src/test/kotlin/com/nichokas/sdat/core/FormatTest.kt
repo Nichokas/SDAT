@@ -37,6 +37,9 @@ class FormatTest {
         assertEquals("1 GB", Fmt.cacheBytes(1L shl 30))
         assertEquals("1.4 GB", Fmt.cacheBytes(1_500_000_000))
         assertEquals("10 GB", Fmt.cacheBytes(10L shl 30))
+        assertEquals("1 KB", Fmt.cacheBytes(100))
+        assertEquals("1 MB", Fmt.cacheBytes((1L shl 20) - 1))
+        assertEquals("1 GB", Fmt.cacheBytes((1L shl 30) - 1))
     }
 
     @Test fun bytes() {

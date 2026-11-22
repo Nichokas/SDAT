@@ -4,6 +4,7 @@ import android.content.Context
 import android.net.ConnectivityManager
 import android.net.NetworkCapabilities
 import android.net.Uri
+import android.util.Log
 import android.os.SystemClock
 import androidx.annotation.OptIn
 import androidx.compose.runtime.getValue
@@ -39,6 +40,7 @@ import kotlinx.coroutines.isActive
 import kotlinx.coroutines.MainScope
 import kotlinx.coroutines.launch
 import uniffi.tonearm_ffi.CachedTrack
+import uniffi.tonearm_ffi.FfiException
 import uniffi.tonearm_ffi.Mix
 import uniffi.tonearm_ffi.Quality
 import uniffi.tonearm_ffi.Shuffle
@@ -65,9 +67,9 @@ class Playback(context: Context, private val prefs: Preferences, secrets: Secret
                 // stall does not repeat at once.
                 .setBufferDurationsMs(60_000, 180_000, 1_500, 3_000)
                 // Hi-res FLAC runs near 1 MB/s, so the default 13 MB would cap the buffer near 15 s. The byte target
-                // caps what is loaded past the minimum.
+                // also caps the minimum, so a hi-res buffer never holds more than 64 MiB of heap.
                 .setTargetBufferBytes(64 shl 20)
-                .setPrioritizeTimeOverSizeThresholds(true)
+                .setPrioritizeTimeOverSizeThresholds(false)
                 .build(),
         )
         .build()
@@ -236,6 +238,8 @@ class Playback(context: Context, private val prefs: Preferences, secrets: Secret
         override fun handleStop(): ListenableFuture<*> {
             request?.cancel()
             pendingWait.cancel()
+            dropPreload()
+            dropReplay()
             fetching = false
             // A guest's start may still be aligning; left set, it reads as loading and the follower never reloads.
             liveEngine.cancelLive()
@@ -827,13 +831,18 @@ class Playback(context: Context, private val prefs: Preferences, secrets: Secret
         var landed = false
         try {
             while (fill.isActive) {
+                // A stalled stream needs the bandwidth more than the fill.
+                if (player.playbackState == Player.STATE_BUFFERING) return null
                 if (fillStep(remainingMs(), headroom = true, blocked = false) == FillStep.GiveUp) return null
                 delay(FILL_POLL_MS)
             }
             return fill.await().also { landed = true }
         } catch (e: CancellationException) {
             throw e
-        } catch (_: Exception) {
+        } catch (_: FfiException.Cancelled) {
+            return null
+        } catch (e: Exception) {
+            Log.w("SDAT/audio-cache", "failed to cache track ${t.id}: $e")
             return null
         } finally {
             if (filling == t.id) filling = null
