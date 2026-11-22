@@ -166,9 +166,10 @@ impl PlayerIface {
     fn loop_status(&self) -> String {
         self.loop_status.clone()
     }
+    // The exported value follows `repeat_mode_changed`, so a refused request keeps reading the real mode.
     #[zbus(property)]
+    #[expect(clippy::needless_pass_by_ref_mut, reason = "zbus property setters take &mut self")]
     fn set_loop_status(&mut self, v: String) {
-        self.loop_status.clone_from(&v);
         self.send(Cmd::LoopStatus(v));
     }
     #[zbus(property)]
@@ -183,8 +184,8 @@ impl PlayerIface {
         self.shuffle
     }
     #[zbus(property)]
+    #[expect(clippy::needless_pass_by_ref_mut, reason = "zbus property setters take &mut self")]
     fn set_shuffle(&mut self, v: bool) {
-        self.shuffle = v;
         self.send(Cmd::Shuffle(v));
     }
     #[zbus(property)]
