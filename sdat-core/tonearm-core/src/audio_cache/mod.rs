@@ -1,8 +1,4 @@
 //! On-disk cache of whole tracks, so a replay or the next track plays without the network.
-//!
-//! A fill downloads a track's HLS stream (one init segment and its fragments) into one `.mp4` and writes a
-//! byte-range `.m3u8` over it. `index.json` lists the finished files; the store's mutex is its only writer, and each
-//! `.part` has one writer, its fill.
 
 pub mod hls;
 
@@ -48,9 +44,9 @@ impl TrackId {
 #[derive(Debug, Clone, PartialEq)]
 pub struct Cached {
     pub track_id: String,
-    /// The whole fragmented MP4 (`AVPlayer` plays this).
+    /// The whole fragmented MP4.
     pub mp4: PathBuf,
-    /// A byte-range playlist over `mp4` (`GStreamer` and `ExoPlayer` play this).
+    /// A byte-range playlist over `mp4`.
     pub playlist: PathBuf,
     /// Tier TIDAL delivered.
     pub quality: TrackQuality,
@@ -140,7 +136,6 @@ struct Entry {
 
 #[derive(Debug, Default, serde::Serialize, serde::Deserialize)]
 struct Index {
-    /// Logical clock behind `last_used`, so the LRU order never ties.
     clock: u64,
     entries: BTreeMap<String, Entry>,
 }
@@ -162,7 +157,6 @@ fn stem(id: &str, requested: TrackQuality) -> String {
     format!("{id}-{}", requested.as_str())
 }
 
-/// Entries to delete, least recently used first, until the rest fit `limit`. Never one in `protect`.
 fn evictions<'a>(entries: &[(&'a str, u64, u64)], limit: u64, protect: &[&str]) -> Vec<&'a str> {
     let mut total: u64 = entries.iter().map(|e| e.1).sum();
     let mut candidates: Vec<_> = entries.iter().filter(|e| !protect.contains(&e.0)).collect();
@@ -363,8 +357,7 @@ impl Store {
         result
     }
 
-    /// Three attempts, 1 s then 2 s apart: on a poor network a failed request is a stall, not the end of the fill.
-    fn get(&self, url: &Url, cancel: &AtomicBool) -> CoreResult<(Vec<u8>, Url)> {
+    fn get_with_retry(&self, url: &Url, cancel: &AtomicBool) -> CoreResult<(Vec<u8>, Url)> {
         let mut attempt = 0;
         loop {
             if cancel.load(Ordering::Relaxed) {
@@ -387,22 +380,22 @@ impl Store {
         let (mut text, mut base) = if let Some(text) = hls::decode_data_url(&manifest.url)? {
             (text, None)
         } else {
-            let (body, from) = self.get(&Url::parse(&manifest.url)?, cancel)?;
+            let (body, from) = self.get_with_retry(&Url::parse(&manifest.url)?, cancel)?;
             (String::from_utf8_lossy(&body).into_owned(), Some(from))
         };
         if hls::is_master(&text) {
             let variant = hls::best_variant(&text, base.as_ref()).ok_or_else(|| hls::unsupported("master playlist"))?;
-            let (body, from) = self.get(&variant.uri, cancel)?;
+            let (body, from) = self.get_with_retry(&variant.uri, cancel)?;
             text = String::from_utf8_lossy(&body).into_owned();
             base = Some(from);
         }
         let media = hls::media(&text, base.as_ref())?;
-        // The OS may empty its cache folder while the app runs (Android, iOS).
+        // Erasing the app's data deletes this folder while the app runs.
         fs::create_dir_all(&self.dir)?;
         let mut file = fs::File::create(part)?;
         let mut sizes = Vec::with_capacity(media.segments.len() + 1);
         for url in std::iter::once(&media.map).chain(media.segments.iter().map(|s| &s.uri)) {
-            let (body, _) = self.get(url, cancel)?;
+            let (body, _) = self.get_with_retry(url, cancel)?;
             file.write_all(&body)?;
             sizes.push(body.len() as u64);
         }

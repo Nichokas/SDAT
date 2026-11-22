@@ -265,7 +265,6 @@ async fn fetch_track_manifest(track_id: &str) -> Result<TrackManifest> {
         if let Some(m) = super::audio_cache::manifest(&id, quality) {
             return Ok(m);
         }
-        // Streaming replaces an unfinished fill of this track, so its bytes are not downloaded twice at once.
         tonearm_core::audio_cache::cancel(&id);
         service::get_track_manifest(&id)
     })

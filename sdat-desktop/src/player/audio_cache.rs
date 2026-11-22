@@ -39,7 +39,6 @@ thread_local! {
     static PLANNED: RefCell<Vec<String>> = const { RefCell::new(Vec::new()) };
 }
 
-/// Opens the cache and starts the one thread that fills it.
 pub fn init() {
     let limit = settings::audio_cache_limit();
     let spawned = std::thread::Builder::new().name("audio-cache".into()).spawn(move || {
@@ -95,7 +94,6 @@ pub fn manifest(track_id: &str, quality: TrackQuality) -> Option<TrackManifest> 
     }
 }
 
-/// Removes the copy that `uri` plays from, if it is a cached one, so playing again streams it.
 pub fn drop_failed_copy(uri: &str, track_id: &str) -> bool {
     let cached = glib::filename_to_uri(dir(), None).is_ok_and(|d| uri.starts_with(d.as_str()));
     if cached {
@@ -138,7 +136,6 @@ pub fn on_track_changed() {
     PENDING.set(true);
 }
 
-/// Once the current track has headroom, plans its fills: the next track, then the current one.
 pub fn on_playback_state(s: &PlaybackState) {
     if !PENDING.get() || !has_headroom(s) {
         return;

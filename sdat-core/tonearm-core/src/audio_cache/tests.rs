@@ -21,7 +21,6 @@ impl Drop for TempDir {
 
 const SEGMENTS: usize = 3;
 
-/// TIDAL stand-in: a master playlist, a media playlist, an init segment and `SEGMENTS` fragments per track.
 #[derive(Default)]
 struct Fake {
     manifests: AtomicUsize,

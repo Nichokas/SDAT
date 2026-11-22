@@ -1,5 +1,3 @@
-//! The on-disk audio cache: whole tracks a player plays without the network.
-
 use std::path::PathBuf;
 
 use tonearm_core::audio_cache;
@@ -28,7 +26,6 @@ pub struct CacheUsage {
     pub limit_bytes: u64,
 }
 
-/// The cache keeps the `Track` as its label, so the front ends get typed tracks back.
 fn cached_track(c: audio_cache::Cached) -> Option<CachedTrack> {
     let track = serde_json::from_slice(&c.label).ok()?;
     Some(CachedTrack {
@@ -109,7 +106,7 @@ pub fn audio_cache_remove(track_id: String) {
     audio_cache::remove(&track_id);
 }
 
-/// Empties the cache (Clear cache, sign-out). The files of what is playing go at the next start.
+/// Empties the cache. The files of what is playing go at the next start.
 #[uniffi::export]
 pub fn audio_cache_purge() {
     audio_cache::purge();

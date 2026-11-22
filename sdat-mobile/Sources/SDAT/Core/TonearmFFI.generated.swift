@@ -9460,7 +9460,7 @@ public func audioCacheOpen(dir: String, limitBytes: UInt64)throws   {try rustCal
 }
 }
 /**
- * Empties the cache (Clear cache, sign-out). The files of what is playing go at the next start.
+ * Empties the cache. The files of what is playing go at the next start.
  */
 public func audioCachePurge()  {try! rustCall() {
         uniffiCallStatus in
@@ -10264,7 +10264,7 @@ private let initializationResult: InitializationResult = {
     if (uniffi_tonearm_ffi_checksum_func_audio_cache_open() != 52318) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_tonearm_ffi_checksum_func_audio_cache_purge() != 32772) {
+    if (uniffi_tonearm_ffi_checksum_func_audio_cache_purge() != 3370) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_tonearm_ffi_checksum_func_audio_cache_remove() != 43560) {

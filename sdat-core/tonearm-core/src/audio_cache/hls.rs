@@ -1,4 +1,4 @@
-//! The parts of TIDAL's HLS streams a cache fill needs (port of the Android app's `Hls.kt`).
+//! The parts of TIDAL's HLS streams a cache fill needs.
 
 use base64::Engine;
 use url::Url;
@@ -40,7 +40,6 @@ pub(crate) fn encrypted() -> CoreError {
     CoreError::Other("This track's stream is encrypted (DRM) and can't be saved.".into())
 }
 
-/// A `data:` manifest's text, or `None` for a URL to fetch.
 pub fn decode_data_url(url: &str) -> CoreResult<Option<String>> {
     let Some(rest) = url.strip_prefix("data:") else { return Ok(None) };
     let (meta, body) = rest.split_once(',').ok_or_else(|| unsupported("manifest"))?;
@@ -86,7 +85,6 @@ pub fn media(text: &str, base: Option<&Url>) -> CoreResult<Media> {
             return Err(unsupported("byte ranges"));
         } else if l.starts_with("#EXT-X-MAP") {
             let next = attr(l, "URI").and_then(|u| resolve(base, &u)).ok_or_else(|| unsupported("init segment URL"))?;
-            // The cached file holds one init segment, so every fragment must follow the same one.
             if map.as_ref().is_some_and(|m| *m != next) {
                 return Err(unsupported("several init segments"));
             }
@@ -111,7 +109,7 @@ pub fn media(text: &str, base: Option<&Url>) -> CoreResult<Media> {
 
 /// A VOD playlist over one file holding the init segment and then every segment, back to back.
 ///
-/// Players seek a concatenated fragmented MP4 only through such an index. `sizes` holds the init segment's size,
+/// `ExoPlayer` seeks a concatenated fragmented MP4 only through such an index. `sizes` holds the init segment's size,
 /// then each segment's.
 pub fn local_playlist(file: &str, segments: &[Segment], sizes: &[u64]) -> String {
     use std::fmt::Write;
