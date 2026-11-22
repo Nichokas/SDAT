@@ -26,7 +26,8 @@ final class Boot {
         run = Task { await warmUp() }
     }
 
-    private func set(_ k: String, _ f: Double) { if f > (parts[k] ?? 0) { parts[k] = f } }  // monotonic
+    // A cancelled run (timed out, or replaced by a new start()) must not write into the next one.
+    private func set(_ k: String, _ f: Double) { if !Task.isCancelled, f > (parts[k] ?? 0) { parts[k] = f } }  // monotonic
 
     private func warmUp() async {
         await Self.timed(25) {
@@ -66,6 +67,7 @@ final class Boot {
             await favs
         }
         // Cover prefetch once the library lists are in (or timed out).
+        guard !Task.isCancelled else { return }
         let list = covers.map { CoverURL.sized($0, points: 52) }
         await Self.timed(6) {
             var n = 0
@@ -77,7 +79,7 @@ final class Boot {
         set("covers", 1)
     }
 
-    private func addCovers(_ urls: [String?]) { covers += urls.compactMap { $0 } }
+    private func addCovers(_ urls: [String?]) { if !Task.isCancelled { covers += urls.compactMap { $0 } } }
 
     /// Same source and dedupe as DiscoverView.load, but continues until the pool is varied.
     private func discover() async {
@@ -91,6 +93,7 @@ final class Boot {
                 guard let a = t.album, let c = a.coverUrl else { continue }
                 if ids.insert(t.id).inserted, albums.insert(a.id).inserted, seen.insert(c).inserted { pool.append(t) }
             }
+            guard !Task.isCancelled else { break }
             if !pool.isEmpty { DiscoverCache.save(pool) }   // incremental: a timeout keeps what we have
             set("discover", Double(pool.count) / Double(Self.targetCovers))
             if pool.count >= 320 || (pool.count >= Self.targetCovers && batch.isEmpty) { break }
@@ -99,18 +102,23 @@ final class Boot {
     }
 
     /// Runs `op`, returning early if it hasn't finished within `s` seconds (it is cancelled).
+    /// Cancelling the caller cancels `op` too, which an unstructured task would not inherit.
     private static func timed(_ s: Double, _ op: @escaping @MainActor () async -> Void) async {
-        await withCheckedContinuation { (c: CheckedContinuation<Void, Never>) in
-            var fired = false
-            var timer: Task<Void, Never>?
-            let work = Task { @MainActor in
-                await op()
-                if !fired { fired = true; timer?.cancel(); c.resume() }
+        let work = Task { @MainActor in await op() }
+        await withTaskCancellationHandler {
+            await withCheckedContinuation { (c: CheckedContinuation<Void, Never>) in
+                var fired = false
+                let timer = Task { @MainActor in
+                    try? await Task.sleep(for: .seconds(s))
+                    if !fired { fired = true; work.cancel(); c.resume() }
+                }
+                Task { @MainActor in
+                    await work.value
+                    if !fired { fired = true; timer.cancel(); c.resume() }
+                }
             }
-            timer = Task { @MainActor in
-                try? await Task.sleep(for: .seconds(s))
-                if !fired { fired = true; work.cancel(); c.resume() }
-            }
+        } onCancel: {
+            work.cancel()
         }
     }
 }
