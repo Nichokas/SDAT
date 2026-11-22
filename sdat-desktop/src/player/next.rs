@@ -2,7 +2,6 @@
 //! and for gapless playback, without mutating them until a pick is committed.
 
 use std::cell::Cell;
-use std::hash::{BuildHasher, RandomState};
 
 use super::playqueue::HistoryEntry;
 use super::statemachine::{track_changed, GaplessEntry, GaplessSource};
@@ -12,28 +11,6 @@ use super::{
 };
 use crate::model::Track;
 use crate::signals::State;
-
-pub(super) fn random_index(len: usize) -> usize {
-    thread_local! {
-        static COUNTER: Cell<u64> = const { Cell::new(0) };
-    }
-    let n = len as u64;
-    if n <= 1 {
-        return 0;
-    }
-    let threshold = n.wrapping_neg() % n;
-    loop {
-        let step = COUNTER.with(|c| {
-            let next = c.get().wrapping_add(1);
-            c.set(next);
-            next
-        });
-        let sample = RandomState::new().hash_one(step);
-        if sample >= threshold {
-            return (sample % n) as usize;
-        }
-    }
-}
 
 pub(super) fn find_streamable_index(tracks: &[Track], target: Option<&Track>) -> Option<usize> {
     tracks
@@ -111,7 +88,7 @@ pub(super) fn peek_rewound_base_queue() -> Option<Track> {
     {
         candidates.retain(|t| t.id() != current_id);
     }
-    Some(candidates.swap_remove(random_index(candidates.len())))
+    Some(candidates.swap_remove(rand::random_range(..candidates.len())))
 }
 
 pub(super) fn consume_user_queue_entry(target: &Track) -> Option<Track> {
