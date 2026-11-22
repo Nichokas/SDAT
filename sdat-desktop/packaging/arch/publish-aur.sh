@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-tag=${1:?Usage: publish-aur.sh desktop-vX.Y.Z}
+tag=${1:?Usage: publish-aur.sh desktop-vX.Y.Z (SSH key on stdin)}
 if [[ ! $tag =~ ^desktop-v([0-9]+\.[0-9]+\.[0-9]+)$ ]]; then
     echo "Invalid desktop tag: $tag" >&2
     exit 1
@@ -11,9 +11,12 @@ packaging_dir=$(dirname "$(realpath "$0")")
 work=$(mktemp -d)
 trap 'rm -rf -- "$work"' EXIT
 
-printf '%s\n' "${AUR_SSH_KEY:?Set the AUR_SSH_KEY secret in the aur environment}" > "$work/key"
+cat > "$work/key"
+if [[ ! -s "$work/key" ]]; then
+    echo "Provide the AUR SSH key on standard input." >&2
+    exit 1
+fi
 chmod 600 "$work/key"
-unset AUR_SSH_KEY
 cat > "$work/known_hosts" <<'EOF'
 aur.archlinux.org ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIEuBKrPzbawxA/k2g6NcyV5jmqwJ2s+zpgZGZ7tpLIcN
 EOF

@@ -137,7 +137,10 @@ jobs:
         with:
           persist-credentials: false
       - name: Publish sdat-bin to AUR
+        shell: bash
         env:
           AUR_SSH_KEY: ${{ secrets.AUR_SSH_KEY }}
           RELEASE_TAG: ${{ inputs.tag }}
-        run: runuser -u aur-publisher -- bash sdat-desktop/packaging/arch/publish-aur.sh "$RELEASE_TAG"
+        run: |
+          printf '%s\n' "${AUR_SSH_KEY:?Set AUR_SSH_KEY in the aur environment}" |
+            env -u AUR_SSH_KEY runuser -u aur-publisher -- bash sdat-desktop/packaging/arch/publish-aur.sh "$RELEASE_TAG"
