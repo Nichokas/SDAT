@@ -852,7 +852,7 @@ final class Player: LivePlaybackPort {
     private func fillCold(_ t: Track) {
         let path = network.currentPath
         let unmetered = path.status == .satisfied && !path.isExpensive && !path.isConstrained
-        guard Self.caching, filling == nil, current?.id == t.id, origin == .network,
+        guard Self.caching, filling == nil, origin == .network,
               unmetered || Preferences.shared.downloadOverCellular else { return }
         fill(t)
     }
