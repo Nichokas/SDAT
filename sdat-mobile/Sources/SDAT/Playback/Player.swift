@@ -66,6 +66,7 @@ final class Player: LivePlaybackPort {
     @ObservationIgnored private var advanceTask: Task<Void, Never>?
     private var preloaded: (trackId: String, item: AVPlayerItem, source: Source)?
     @ObservationIgnored private var filling: String?
+    @ObservationIgnored private var fillGen = 0
     private let network = NWPathMonitor()
     /// The engine item of `current`: ends of other items are stale.
     @ObservationIgnored private var playingItem: AVPlayerItem? {
@@ -825,10 +826,12 @@ final class Player: LivePlaybackPort {
         guard filling != t.id else { return }
         cancelFill()
         filling = t.id
+        fillGen += 1
+        let gen = fillGen
         let quality = Preferences.shared.streamingQuality
         Task {
             _ = try? await audioCacheFill(track: t, quality: quality)
-            if filling == t.id { filling = nil }
+            if fillGen == gen { filling = nil }
             AudioCache.shared.refresh()
         }
     }
