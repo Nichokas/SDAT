@@ -82,6 +82,7 @@ global_signal!(fn manually_scrolled() -> State<bool> = State::new(false));
 
 struct View {
     scrolled: gtk::ScrolledWindow,
+    scroll_anim: adw::TimedAnimation,
     overlay: gtk::Overlay,
     panel: adw::Bin,
     active: RefCell<Option<glib::WeakRef<gtk::Button>>>,
@@ -113,8 +114,12 @@ impl View {
     fn build() -> Self {
         let scrolled = gtk::ScrolledWindow::new().hpadding(14);
         scrolled.set_policy(gtk::PolicyType::Never, gtk::PolicyType::External);
+        let target = adw::PropertyAnimationTarget::new(&scrolled.vadjustment(), "value");
+        let scroll_anim = adw::TimedAnimation::new(&scrolled, 0.0, 0.0, 350, target);
+        scroll_anim.set_easing(adw::Easing::EaseOutCubic);
         let sc = gtk::EventControllerScroll::new(gtk::EventControllerScrollFlags::VERTICAL);
         sc.connect_scroll(|_, _, _| {
+            view().scroll_anim.pause();
             manually_scrolled().set(true);
             glib::Propagation::Proceed
         });
@@ -122,6 +127,7 @@ impl View {
         let kc = gtk::EventControllerKey::new();
         kc.connect_key_pressed(|_, _, code, _| {
             if [23u32, 110, 111, 112, 115, 116, 117].contains(&code) {
+                view().scroll_anim.pause();
                 manually_scrolled().set(true);
             }
             glib::Propagation::Proceed
@@ -143,6 +149,7 @@ impl View {
         panel.set_child(Some(&status(&tr("No Song Currently Playing"), Some("no-track-symbolic"), false)));
         View {
             scrolled,
+            scroll_anim,
             overlay,
             panel,
             active: RefCell::new(None),
@@ -156,15 +163,23 @@ impl View {
 fn scroll_to(w: Option<&gtk::Button>) {
     let v = view();
     let adj = v.scrolled.vadjustment();
-    let Some(w) = w else {
-        adj.set_value(0.0);
-        return;
+    let target = match w {
+        None => 0.0,
+        Some(w) => {
+            let Some(parent) = w.parent() else { return };
+            let Some(b) = w.compute_bounds(&parent) else { return };
+            let center = f64::from(b.y() + b.height() / 2.0);
+            (center - f64::from(v.scrolled.height() / 2)).clamp(adj.lower(), (adj.upper() - adj.page_size()).max(adj.lower()))
+        }
     };
-    let Some(parent) = w.parent() else { return };
-    let Some(b) = w.compute_bounds(&parent) else { return };
-    let center = f64::from(b.y() + b.height() / 2.0);
-    let target = (center - f64::from(v.scrolled.height() / 2)).clamp(adj.lower(), (adj.upper() - adj.page_size()).max(adj.lower()));
-    adj.set_value(target);
+    v.scroll_anim.pause();
+    if (target - adj.value()).abs() <= 0.5 {
+        adj.set_value(target);
+        return;
+    }
+    v.scroll_anim.set_value_from(adj.value());
+    v.scroll_anim.set_value_to(target);
+    v.scroll_anim.play();
 }
 
 fn set_active(b: Option<&gtk::Button>) {
@@ -175,9 +190,9 @@ fn set_active(b: Option<&gtk::Button>) {
     }
     for l in v.lines.borrow().iter() {
         if Some(l) == b {
-            l.remove_css_class("dimmed");
-        } else if !l.has_css_class("dimmed") && l.has_css_class("timed") {
-            l.add_css_class("dimmed");
+            l.add_css_class("active");
+        } else if l.has_css_class("active") {
+            l.remove_css_class("active");
         }
     }
     *v.active.borrow_mut() = b.map(gtk::prelude::ObjectExt::downgrade);
@@ -191,12 +206,10 @@ fn line_button(text: &str, timing: Option<(Duration, Duration)>, track_id: &str)
     let l = label(text).halign(gtk::Align::Center).valign(gtk::Align::Center).class("title-2");
     l.set_wrap(true);
     l.set_justify(gtk::Justification::Center);
-    let b = gtk::Button::new().hexp(true).ptop(24).pbottom(24).pstart(16).pend(16).corner_radius(12);
+    let b = gtk::Button::new().class("lyric").hexp(true).ptop(24).pbottom(24).pstart(16).pend(16).corner_radius(12);
     b.set_child(Some(&l));
     if let Some((start, _)) = timing {
         let track_id = track_id.to_owned();
-        // "timed" is an internal marker only (no style rules use it).
-        b.add_css_class("dimmed");
         b.add_css_class("timed");
         b.connect_clicked(move |b| {
             if crate::live::is_guest()
@@ -207,8 +220,8 @@ fn line_button(text: &str, timing: Option<(Duration, Duration)>, track_id: &str)
             if crate::live::user_seek(start) {
                 return;
             }
-            set_active(Some(b));
             manually_scrolled().set(false);
+            set_active(Some(b));
             player::seek_to_position(start, true);
         });
     }
@@ -288,6 +301,7 @@ pub fn init() {
         if let Some(s) = v.sub.take() {
             player::playback_state_changed().unsubscribe(s);
         }
+        v.scroll_anim.pause();
         v.scrolled.vadjustment().set_value(0.0);
         manually_scrolled().set(false);
         v.panel.set_child(Some(&status(&tr("Loading Lyrics"), None, true)));

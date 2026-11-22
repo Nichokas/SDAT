@@ -124,7 +124,11 @@ pub fn crop(texture: &gdk::Texture) -> gdk::Texture {
 }
 
 pub async fn fetch_cropped(url: &str) -> Option<gdk::Texture> {
-    fetch(url).await.map(|t| crop(&t))
+    let t = fetch(url).await?;
+    if t.width() == t.height() {
+        return Some(t);
+    }
+    api::run(move || Ok::<_, anyhow::Error>(crop(&t))).await.ok()
 }
 
 /// Loads `url` into `image` asynchronously (weakly referenced).

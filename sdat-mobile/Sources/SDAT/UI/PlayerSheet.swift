@@ -49,29 +49,35 @@ private struct NowPlayingPage: View {
         let fav = player.current.flatMap { Favs.shared.known($0.id) } ?? false
         VStack(spacing: 0) {
             Spacer(minLength: 0)
-            Cover(url: player.current?.album?.coverUrlLarge ?? player.current?.album?.coverUrl, radius: 16)
-                .shadow(color: .black.opacity(0.45), radius: 28, y: 14)
-                .id(player.current?.id)
-                .transition(slide)
-                .scaleEffect(player.isPlaying ? 1 : 0.88)
-                .animation(.spring(duration: 0.45, bounce: 0.25), value: player.isPlaying)
+            ZStack {
+                Cover(url: player.current?.album?.coverUrlLarge ?? player.current?.album?.coverUrl, radius: 16)
+                    .shadow(color: .black.opacity(0.45), radius: 28, y: 14)
+                    .id(player.current?.id)
+                    .transition(slide)
+            }
+            .animation(.spring(duration: 0.4, bounce: 0.2), value: player.current?.id)
+            .scaleEffect(player.isPlaying ? 1 : 0.88)
+            .animation(.spring(duration: 0.45, bounce: 0.25), value: player.isPlaying)
             Spacer(minLength: 0)
 
             HStack(spacing: 0) {
-                VStack(alignment: .leading, spacing: 4) {
-                    Text(player.current?.displayTitle ?? "").font(.title3.bold()).lineLimit(1)
-                    HStack(spacing: 6) {
-                        if player.isOffline {
-                            Image(systemName: "arrow.down.circle.fill").font(.footnote)
-                                .foregroundStyle(Color.primary.opacity(0.65))
-                                .accessibilityLabel("Playing downloaded copy")
+                ZStack(alignment: .leading) {
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text(player.current?.displayTitle ?? "").font(.title3.bold()).lineLimit(1)
+                        HStack(spacing: 6) {
+                            if player.isOffline {
+                                Image(systemName: "arrow.down.circle.fill").font(.footnote)
+                                    .foregroundStyle(Color.primary.opacity(0.65))
+                                    .accessibilityLabel("Playing downloaded copy")
+                            }
+                            Text(player.current?.artistLine ?? "").foregroundStyle(Color.primary.opacity(0.65)).lineLimit(1)
                         }
-                        Text(player.current?.artistLine ?? "").foregroundStyle(Color.primary.opacity(0.65)).lineLimit(1)
                     }
+                    .id(player.current?.id)
+                    .transition(slide)
                 }
-                .id(player.current?.id)
-                .transition(slide)
                 .frame(maxWidth: .infinity, alignment: .leading)
+                .animation(.spring(duration: 0.4, bounce: 0.2), value: player.current?.id)
                 Button { if let id = player.current?.id { Favs.shared.toggle(id) } } label: {
                     Image(systemName: fav ? "star.fill" : "star").font(.title3)
                         .frame(width: 44, height: 44).contentShape(.rect)
@@ -117,7 +123,14 @@ private struct NowPlayingPage: View {
             .padding(.top, 2)
 
             HStack(spacing: 46) {
-                Button { forward = false; prevTap += 1; if !Live.shared.guestRefuses() { withAnimation(.spring(duration: 0.4, bounce: 0.2)) { player.previous() } } } label: {
+                Button {
+                    prevTap += 1
+                    if !Live.shared.guestRefuses() {
+                        let before = player.current?.id
+                        player.previous()
+                        if player.current?.id != before { forward = false }
+                    }
+                } label: {
                     Image(systemName: "backward.fill").font(.system(size: 30))
                         .symbolEffect(.wiggle.left, value: prevTap)
                 }
@@ -135,7 +148,7 @@ private struct NowPlayingPage: View {
                 }
                 .opacity(Live.shared.playbackLocked ? 0.4 : 1)
                 .accessibilityLabel(player.isPlaying ? "Pause" : "Play")
-                Button { forward = true; nextTap += 1; if Live.shared.isGuest { Live.shared.userNext() } else { withAnimation(.spring(duration: 0.4, bounce: 0.2)) { player.next() } } } label: {
+                Button { forward = true; nextTap += 1; if Live.shared.isGuest { Live.shared.userNext() } else { player.next() } } label: {
                     Image(systemName: "forward.fill").font(.system(size: 30))
                         .symbolEffect(.wiggle.right, value: nextTap)
                 }
@@ -163,6 +176,7 @@ private struct NowPlayingPage: View {
         .padding(.horizontal, 24)
         .padding(.top, 24)
         .padding(.bottom, 12)
+        .onChange(of: player.current?.id) { forward = true }
         .task(id: player.current?.id) {
             if let id = player.current?.id { await Favs.shared.check(id) }
         }
@@ -182,33 +196,49 @@ private struct RoutePicker: UIViewRepresentable {
     func updateUIView(_ uiView: AVRoutePickerView, context: Context) {}
 }
 
-/// Seek slider and times. Its own view so the 4 Hz position ticks re-render only this,
-/// not the whole page.
+/// Seek slider and times. Its own view so position updates and display-rate
+/// extrapolation re-render only this, not the whole page.
 private struct Scrubber: View {
     @Environment(Player.self) private var player
     @State private var scrub: Double?
+    @State private var anchor: (position: Double, at: Date)?
+
+    private var advancing: Bool { player.isPlaying && !player.loading && scrub == nil }
+
+    private func displayPosition(at now: Date) -> Double {
+        if let scrub { return scrub }
+        guard advancing, let anchor, anchor.position == player.position else { return player.position }
+        let dt = min(max(0, now.timeIntervalSince(anchor.at)), 0.5)
+        return min(anchor.position + dt, max(player.duration, anchor.position))
+    }
 
     var body: some View {
-        VStack(spacing: 4) {
-            Slider(
-                value: Binding(get: { scrub ?? player.position }, set: { scrub = $0 }),
-                in: 0...max(player.duration, 1)
-            ) { editing in
-                if !editing, let s = scrub {
-                    scrub = nil
-                    // Guests with control ask the host to seek everyone.
-                    if !Live.shared.userSeek(s) { player.seek(to: s) }
+        TimelineView(.animation(paused: !advancing)) { ctx in
+            let shown = displayPosition(at: ctx.date)
+            VStack(spacing: 4) {
+                Slider(
+                    value: Binding(get: { shown }, set: { scrub = $0 }),
+                    in: 0...max(player.duration, 1)
+                ) { editing in
+                    if !editing, let s = scrub {
+                        scrub = nil
+                        // Guests with control ask the host to seek everyone.
+                        if !Live.shared.userSeek(s) { player.seek(to: s) }
+                    }
                 }
+                .disabled(Live.shared.isGuest && !Live.shared.guestControl)
+                .tint(.primary)
+                HStack {
+                    Text(Fmt.time(shown))
+                    Spacer()
+                    Text("-" + Fmt.time(max(0, player.duration - shown)))
+                }
+                .font(.caption.monospacedDigit()).foregroundStyle(Color.primary.opacity(0.6))
             }
-            .disabled(Live.shared.isGuest && !Live.shared.guestControl)
-            .tint(.primary)
-            HStack {
-                Text(Fmt.time(scrub ?? player.position))
-                Spacer()
-                Text("-" + Fmt.time(player.duration - (scrub ?? player.position)))
-            }
-            .font(.caption.monospacedDigit()).foregroundStyle(Color.primary.opacity(0.6))
         }
+        .onChange(of: player.position, initial: true) { _, p in anchor = advancing ? (p, Date.now) : nil }
+        .onChange(of: advancing) { _, on in anchor = on ? (player.position, Date.now) : nil }
+        .onChange(of: player.current?.id) { anchor = advancing ? (player.position, Date.now) : nil }
     }
 }
 

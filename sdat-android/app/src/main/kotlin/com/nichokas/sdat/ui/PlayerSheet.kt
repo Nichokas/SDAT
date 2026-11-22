@@ -45,14 +45,15 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
+import androidx.compose.runtime.mutableDoubleStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
-import androidx.compose.ui.draw.blur
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.graphics.Color
@@ -123,11 +124,13 @@ fun PlayerSheet(playback: Playback, onDismiss: () -> Unit) {
 private fun CoverBackdrop(url: String?) {
     Box(Modifier.fillMaxSize().background(Color.Black)) {
         if (url != null) {
+            val context = LocalContext.current
+            val request = remember(url, context) { backdropRequest(context, url, saturation = 1f, radius = 8) }
             AsyncImage(
-                model = CoverUrl.sized(url, 320),
+                model = request,
                 contentDescription = null,
                 contentScale = ContentScale.Crop,
-                modifier = Modifier.fillMaxSize().blur(80.dp).alpha(0.6f),
+                modifier = Modifier.fillMaxSize().alpha(0.6f),
             )
         }
     }
@@ -136,7 +139,10 @@ private fun CoverBackdrop(url: String?) {
 @Composable
 private fun NowPlayingPage(playback: Playback, track: Track, showQueue: () -> Unit) {
     var forward by remember { mutableStateOf(true) }
-    LaunchedEffect(track.id) { Favs.check(track.id) }
+    LaunchedEffect(track.id) {
+        forward = true
+        Favs.check(track.id)
+    }
     val slide: () -> ContentTransform = {
         val sign = if (forward) 1 else -1
         (slideInHorizontally { sign * it } + fadeIn()) togetherWith (slideOutHorizontally { -sign * it } + fadeOut())
@@ -162,54 +168,16 @@ private fun NowPlayingPage(playback: Playback, track: Track, showQueue: () -> Un
             }
         }
         TitleRow(playback, track, slide, Modifier.padding(top = 24.dp))
-        // A new queue entry, even of the same track, drops the slider and any drag on it, so a release can't seek it to the old one's place.
-        key(playback.entry) {
-            Column(Modifier.padding(top = 14.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                var scrub by remember { mutableStateOf<Double?>(null) }
-                var dragEnd by remember { mutableStateOf<Double?>(null) }
-                val locked = Live.playbackLocked
-                // GlasmioSlider keys pointerInput on enabled and valueRange: clear scrub if a lock or track change cancels the drag, and freeze the range while dragging.
-                LaunchedEffect(locked) {
-                    if (locked) {
-                        scrub = null
-                        dragEnd = null
-                    }
-                }
-                LaunchedEffect(playback.track?.id) {
-                    scrub = null
-                    dragEnd = null
-                }
-                val end = dragEnd ?: maxOf(playback.duration, 1.0)
-                val shown = if (locked) playback.position else scrub ?: playback.position
-                GlasmioSlider(
-                    value = shown.coerceIn(0.0, end).toFloat(),
-                    onValueChange = {
-                        if (!Live.playbackLocked) {
-                            if (dragEnd == null) dragEnd = end
-                            scrub = it.toDouble()
-                        }
-                    },
-                    valueRange = 0f..end.toFloat(),
-                    enabled = !locked,
-                    onValueChangeFinished = {
-                        scrub?.let { if (!Live.userSeek(it)) playback.seek(it) }
-                        scrub = null
-                        dragEnd = null
-                    },
-                )
-                Row(Modifier.fillMaxWidth()) {
-                    val digits = IosTypography.caption1.copy(fontFeatureSettings = "tnum")
-                    Text(Fmt.time(shown), style = digits, color = Color.White.copy(alpha = 0.6f))
-                    Spacer(Modifier.weight(1f))
-                    Text("-" + Fmt.time(playback.duration - shown), style = digits, color = Color.White.copy(alpha = 0.6f))
-                }
-            }
-        }
+        Scrubber(playback, Modifier.padding(top = 14.dp))
         QualityBadge(playback, Modifier.padding(top = 2.dp))
         Row(Modifier.padding(top = 20.dp), horizontalArrangement = Arrangement.spacedBy(46.dp), verticalAlignment = Alignment.CenterVertically) {
             IconTap("backward.fill", "Previous", 30.dp, Modifier.alpha(if (Live.isGuest) 0.4f else 1f)) {
-                forward = false
-                if (!Live.guestRefuses()) playback.previous()
+                if (!Live.guestRefuses()) {
+                    val before = playback.track?.id
+                    playback.previous()
+                    // A restart (seek to 0) keeps the track, so the next change must still slide forward.
+                    if (playback.track?.id != before) forward = false
+                }
             }
             Box(
                 Modifier.size(64.dp).alpha(if (Live.playbackLocked) 0.4f else 1f)
@@ -233,6 +201,83 @@ private fun NowPlayingPage(playback: Playback, track: Track, showQueue: () -> Un
             IconTap("list.bullet", "Queue", 22.dp, tint = quiet, onClick = showQueue)
         }
     }
+    }
+}
+
+internal fun interpolatedPosition(
+    anchorPosition: Double,
+    elapsedSecs: Double,
+    duration: Double,
+    advancing: Boolean,
+): Double {
+    if (!advancing) return anchorPosition
+    val dt = elapsedSecs.coerceIn(0.0, 0.5)
+    return (anchorPosition + dt).coerceAtMost(maxOf(duration, anchorPosition))
+}
+
+/** Isolates vsync scrubber interpolation so NowPlayingPage doesn't recompose while playing. */
+@Composable
+private fun Scrubber(playback: Playback, modifier: Modifier = Modifier) {
+    // A new queue entry, even of the same track, drops the slider and any drag on it, so a release can't seek it to the old one's place.
+    key(playback.entry) {
+        var scrub by remember { mutableStateOf<Double?>(null) }
+        var dragEnd by remember { mutableStateOf<Double?>(null) }
+        val locked = Live.playbackLocked
+        // GlasmioSlider keys pointerInput on enabled and valueRange: clear scrub if a lock or track change cancels the drag, and freeze the range while dragging.
+        LaunchedEffect(locked) {
+            if (locked) {
+                scrub = null
+                dragEnd = null
+            }
+        }
+        LaunchedEffect(playback.track?.id) {
+            scrub = null
+            dragEnd = null
+        }
+        val advancing = playback.playing && !playback.loading && scrub == null
+        var shown by remember { mutableDoubleStateOf(playback.position) }
+        LaunchedEffect(playback.position, playback.entry, advancing) {
+            val base = playback.position
+            shown = base
+            if (!advancing) return@LaunchedEffect
+            val startNs = withFrameNanos { it }
+            while (true) {
+                withFrameNanos { now ->
+                    shown = interpolatedPosition(base, (now - startNs) / 1e9, playback.duration, advancing = true)
+                }
+            }
+        }
+        val end = dragEnd ?: maxOf(playback.duration, 1.0)
+        val displayed = if (locked) shown else scrub ?: shown
+        Column(modifier, verticalArrangement = Arrangement.spacedBy(4.dp)) {
+            GlasmioSlider(
+                value = displayed.coerceIn(0.0, end).toFloat(),
+                onValueChange = {
+                    if (!Live.playbackLocked) {
+                        if (dragEnd == null) dragEnd = end
+                        scrub = it.toDouble()
+                    }
+                },
+                valueRange = 0f..end.toFloat(),
+                enabled = !locked,
+                onValueChangeFinished = {
+                    scrub?.let {
+                        if (!Live.userSeek(it)) {
+                            playback.seek(it)
+                            shown = playback.position
+                        }
+                    }
+                    scrub = null
+                    dragEnd = null
+                },
+            )
+            Row(Modifier.fillMaxWidth()) {
+                val digits = IosTypography.caption1.copy(fontFeatureSettings = "tnum")
+                Text(Fmt.time(displayed), style = digits, color = Color.White.copy(alpha = 0.6f))
+                Spacer(Modifier.weight(1f))
+                Text("-" + Fmt.time(maxOf(0.0, playback.duration - displayed)), style = digits, color = Color.White.copy(alpha = 0.6f))
+            }
+        }
     }
 }
 
