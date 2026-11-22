@@ -1,5 +1,6 @@
 //! Port of `components/media_viewer.go`: a full-window image viewer overlay.
-use std::cell::Cell;
+use std::cell::{Cell, RefCell};
+use std::rc::Rc;
 
 use adw::prelude::*;
 use gtk::{gdk, gio, gsk};
@@ -12,6 +13,7 @@ pub struct MediaViewer {
     back: gtk::Button,
     zoom: Cell<f64>,
     base: Cell<(i32, i32)>,
+    hide_timer: Rc<RefCell<Option<glib::SourceId>>>,
 }
 
 thread_local! {
@@ -116,7 +118,7 @@ impl MediaViewer {
         revealer.connect_show(|_| {
             get().back.grab_focus();
         });
-        MediaViewer { revealer, picture, back, zoom: Cell::new(1.0), base: Cell::new((0, 0)) }
+        MediaViewer { revealer, picture, back, zoom: Cell::new(1.0), base: Cell::new((0, 0)), hide_timer: Rc::default() }
     }
 
     pub fn widget(&self) -> &gtk::Revealer {
@@ -151,6 +153,9 @@ impl MediaViewer {
     }
 
     pub fn show_file(&self, paintable: &gdk::Paintable) {
+        if let Some(id) = self.hide_timer.borrow_mut().take() {
+            id.remove();
+        }
         self.reset_zoom();
         self.picture.set_paintable(Some(paintable));
         self.revealer.set_visible(true);
@@ -161,15 +166,21 @@ impl MediaViewer {
         if !self.revealer.reveals_child() {
             return;
         }
+        if let Some(id) = self.hide_timer.borrow_mut().take() {
+            id.remove();
+        }
         self.revealer.set_reveal_child(false);
         let r = self.revealer.downgrade();
-        glib::timeout_add_local_once(std::time::Duration::from_millis(u64::from(self.revealer.transition_duration())), move || {
+        let timer = Rc::clone(&self.hide_timer);
+        let id = glib::timeout_add_local_once(std::time::Duration::from_millis(u64::from(self.revealer.transition_duration())), move || {
+            *timer.borrow_mut() = None;
             if let Some(r) = r.upgrade()
                 && !r.reveals_child()
             {
                 r.set_visible(false);
             }
         });
+        *self.hide_timer.borrow_mut() = Some(id);
     }
 
     fn reset_zoom(&self) {
@@ -192,5 +203,54 @@ impl MediaViewer {
             self.base.set((bw, bh));
         }
         self.picture.set_size_request((f64::from(bw) * level) as i32, (f64::from(bh) * level) as i32);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn reopening_during_hide_transition_keeps_viewer_visible() {
+        crate::ui::components::tracklist::run_gtk_test(|| {
+            let viewer = MediaViewer::build();
+            viewer.revealer.set_transition_duration(20);
+            let paintable: gdk::Paintable = gdk::MemoryTexture::new(
+                1,
+                1,
+                gdk::MemoryFormat::R8g8b8a8,
+                &glib::Bytes::from_static(&[0, 0, 0, 255]),
+                4,
+            )
+            .upcast();
+
+            viewer.show_file(&paintable);
+            assert!(viewer.revealer.is_visible());
+            assert!(viewer.revealer.reveals_child());
+
+            viewer.hide();
+            assert!(!viewer.revealer.reveals_child());
+            assert!(viewer.hide_timer.borrow().is_some());
+
+            viewer.show_file(&paintable);
+            assert!(viewer.hide_timer.borrow().is_none());
+
+            let ctx = glib::MainContext::default();
+            let start = std::time::Instant::now();
+            while start.elapsed() < std::time::Duration::from_millis(50) {
+                while ctx.iteration(false) {}
+                std::thread::sleep(std::time::Duration::from_millis(5));
+            }
+            assert!(viewer.revealer.is_visible(), "hide timer hid freshly reopened viewer");
+            assert!(viewer.revealer.reveals_child());
+
+            viewer.hide();
+            let start = std::time::Instant::now();
+            while start.elapsed() < std::time::Duration::from_millis(50) {
+                while ctx.iteration(false) {}
+                std::thread::sleep(std::time::Duration::from_millis(5));
+            }
+            assert!(!viewer.revealer.is_visible(), "viewer should hide once transition finishes");
+        });
     }
 }
