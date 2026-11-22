@@ -122,11 +122,16 @@ fn track_ids_are_digits() {
 
 #[test]
 fn serves_at_or_above_the_wanted_tier() {
-    assert!(serves(TrackQuality::HighResLossless, TrackQuality::Lossless));
-    assert!(serves(TrackQuality::Lossless, TrackQuality::Lossless));
-    assert!(serves(TrackQuality::High, TrackQuality::Lossy));
-    assert!(!serves(TrackQuality::Lossless, TrackQuality::HighResLossless));
-    assert!(!serves(TrackQuality::High, TrackQuality::Lossless));
+    use TrackQuality::{High, HighResLossless as HiRes, Lossless, Lossy};
+    assert!(serves(HiRes, HiRes, Lossless));
+    assert!(serves(Lossless, Lossless, Lossless));
+    assert!(serves(High, High, Lossy));
+    assert!(serves(HiRes, Lossless, HiRes), "a CD-only track is as good as it gets");
+    assert!(!serves(Lossless, Lossless, HiRes));
+    assert!(!serves(High, High, Lossless));
+    assert!(!serves(HiRes, Lossy, HiRes), "AAC sent without a session never stands in for lossless");
+    assert!(!serves(HiRes, Lossy, High));
+    assert!(serves(HiRes, Lossy, Lossy));
 }
 
 #[test]

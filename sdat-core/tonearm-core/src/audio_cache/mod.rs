@@ -78,12 +78,14 @@ const fn rank(q: TrackQuality) -> u8 {
     }
 }
 
-/// A copy fetched for `requested` plays when `wanted` asks for no more.
+/// A copy fetched for `requested` and delivered as `delivered` plays when `wanted` asks for no more.
 ///
-/// TIDAL delivers the best tier a track has up to the requested one, so comparing the delivered tier would refill a
-/// CD-only track on every hi-res play.
-pub const fn serves(requested: TrackQuality, wanted: TrackQuality) -> bool {
-    rank(requested) >= rank(wanted)
+/// TIDAL delivers the best tier a track has up to the requested one, so a lossless delivery serves up to its
+/// requested tier: comparing only the delivered tier would refill a CD-only track on every hi-res play. A lossy
+/// delivery serves only its own tier, because TIDAL also sends AAC without a session or subscription, and that copy
+/// must not stand in for lossless once the user signs in.
+pub const fn serves(requested: TrackQuality, delivered: TrackQuality, wanted: TrackQuality) -> bool {
+    rank(requested) >= rank(wanted) && (rank(delivered) >= rank(wanted) || rank(delivered) >= rank(TrackQuality::Lossless))
 }
 
 /// Where a fill gets its bytes.
@@ -303,7 +305,7 @@ impl Store {
         st.recent.retain(|r| r != track_id);
         st.recent.push_front(track_id.to_owned());
         st.recent.truncate(2);
-        let e = st.index.entries.get(track_id).filter(|e| serves(e.requested, wanted))?;
+        let e = st.index.entries.get(track_id).filter(|e| serves(e.requested, e.quality, wanted))?;
         let c = self.cached(track_id, e);
         if !intact(&c) {
             log::warn!("cached audio of track {track_id} is missing or truncated; dropping it");
@@ -332,7 +334,7 @@ impl Store {
             if st.limit == 0 {
                 return Err(CoreError::Cancelled("audio cache is off".into()));
             }
-            if let Some(e) = st.index.entries.get(id.as_str()).filter(|e| serves(e.requested, quality)) {
+            if let Some(e) = st.index.entries.get(id.as_str()).filter(|e| serves(e.requested, e.quality, quality)) {
                 return Ok(self.cached(id.as_str(), e));
             }
             if let Some(running) = st.fills.get(id.as_str()).map(Arc::clone) {
