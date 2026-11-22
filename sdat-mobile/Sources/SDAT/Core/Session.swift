@@ -40,10 +40,10 @@ final class Session {
             guard loginAttempt == attempt else { return }
             // Over a session: the old one detaches with its own credentials; the hub then starts the new one.
             if signedIn { HandoffHub.shared.stop() }
+            clearAccountState()
             tokens.save(result)
             HandoffHub.shared.signedIn()
             sessionChanged()
-            clearAccountState()
             Boot.shared.start()   // first-time warm-up, only after a fresh sign-in
             signedIn = true
         } catch {
@@ -89,9 +89,9 @@ final class Session {
         let prev = teardown?.task
         let id = UUID()
         let task = Task {
+            defer { if teardown?.id == id { teardown = nil } }
             await prev?.value
             await work()
-            if teardown?.id == id { teardown = nil }
         }
         teardown = (id, task)
     }
