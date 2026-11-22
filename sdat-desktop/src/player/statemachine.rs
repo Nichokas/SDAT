@@ -94,20 +94,17 @@ impl GaplessGate {
         self.lock().generation
     }
 
-    /// Cancels any active or queued gapless waiter without blocking.
-    pub fn cancel(&self) {
-        let mut st = self.lock();
-        st.generation = st.generation.wrapping_add(1);
-        if st.waiting {
-            st.done = true;
-            st.waiting = false;
-            self.cond.notify_all();
-        }
-    }
-
     /// Wakes any waiting streaming thread and stops new `about-to-finish`
     /// callbacks from blocking until the guard drops.
     pub fn enter_blocking_op(&self) -> BlockingOpGuard<'_> {
+        self.begin_queued_cancel();
+        BlockingOpGuard { gate: self }
+    }
+
+    /// Like [`Self::enter_blocking_op`], but held from when a stop or start is
+    /// queued until [`Self::end_queued_cancel`] after it is handled, so a wait
+    /// that begins in between cannot outlive it.
+    pub fn begin_queued_cancel(&self) {
         let mut st = self.lock();
         st.blocking_ops += 1;
         st.generation = st.generation.wrapping_add(1);
@@ -116,7 +113,11 @@ impl GaplessGate {
             st.waiting = false;
             self.cond.notify_all();
         }
-        BlockingOpGuard { gate: self }
+    }
+
+    pub fn end_queued_cancel(&self) {
+        let mut st = self.lock();
+        st.blocking_ops = st.blocking_ops.saturating_sub(1);
     }
 
     /// Mints a non-blocking token when `about-to-finish` fires on the main thread.
@@ -185,8 +186,7 @@ impl GaplessGate {
 
 impl Drop for BlockingOpGuard<'_> {
     fn drop(&mut self) {
-        let mut st = self.gate.lock();
-        st.blocking_ops = st.blocking_ops.saturating_sub(1);
+        self.gate.end_queued_cancel();
     }
 }
 
@@ -427,6 +427,13 @@ async fn fetch_track_manifest(track_id: &str) -> Result<TrackManifest> {
     api::run(move || service::get_track_manifest(&id))
         .await
         .map_err(|e| anyhow!("failed to fetch and enqueue track: {e}"))
+}
+
+fn cancels_gapless(t: &Trigger) -> bool {
+    matches!(
+        t,
+        Trigger::Stop | Trigger::PlayTrack(..) | Trigger::PlayTrackId(..) | Trigger::Error(_) | Trigger::TokenExpired
+    )
 }
 
 fn enqueue_playbin(playbin: &dyn Playbin, manifest: &TrackManifest, volume: f64) -> Result<()> {
@@ -696,15 +703,8 @@ impl Machine {
 
     /// Queues a trigger; transitions run in order on the main loop.
     pub fn fire(self: &Rc<Self>, t: Trigger) {
-        if matches!(
-            t,
-            Trigger::Stop
-                | Trigger::PlayTrack(..)
-                | Trigger::PlayTrackId(..)
-                | Trigger::Error(_)
-                | Trigger::TokenExpired
-        ) {
-            self.gate.cancel();
+        if cancels_gapless(&t) {
+            self.gate.begin_queued_cancel();
         }
         self.queue.borrow_mut().push_back(t);
         if self.running.replace(true) {
@@ -716,7 +716,11 @@ impl Machine {
                 let next = this.queue.borrow_mut().pop_front();
                 let Some(t) = next else { break };
                 this.handling_start.set(matches!(t, Trigger::PlayTrack(..) | Trigger::PlayTrackId(..)));
+                let cancels = cancels_gapless(&t);
                 this.handle(t).await;
+                if cancels {
+                    this.gate.end_queued_cancel();
+                }
                 this.handling_start.set(false);
             }
             this.running.set(false);
@@ -1764,12 +1768,31 @@ pub mod tests {
             let m = Machine::with_gate(Rc::clone(&pb) as Rc<dyn Playbin>, Arc::clone(&gate), Hooks::default());
             m.state.set(State::Playing);
             let token = gate.begin_nonblocking().unwrap();
-            gate.cancel();
+            drop(gate.enter_blocking_op());
             assert!(token.is_cancelled());
             m.fire(Trigger::GaplessHint(Some(token)));
             while ctx.iteration(false) {}
             assert_eq!(m.state.get(), State::Playing);
             assert!(pb.uri.borrow().is_empty());
+        })
+        .unwrap();
+    }
+
+    #[test]
+    fn queued_stop_cancels_a_wait_that_starts_before_it_is_handled() {
+        let ctx = glib::MainContext::new();
+        ctx.with_thread_default(|| {
+            let pb = Rc::new(Testbin { state: Cell::new(Some(gst::State::Playing)), ..Default::default() });
+            let gate = Arc::new(GaplessGate::new());
+            let m = Machine::with_gate(Rc::clone(&pb) as Rc<dyn Playbin>, Arc::clone(&gate), Hooks::default());
+            m.state.set(State::Playing);
+            m.fire(Trigger::Stop);
+            let start = Instant::now();
+            assert!(!gate.wait(Duration::from_secs(5), |_| {}));
+            assert!(start.elapsed() < Duration::from_secs(1));
+            while ctx.iteration(false) {}
+            assert_eq!(m.state.get(), State::Stopped);
+            assert!(gate.begin_nonblocking().is_some(), "handled stop must release the gate");
         })
         .unwrap();
     }

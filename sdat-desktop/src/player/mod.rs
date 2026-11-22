@@ -620,9 +620,10 @@ fn commit_queue_entry(source: GaplessSource, track: &Track) -> Option<Track> {
     match source {
         GaplessSource::RepeatTrack => Some(track.clone()),
         GaplessSource::UserQueue => consume_user_queue_entry(track),
+        // The rewind was decided when the entry was armed; a later repeat change must not undo it.
         GaplessSource::BaseQueue { rewound } => {
             drain_unstreamable_user_prefix();
-            consume_base_queue_entry(track, rewound && can_repeat_base_queue())
+            consume_base_queue_entry(track, rewound)
         }
     }
 }
@@ -1505,6 +1506,21 @@ mod playlist_tests {
         set_repeat_mode(RepeatMode::None);
         clear_queues();
         track_changed().set(None);
+    }
+
+    #[test]
+    fn armed_rewound_entry_commits_after_repeat_is_turned_off() {
+        clear_queues();
+        set_repeat_mode(RepeatMode::Queue);
+        base_queue().set(vec![track("A", Some("a")), track("B", Some("b"))]);
+        while base_queue().pop().is_some() {}
+        let armed = peek_gapless().unwrap();
+        assert_eq!(armed.source, GaplessSource::BaseQueue { rewound: true });
+        set_repeat_mode(RepeatMode::None);
+        commit_gapless(&armed);
+        assert!(base_queue().current_occurrence(&armed.track).is_some());
+        assert_eq!(base_queue().entries().with(Vec::len), 1);
+        clear_queues();
     }
 
     #[test]
