@@ -9,6 +9,8 @@ on:
     secrets:
       SENTRY_DSN_DESKTOP:
         required: false
+      AUR_SSH_KEY:
+        required: true
   workflow_dispatch:
     inputs:
       tag:
@@ -115,3 +117,27 @@ jobs:
           if ! grep -Fxq "$asset" <<<"$existing"; then
             gh release upload "$RELEASE_TAG" "$asset"
           fi
+
+  publish-aur:
+    if: inputs.tag != '' && github.repository == 'Nichokas/SDAT' && github.ref == 'refs/heads/main'
+    needs: upload
+    runs-on: ubuntu-latest
+    container: archlinux:base-devel
+    environment: aur
+    concurrency:
+      group: aur-sdat-bin
+      cancel-in-progress: false
+    steps:
+      - name: Install AUR publishing tools
+        run: |
+          pacman -Sy --noconfirm --needed archlinux-keyring
+          pacman -Syu --noconfirm --needed curl git openssh
+          useradd --create-home aur-publisher
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Publish sdat-bin to AUR
+        env:
+          AUR_SSH_KEY: ${{ secrets.AUR_SSH_KEY }}
+          RELEASE_TAG: ${{ inputs.tag }}
+        run: runuser -u aur-publisher -- bash sdat-desktop/packaging/arch/publish-aur.sh "$RELEASE_TAG"
