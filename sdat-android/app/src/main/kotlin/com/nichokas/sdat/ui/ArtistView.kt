@@ -15,6 +15,7 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
@@ -43,10 +44,12 @@ import io.github.neoruaa.glasmio.ui.GlasmioButton
 import io.github.neoruaa.glasmio.ui.GlasmioButtonSize
 import kotlin.coroutines.cancellation.CancellationException
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.isActive
+import kotlinx.coroutines.job
 import kotlinx.coroutines.launch
 import uniffi.tonearm_ffi.ArtistOverview
 import uniffi.tonearm_ffi.FavouriteKind
-import uniffi.tonearm_ffi.TopTracksPager
 import uniffi.tonearm_ffi.Track
 import uniffi.tonearm_ffi.artistOverview
 import uniffi.tonearm_ffi.artistTopTracksPager
@@ -60,6 +63,7 @@ fun ArtistView(id: String) {
     var attempt by remember { mutableIntStateOf(0) }
     val scope = rememberCoroutineScope()
     val more = remember(id) { MoreTopTracks(id, scope) }
+    DisposableEffect(more) { onDispose { more.close() } }
     LaunchedEffect(id, attempt) {
         try {
             val o = artistOverview(id)
@@ -107,8 +111,27 @@ fun ArtistView(id: String) {
     }
 }
 
+internal interface TopTracksSource : AutoCloseable {
+    suspend fun next(limit: UInt): List<Track>
+    fun isDone(): Boolean
+}
+
+private fun openTopTracks(artistId: String, shownIds: List<String>): TopTracksSource {
+    val pager = artistTopTracksPager(artistId, shownIds)
+    return object : TopTracksSource {
+        override suspend fun next(limit: UInt) = pager.next(limit)
+        override fun isDone() = pager.isDone()
+        override fun close() = pager.close()
+    }
+}
+
 /** Top tracks past the overview's few, a page per "Show More". */
-private class MoreTopTracks(private val artistId: String, private val scope: CoroutineScope) {
+internal class MoreTopTracks(
+    private val artistId: String,
+    private val scope: CoroutineScope,
+    private val open: (String, List<String>) -> TopTracksSource = ::openTopTracks,
+    private val onError: (String) -> Unit = Chrome::flash,
+) : AutoCloseable {
     var tracks by mutableStateOf(emptyList<Track>())
         private set
     var canLoad by mutableStateOf(true)
@@ -116,32 +139,58 @@ private class MoreTopTracks(private val artistId: String, private val scope: Cor
     var loading by mutableStateOf(false)
         private set
 
-    private var pager: TopTracksPager? = null
+    private var pager: TopTracksSource? = null
+    private var job: Job? = null
+    private var generation = 0
+    private var closed = false
 
     fun reset() {
+        generation++
+        job?.cancel()
+        job = null
+        pager?.close()
         pager = null
+        loading = false
         tracks = emptyList()
         canLoad = true
     }
 
-    fun load(shown: List<Track>) {
-        if (loading) return
+    fun load(shown: List<Track>): Job? {
+        if (closed || loading || !canLoad || !scope.isActive) return null
+        val gen = ++generation
         loading = true
-        scope.launch {
+        val shownIds = shown.map { it.id }
+        val current = scope.launch {
             try {
-                val p = pager ?: artistTopTracksPager(artistId, shown.map { it.id }).also { pager = it }
+                if (gen != generation) return@launch
+                val p = pager ?: open(artistId, shownIds).also { pager = it }
                 val page = p.next(PAGE)
-                if (pager !== p) return@launch
+                if (gen != generation || pager !== p) return@launch
                 tracks = tracks + page
                 canLoad = !p.isDone()
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
-                Chrome.flash(friendlyMessage(e))
+                if (gen == generation) onError(friendlyMessage(e))
             } finally {
-                loading = false
+                if (gen == generation) {
+                    if (job === coroutineContext.job) job = null
+                    loading = false
+                }
             }
         }
+        if (gen == generation && current.isActive) job = current
+        return current
+    }
+
+    override fun close() {
+        closed = true
+        generation++
+        job?.cancel()
+        job = null
+        pager?.close()
+        pager = null
+        loading = false
     }
 
     private companion object {

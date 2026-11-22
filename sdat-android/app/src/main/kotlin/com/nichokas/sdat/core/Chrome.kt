@@ -4,8 +4,10 @@ import android.os.SystemClock
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.MainScope
+import kotlinx.coroutines.cancelChildren
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import uniffi.tonearm_ffi.Track
@@ -13,6 +15,8 @@ import uniffi.tonearm_ffi.Track
 /** Navigation, bottom-chrome and transient feedback state shared by every screen. */
 object Chrome {
     private val scope = MainScope()
+    /** Outlives the row or sheet that started a user action; children are cancelled on sign-out. */
+    val actionScope: CoroutineScope = MainScope()
     private var toastJob: Job? = null
     private var settleJob: Job? = null
 
@@ -69,6 +73,7 @@ object Chrome {
         toastJob?.cancel()
         toast = null
         playlistPickerTrack = null
+        actionScope.coroutineContext.cancelChildren()
     }
 
     fun flash(text: String) {

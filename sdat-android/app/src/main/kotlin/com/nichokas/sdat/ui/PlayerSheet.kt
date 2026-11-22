@@ -166,16 +166,35 @@ private fun NowPlayingPage(playback: Playback, track: Track, showQueue: () -> Un
         key(playback.entry) {
             Column(Modifier.padding(top = 14.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                 var scrub by remember { mutableStateOf<Double?>(null) }
-                val end = maxOf(playback.duration, 1.0)
-                val shown = scrub ?: playback.position
+                var dragEnd by remember { mutableStateOf<Double?>(null) }
+                val locked = Live.playbackLocked
+                // GlasmioSlider keys pointerInput on enabled and valueRange: clear scrub if a lock or track change cancels the drag, and freeze the range while dragging.
+                LaunchedEffect(locked) {
+                    if (locked) {
+                        scrub = null
+                        dragEnd = null
+                    }
+                }
+                LaunchedEffect(playback.track?.id) {
+                    scrub = null
+                    dragEnd = null
+                }
+                val end = dragEnd ?: maxOf(playback.duration, 1.0)
+                val shown = if (locked) playback.position else scrub ?: playback.position
                 GlasmioSlider(
                     value = shown.coerceIn(0.0, end).toFloat(),
-                    onValueChange = { scrub = it.toDouble() },
+                    onValueChange = {
+                        if (!Live.playbackLocked) {
+                            if (dragEnd == null) dragEnd = end
+                            scrub = it.toDouble()
+                        }
+                    },
                     valueRange = 0f..end.toFloat(),
-                    enabled = !Live.playbackLocked,
+                    enabled = !locked,
                     onValueChangeFinished = {
                         scrub?.let { if (!Live.userSeek(it)) playback.seek(it) }
                         scrub = null
+                        dragEnd = null
                     },
                 )
                 Row(Modifier.fillMaxWidth()) {
