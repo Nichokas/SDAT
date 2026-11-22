@@ -361,7 +361,10 @@ pub fn files_at_least(files: &[ArtworkFile], size: i64) -> Option<ArtworkFile> {
     if square.is_empty() {
         square = files.to_vec();
     }
-    square.sort_by_key(|a| (a.meta.height, a.meta.width));
+    square.sort_by_key(|a| {
+        let (h, w) = (a.meta.height, a.meta.width);
+        (h.min(w), h.max(w), h, w)
+    });
     square
         .iter()
         .find(|f| f.meta.height.min(f.meta.width) >= size)
@@ -670,6 +673,15 @@ mod tests {
 
         let zero_sized = vec![f(0, 0, "zero")];
         assert_eq!(files_at_least(&zero_sized, i64::MAX).expect("zero").href, "zero");
+
+        let rect = vec![
+            f(2000, 100, "2000x100"),
+            f(100, 2000, "100x2000"),
+            f(500, 1500, "500x1500"),
+            f(1000, 900, "1000x900"),
+        ];
+        assert_eq!(files_at_least(&rect, 400).expect("rect mid").href, "500x1500");
+        assert_eq!(files_at_least(&rect, 1280).expect("rect fallback").href, "1000x900");
     }
 }
 
