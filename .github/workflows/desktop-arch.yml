@@ -18,6 +18,7 @@ on:
   pull_request:
     paths:
       - "sdat-desktop/packaging/arch/**"
+      - "sdat-mobile/Resources/AppIcon.png"
       - ".github/workflows/desktop-arch.yml"
       - ".github/workflows/release.yml"
 
@@ -32,7 +33,7 @@ jobs:
       - name: Install Arch dependencies
         run: |
           pacman -Sy --noconfirm --needed archlinux-keyring
-          pacman -Syu --noconfirm --needed git rust cmake jq glib2-devel desktop-file-utils \
+          pacman -Syu --noconfirm --needed git rust cmake jq glib2-devel desktop-file-utils imagemagick \
             dconf glib-networking gst-plugins-base gst-plugins-good gst-plugins-bad \
             gtk4 hicolor-icon-theme libadwaita libsecret
       - uses: actions/checkout@v4
