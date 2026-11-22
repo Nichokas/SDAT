@@ -318,10 +318,10 @@ extension View {
                 case .artist(let id): ArtistView(id: id)
                 case .settings: SettingsView()
                 case .diagnostics: DiagnosticsView()
-                case .collectionTracks: PagedTracks(title: "Tracks", pager: collectionTracks(), favourites: true)
-                case .collectionAlbums: PagedAlbums(title: "Albums", pager: collectionAlbums())
-                case .collectionArtists: PagedArtists(title: "Artists", pager: collectionArtists())
-                case .collectionPlaylists: PagedPlaylists(title: "Playlists", pager: collectionPlaylists())
+                case .collectionTracks: PagedTracks(title: "Tracks", makePager: { collectionTracks() }, favourites: true)
+                case .collectionAlbums: PagedAlbums(title: "Albums", makePager: { collectionAlbums() })
+                case .collectionArtists: PagedArtists(title: "Artists", makePager: { collectionArtists() })
+                case .collectionPlaylists: PagedPlaylists(title: "Playlists", makePager: { collectionPlaylists() })
                 case .explore(let path, let title): ExploreView(path: path, title: title)
                 }
             }

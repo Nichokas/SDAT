@@ -276,8 +276,9 @@ final class Downloads {
                 self.pending.removeFirst()
                 self.currentID = t.id
                 self.progress[t.id] = 0
-                let bg = UIApplication.shared.beginBackgroundTask(withName: "download") {}
+                let bg = BackgroundAssertion(name: "download")
                 do {
+                    defer { bg.end() }
                     let e = try await self.fetch(t)
                     if !Task.isCancelled {
                         self.entries[t.id] = e
@@ -287,7 +288,6 @@ final class Downloads {
                 } catch {
                     if !Task.isCancelled { self.failures[t.id] = friendlyMessage(error) }
                 }
-                UIApplication.shared.endBackgroundTask(bg)
                 if Task.isCancelled { self.worker = nil; self.pump(); return }
                 self.progress[t.id] = nil
                 self.activeOrder.removeAll { $0 == t.id }; self.activeTracks[t.id] = nil
@@ -526,5 +526,23 @@ final class Downloads {
             guard let c = e.cover else { continue }
             for r in [e.track.cover, e.track.coverLarge].compactMap({ $0 }) { coverMap[r] = Self.dir.appendingPathComponent(c) }
         }
+    }
+}
+
+@MainActor
+private final class BackgroundAssertion {
+    private var id: UIBackgroundTaskIdentifier = .invalid
+
+    init(name: String) {
+        id = UIApplication.shared.beginBackgroundTask(withName: name) { [weak self] in
+            MainActor.assumeIsolated { self?.end() }
+        }
+    }
+
+    func end() {
+        guard id != .invalid else { return }
+        let current = id
+        id = .invalid
+        UIApplication.shared.endBackgroundTask(current)
     }
 }

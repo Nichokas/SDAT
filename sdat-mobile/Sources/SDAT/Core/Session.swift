@@ -63,6 +63,7 @@ final class Session {
         Player.shared.stopAndClear()
         Task {
             await Downloads.shared.removeAll()
+            clearAccountState()
             tokens.clear()
             sessionChanged()
             signedIn = false
@@ -82,7 +83,6 @@ final class Session {
         await Downloads.shared.removeAll()
         Keychain.wipe()
         Preferences.shared.reset()
-        Recents.shared.reset()
         if let id = Bundle.main.bundleIdentifier { UserDefaults.standard.removePersistentDomain(forName: id) }
         Diagnostics.shared.setConsent(.unset)
         // Empties the diagnostics log and the previous session; the core keeps diag.log open, so its directory stays.
@@ -100,10 +100,26 @@ final class Session {
         }
         for f in (try? fm.contentsOfDirectory(at: fm.temporaryDirectory, includingPropertiesForKeys: nil)) ?? [] { try? fm.removeItem(at: f) }
         try? fm.createDirectory(at: fm.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0], withIntermediateDirectories: true)
-        Profile.shared.reset()
-        Chrome.shared.paths = [:]
-        Chrome.shared.tab = .discover
+        clearAccountState()
         sessionChanged()
         signedIn = false
+    }
+
+    private func clearAccountState() {
+        OwnPlaylists.shared.reset()
+        Favs.shared.reset()
+        Profile.shared.reset()
+        Recents.shared.reset()
+        DiscoverCache.clear()
+        Chrome.shared.paths = [:]
+        Chrome.shared.tab = .discover
+    }
+}
+
+extension DiscoverCache {
+    static func clear() {
+        let url = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask)[0]
+            .appendingPathComponent("discover.json")
+        try? FileManager.default.removeItem(at: url)
     }
 }

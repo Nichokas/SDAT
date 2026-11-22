@@ -99,6 +99,7 @@ final class Player: LivePlaybackPort {
     // MARK: queue
 
     func play(_ tracks: [Track], startAt: Int = 0, from source: String? = nil) {
+        if Live.shared.guestRefuses() { return }
         recentIDs = []; recentOrder = []
         restoredInfinite = false
         guard tracks.indices.contains(startAt) else { return }
@@ -119,6 +120,7 @@ final class Player: LivePlaybackPort {
 
     /// Plays the list in a random order (Shuffle buttons).
     func playShuffled(_ tracks: [Track], from source: String? = nil) {
+        if Live.shared.guestRefuses() { return }
         guard !tracks.isEmpty else { return }
         shuffle = true
         play(tracks, startAt: Int.random(in: tracks.indices), from: source)
@@ -126,6 +128,7 @@ final class Player: LivePlaybackPort {
 
     /// Discover's shuffle: endless queue mixing mixes, radios and discoveries.
     func playInfinite(mixes: [Mix]) {
+        if Live.shared.guestRefuses() { return }
         recentIDs = []; recentOrder = []
         restoredInfinite = false
         let source = Shuffle(mixes: mixes)
@@ -145,6 +148,7 @@ final class Player: LivePlaybackPort {
     /// Tapping one Discover cover: that song first, then the rest of the visible Discover
     /// pool (from the tapped one onwards, wrapping), then the endless Discover shuffle.
     func playDiscover(_ track: Track, pool: [Track], mixes: [Mix]) {
+        if Live.shared.guestRefuses() { return }
         recentIDs = []; recentOrder = []
         restoredInfinite = mixes.isEmpty
         var seen: Set<String> = [String(describing: track.id)]
@@ -294,11 +298,13 @@ final class Player: LivePlaybackPort {
     }
 
     func jump(toUpNext offset: Int) {
+        if Live.shared.guestRefuses() { return }
         guard let i = index else { return }
         load(i + 1 + offset)
     }
 
     func jump(toUser offset: Int) {
+        if Live.shared.guestRefuses() { return }
         guard userQueue.indices.contains(offset) else { return }
         let t = userQueue[offset]
         userQueue.removeFirst(offset + 1)
@@ -379,9 +385,21 @@ final class Player: LivePlaybackPort {
     var needsLiveLoad: Bool { needsStart }
     var enginePosition: Double { avPlayer.currentTime().seconds }
 
+    func prepareLiveJoin() {
+        infinite = nil
+        restoredInfinite = false
+        discoverWait &+= 1
+        refilling?.cancel(); refilling = nil
+        resumedVersion = nil
+        invalidatePreload()
+    }
+
     func loadLive(_ tracks: [Track], index i: Int, at secs: Double, playing: Bool) {
         recentIDs = []; recentOrder = []
         infinite = nil
+        restoredInfinite = false
+        discoverWait &+= 1
+        resumedVersion = nil
         original = tracks
         queue = tracks
         sourceTitle = "Listen Together"
@@ -455,29 +473,33 @@ final class Player: LivePlaybackPort {
         if let u = userQueue.first { return (u, true, index) }
         guard let i = index else { return nil }
         if i + 1 < queue.count { return (queue[i + 1], false, i + 1) }
-        if repeatMode == .all, !queue.isEmpty { return (queue[0], false, 0) }
+        if repeatMode == .all, !queue.isEmpty, resumedVersion != queueVersion { return (queue[0], false, 0) }
         return nil
     }
 
     private func advance(auto: Bool) {
+        guard !liveEngine.liveFollowing else { return }
         guard let (t, fromUser, newIndex) = following(manual: !auto) else {
-            // Endless (Discover) queue ran dry before the refill landed: fetch, then go on.
-            guard infinite != nil || restoredInfinite else { stopAtEnd(); return }
+            // Endless (Discover) or handed-off queue ran dry before its tracks arrived: wait, then go on.
+            guard infinite != nil || restoredInfinite || resumedVersion == queueVersion else { stopAtEnd(); return }
             loading = true
             // Restored or taken over, and its source is not here yet: asked for now.
-            if infinite == nil { attachDiscover() }
+            if restoredInfinite, infinite == nil { attachDiscover() }
             let started = starts
             Task {
                 // A handoff's own tracks come first, when they are still on their way.
                 await awaitHandoff(manual: !auto, started: started)
                 // Something else plays by now, or nothing does (a sign-out).
                 guard starts == started, current != nil else { return }
+                guard !liveEngine.liveFollowing else { loading = false; return }
+                if resumedVersion == queueVersion { resumedVersion = nil }
                 // The handed-over tracks play without the source.
                 if following(manual: !auto) == nil {
                     guard let source = infinite else { loading = false; stopAtEnd(); return }
                     let more = await fetchMore(from: source)
                     // Another Next tapped meanwhile waited too, and went on first.
                     guard infinite === source, starts == started else { return }
+                    guard !liveEngine.liveFollowing else { loading = false; return }
                     guard more else { loading = false; stopAtEnd(); return }
                 }
                 loading = false
@@ -560,7 +582,10 @@ final class Player: LivePlaybackPort {
         holdAutoplay = false
         pausedByUser = !autoplay
         // Playing again ends an earlier system pause, as `toggle` does.
-        if autoplay { liveEngine.clearSystemPause() }
+        if autoplay {
+            resumeAfterInterruption = false
+            liveEngine.clearSystemPause()
+        }
         starts += 1
         let mine = starts
         let exact = exactResume
@@ -578,11 +603,13 @@ final class Player: LivePlaybackPort {
                 let s = try await online ? Self.online(track.id) : Self.source(track.id)
                 guard !Task.isCancelled, current?.id == track.id, let url = URL(string: s.url) else { return }
                 stream = s
+                let shouldAlign = liveEngine.shouldAlign(autoplay: autoplay && !holdAutoplay)
+                if shouldAlign || resumeAt > 0 || !autoplay || holdAutoplay { avPlayer.pause() }
                 avPlayer.removeAllItems()
                 let item = Self.makeItem(url)
                 avPlayer.insert(item, after: nil)
                 playingItem = item
-                if liveEngine.shouldAlign(autoplay: autoplay) {
+                if shouldAlign {
                     // Following a playing host: start only with a healthy buffer
                     // and on time, so nothing needs correcting after the start.
                     let playing = await liveEngine.liveAlign(item)
@@ -603,8 +630,8 @@ final class Player: LivePlaybackPort {
                     // A newer start replaced this one during the seek: its item is not ours to play.
                     guard !Task.isCancelled, starts == mine else { return }
                 }
-                try? AVAudioSession.sharedInstance().setActive(true)
                 if autoplay, !holdAutoplay {
+                    try? AVAudioSession.sharedInstance().setActive(true)
                     avPlayer.play()
                     isPlaying = true
                 } else {
@@ -773,6 +800,7 @@ final class Player: LivePlaybackPort {
 
     /// A failed preload is left to the fallback in `trackEnded`, which loads the track anew.
     private func engineMoved(to item: AVPlayerItem?) {
+        guard !liveEngine.liveFollowing else { return }
         guard let item, item === preloaded?.item, item === avPlayer.currentItem, item !== playingItem,
               item.status != .failed else { return }
         advance(auto: true)
@@ -976,18 +1004,33 @@ final class Player: LivePlaybackPort {
                 switch type {
                 case .began:
                     // Remember only real playback; a cold-restored paused state never auto-resumes.
-                    if self.isPlaying { self.resumeAfterInterruption = true; self.liveEngine.noteSystemPause() }
+                    if self.isPlaying || (self.loading && !self.holdAutoplay && !self.pausedByUser) {
+                        self.resumeAfterInterruption = true
+                        self.liveEngine.noteSystemPause()
+                    }
                     self.markPaused()
                 case .ended:
                     let should = AVAudioSession.InterruptionOptions(rawValue: opts).contains(.shouldResume)
                     let resume = should && self.resumeAfterInterruption && !self.needsStart && self.current != nil
                     self.resumeAfterInterruption = false
                     if resume {
+                        self.pausedByUser = false
                         self.liveEngine.clearSystemPause()
-                        try? AVAudioSession.sharedInstance().setActive(true)
-                        self.avPlayer.play()
-                        self.isPlaying = true
-                        self.updateNowPlaying()
+                        if self.liveEngine.liveFollowing {
+                            if self.loading {
+                                self.holdAutoplay = false
+                            } else if self.liveEngine.liveHasItem, !self.liveEngine.liveSeeking,
+                                      self.liveEngine.liveTarget?()?.playing == true {
+                                self.liveEngine.liveResume()
+                            }
+                        } else if self.loading {
+                            self.holdAutoplay = false
+                        } else {
+                            try? AVAudioSession.sharedInstance().setActive(true)
+                            self.avPlayer.play()
+                            self.isPlaying = true
+                            self.updateNowPlaying()
+                        }
                     }
                 @unknown default: break
                 }
@@ -998,7 +1041,7 @@ final class Player: LivePlaybackPort {
             let raw = n.userInfo?[AVAudioSessionRouteChangeReasonKey] as? UInt
             MainActor.assumeIsolated {
                 guard let raw, AVAudioSession.RouteChangeReason(rawValue: raw) == .oldDeviceUnavailable,
-                      let self, self.isPlaying else { return }
+                      let self, self.isPlaying || (self.loading && !self.holdAutoplay && !self.pausedByUser) else { return }
                 self.resumeAfterInterruption = false
                 self.liveEngine.noteSystemPause()
                 self.markPaused()
@@ -1020,6 +1063,7 @@ final class Player: LivePlaybackPort {
 
     /// Paused by the system: reflect it in the UI / Now Playing without dropping the item.
     private func markPaused() {
+        if loading { holdAutoplay = true }
         avPlayer.pause()
         guard isPlaying else { return }
         isPlaying = false

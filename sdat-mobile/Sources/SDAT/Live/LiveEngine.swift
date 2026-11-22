@@ -18,6 +18,7 @@ protocol LivePlaybackPort: AnyObject {
     var enginePosition: Double { get }
     var position: Double { get }
 
+    func prepareLiveJoin()
     func loadLive(_ tracks: [Track], index: Int, at secs: Double, playing: Bool)
     func seekExactly(_ secs: Double) async -> Bool
     func pauseEngine()
@@ -51,6 +52,7 @@ final class LiveEngine {
 
     func clearSystemPause() { systemPaused = false }
     func noteSystemPause() { systemPaused = true }
+    func prepareLiveJoin() { port.prepareLiveJoin() }
 
     func shouldAlign(autoplay: Bool) -> Bool { liveFollowing && autoplay && liveTarget != nil }
 

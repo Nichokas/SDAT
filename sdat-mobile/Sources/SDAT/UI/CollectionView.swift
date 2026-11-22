@@ -105,12 +105,14 @@ private struct RecentTile: View {
 }
 
 /// Generic infinite list over a tonearm pager; errors are shown, not swallowed.
-struct Paged<Item, Row: View>: View {
+struct Paged<Pager, Item, Row: View>: View {
     let title: String
-    let next: () async throws -> [Item]?
+    let makePager: () -> Pager
+    let nextPage: (Pager) async throws -> [Item]?
     var onLoaded: (([Item]) -> Void)? = nil
     var header: AnyView? = nil
     @ViewBuilder let row: ([Item], Int) -> Row
+    @State private var pager: Pager?
     @State private var items: [Item] = []
     @State private var done = false
     @State private var loading = false
@@ -143,21 +145,23 @@ struct Paged<Item, Row: View>: View {
         guard !loading, !done, error == nil else { return }
         loading = true
         defer { loading = false }
+        let p = pager ?? makePager()
+        pager = p
         do {
-            if let page = try await next(), !page.isEmpty { items += page; onLoaded?(items) } else { done = true }
+            if let page = try await nextPage(p), !page.isEmpty { items += page; onLoaded?(items) } else { done = true }
         } catch { self.error = friendlyMessage(error) }
     }
 }
 
 struct PagedTracks: View {
     let title: String
-    let pager: TrackPager
+    let makePager: () -> TrackPager
     var favourites = false
     @Environment(Player.self) private var player
     @State private var loaded: [Track] = []
 
     var body: some View {
-        Paged(title: title, next: pager.nextPage, onLoaded: { all in
+        Paged(title: title, makePager: makePager, nextPage: { try await $0.nextPage() }, onLoaded: { all in
             loaded = all
             if favourites { Favs.shared.mark(all.map(\.id), true) }
         }, header: loaded.isEmpty ? nil : AnyView(PlayShuffleButtons(
@@ -173,9 +177,9 @@ struct PagedTracks: View {
 
 struct PagedAlbums: View {
     let title: String
-    let pager: AlbumPager
+    let makePager: () -> AlbumPager
     var body: some View {
-        Paged(title: title, next: pager.nextPage) { items, i in
+        Paged(title: title, makePager: makePager, nextPage: { try await $0.nextPage() }) { items, i in
             NavigationLink(value: Route.album(items[i].id)) {
                 MediaRow(title: items[i].title, subtitle: items[i].artistLine, cover: items[i].coverUrl)
             }
@@ -185,9 +189,9 @@ struct PagedAlbums: View {
 
 struct PagedArtists: View {
     let title: String
-    let pager: ArtistPager
+    let makePager: () -> ArtistPager
     var body: some View {
-        Paged(title: title, next: pager.nextPage) { items, i in
+        Paged(title: title, makePager: makePager, nextPage: { try await $0.nextPage() }) { items, i in
             NavigationLink(value: Route.artist(items[i].id)) {
                 MediaRow(title: items[i].name, subtitle: "", cover: items[i].pictureUrl, round: true)
             }
@@ -198,9 +202,9 @@ struct PagedArtists: View {
 
 struct PagedPlaylists: View {
     let title: String
-    let pager: PlaylistPager
+    let makePager: () -> PlaylistPager
     var body: some View {
-        Paged(title: title, next: pager.nextPage) { items, i in
+        Paged(title: title, makePager: makePager, nextPage: { try await $0.nextPage() }) { items, i in
             NavigationLink(value: Route.playlist(items[i].id)) {
                 MediaRow(title: items[i].title, subtitle: items[i].creator ?? "", cover: items[i].coverUrl)
             }

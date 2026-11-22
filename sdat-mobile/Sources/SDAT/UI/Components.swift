@@ -50,6 +50,7 @@ struct CachedImage: View {
     let url: String?
     var kind: CoverURL.Kind = .album
     @State private var image: UIImage?
+    @State private var loadedURL: String?
     @State private var width: CGFloat = 0
 
     private var target: String? { url.map { CoverURL.sized($0, points: width, kind: kind) } }
@@ -57,7 +58,7 @@ struct CachedImage: View {
     var body: some View {
         Rectangle().fill(Color.primary.opacity(0.08))
             .overlay {
-                if let img = image ?? target.flatMap(ImageStore.shared.cached) ?? url.flatMap(ImageStore.shared.cached) {
+                if let img = (loadedURL == url ? image : nil) ?? target.flatMap(ImageStore.shared.cached) ?? url.flatMap(ImageStore.shared.cached) {
                     Image(uiImage: img).resizable().interpolation(.high).scaledToFill()
                 } else {
                     Image(systemName: "music.note").foregroundStyle(.secondary)
@@ -69,7 +70,14 @@ struct CachedImage: View {
                 if w > width { width = w }
             }
             .task(id: target) {
-                guard let t = target, width > 0 else { if url == nil { image = nil }; return }
+                if url != loadedURL {
+                    image = target.flatMap(ImageStore.shared.cached) ?? url.flatMap(ImageStore.shared.cached)
+                    loadedURL = image != nil ? url : nil
+                }
+                guard let t = target, width > 0 else {
+                    if url == nil { image = nil; loadedURL = nil }
+                    return
+                }
                 // Downloaded artwork first: no network and works offline. Through the store, so
                 // the file is decoded off the main thread and only once, at the size shown.
                 let px = kind.sizes.first { $0 >= Int(width * 3) } ?? kind.sizes.last!
@@ -77,12 +85,12 @@ struct CachedImage: View {
                 // artwork of the target that replaced it.
                 if let u = url, let f = Downloads.shared.coverFile(forRemote: u),
                    let img = await ImageStore.shared.image(f.absoluteString, maxPixel: px) {
-                    if !Task.isCancelled { image = img }
+                    if !Task.isCancelled { image = img; loadedURL = u }
                     return
                 }
                 if Task.isCancelled { return }
-                if let c = ImageStore.shared.cached(t) { image = c; return }
-                if image == nil, let u = url { image = ImageStore.shared.cached(u) }
+                if let c = ImageStore.shared.cached(t) { image = c; loadedURL = url; return }
+                if image == nil, let u = url, let c = ImageStore.shared.cached(u) { image = c; loadedURL = u }
                 var loaded = await ImageStore.shared.image(t)
                 if Task.isCancelled { return }
                 // Size missing on the server: fall back to the original URL.
@@ -92,7 +100,15 @@ struct CachedImage: View {
                    let f = Downloads.shared.coverFile(forRemote: u) {
                     loaded = await ImageStore.shared.image(f.absoluteString, maxPixel: px)
                 }
-                if let loaded, !Task.isCancelled { image = loaded }
+                if !Task.isCancelled {
+                    if let loaded {
+                        image = loaded
+                        loadedURL = url
+                    } else if loadedURL != url {
+                        image = nil
+                        loadedURL = nil
+                    }
+                }
             }
     }
 }
@@ -191,6 +207,7 @@ struct TrackMenu: View {
         }
         Divider()
         Button("Start Radio", systemImage: "dot.radiowaves.left.and.right") {
+            if Live.shared.guestRefuses() { return }
             Task {
                 if let pager = try? await trackRadio(trackId: track.id), let list = try? await pager.nextPage() {
                     player.play([track] + list, from: "\(track.title) Radio")
