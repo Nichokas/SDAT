@@ -22,6 +22,8 @@ import com.google.common.util.concurrent.Futures
 import com.google.common.util.concurrent.ListenableFuture
 import com.nichokas.sdat.ui.TrackPlayer
 import kotlin.coroutines.cancellation.CancellationException
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Deferred
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.async
@@ -84,6 +86,7 @@ class Playback(context: Context, private val prefs: Preferences, secrets: Secret
         override fun followingChanged() = syncPreload()
     }, scope, SystemClock::uptimeMillis)
     private var request: Job? = null
+    private val pendingWait = AdvanceWait()
     private val queue = PlayQueue<Track> { it.id }
     private var infinite: Shuffle? = null
     private var refilling: Deferred<Boolean>? = null
@@ -128,7 +131,8 @@ class Playback(context: Context, private val prefs: Preferences, secrets: Secret
     val streamingQuality get() = prefs.streamingQuality
     private var fetching by mutableStateOf(false)
     private var buffering by mutableStateOf(false)
-    val loading: Boolean get() = fetching || buffering || liveEngine.aligning
+    private val busy get() = fetching || pendingWait.active
+    val loading: Boolean get() = busy || buffering || liveEngine.aligning
     var error by mutableStateOf<String?>(null)
         private set
     /** The current track plays its downloaded copy. */
@@ -150,9 +154,10 @@ class Playback(context: Context, private val prefs: Preferences, secrets: Secret
 
         override fun getState(): State {
             val state = super.getState()
-            val commands = state.availableCommands.buildUpon().addAll(*queueCommands)
-            if (!state.timeline.isEmpty) return state.buildUpon().setAvailableCommands(commands.build()).build()
-            val t = track ?: return state
+            val t = track
+            val commands = sessionCommands(state.availableCommands.toIntSet(), hasTrack = t != null, emptyTimeline = state.timeline.isEmpty)
+                .toPlayerCommands()
+            if (!state.timeline.isEmpty || t == null) return state.buildUpon().setAvailableCommands(commands).build()
             // Never handed to ExoPlayer, which throws building a source for an item without a URI.
             val item = MediaItemData.Builder(t.id)
                 .setMediaItem(MediaItem.Builder().setMediaId(t.id).setMediaMetadata(metadata(t)).build())
@@ -163,9 +168,16 @@ class Playback(context: Context, private val prefs: Preferences, secrets: Secret
                 .setPlaylist(listOf(item))
                 .setCurrentMediaItemIndex(0)
                 .setContentPositionMs((position * 1000).toLong())
-                .setAvailableCommands(commands.add(Player.COMMAND_SEEK_IN_CURRENT_MEDIA_ITEM).build())
+                .setAvailableCommands(commands)
                 .build()
         }
+
+        private fun Player.Commands.toIntSet(): Set<Int> = buildSet(size()) {
+            for (i in 0 until size()) add(get(i))
+        }
+
+        private fun Set<Int>.toPlayerCommands(): Player.Commands =
+            Player.Commands.Builder().apply { forEach(::add) }.build()
 
         override fun handleSeek(mediaItemIndex: Int, positionMs: Long, seekCommand: Int): ListenableFuture<*> {
             when (seekAction(seekCommand, mediaItemIndex, player.currentMediaItemIndex)) {
@@ -195,14 +207,14 @@ class Playback(context: Context, private val prefs: Preferences, secrets: Secret
         // stopped it or nothing was loaded yet (a restored queue); the item left in the player may still be the
         // previous track's stream, so the current track starts again where it was.
         override fun handlePrepare(): ListenableFuture<*> {
-            if (!fetching) track?.let { start(it, play = player.playWhenReady, resumeAt = position) }
+            if (!busy) track?.let { start(it, play = player.playWhenReady, resumeAt = position) }
             return Futures.immediateVoidFuture()
         }
 
-        // A stream still being fetched would prepare() and play after the stop; a pending refill starts its track
-        // paused.
+        // A stream or refill still in flight would prepare() and play after the stop.
         override fun handleStop(): ListenableFuture<*> {
             request?.cancel()
+            pendingWait.cancel()
             fetching = false
             // A guest's start may still be aligning; left set, it reads as loading and the follower never reloads.
             liveEngine.cancelLive()
@@ -461,7 +473,7 @@ class Playback(context: Context, private val prefs: Preferences, secrets: Secret
 
     /** Ignored while the stream URL loads: the new item starts from its beginning. */
     fun seek(secs: Double) {
-        if (track == null || fetching) return
+        if (track == null || busy) return
         controls++
         val to = clampSeek(secs, duration)
         player.seekTo((to * 1000).toLong())
@@ -470,50 +482,62 @@ class Playback(context: Context, private val prefs: Preferences, secrets: Secret
     }
 
     private fun advance(auto: Boolean, play: Boolean = true) {
-        val t = queue.advance(manual = !auto)
-        val p = preloaded
-        if (t != null && t === preloading && p != null) {
-            // A Next to the preloaded track plays the item already behind the current one.
-            preloading = null
-            preloaded = null
-            player.seekTo(1, 0)
-            player.removeMediaItem(0)
-            player.playWhenReady = play
-            if (player.playbackState == Player.STATE_IDLE) player.prepare()
-            error = null
-            began(t, p.source)
-            return
+        when (
+            advanceAction(
+                auto = auto,
+                repeat = queue.repeat,
+                hasNext = queue.upNext.isNotEmpty() || queue.userQueue.isNotEmpty(),
+                hasInfinite = infinite != null,
+                awaitingMixes = awaitingMixes,
+                awaitingUpNext = awaitingUpNext,
+            )
+        ) {
+            Advance.Stop -> return stopAtEnd()
+            Advance.Queue -> {
+                val t = queue.advance(manual = !auto) ?: return stopAtEnd()
+                val p = preloaded
+                if (t === preloading && p != null) {
+                    // A Next to the preloaded track plays the item already behind the current one.
+                    preloading = null
+                    preloaded = null
+                    player.seekTo(1, 0)
+                    player.removeMediaItem(0)
+                    player.playWhenReady = play
+                    if (player.playbackState == Player.STATE_IDLE) player.prepare()
+                    error = null
+                    began(t, p.source)
+                    return
+                }
+                if (auto && t === track && player.currentMediaItem?.mediaId == t.id) {
+                    // Repeat-one, or a one-track queue on repeat-all: the ended item plays again without a new fetch.
+                    pendingWait.cancel()
+                    player.seekToDefaultPosition()
+                    player.playWhenReady = play
+                    position = 0.0
+                    entry++
+                    listen = newListen(t)
+                    persist()
+                    started(t)
+                    return
+                }
+                start(t, play)
+                return
+            }
+            Advance.Wait -> {}
         }
-        if (auto && t != null && t === track && player.currentMediaItem?.mediaId == t.id) {
-            // Repeat-one, or a one-track queue on repeat-all: the ended item plays again without a new fetch.
-            player.seekToDefaultPosition()
-            player.playWhenReady = play
-            position = 0.0
-            entry++
-            listen = newListen(t)
-            persist()
-            started(t)
-            return
-        }
-        if (t != null) {
-            start(t, play)
-            return
-        }
-        // Endless queue ran dry before the refill landed: fetch, then go on.
-        if (infinite == null && !awaitingMixes) return stopAtEnd()
         // Restored or taken over, and its source is not here yet: asked for now.
-        if (infinite == null && mixesJob?.isActive != true) fetchMixes()
+        if (awaitingMixes && infinite == null && mixesJob?.isActive != true) fetchMixes()
         val from = track
         val entryBefore = entry
-        fetching = true
         // Like a skip to a queued track: the old one goes quiet, and a play or pause tapped while the refill loads
         // decides how the next one starts.
         if (!auto) {
             request?.cancel()
             player.stop()
             player.playWhenReady = true
+            fetching = false
         }
-        scope.launch {
+        pendingWait.launchOrJoin(scope, auto) {
             // A handoff's own tracks come first, when they are still on their way, and a Discover queue waits for
             // its source. A track to play ends the wait, and so does another start. The tracks have a limit, for an
             // answer of the core that never comes; the source is asked for until it comes.
@@ -527,25 +551,32 @@ class Playback(context: Context, private val prefs: Preferences, secrets: Secret
                 delay(100)
             }
             // A track picked during the wait owns playback now: its queue is not this one's to refill.
-            if (track !== from || entry != entryBefore) return@launch
-            val more = queued() || infinite?.let { fetchMore(it) } == true
+            if (track !== from || entry != entryBefore) return@launchOrJoin
+            // Once the handoff wait ends and resumedBase is cleared, Repeat.All wraps the settled queue normally instead of stopping or pausing.
+            if (!queued() && awaitingUpNext) resumedBase = null
+            if (!queued()) infinite?.let { fetchMore(it) }
             // A track picked during the fetch owns playback now; a source replaced meanwhile had nothing more.
-            if (track !== from || entry != entryBefore) return@launch
-            fetching = false
+            if (track !== from || entry != entryBefore) return@launchOrJoin
+            val finalAuto = pendingWait.auto
             // A Replay tapped during the fetch wins; that track's next end advances again.
-            if (auto && player.playbackState != Player.STATE_ENDED) return@launch
-            when {
-                // A Play Next added during the fetch plays even when the source had nothing more.
-                more || queue.userQueue.isNotEmpty() -> advance(auto, play = player.playWhenReady)
-                auto -> stopAtEnd()
+            if (finalAuto && player.playbackState != Player.STATE_ENDED) {
+                pendingWait.clear(coroutineContext.job)
+                syncPreload()
+                return@launchOrJoin
+            }
+            pendingWait.clear(coroutineContext.job)
+            when (postWaitAction(auto = finalAuto, hasNext = queued(), repeat = queue.repeat)) {
+                PostWait.Advance -> advance(finalAuto, play = player.playWhenReady)
+                PostWait.StopAtEnd -> stopAtEnd()
                 // The skip found nothing; the player may hold a stale item, so the track is loaded again, paused.
-                else -> from?.let { start(it, play = false) }
+                PostWait.RestartPaused -> from?.let { start(it, play = false) }
             }
         }
     }
 
     /** End of a finite queue: rewound and paused, and saved that way. Playing it again counts as a new listen. */
     private fun stopAtEnd() {
+        pendingWait.cancel()
         player.pause()
         player.seekToDefaultPosition()
         position = 0.0
@@ -606,7 +637,7 @@ class Playback(context: Context, private val prefs: Preferences, secrets: Secret
 
     private fun tick() {
         // The player keeps the previous track's item until the new stream URL arrives, or if fetching it failed.
-        if (fetching || player.currentMediaItem?.mediaId != track?.id) return
+        if (busy || player.currentMediaItem?.mediaId != track?.id) return
         val from = position
         position = player.currentPosition / 1000.0
         if (player.duration != C.TIME_UNSET && player.duration > 0) duration = player.duration / 1000.0
@@ -618,6 +649,7 @@ class Playback(context: Context, private val prefs: Preferences, secrets: Secret
     private fun start(t: Track, play: Boolean = true, resumeAt: Double = 0.0, online: Boolean = false) {
         entry++
         request?.cancel()
+        pendingWait.cancel()
         liveEngine.cancelLive()
         dropPreload()
         // Following a playing host: start only with a healthy buffer and on time, so nothing needs correcting after.
@@ -652,7 +684,7 @@ class Playback(context: Context, private val prefs: Preferences, secrets: Secret
                 throw e
             } catch (e: Exception) {
                 fetching = false
-                fail(e.message ?: e.javaClass.simpleName)
+                fail(friendlyMessage(e))
             }
         }
     }
@@ -677,6 +709,7 @@ class Playback(context: Context, private val prefs: Preferences, secrets: Secret
 
     /** The preloaded item became the current one. */
     private fun began(t: Track, src: Source) {
+        pendingWait.cancel()
         entry++
         position = 0.0
         duration = t.durationSecs.toDouble()
@@ -706,7 +739,8 @@ class Playback(context: Context, private val prefs: Preferences, secrets: Secret
      * preloadNext). Idempotent: called after anything that may change what plays next. */
     private fun syncPreload() {
         // A guest plays only what the host announces, so an item behind the current one would advance on its own.
-        val next = queue.preloadable?.takeIf { prefs.preloadNext && !liveEngine.liveFollowing && !fetching && player.currentMediaItem?.mediaId == track?.id }
+        val waiting = awaitingUpNext && queue.upNext.isEmpty() && queue.userQueue.isEmpty()
+        val next = queue.preloadable?.takeIf { prefs.preloadNext && !liveEngine.liveFollowing && !busy && !waiting && player.currentMediaItem?.mediaId == track?.id }
         if (next != null && next.id == preloading?.id) return
         dropPreload()
         if (next == null) return
@@ -782,6 +816,8 @@ class Playback(context: Context, private val prefs: Preferences, secrets: Secret
         if (tracks.isNotEmpty()) {
             queue.extend(tracks)
             changed()
+        } else {
+            syncPreload()
         }
         refillIfNeeded()
     }
@@ -793,16 +829,17 @@ class Playback(context: Context, private val prefs: Preferences, secrets: Secret
         controls++
         if (liveEngine.dropLiveStart()) return
         liveEngine.clearSystemPause()
-        val unprepared = error != null || !fetching && player.playbackState == Player.STATE_IDLE
+        val unprepared = error != null || !busy && player.playbackState == Player.STATE_IDLE
         when (tapAction(unprepared, player.playbackState == Player.STATE_ENDED, player.playWhenReady)) {
             Tap.Retry -> start(t, resumeAt = position)
             Tap.Replay -> {
                 // The ended item plays again with no fetch; a refill still loading gives way to it.
-                fetching = false
+                pendingWait.cancel()
                 entry++
                 listen = newListen(t)
                 player.seekToDefaultPosition()
                 player.play()
+                syncPreload()
             }
             Tap.Pause -> player.pause()
             Tap.Resume -> {
@@ -817,6 +854,8 @@ class Playback(context: Context, private val prefs: Preferences, secrets: Secret
         restore.cancel()
         restoring = false
         request?.cancel()
+        pendingWait.cancel()
+        resumedBase = null
         // Mixes still on their way are this account's, not the next one's.
         mixesJob?.cancel()
         liveEngine.cancelLive()
@@ -859,12 +898,107 @@ private class Source(val uri: String, val quality: Quality, val offline: Boolean
 
 private class Preloaded(val item: MediaItem, val source: Source)
 
-private val queueCommands = intArrayOf(
+private val queueCommands = setOf(
     Player.COMMAND_SEEK_TO_NEXT,
     Player.COMMAND_SEEK_TO_NEXT_MEDIA_ITEM,
     Player.COMMAND_SEEK_TO_PREVIOUS,
     Player.COMMAND_SEEK_TO_PREVIOUS_MEDIA_ITEM,
 )
+
+private val unguardedSessionCommands = setOf(
+    Player.COMMAND_SET_REPEAT_MODE,
+    Player.COMMAND_SET_SHUFFLE_MODE,
+    Player.COMMAND_SET_SPEED_AND_PITCH,
+    Player.COMMAND_SET_MEDIA_ITEM,
+    Player.COMMAND_CHANGE_MEDIA_ITEMS,
+    Player.COMMAND_RELEASE,
+)
+
+private val readOnlySessionCommands = setOf(
+    Player.COMMAND_GET_CURRENT_MEDIA_ITEM,
+    Player.COMMAND_GET_TIMELINE,
+    Player.COMMAND_GET_METADATA,
+    Player.COMMAND_GET_AUDIO_ATTRIBUTES,
+    Player.COMMAND_GET_VOLUME,
+    Player.COMMAND_GET_DEVICE_VOLUME,
+    Player.COMMAND_GET_TEXT,
+    Player.COMMAND_GET_TRACKS,
+)
+
+internal fun sessionCommands(base: Set<Int>, hasTrack: Boolean, emptyTimeline: Boolean): Set<Int> {
+    if (!hasTrack) return base intersect readOnlySessionCommands
+    val allowed = base - unguardedSessionCommands
+    return if (emptyTimeline) allowed + queueCommands + Player.COMMAND_SEEK_IN_CURRENT_MEDIA_ITEM else allowed + queueCommands
+}
+
+internal enum class Advance { Queue, Wait, Stop }
+
+internal fun advanceAction(
+    auto: Boolean,
+    repeat: Repeat,
+    hasNext: Boolean,
+    hasInfinite: Boolean,
+    awaitingMixes: Boolean,
+    awaitingUpNext: Boolean,
+): Advance = when {
+    auto && repeat == Repeat.One -> Advance.Queue
+    hasNext -> Advance.Queue
+    awaitingUpNext -> Advance.Wait
+    repeat == Repeat.All -> Advance.Queue
+    hasInfinite || awaitingMixes -> Advance.Wait
+    else -> Advance.Stop
+}
+
+internal class AdvanceWait {
+    private var job: Job? = null
+    var active by mutableStateOf(false)
+        private set
+    var auto = false
+        private set
+
+    /** Reuses an active wait (upgrading auto to manual on a skip) or starts a new one. */
+    fun launchOrJoin(scope: CoroutineScope, auto: Boolean, block: suspend CoroutineScope.() -> Unit) {
+        if (job?.isActive == true) {
+            this.auto = this.auto && auto
+            return
+        }
+        this.auto = auto
+        val launched = scope.launch(start = CoroutineStart.LAZY) {
+            try {
+                block()
+            } finally {
+                clear(coroutineContext.job)
+            }
+        }
+        job = launched
+        active = true
+        launched.invokeOnCompletion { clear(launched) }
+        launched.start()
+    }
+
+    fun clear(current: Job) {
+        if (job === current) {
+            job = null
+            active = false
+        }
+    }
+
+    fun cancel() {
+        val current = job
+        job = null
+        active = false
+        current?.cancel()
+    }
+}
+
+internal enum class PostWait { Advance, StopAtEnd, RestartPaused }
+
+/** Once the handoff wait ends and resumedBase is cleared, Repeat.All wraps the settled queue normally instead of stopping or pausing. */
+internal fun postWaitAction(auto: Boolean, hasNext: Boolean, repeat: Repeat): PostWait = when {
+    hasNext || repeat == Repeat.All || (auto && repeat == Repeat.One) -> PostWait.Advance
+    auto -> PostWait.StopAtEnd
+    else -> PostWait.RestartPaused
+}
 
 // The core only hands out HLS manifests, and a download is indexed by a local one.
 private fun mediaItem(t: Track, src: Source) =

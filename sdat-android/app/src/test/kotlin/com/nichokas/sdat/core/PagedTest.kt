@@ -2,6 +2,7 @@ package com.nichokas.sdat.core
 
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.yield
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
@@ -57,5 +58,53 @@ class PagedTest {
         assertTrue(list.wantsMore(15))
         assertFalse(list.copy(done = true).wantsMore(19))
         assertFalse(list.started().wantsMore(19))
+    }
+
+    @Test fun closeBeforeMoreNeverCallsNext() = runBlocking {
+        var calls = 0
+        var closes = 0
+        val loader = PagedLoader(this, pager = AutoCloseable { closes++ }) { calls++; listOf(1) }
+        loader.close()
+        loader.close()
+        assertNull(loader.more())
+        assertNull(loader.retry())
+        assertEquals(0, calls)
+        assertEquals(1, closes)
+        assertFalse(loader.list.loading)
+        assertNull(loader.list.error)
+    }
+
+    @Test fun closeWhileMoreIsQueuedNeverCallsNext() = runBlocking {
+        var calls = 0
+        val loader = PagedLoader(this) { calls++; listOf(1) }
+        val job = loader.more()
+        loader.close()
+        job?.join()
+        assertEquals(0, calls)
+        assertFalse(loader.list.loading)
+        assertNull(loader.list.error)
+    }
+
+    @Test fun closeWhileInFlightDropsLateResultAndError() = runBlocking {
+        val resultGate = CompletableDeferred<List<Int>>()
+        val okLoader = PagedLoader(this) { resultGate.await() }
+        val okJob = okLoader.more()
+        yield()
+        okLoader.close()
+        resultGate.complete(listOf(1, 2))
+        okJob?.join()
+        assertEquals(emptyList<Int>(), okLoader.list.items)
+        assertFalse(okLoader.list.loading)
+        assertNull(okLoader.list.error)
+
+        val failGate = CompletableDeferred<List<Int>>()
+        val failLoader = PagedLoader(this) { failGate.await() }
+        val failJob = failLoader.more()
+        yield()
+        failLoader.close()
+        failGate.completeExceptionally(IllegalStateException("closed"))
+        failJob?.join()
+        assertFalse(failLoader.list.loading)
+        assertNull(failLoader.list.error)
     }
 }

@@ -53,4 +53,9 @@ object ArtistCache {
     val hints = mutableMapOf<String, Hint>()
 
     fun hint(id: String, name: String, picture: String?) { hints[id] = Hint(name, picture) }
+
+    fun clear() {
+        overviews.clear()
+        hints.clear()
+    }
 }
