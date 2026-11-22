@@ -1,7 +1,10 @@
 package com.nichokas.sdat.ui
 
+import java.util.concurrent.Callable
 import java.util.concurrent.CopyOnWriteArrayList
 import java.util.concurrent.CountDownLatch
+import java.util.concurrent.CyclicBarrier
+import java.util.concurrent.Executors
 import java.util.concurrent.LinkedBlockingDeque
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicBoolean
@@ -263,5 +266,183 @@ class QrScannerTest {
         assertTrue(gate.released)
         assertFalse(gate.isActive(second))
         assertEquals(0, gate.activateSurface())
+    }
+
+    @Test fun activateSurfaceWaitsForInFlightDestroySurfaceAndAllocatesFreshToken() {
+        val worker = FakeLooperThread()
+        val gate = QrSurfaceGate()
+        val first = gate.activateSurface()
+
+        val inFlightStarted = CountDownLatch(1)
+        val allowInFlightFinish = CountDownLatch(1)
+        val destroyPosted = CountDownLatch(1)
+        val destroyDone = CountDownLatch(1)
+        val activateStarted = CountDownLatch(1)
+        val activateDone = CountDownLatch(1)
+        val secondToken = AtomicInteger(0)
+        val events = CopyOnWriteArrayList<String>()
+
+        worker.post(Runnable {
+            inFlightStarted.countDown()
+            assertTrue(allowInFlightFinish.await(5, TimeUnit.SECONDS))
+        })
+        assertTrue(inFlightStarted.await(5, TimeUnit.SECONDS))
+
+        val destroyThread = Thread {
+            gate.destroySurface(
+                onWorkerThread = { Thread.currentThread() === worker.thread },
+                postFront = { task -> worker.postFront(task).also { destroyPosted.countDown() } },
+                joinWorker = worker.thread::join,
+                onWorker = { events += "closed" },
+            )
+            destroyDone.countDown()
+        }.apply { start() }
+
+        assertTrue(destroyPosted.await(5, TimeUnit.SECONDS))
+        assertFalse(gate.isActive(first))
+        assertFalse(gate.hasSurface)
+
+        val activateThread = Thread {
+            activateStarted.countDown()
+            secondToken.set(gate.activateSurface())
+            events += "activated"
+            activateDone.countDown()
+        }.apply { start() }
+
+        assertTrue(activateStarted.await(5, TimeUnit.SECONDS))
+        assertFalse(activateDone.await(150, TimeUnit.MILLISECONDS))
+
+        allowInFlightFinish.countDown()
+        assertTrue(destroyDone.await(5, TimeUnit.SECONDS))
+        assertTrue(activateDone.await(5, TimeUnit.SECONDS))
+        destroyThread.join(5000)
+        activateThread.join(5000)
+
+        assertTrue(secondToken.get() > first)
+        assertFalse(gate.isActive(first))
+        assertTrue(gate.isActive(secondToken.get()))
+        assertEquals(listOf("closed", "activated"), events)
+
+        worker.quitSafely()
+        worker.thread.join(5000)
+    }
+
+    @Test fun destroySurfacePreservesReleasedStateAndSerializesWithMarkReleased() {
+        val worker = FakeLooperThread()
+        val gate = QrSurfaceGate()
+        gate.activateSurface()
+
+        val inFlightStarted = CountDownLatch(1)
+        val allowInFlightFinish = CountDownLatch(1)
+        val destroyPosted = CountDownLatch(1)
+        val destroyDone = CountDownLatch(1)
+        val releaseStarted = CountDownLatch(1)
+        val releaseDone = CountDownLatch(1)
+        val releasedFirst = AtomicBoolean(false)
+
+        worker.post(Runnable {
+            inFlightStarted.countDown()
+            assertTrue(allowInFlightFinish.await(5, TimeUnit.SECONDS))
+        })
+        assertTrue(inFlightStarted.await(5, TimeUnit.SECONDS))
+
+        val destroyThread = Thread {
+            gate.destroySurface(
+                onWorkerThread = { Thread.currentThread() === worker.thread },
+                postFront = { task -> worker.postFront(task).also { destroyPosted.countDown() } },
+                joinWorker = worker.thread::join,
+                onWorker = {},
+            )
+            destroyDone.countDown()
+        }.apply { start() }
+
+        assertTrue(destroyPosted.await(5, TimeUnit.SECONDS))
+
+        val releaseThread = Thread {
+            releaseStarted.countDown()
+            releasedFirst.set(gate.markReleased())
+            releaseDone.countDown()
+        }.apply { start() }
+
+        assertTrue(releaseStarted.await(5, TimeUnit.SECONDS))
+        assertFalse(releaseDone.await(150, TimeUnit.MILLISECONDS))
+
+        allowInFlightFinish.countDown()
+        assertTrue(destroyDone.await(5, TimeUnit.SECONDS))
+        assertTrue(releaseDone.await(5, TimeUnit.SECONDS))
+        destroyThread.join(5000)
+        releaseThread.join(5000)
+
+        assertTrue(releasedFirst.get())
+        assertTrue(gate.released)
+        assertFalse(gate.hasSurface)
+        assertEquals(0, gate.activateSurface())
+
+        gate.destroySurface(
+            onWorkerThread = { true },
+            postFront = { true },
+            joinWorker = {},
+            onWorker = {},
+        )
+        assertTrue(gate.released)
+        assertFalse(gate.hasSurface)
+        assertEquals(0, gate.activateSurface())
+
+        worker.quitSafely()
+        worker.thread.join(5000)
+    }
+
+    @Test fun concurrentActivateDestroyAndReleaseKeepTokenStateConsistent() {
+        val pool = Executors.newFixedThreadPool(2)
+        try {
+            repeat(200) {
+                val gate = QrSurfaceGate()
+                val first = gate.activateSurface()
+                val barrier = CyclicBarrier(2)
+                val destroyFuture = pool.submit(Runnable {
+                    barrier.await(5, TimeUnit.SECONDS)
+                    gate.destroySurface(
+                        onWorkerThread = { true },
+                        postFront = { true },
+                        joinWorker = {},
+                        onWorker = {},
+                    )
+                })
+                val activateFuture = pool.submit(Callable {
+                    barrier.await(5, TimeUnit.SECONDS)
+                    gate.activateSurface()
+                })
+                destroyFuture.get(5, TimeUnit.SECONDS)
+                val observed = activateFuture.get(5, TimeUnit.SECONDS)
+                assertFalse(gate.isActive(first))
+                if (observed == first) {
+                    assertFalse(gate.hasSurface)
+                } else {
+                    assertTrue(observed > first)
+                    assertTrue(gate.isActive(observed))
+                }
+            }
+
+            repeat(200) {
+                val gate = QrSurfaceGate()
+                val barrier = CyclicBarrier(2)
+                val releaseFuture = pool.submit(Callable {
+                    barrier.await(5, TimeUnit.SECONDS)
+                    gate.markReleased()
+                })
+                val activateFuture = pool.submit(Callable {
+                    barrier.await(5, TimeUnit.SECONDS)
+                    gate.activateSurface()
+                })
+                assertTrue(releaseFuture.get(5, TimeUnit.SECONDS))
+                val observed = activateFuture.get(5, TimeUnit.SECONDS)
+                assertTrue(gate.released)
+                assertFalse(gate.hasSurface)
+                assertFalse(gate.isActive(observed))
+                assertEquals(0, gate.activateSurface())
+            }
+        } finally {
+            pool.shutdownNow()
+        }
     }
 }

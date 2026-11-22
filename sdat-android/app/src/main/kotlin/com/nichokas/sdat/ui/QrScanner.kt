@@ -32,46 +32,43 @@ import com.google.zxing.common.HybridBinarizer
 import com.google.zxing.qrcode.QRCodeReader
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.Executor
-import java.util.concurrent.atomic.AtomicBoolean
-import java.util.concurrent.atomic.AtomicInteger
 import kotlin.math.abs
 import uniffi.tonearm_ffi.liveIsInvite
 
 /**
  * Coordinates surface validity and release between the UI thread and the camera thread.
- * The active token is 0 when no valid surface exists, and a unique positive id per surface lifecycle.
+ * Lifecycle transitions are serialized so surface activation cannot observe or race with teardown,
+ * while camera-thread state checks stay lock-free via [state].
  */
 internal class QrSurfaceGate {
-    private val releasedFlag = AtomicBoolean(false)
-    private val nextToken = AtomicInteger(0)
-    private val activeToken = AtomicInteger(0)
+    private val lock = Any()
+    @Volatile private var state = INACTIVE
+    private var nextToken = 0
 
-    val released: Boolean get() = releasedFlag.get()
-    val hasSurface: Boolean get() = activeToken.get() != 0
+    val released: Boolean get() = state == RELEASED
+    val hasSurface: Boolean get() = state > INACTIVE
 
-    fun isActive(token: Int): Boolean = token != 0 && !releasedFlag.get() && activeToken.get() == token
+    fun isActive(token: Int): Boolean = token > INACTIVE && state == token
 
-    fun activateSurface(): Int {
-        if (releasedFlag.get()) return 0
-        while (true) {
-            val current = activeToken.get()
-            if (current != 0) return current
-            if (releasedFlag.get()) return 0
-            val next = nextToken.incrementAndGet()
-            if (activeToken.compareAndSet(0, next)) {
-                if (releasedFlag.get()) {
-                    activeToken.compareAndSet(next, 0)
-                    return 0
-                }
-                return next
+    fun activateSurface(): Int = synchronized(lock) {
+        when {
+            state == RELEASED -> INACTIVE
+            state > INACTIVE -> state
+            else -> {
+                val next = ++nextToken
+                state = next
+                next
             }
         }
     }
 
-    fun markReleased(): Boolean {
-        val first = releasedFlag.compareAndSet(false, true)
-        activeToken.set(0)
-        return first
+    fun markReleased(): Boolean = synchronized(lock) {
+        if (state == RELEASED) {
+            false
+        } else {
+            state = RELEASED
+            true
+        }
     }
 
     fun destroySurface(
@@ -80,25 +77,32 @@ internal class QrSurfaceGate {
         joinWorker: () -> Unit,
         onWorker: () -> Unit,
     ) {
-        activeToken.set(0)
-        if (onWorkerThread()) {
-            onWorker()
-            return
-        }
-        val closed = CountDownLatch(1)
-        val posted = postFront(Runnable {
-            try {
+        synchronized(lock) {
+            if (state != RELEASED) state = INACTIVE
+            if (onWorkerThread()) {
                 onWorker()
-            } finally {
-                closed.countDown()
+                return
             }
-        })
-        if (posted) {
-            runUninterruptibly { closed.await() }
-        } else {
-            runUninterruptibly { joinWorker() }
-            onWorker()
+            val closed = CountDownLatch(1)
+            val posted = postFront(Runnable {
+                try {
+                    onWorker()
+                } finally {
+                    closed.countDown()
+                }
+            })
+            if (posted) {
+                runUninterruptibly { closed.await() }
+            } else {
+                runUninterruptibly { joinWorker() }
+                onWorker()
+            }
         }
+    }
+
+    private companion object {
+        const val RELEASED = -1
+        const val INACTIVE = 0
     }
 }
 
