@@ -104,6 +104,7 @@ final class Player: LivePlaybackPort {
         recentIDs = []; recentOrder = []
         restoredInfinite = false
         guard tracks.indices.contains(startAt) else { return }
+        cancelRefill()
         infinite = nil
         original = tracks
         var list = tracks
@@ -132,6 +133,7 @@ final class Player: LivePlaybackPort {
         if Live.shared.guestRefuses() { return }
         recentIDs = []; recentOrder = []
         restoredInfinite = false
+        cancelRefill()
         let source = Shuffle(mixes: mixes)
         infinite = source
         sourceTitle = "Discover"
@@ -160,6 +162,7 @@ final class Player: LivePlaybackPort {
         let rest = (Array(pool.dropFirst(i + 1)) + Array(pool.prefix(i)))
             .filter { seen.insert(String(describing: $0.id)).inserted }
         let list = [track] + rest
+        cancelRefill()
         infinite = mixes.isEmpty ? nil : Shuffle(mixes: mixes)
         original = list
         queue = list
@@ -174,6 +177,7 @@ final class Player: LivePlaybackPort {
         guard !tracks.isEmpty else { return }
         recentIDs = []; recentOrder = []
         restoredInfinite = discover
+        cancelRefill()
         infinite = nil
         shuffle = false
         original = tracks
@@ -319,8 +323,9 @@ final class Player: LivePlaybackPort {
     // MARK: transport
 
     func toggle() {
+        guard let t = current else { return }
         // Restored after a relaunch: nothing loaded yet; fetch a fresh stream URL and resume there.
-        if needsStart, let t = current {
+        if needsStart {
             needsStart = false
             start(t, resumeAt: position)
             return
@@ -390,36 +395,46 @@ final class Player: LivePlaybackPort {
     var enginePosition: Double { avPlayer.currentTime().seconds }
 
     func prepareLiveJoin() {
+        resetPlaybackState()
+    }
+
+    private func resetPlaybackState() {
         starts += 1
         loadTask?.cancel(); loadTask = nil
         advanceTask?.cancel(); advanceTask = nil
-        refilling?.cancel(); refilling = nil
+        cancelRefill()
+        clearPreload()
         infinite = nil
         restoredInfinite = false
         discoverWait &+= 1
         resumedVersion = nil
         resumeAfterInterruption = false
         holdAutoplay = false
-        clearPreload()
+        pausedByUser = false
         seekGeneration += 1
         seeking = false
-        loading = false
-        liveEngine.loadResumeAt = nil
+        playingItem = nil
         avPlayer.pause()
         avPlayer.removeAllItems()
-        playingItem = nil
-        needsStart = current != nil
-        if isPlaying || current != nil { reportPlaying(false) }
+        recentIDs = []; recentOrder = []
+        savedQueueVersion = -1; savedQueueRange = 0..<0
+        queue = []; original = []; userQueue = []; index = nil; current = nil
+        loading = false; liveEngine.loadResumeAt = nil
+        position = 0; duration = 0; stream = nil; artwork = nil; sourceTitle = nil; error = nil
+        needsStart = false
+        reportPlaying(false)
     }
 
     func loadLive(_ tracks: [Track], index i: Int, at secs: Double, playing: Bool) {
         recentIDs = []; recentOrder = []
+        cancelRefill()
         infinite = nil
         restoredInfinite = false
         discoverWait &+= 1
         resumedVersion = nil
         original = tracks
         queue = tracks
+        userQueue = []
         sourceTitle = "Listen Together"
         load(i, resumeAt: secs, autoplay: playing)
     }
@@ -854,16 +869,26 @@ final class Player: LivePlaybackPort {
     }
 
     @ObservationIgnored private var refilling: Task<Bool, Never>?
+    @ObservationIgnored private var refillGen: UInt64 = 0
+
+    private func cancelRefill() {
+        refillGen &+= 1
+        refilling?.cancel()
+        refilling = nil
+    }
+
     /// Appends a new endless batch, skipping tracks already in the queue. One fetch at a time;
     /// returns whether anything was added.
     private func fetchMore(from source: Shuffle) async -> Bool {
         if let r = refilling { return await r.value }
+        refillGen &+= 1
+        let gen = refillGen
         let task = Task { @MainActor () -> Bool in
-            defer { if !Task.isCancelled { refilling = nil } }
+            defer { if refillGen == gen { refilling = nil } }
             for _ in 0..<3 {
-                guard !Task.isCancelled, !liveEngine.liveFollowing,
+                guard !Task.isCancelled, refillGen == gen, !liveEngine.liveFollowing,
                       let batch = try? await source.nextBatch(min: 10),
-                      !Task.isCancelled, !liveEngine.liveFollowing, infinite === source else { return false }
+                      !Task.isCancelled, refillGen == gen, !liveEngine.liveFollowing, infinite === source else { return false }
                 remember(queue.map(\.id))
                 var ids = recentIDs
                 let fresh = batch.filter { ids.insert($0.id).inserted }
@@ -989,6 +1014,7 @@ final class Player: LivePlaybackPort {
     func resumeInfinite(mixes: [Mix]) {
         guard !liveEngine.liveFollowing, restoredInfinite, infinite == nil, !mixes.isEmpty else { return }
         restoredInfinite = false
+        cancelRefill()
         infinite = Shuffle(mixes: mixes)
         refillIfNeeded()
     }
@@ -1236,21 +1262,8 @@ extension Array {
 extension Player {
     /// Stops playback and forgets the queue (used by "Erase all app data").
     func stopAndClear() {
-        starts += 1
-        loadTask?.cancel(); loadTask = nil
-        advanceTask?.cancel(); advanceTask = nil
-        refilling?.cancel(); refilling = nil
-        clearPreload()
         liveEngine.cancelLiveSeek()
-        avPlayer.pause(); avPlayer.removeAllItems()
-        resumeAfterInterruption = false
-        recentIDs = []; recentOrder = []
-        savedQueueVersion = -1; savedQueueRange = 0..<0
-        playingItem = nil; infinite = nil
-        queue = []; original = []; userQueue = []; index = nil; current = nil
-        isPlaying = false; loading = false; liveEngine.loadResumeAt = nil; position = 0; duration = 0; stream = nil; sourceTitle = nil
-        MPNowPlayingInfoCenter.default().nowPlayingInfo = nil
-        needsStart = false; restoredInfinite = false; discoverWait &+= 1
+        resetPlaybackState()
         // With `current` nil any later persist() (tick, scene change) only clears again;
         // the store's serial queue keeps this delete after any save already queued.
         PlaybackStore.clear()
