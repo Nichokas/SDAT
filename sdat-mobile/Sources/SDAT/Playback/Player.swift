@@ -61,6 +61,7 @@ final class Player: LivePlaybackPort {
     private var infinite: Shuffle?
     private var loadTask: Task<Void, Never>?
     private var preloadTask: Task<Void, Never>?
+    @ObservationIgnored private var advanceTask: Task<Void, Never>?
     private var preloaded: (trackId: String, item: AVPlayerItem, stream: Stream)?
     /// The engine item of `current`: ends of other items are stale.
     @ObservationIgnored private var playingItem: AVPlayerItem? {
@@ -137,11 +138,14 @@ final class Player: LivePlaybackPort {
         Task {
             do {
                 let batch = try await source.nextBatch(min: 10)
-                guard infinite === source, !batch.isEmpty else { return }
+                guard !liveEngine.liveFollowing, infinite === source, !batch.isEmpty else { return }
                 queue = batch
                 original = batch
                 load(0)
-            } catch { self.error = friendlyMessage(error) }
+            } catch {
+                guard infinite === source else { return }
+                self.error = friendlyMessage(error)
+            }
         }
     }
 
@@ -386,12 +390,30 @@ final class Player: LivePlaybackPort {
     var enginePosition: Double { avPlayer.currentTime().seconds }
 
     func prepareLiveJoin() {
+        starts += 1
+        loadTask?.cancel(); loadTask = nil
+        advanceTask?.cancel(); advanceTask = nil
+        refilling?.cancel(); refilling = nil
         infinite = nil
         restoredInfinite = false
         discoverWait &+= 1
-        refilling?.cancel(); refilling = nil
         resumedVersion = nil
-        invalidatePreload()
+        resumeAfterInterruption = false
+        holdAutoplay = false
+        clearPreload()
+        if loading {
+            loading = false
+            liveEngine.loadResumeAt = nil
+            avPlayer.pause()
+            avPlayer.removeAllItems()
+            playingItem = nil
+            needsStart = current != nil
+            if isPlaying { reportPlaying(false) }
+        } else if avPlayer.currentItem == nil, playingItem != nil || isPlaying {
+            playingItem = nil
+            needsStart = current != nil
+            if isPlaying { reportPlaying(false) }
+        }
     }
 
     func loadLive(_ tracks: [Track], index i: Int, at secs: Double, playing: Bool) {
@@ -486,11 +508,12 @@ final class Player: LivePlaybackPort {
             // Restored or taken over, and its source is not here yet: asked for now.
             if restoredInfinite, infinite == nil { attachDiscover() }
             let started = starts
-            Task {
+            advanceTask?.cancel()
+            advanceTask = Task {
                 // A handoff's own tracks come first, when they are still on their way.
                 await awaitHandoff(manual: !auto, started: started)
                 // Something else plays by now, or nothing does (a sign-out).
-                guard starts == started, current != nil else { return }
+                guard !Task.isCancelled, starts == started, current != nil else { return }
                 guard !liveEngine.liveFollowing else { loading = false; return }
                 if resumedVersion == queueVersion { resumedVersion = nil }
                 // The handed-over tracks play without the source.
@@ -498,7 +521,7 @@ final class Player: LivePlaybackPort {
                     guard let source = infinite else { loading = false; stopAtEnd(); return }
                     let more = await fetchMore(from: source)
                     // Another Next tapped meanwhile waited too, and went on first.
-                    guard infinite === source, starts == started else { return }
+                    guard !Task.isCancelled, infinite === source, starts == started else { return }
                     guard !liveEngine.liveFollowing else { loading = false; return }
                     guard more else { loading = false; stopAtEnd(); return }
                 }
@@ -510,6 +533,7 @@ final class Player: LivePlaybackPort {
             }
             return
         }
+        advanceTask?.cancel(); advanceTask = nil
         if fromUser {
             userQueue.removeFirst()
             index = joinQueue(t)
@@ -596,12 +620,13 @@ final class Player: LivePlaybackPort {
         liveEngine.loadResumeAt = resumeAt
         // The old item may still end while the new stream loads; that end is not this track's.
         playingItem = nil
-        invalidatePreload()
+        advanceTask?.cancel(); advanceTask = nil
+        clearPreload()
         loadTask?.cancel()
         loadTask = Task {
             do {
                 let s = try await online ? Self.online(track.id) : Self.source(track.id)
-                guard !Task.isCancelled, current?.id == track.id, let url = URL(string: s.url) else { return }
+                guard !Task.isCancelled, starts == mine, current?.id == track.id, let url = URL(string: s.url) else { return }
                 stream = s
                 let shouldAlign = liveEngine.shouldAlign(autoplay: autoplay && !holdAutoplay)
                 if shouldAlign || resumeAt > 0 || !autoplay || holdAutoplay { avPlayer.pause() }
@@ -613,7 +638,7 @@ final class Player: LivePlaybackPort {
                     // Following a playing host: start only with a healthy buffer
                     // and on time, so nothing needs correcting after the start.
                     let playing = await liveEngine.liveAlign(item)
-                    guard !Task.isCancelled, current?.id == track.id else { return }
+                    guard !Task.isCancelled, starts == mine, current?.id == track.id else { return }
                     // Only a failure drops the item here; `streamFailed` recovers it.
                     guard avPlayer.currentItem === item else { return }
                     isPlaying = playing
@@ -642,7 +667,7 @@ final class Player: LivePlaybackPort {
                 if !Task.isCancelled { liveEngine.loadResumeAt = nil }
                 afterStart(track)
             } catch {
-                guard !Task.isCancelled else { return }
+                guard !Task.isCancelled, starts == mine else { return }
                 fail(friendlyMessage(error))
             }
         }
@@ -693,7 +718,7 @@ final class Player: LivePlaybackPort {
     }
 
     private func fail(_ message: String) {
-        loadTask?.cancel()
+        loadTask?.cancel(); loadTask = nil
         loading = false; liveEngine.loadResumeAt = nil
         error = message
         avPlayer.pause(); avPlayer.removeAllItems(); playingItem = nil
@@ -739,13 +764,15 @@ final class Player: LivePlaybackPort {
 
     /// Prepares the next track's AVPlayerItem behind the current one (gapless-ish start).
     private func schedulePreload() {
-        preloadTask?.cancel()
-        guard Preferences.shared.preloadNext, repeatMode != .one,
+        preloadTask?.cancel(); preloadTask = nil
+        guard !liveEngine.liveFollowing, Preferences.shared.preloadNext, repeatMode != .one,
               let (next, _, _) = following(), let cur = current else { return }
+        let started = starts
         preloadTask = Task {
             guard let s = try? await Self.source(next.id),
-                  !Task.isCancelled, current?.id == cur.id, let url = URL(string: s.url),
-                  let curItem = avPlayer.currentItem else { return }
+                  !Task.isCancelled, !liveEngine.liveFollowing, starts == started,
+                  current?.id == cur.id, let url = URL(string: s.url),
+                  let curItem = avPlayer.currentItem, curItem === playingItem else { return }
             let item = Self.makeItem(url)
             guard avPlayer.canInsert(item, after: curItem) else { return }
             avPlayer.insert(item, after: curItem)
@@ -753,11 +780,15 @@ final class Player: LivePlaybackPort {
         }
     }
 
-    private func invalidatePreload() {
-        preloadTask?.cancel()
+    private func clearPreload() {
+        preloadTask?.cancel(); preloadTask = nil
         if let p = preloaded { avPlayer.remove(p.item) }
         preloaded = nil
-        if current != nil, stream != nil { schedulePreload() }
+    }
+
+    private func invalidatePreload() {
+        clearPreload()
+        if !liveEngine.liveFollowing, current != nil, stream != nil { schedulePreload() }
     }
 
     private func tick(_ t: Double) {
@@ -786,11 +817,11 @@ final class Player: LivePlaybackPort {
             Task { [weak self] in
                 for _ in 0..<20 {
                     try? await Task.sleep(for: .milliseconds(500))
-                    guard let self, self.playingItem === item, self.starts == s, self.seekGeneration == g else { return }
+                    guard let self, !self.liveEngine.liveFollowing, self.playingItem === item, self.starts == s, self.seekGeneration == g else { return }
                     guard let p = self.preloaded, p.item.status != .failed,
                           self.avPlayer.items().contains(p.item) else { break }
                 }
-                guard let self, self.playingItem === item, self.starts == s, self.seekGeneration == g else { return }
+                guard let self, !self.liveEngine.liveFollowing, self.playingItem === item, self.starts == s, self.seekGeneration == g else { return }
                 self.advance(auto: true)
             }
             return
@@ -812,7 +843,7 @@ final class Player: LivePlaybackPort {
     /// until it comes.
     private func awaitHandoff(manual: Bool, started: Int) async {
         let limit = Date().addingTimeInterval(Self.handoffWait)
-        while starts == started, current != nil, following(manual: manual) == nil {
+        while !Task.isCancelled, !liveEngine.liveFollowing, starts == started, current != nil, following(manual: manual) == nil {
             let tracks = resumedVersion == queueVersion && Date() < limit
             let source = restoredInfinite && infinite == nil
             guard tracks || source else { return }
@@ -822,7 +853,7 @@ final class Player: LivePlaybackPort {
 
     private func refillIfNeeded() {
         // A handoff's own tracks come first: a refill before them would take their place.
-        guard resumedVersion != queueVersion, let source = infinite, let i = index, queue.count - i <= 5 else { return }
+        guard !liveEngine.liveFollowing, resumedVersion != queueVersion, let source = infinite, let i = index, queue.count - i <= 5 else { return }
         Task { _ = await fetchMore(from: source) }
     }
 
@@ -832,9 +863,11 @@ final class Player: LivePlaybackPort {
     private func fetchMore(from source: Shuffle) async -> Bool {
         if let r = refilling { return await r.value }
         let task = Task { @MainActor () -> Bool in
-            defer { refilling = nil }
+            defer { if !Task.isCancelled { refilling = nil } }
             for _ in 0..<3 {
-                guard let batch = try? await source.nextBatch(min: 10), infinite === source else { return false }
+                guard !Task.isCancelled, !liveEngine.liveFollowing,
+                      let batch = try? await source.nextBatch(min: 10),
+                      !Task.isCancelled, !liveEngine.liveFollowing, infinite === source else { return false }
                 remember(queue.map(\.id))
                 var ids = recentIDs
                 let fresh = batch.filter { ids.insert($0.id).inserted }
@@ -907,7 +940,7 @@ final class Player: LivePlaybackPort {
 
     private func restore() async {
         defer { restoring = false }
-        guard let (s, q) = await PlaybackStore.load(), current == nil,
+        guard let (s, q) = await PlaybackStore.load(), current == nil, !liveEngine.liveFollowing,
               let cur = DiscoverCache.decode([s.current]).first else { return }
         let d = DiscoverCache.decode
         if let q {
@@ -958,7 +991,7 @@ final class Player: LivePlaybackPort {
 
     /// Re-attaches the endless Discover source to a restored Discover queue once mixes load.
     func resumeInfinite(mixes: [Mix]) {
-        guard restoredInfinite, infinite == nil, !mixes.isEmpty else { return }
+        guard !liveEngine.liveFollowing, restoredInfinite, infinite == nil, !mixes.isEmpty else { return }
         restoredInfinite = false
         infinite = Shuffle(mixes: mixes)
         refillIfNeeded()
@@ -1207,13 +1240,17 @@ extension Array {
 extension Player {
     /// Stops playback and forgets the queue (used by "Erase all app data").
     func stopAndClear() {
-        loadTask?.cancel(); preloadTask?.cancel(); refilling?.cancel(); refilling = nil
+        starts += 1
+        loadTask?.cancel(); loadTask = nil
+        advanceTask?.cancel(); advanceTask = nil
+        refilling?.cancel(); refilling = nil
+        clearPreload()
         liveEngine.cancelLiveSeek()
         avPlayer.pause(); avPlayer.removeAllItems()
         resumeAfterInterruption = false
         recentIDs = []; recentOrder = []
         savedQueueVersion = -1; savedQueueRange = 0..<0
-        preloaded = nil; playingItem = nil; infinite = nil
+        playingItem = nil; infinite = nil
         queue = []; original = []; userQueue = []; index = nil; current = nil
         isPlaying = false; loading = false; liveEngine.loadResumeAt = nil; position = 0; duration = 0; stream = nil; sourceTitle = nil
         MPNowPlayingInfoCenter.default().nowPlayingInfo = nil

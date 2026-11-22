@@ -52,7 +52,11 @@ final class LiveEngine {
 
     func clearSystemPause() { systemPaused = false }
     func noteSystemPause() { systemPaused = true }
-    func prepareLiveJoin() { port.prepareLiveJoin() }
+    func prepareLiveJoin() {
+        cancelLiveSeek()
+        liveSeekEndedAt = nil
+        port.prepareLiveJoin()
+    }
 
     func shouldAlign(autoplay: Bool) -> Bool { liveFollowing && autoplay && liveTarget != nil }
 
