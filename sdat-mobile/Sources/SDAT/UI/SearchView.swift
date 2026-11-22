@@ -38,15 +38,10 @@ struct SearchView: View {
         .searchable(text: $query, placement: .navigationBarDrawer(displayMode: .always), prompt: "Artists, songs, albums")
         .task(id: query) {
             let q = query.trimmingCharacters(in: .whitespaces)
-            if q.isEmpty {
-                generation += 1
-                debounced = ""; results = nil; topArtist = nil; error = nil; searching = false
-                return
-            }
             // One-letter queries return junk; wait for at least two characters.
             guard q.count >= 2 else {
                 generation += 1
-                searching = false
+                debounced = ""; results = nil; topArtist = nil; error = nil; searching = false
                 return
             }
             // Re-appearing (tab switch, chrome changes) must not search again.
