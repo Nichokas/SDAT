@@ -125,8 +125,14 @@ class PlaybackTest {
             Player.COMMAND_SET_TRACK_SELECTION_PARAMETERS,
             Player.COMMAND_SET_VIDEO_SURFACE,
         )
-        assertEquals(readOnly, sessionCommands(emptyBase, hasTrack = false, emptyTimeline = true))
-        assertEquals(readOnly, sessionCommands(emptyBase, hasTrack = false, emptyTimeline = false))
+        val idle = readOnly + setOf(
+            Player.COMMAND_SET_VOLUME,
+            Player.COMMAND_SET_DEVICE_VOLUME_WITH_FLAGS,
+            Player.COMMAND_ADJUST_DEVICE_VOLUME_WITH_FLAGS,
+        )
+        val emptyWithVolume = emptyBase + idle
+        assertEquals(idle, sessionCommands(emptyWithVolume, hasTrack = false, emptyTimeline = true))
+        assertEquals(idle, sessionCommands(emptyWithVolume, hasTrack = false, emptyTimeline = false))
     }
 
     @Test fun nonDiscoverHandoffWaitsForUpcomingUnderRepeatOffAndRepeatAll() {

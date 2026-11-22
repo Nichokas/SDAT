@@ -914,7 +914,8 @@ private val unguardedSessionCommands = setOf(
     Player.COMMAND_RELEASE,
 )
 
-private val readOnlySessionCommands = setOf(
+/** What a controller may do with no track: read state and change the volume, which does not touch the queue. */
+private val idleSessionCommands = setOf(
     Player.COMMAND_GET_CURRENT_MEDIA_ITEM,
     Player.COMMAND_GET_TIMELINE,
     Player.COMMAND_GET_METADATA,
@@ -923,10 +924,13 @@ private val readOnlySessionCommands = setOf(
     Player.COMMAND_GET_DEVICE_VOLUME,
     Player.COMMAND_GET_TEXT,
     Player.COMMAND_GET_TRACKS,
+    Player.COMMAND_SET_VOLUME,
+    Player.COMMAND_SET_DEVICE_VOLUME_WITH_FLAGS,
+    Player.COMMAND_ADJUST_DEVICE_VOLUME_WITH_FLAGS,
 )
 
 internal fun sessionCommands(base: Set<Int>, hasTrack: Boolean, emptyTimeline: Boolean): Set<Int> {
-    if (!hasTrack) return base intersect readOnlySessionCommands
+    if (!hasTrack) return base intersect idleSessionCommands
     val allowed = base - unguardedSessionCommands
     return if (emptyTimeline) allowed + queueCommands + Player.COMMAND_SEEK_IN_CURRENT_MEDIA_ITEM else allowed + queueCommands
 }
