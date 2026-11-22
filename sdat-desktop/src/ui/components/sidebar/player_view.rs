@@ -1,6 +1,7 @@
 //! Port of `components/sidebar/player`.
 use std::cell::Cell;
 use std::rc::Rc;
+use std::time::{Duration, Instant};
 
 use adw::prelude::*;
 use gtk::{gdk, gio, pango};
@@ -312,15 +313,49 @@ fn quality_entry(q: TrackQuality, css: &str, title: &str, details: &str, popover
 }
 
 /// Guest scrub: quiet time before the last dragged position is sent.
-const SCRUB_DEBOUNCE: std::time::Duration = std::time::Duration::from_millis(250);
+const SCRUB_DEBOUNCE: Duration = Duration::from_millis(250);
 
 /// Position, (session, host track) it is for, and the pending timer.
-type PendingScrub = (std::time::Duration, Option<(u64, String)>, glib::SourceId);
+type PendingScrub = (Duration, Option<(u64, String)>, glib::SourceId);
 
 thread_local! {
     /// Guest scrub waiting to be sent: position, the session and host track it is for,
     /// and its pending timer.
     static SCRUB: std::cell::RefCell<Option<PendingScrub>> = const { std::cell::RefCell::new(None) };
+}
+
+/// Extrapolates playback position between 250 ms GStreamer polls for vsync-smooth scrubbing.
+#[derive(Debug, Clone, Copy, Default)]
+struct TimelineClock {
+    position: Duration,
+    duration: Duration,
+    at: Option<Instant>,
+}
+
+impl TimelineClock {
+    // Bounds extrapolation if the 250 ms playback poll pauses or lags.
+    const MAX_EXTRAPOLATION: Duration = Duration::from_millis(500);
+
+    fn sync(&mut self, position: Duration, duration: Duration, advancing: bool, now: Instant) {
+        self.position = position;
+        self.duration = duration;
+        self.at = advancing.then_some(now);
+    }
+
+    fn position_at(&self, now: Instant) -> Duration {
+        let Some(at) = self.at else {
+            return self.position;
+        };
+        let elapsed = now.saturating_duration_since(at).min(Self::MAX_EXTRAPOLATION);
+        self.position.saturating_add(elapsed).min(self.duration.max(self.position))
+    }
+
+    fn percent_at(&self, now: Instant) -> f64 {
+        if self.duration.is_zero() {
+            return 0.0;
+        }
+        (100.0 * self.position_at(now).as_secs_f64() / self.duration.as_secs_f64()).clamp(0.0, 100.0)
+    }
 }
 
 fn track_timeline() -> gtk::Overlay {
@@ -363,18 +398,70 @@ fn track_timeline() -> gtk::Overlay {
         d.set_text(&ev.as_ref().map_or_else(|| "00:00".into(), |e| format_duration(e.track.duration())));
     });
     let sw = scale.downgrade();
-    on_state(player::playback_state_changed(), &position, move |p, ps| {
-        p.set_text(&format_duration(ps.position));
-        let s = sw.upgrade();
-        if !ps.duration.is_zero() {
-            if let Some(d) = dw.upgrade() {
-                d.set_text(&format_duration(ps.duration));
+    let clock = Rc::new(Cell::new(TimelineClock::default()));
+    let tick = Rc::new(Cell::new(None::<gtk::TickCallbackId>));
+    let shown_secs = Rc::new(Cell::new(None));
+    on_state(player::playback_state_changed(), &position, move |pos_label, ps| {
+        let now = Instant::now();
+        let advancing = ps.status == PlaybackStatus::Playing && !ps.loading && !ps.buffering && !ps.duration.is_zero();
+        let mut state = clock.get();
+        state.sync(ps.position, ps.duration, advancing, now);
+        clock.set(state);
+        let secs = ps.position.as_secs();
+        if shown_secs.get() != Some(secs) {
+            pos_label.set_text(&format_duration(ps.position));
+            shown_secs.set(Some(secs));
+        }
+        if !ps.duration.is_zero()
+            && let Some(dur_label) = dw.upgrade()
+        {
+            dur_label.set_text(&format_duration(ps.duration));
+        }
+        let Some(scale) = sw.upgrade() else {
+            if let Some(id) = tick.take() {
+                id.remove();
             }
-            if let Some(s) = s {
-                s.set_value(100.0 / ps.duration.as_secs_f64() * ps.position.as_secs_f64());
-            }
-        } else if let Some(s) = s {
-            s.set_value(0.0);
+            return;
+        };
+        // A stop (zero duration) resets even mid-drag: no later update would move the thumb back.
+        if ps.duration.is_zero() || !scale.has_css_class("dragging") {
+            scale.set_value(state.percent_at(now));
+        }
+        if advancing {
+            let id = tick.take().unwrap_or_else(|| {
+                let clock = Rc::clone(&clock);
+                let tick = Rc::clone(&tick);
+                let shown_secs = Rc::clone(&shown_secs);
+                let pos_weak = pos_label.downgrade();
+                scale.add_tick_callback(move |scale, _| {
+                    let state = clock.get();
+                    if state.at.is_none() {
+                        tick.set(None);
+                        return glib::ControlFlow::Break;
+                    }
+                    let now = Instant::now();
+                    if !scale.has_css_class("dragging") {
+                        scale.set_value(state.percent_at(now));
+                        let pos = state.position_at(now);
+                        let secs = pos.as_secs();
+                        if shown_secs.get() != Some(secs)
+                            && let Some(pos_label) = pos_weak.upgrade()
+                        {
+                            pos_label.set_text(&format_duration(pos));
+                            shown_secs.set(Some(secs));
+                        }
+                    }
+                    // Polls stopped: the clock is capped, so stop ticking until the next sync restarts it.
+                    if state.at.is_some_and(|at| now.saturating_duration_since(at) >= TimelineClock::MAX_EXTRAPOLATION) {
+                        tick.set(None);
+                        return glib::ControlFlow::Break;
+                    }
+                    glib::ControlFlow::Continue
+                })
+            });
+            tick.set(Some(id));
+        } else if let Some(id) = tick.take() {
+            id.remove();
         }
     });
     let overlay = gtk::Overlay::new();
@@ -559,4 +646,55 @@ fn spacer_box(items: &[&gtk::Widget]) -> gtk::Box {
         b.append(*w);
     }
     b
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn paused_returns_exact_position() {
+        let t0 = Instant::now();
+        let mut clock = TimelineClock::default();
+        clock.sync(Duration::from_secs(30), Duration::from_secs(120), false, t0);
+        assert_eq!(clock.position_at(t0 + Duration::from_secs(5)), Duration::from_secs(30));
+        assert!((clock.percent_at(t0 + Duration::from_secs(5)) - 25.0).abs() < 1e-9);
+    }
+
+    #[test]
+    fn playing_extrapolates_smoothly() {
+        let t0 = Instant::now();
+        let mut clock = TimelineClock::default();
+        clock.sync(Duration::from_secs(10), Duration::from_secs(100), true, t0);
+        let at = t0 + Duration::from_millis(125);
+        assert_eq!(clock.position_at(at), Duration::from_millis(10_125));
+        assert!((clock.percent_at(at) - 10.125).abs() < 1e-9);
+    }
+
+    #[test]
+    fn extrapolation_clamps_at_max() {
+        let t0 = Instant::now();
+        let mut clock = TimelineClock::default();
+        clock.sync(Duration::from_secs(10), Duration::from_secs(100), true, t0);
+        let at = t0 + Duration::from_secs(5);
+        assert_eq!(clock.position_at(at), Duration::from_secs(10) + TimelineClock::MAX_EXTRAPOLATION);
+    }
+
+    #[test]
+    fn extrapolation_clamps_at_duration() {
+        let t0 = Instant::now();
+        let mut clock = TimelineClock::default();
+        clock.sync(Duration::from_millis(99_800), Duration::from_secs(100), true, t0);
+        let at = t0 + Duration::from_millis(400);
+        assert_eq!(clock.position_at(at), Duration::from_secs(100));
+        assert!((clock.percent_at(at) - 100.0).abs() < 1e-9);
+    }
+
+    #[test]
+    fn zero_duration_yields_zero_percent() {
+        let t0 = Instant::now();
+        let mut clock = TimelineClock::default();
+        clock.sync(Duration::from_secs(5), Duration::ZERO, false, t0);
+        assert!(clock.percent_at(t0).abs() < f64::EPSILON);
+    }
 }

@@ -47,7 +47,6 @@ import com.nichokas.sdat.core.eraseAll
 import com.nichokas.sdat.core.label
 import com.nichokas.sdat.core.qualities
 import io.github.neoruaa.glasmio.core.GlasmioTheme
-import io.github.neoruaa.glasmio.scaffold.GlasmioPinnedListPage
 import io.github.neoruaa.glasmio.ui.GlasmioAlertButtonLayout
 import io.github.neoruaa.glasmio.ui.GlasmioAlertButtonRole
 import io.github.neoruaa.glasmio.ui.GlasmioAlertButtonSpec
@@ -114,7 +113,7 @@ fun SettingsView(session: Session, prefs: Preferences, secrets: Secrets, crashRe
         onPauseOrDispose { if (lastFmPending != null) browserOpened = true }
     }
 
-    GlasmioPinnedListPage(title = "Settings", showsLargeTitle = false, onNavigateBack = onBack) {
+    SdatPage(title = "Settings", onBack = onBack, showsLargeTitle = false, bottomPaddingValues = null) {
         item {
             Section("Account") {
                 GlasmioListRow("Sessions and devices", showTopSeparator = false, onClick = { context.open("https://account.tidal.com/") }, showDisclosure = false)

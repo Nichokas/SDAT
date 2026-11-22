@@ -30,19 +30,17 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.blur
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.ColorFilter
-import androidx.compose.ui.graphics.ColorMatrix
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.layout.boundsInRoot
 import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
@@ -114,14 +112,14 @@ fun DetailScaffold(
 fun CoverBackdrop(url: String?, modifier: Modifier = Modifier) {
     Box(modifier.background(Color.Black).clipToBounds()) {
         if (url != null) {
+            val context = LocalContext.current
+            val request = remember(url, context) { backdropRequest(context, url, saturation = 1.8f, radius = 5) }
             AsyncImage(
-                // Blurred this far, a small cover looks the same and decodes much faster.
-                model = CoverUrl.sized(url, 160),
+                model = request,
                 contentDescription = null,
                 contentScale = ContentScale.Crop,
-                colorFilter = ColorFilter.colorMatrix(ColorMatrix().apply { setToSaturation(1.8f) }),
                 // Well past the screen: only the cover's centre shows, never an edge.
-                modifier = Modifier.fillMaxSize().graphicsLayer { scaleX = 2.2f; scaleY = 2.2f }.blur(50.dp),
+                modifier = Modifier.fillMaxSize().graphicsLayer { scaleX = 2.2f; scaleY = 2.2f },
             )
             Box(Modifier.fillMaxSize().background(Color.Black.copy(alpha = 0.32f)))
         }

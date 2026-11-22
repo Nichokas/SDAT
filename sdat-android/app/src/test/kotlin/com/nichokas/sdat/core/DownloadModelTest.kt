@@ -116,4 +116,38 @@ class DownloadModelTest {
         assertEquals("ALAC 16-bit/44.1 kHz", e.copy(codec = "alac", bandwidth = 900_000, bitDepth = 16, sampleRate = 44_100).qualityText)
         assertNull(e.qualityText)
     }
+
+    @Test fun restorePendingRunsOnceUnlessFrozenOrReset() {
+        assertTrue(shouldRestorePending(pendingLoaded = false, frozen = false, restoring = false))
+        assertFalse(shouldRestorePending(pendingLoaded = false, frozen = false, restoring = true))
+        assertFalse(shouldRestorePending(pendingLoaded = true, frozen = false, restoring = false))
+        assertTrue(shouldRestorePending(pendingLoaded = false, frozen = true, restoring = false))
+        assertTrue(shouldRestorePending(pendingLoaded = true, frozen = true, restoring = false))
+        assertFalse(shouldRestorePending(pendingLoaded = true, frozen = true, restoring = true))
+    }
+
+    @Test fun restorePendingSkipsCancelledAndFailedTracksWithoutClearingFailures() {
+        val failed = DownloadQueue()
+            .enqueue(listOf(track("1")), { false })
+            .startNext()
+            .finish("1", "Can't reach TIDAL.")
+            .fail("4", "Not enough storage space.")
+        val saved = listOf(track("1"), track("2"), track("3"), track("4"), track("3"), track("5", streamable = false), track("6"))
+
+        val merged = failed.restore(saved, dropped = setOf("2"), downloaded = setOf("6")::contains)
+        assertEquals(listOf("3"), merged.active.map { it.id })
+        assertEquals(1, merged.batchTotal)
+        assertEquals(DownloadState.Failed("Can't reach TIDAL."), merged.state("1", false))
+        assertEquals(DownloadState.Failed("Not enough storage space."), merged.state("4", false))
+        assertEquals(DownloadState.None, merged.state("2", false))
+
+        // Restoring only already-failed or already-active tracks is a no-op that preserves failures.
+        assertTrue(merged.restore(listOf(track("1"), track("3"), track("4")), dropped = emptySet(), downloaded = { false }) === merged)
+        assertEquals(DownloadState.Failed("Can't reach TIDAL."), merged.state("1", false))
+
+        // An explicit user retry through enqueue still clears the failure.
+        val retried = merged.enqueue(listOf(track("1")), { false })
+        assertEquals(DownloadState.Queued, retried.state("1", false))
+        assertNull(retried.failures["1"])
+    }
 }

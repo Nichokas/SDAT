@@ -1,9 +1,9 @@
 //! "Import Spotify Playlist…" in the main menu: copies a public Spotify playlist
 //! into a new TIDAL playlist.
 
+use std::cell::Cell;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, PoisonError};
-use std::time::Duration;
 
 use adw::prelude::*;
 use tonearm_core::playlist_import::{self, Progress, Report, Stage};
@@ -59,22 +59,34 @@ fn run(window: &adw::ApplicationWindow, link: String) {
     let progress: Arc<Mutex<Option<Progress>>> = Arc::default();
     let shown = Arc::clone(&progress);
     let dialog = ad.downgrade();
-    let ticker = glib::timeout_add_local(Duration::from_millis(150), move || {
-        if let Some(p) = *shown.lock().unwrap_or_else(PoisonError::into_inner) {
-            bar.set_text(Some(&stage_label(p.stage)));
-            // Saving always finishes, so that a cancel never leaves half a playlist.
-            if let Some(d) = dialog.upgrade() {
-                d.set_response_enabled("cancel", p.stage != Stage::Saving);
+    let last_us = Cell::new(None);
+    let last_stage = Cell::new(None);
+    let last_fraction = Cell::new(None::<f64>);
+    let ticker = bar.add_tick_callback(move |bar, clock| {
+        let now = clock.frame_time();
+        let dt_secs = last_us.replace(Some(now)).map_or(1.0 / 60.0, |prev| (now.saturating_sub(prev) as f64 / 1_000_000.0).clamp(0.0, 0.05));
+        let current = *shown.lock().unwrap_or_else(PoisonError::into_inner);
+        if let Some(p) = current {
+            if last_stage.get() != Some(p.stage) {
+                bar.set_text(Some(&stage_label(p.stage)));
+                // Saving always finishes, so that a cancel never leaves half a playlist.
+                if let Some(d) = dialog.upgrade() {
+                    d.set_response_enabled("cancel", p.stage != Stage::Saving);
+                }
+                last_stage.set(Some(p.stage));
             }
-            if p.total == 0 {
-                bar.pulse();
-            } else {
-                #[expect(clippy::cast_precision_loss, reason = "track counts are far below 2^52")]
-                bar.set_fraction(p.done as f64 / p.total as f64);
+            if p.total > 0 {
+                let frac = p.done as f64 / p.total as f64;
+                if last_fraction.get().is_none_or(|prev| (prev - frac).abs() > f64::EPSILON) {
+                    bar.set_fraction(frac);
+                    last_fraction.set(Some(frac));
+                }
+                return glib::ControlFlow::Continue;
             }
-        } else {
-            bar.pulse();
         }
+        last_fraction.set(None);
+        bar.set_pulse_step((dt_secs * 0.67).clamp(0.001, 0.1));
+        bar.pulse();
         glib::ControlFlow::Continue
     });
 

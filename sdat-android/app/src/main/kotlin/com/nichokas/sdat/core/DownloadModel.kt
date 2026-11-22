@@ -164,6 +164,16 @@ data class DownloadQueue(
         return copy(waiting = waiting + added, failures = failures - added.map { it.id }.toSet(), batchTotal = batchTotal + added.size)
     }
 
+    /** Requeues saved tracks, skipping unstreamable, [downloaded], active, [dropped] and failed ones without clearing failures. */
+    fun restore(tracks: List<Track>, dropped: Set<String>, downloaded: (String) -> Boolean): DownloadQueue {
+        val ids = active.mapTo(mutableSetOf()) { it.id }
+        val added = tracks.filter {
+            it.streamable && it.id !in dropped && it.id !in failures && !downloaded(it.id) && ids.add(it.id)
+        }
+        if (added.isEmpty()) return this
+        return copy(waiting = waiting + added, batchTotal = batchTotal + added.size)
+    }
+
     /** Moves the first waiting track to [current] when nothing is being fetched. */
     fun startNext(): DownloadQueue =
         if (current != null || waiting.isEmpty()) this else copy(current = waiting.first(), waiting = waiting.drop(1), fraction = 0.0)

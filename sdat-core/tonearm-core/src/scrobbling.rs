@@ -142,6 +142,7 @@ fn header_u64(r: &reqwest::blocking::Response, name: &str) -> Option<u64> {
 }
 
 pub fn listenbrainz_send(url: &str, token: &str, body: &str) {
+    let endpoint = format!("{}/1/submit-listens", url.trim().trim_end_matches('/'));
     let mut next = LB_NEXT.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
     let mut r = Err(None);
     for _ in 0..2 {
@@ -150,7 +151,7 @@ pub fn listenbrainz_send(url: &str, token: &str, body: &str) {
         }
         let resp = send(
             lb_http()
-                .post(format!("{url}/1/submit-listens"))
+                .post(&endpoint)
                 .header("Authorization", format!("Token {token}"))
                 .header("Content-Type", "application/json")
                 .body(body.to_owned()),
@@ -353,5 +354,49 @@ mod tests {
         p.insert("format".to_string(), "json".to_string());
         let expected = hex(&Md5::digest(format!("api_key{LASTFM_API_KEY}methodauth.getToken{LASTFM_SECRET}").as_bytes()));
         assert_eq!(lastfm_signature(&p), expected);
+    }
+
+    #[test]
+    fn listenbrainz_send_strips_trailing_slashes() {
+        use std::io::{BufRead, BufReader, Read, Write};
+        use std::net::TcpListener;
+
+        let _sending = crate::diag::net::SENDING.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        let listener = TcpListener::bind("127.0.0.1:0").expect("bind");
+        let addr = listener.local_addr().expect("addr");
+        let server = std::thread::spawn(move || {
+            let mut lines = Vec::new();
+            for _ in 0..2 {
+                let (mut sock, _) = listener.accept().expect("accept");
+                let mut reader = BufReader::new(&mut sock);
+                let mut req_line = String::new();
+                reader.read_line(&mut req_line).expect("read request line");
+                let mut content_length = 0usize;
+                loop {
+                    let mut header = String::new();
+                    reader.read_line(&mut header).expect("read header");
+                    if header == "\r\n" {
+                        break;
+                    }
+                    if let Some((name, value)) = header.split_once(':')
+                        && name.eq_ignore_ascii_case("content-length")
+                    {
+                        content_length = value.trim().parse().expect("content-length");
+                    }
+                }
+                if content_length > 0 {
+                    reader.read_exact(&mut vec![0; content_length]).expect("read body");
+                }
+                sock.write_all(b"HTTP/1.1 200 OK\r\nContent-Length: 0\r\nConnection: close\r\n\r\n").expect("write");
+                lines.push(req_line);
+            }
+            lines
+        });
+
+        listenbrainz_send(&format!("http://{addr}/"), "tok", "{}");
+        listenbrainz_send(&format!(" http://{addr}/// "), "tok", "{}");
+
+        let lines = server.join().expect("server");
+        assert_eq!(lines, ["POST /1/submit-listens HTTP/1.1\r\n", "POST /1/submit-listens HTTP/1.1\r\n"]);
     }
 }

@@ -13,7 +13,6 @@ pub struct MediaViewer {
     back: gtk::Button,
     zoom: Cell<f64>,
     base: Cell<(i32, i32)>,
-    media: RefCell<Option<gdk::Texture>>,
     hide_timer: Rc<RefCell<Option<glib::SourceId>>>,
 }
 
@@ -99,9 +98,9 @@ impl MediaViewer {
         let copy = gio::SimpleAction::new("copy", None);
         let ov = overlay.downgrade();
         copy.connect_activate(move |_, _| {
-            get().copy_media();
+            let copied = get().copy_media();
             if let Some(o) = ov.upgrade() {
-                let t = adw::Toast::new("Copied image to clipboard");
+                let t = adw::Toast::new(if copied { "Copied image to clipboard" } else { "Couldn't copy the image" });
                 t.set_timeout(3);
                 o.add_toast(t);
             }
@@ -119,17 +118,38 @@ impl MediaViewer {
         revealer.connect_show(|_| {
             get().back.grab_focus();
         });
-        MediaViewer { revealer, picture, back, zoom: Cell::new(1.0), base: Cell::new((0, 0)), media: RefCell::new(None), hide_timer: Rc::default() }
+        MediaViewer { revealer, picture, back, zoom: Cell::new(1.0), base: Cell::new((0, 0)), hide_timer: Rc::default() }
     }
 
     pub fn widget(&self) -> &gtk::Revealer {
         &self.revealer
     }
 
-    fn copy_media(&self) {
-        if let (Some(d), Some(t)) = (gdk::Display::default(), self.media.borrow().as_ref()) {
-            d.clipboard().set_texture(t);
+    /// Whether the clipboard now holds the image.
+    fn copy_media(&self) -> bool {
+        let (Some(display), Some(paintable)) = (gdk::Display::default(), self.picture.paintable()) else { return false };
+        if let Some(texture) = paintable.downcast_ref::<gdk::Texture>() {
+            display.clipboard().set_texture(texture);
+            return true;
         }
+        let mut width = f64::from(paintable.intrinsic_width());
+        let mut height = f64::from(paintable.intrinsic_height());
+        if width <= 0.0 {
+            width = 1440.0;
+        }
+        if height <= 0.0 {
+            height = 1440.0;
+        }
+        let snap = gtk::Snapshot::new();
+        paintable.snapshot(&snap, width, height);
+        let Some(node) = snap.to_node() else { return false };
+        let renderer = gsk::CairoRenderer::new();
+        if renderer.realize_for_display(&display).is_err() {
+            return false;
+        }
+        display.clipboard().set_texture(&renderer.render_texture(&node, None));
+        renderer.unrealize();
+        true
     }
 
     pub fn show_file(&self, paintable: &gdk::Paintable) {
@@ -140,23 +160,6 @@ impl MediaViewer {
         self.picture.set_paintable(Some(paintable));
         self.revealer.set_visible(true);
         self.revealer.set_reveal_child(true);
-        let mut w = f64::from(paintable.intrinsic_width());
-        let mut h = f64::from(paintable.intrinsic_height());
-        if w <= 0.0 {
-            w = 1440.0;
-        }
-        if h <= 0.0 {
-            h = 1440.0;
-        }
-        let snap = gtk::Snapshot::new();
-        paintable.snapshot(&snap, w, h);
-        if let Some(node) = snap.to_node() {
-            let r = gsk::CairoRenderer::new();
-            if r.realize_for_display(&gdk::Display::default().expect("a GTK display is open while the app runs")).is_ok() {
-                *self.media.borrow_mut() = Some(r.render_texture(&node, None));
-                r.unrealize();
-            }
-        }
     }
 
     pub fn hide(&self) {

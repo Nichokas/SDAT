@@ -268,7 +268,7 @@ impl Handoff {
         let devices = Arc::new(Mutex::new(Vec::new()));
         let mut w = Worker {
             mirror: Mirror::new(me),
-            account,
+            account: account.clone(),
             listener,
             devices: Arc::clone(&devices),
             tx: tx.clone(),
@@ -299,7 +299,7 @@ impl Handoff {
             }
             return Err(CoreError::Other(e.to_string()));
         }
-        Ok(Self { tx, devices, stopped: AtomicBool::new(false), account: crate::auth::tokens().user_id() })
+        Ok(Self { tx, devices, stopped: AtomicBool::new(false), account })
     }
 
     /// Every local change (track, queue, play, pause, seek). Cheap: only
@@ -584,7 +584,7 @@ impl Worker {
         self.streams.retain(|s| urls.contains(&s.url) && !s.is_dead());
         for u in urls {
             if !self.streams.iter().any(|s| s.url == u) {
-                self.streams.push(Follower::spawn(u, self.tx.clone()));
+                self.streams.push(Follower::spawn(u, self.account.clone(), self.tx.clone()));
             }
         }
     }

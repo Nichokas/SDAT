@@ -42,7 +42,6 @@ import com.nichokas.sdat.core.LogFilter
 import com.nichokas.sdat.core.label
 import io.github.neoruaa.glasmio.core.GlasmioTheme
 import io.github.neoruaa.glasmio.core.IosTypography
-import io.github.neoruaa.glasmio.scaffold.GlasmioPinnedListPage
 import io.github.neoruaa.glasmio.ui.GlasmioAlertButtonRole
 import io.github.neoruaa.glasmio.ui.GlasmioAlertButtonSpec
 import io.github.neoruaa.glasmio.ui.GlasmioAlertDialog
@@ -109,7 +108,7 @@ fun DiagnosticsView(crashReporting: CrashReporting, onBack: () -> Unit) {
         }
     }
 
-    GlasmioPinnedListPage(title = "Diagnostics", showsLargeTitle = false, onNavigateBack = onBack) {
+    SdatPage(title = "Diagnostics", onBack = onBack, showsLargeTitle = false, bottomPaddingValues = null) {
         item {
             Section("Overview") {
                 GlasmioListRow("App version", detail = BuildConfig.VERSION_NAME, showTopSeparator = false)

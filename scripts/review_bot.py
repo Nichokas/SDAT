@@ -36,7 +36,7 @@ MARKER = "<!-- review-bot -->"
 VERDICT = re.compile(r"<!-- review-bot-verdict:([0-9a-f]+):(pass|block) -->")
 GATE_JOB = "Review gate"
 GATE_POLL_SECONDS = 30
-# A gate that waited longer than its timeout fails as timed_out, and a passing review should restart it too.
+# Step timeouts conclude as failure; timed_out is kept in case GitHub reports it.
 GATE_FAILURES = {"failure", "timed_out"}
 BOT_LOGIN = "github-actions[bot]"
 # GitHub rejects comments over 65536 characters; the margin holds the table and footer.
@@ -207,6 +207,7 @@ REVIEWERS = {
 
 INSTALL_ATTEMPTS = 5
 INSTALL_RETRY_SECONDS = 20
+REVIEW_TIMEOUT_SECONDS = 35 * 60
 
 
 def cli_cache() -> Path:
@@ -226,6 +227,11 @@ def install(script: str) -> None:
             time.sleep(INSTALL_RETRY_SECONDS * attempt)
 
 
+def file_sha256(path: Path) -> str:
+    with path.open("rb") as handle:
+        return hashlib.file_digest(handle, "sha256").hexdigest()
+
+
 def install_cli(binary: str, script: str) -> None:
     bin_dir = Path.home() / ".local/bin"
     bin_dir.mkdir(parents=True, exist_ok=True)
@@ -240,10 +246,10 @@ def install_cli(binary: str, script: str) -> None:
         shutil.copy2(cached, bin_dir / binary)
         return
     installed = bin_dir / binary
-    if installed.exists():
+    if installed.exists() and (not cached.exists() or file_sha256(installed) != file_sha256(cached)):
         cached.parent.mkdir(parents=True, exist_ok=True)
         shutil.copy2(installed, cached)
-        # The workflow saves the cache only after a fresh install.
+        # The workflow saves the cache only when the installed binary is new or changed.
         if output := os.environ.get("GITHUB_OUTPUT"):
             with open(output, "a") as handle:
                 handle.write("cli_installed=true\n")
@@ -258,9 +264,23 @@ def run_review(name: str, base: str) -> Result:
     # Without a secret the local CLI session is used, which lets this run on a laptop.
     if os.environ.get(reviewer.secret):
         reviewer.authenticate()
-    process = subprocess.run(
-        command, capture_output=True, text=True, stdin=subprocess.DEVNULL, check=False
-    )
+    try:
+        process = subprocess.run(
+            command,
+            capture_output=True,
+            text=True,
+            stdin=subprocess.DEVNULL,
+            check=False,
+            timeout=REVIEW_TIMEOUT_SECONDS,
+        )
+    except subprocess.TimeoutExpired as exc:
+        stdout, stderr = (
+            stream.decode(errors="replace") if isinstance(stream, bytes) else (stream or "")
+            for stream in (exc.stdout, exc.stderr)
+        )
+        print(stdout, stderr, sep="\n", file=sys.stderr)
+        partial = reviewer.parse(name, Output(stdout, stderr, 124))
+        return Result(name, Status.FAILED, findings=partial.findings, note="Timed out.")
     # Errors stay in the job log, where GitHub masks secrets; the public comment links to it.
     print(process.stdout, process.stderr, sep="\n", file=sys.stderr)
     return reviewer.parse(name, Output(process.stdout, process.stderr, process.returncode))
@@ -451,6 +471,9 @@ def gate(pr: int, sha: str, keep_waiting: bool = False) -> bool:
     """
     while True:
         data = json.loads(gh_api(f"repos/{REPO}/pulls/{pr}"))
+        if data.get("state") == "closed":
+            print(f"#{pr} is closed.")
+            return False
         if data["head"]["sha"] != sha:
             print(f"{sha[:7]} is no longer the head of #{pr}.")
             return False

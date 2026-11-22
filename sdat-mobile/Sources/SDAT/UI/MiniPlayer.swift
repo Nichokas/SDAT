@@ -43,7 +43,7 @@ struct MiniPlayer: View {
 
     private var circleContent: some View {
                 // Tap: open the full player. Long-press (PressRecognizer.miniHold): play/pause.
-                PlayRing(size: 62)
+                PlayRing(size: 62, active: style != .wide && Morph.outAlpha(p) > 0)
                     .frame(width: 62)
                     .frame(maxHeight: .infinity)
                     // Generous hit area: 12 pt beyond the visible circle.
@@ -76,7 +76,7 @@ struct MiniPlayer: View {
                         Text(player.current?.artistLine ?? "").font(.caption).foregroundStyle(.secondary).lineLimit(1)
                     }
                     Spacer(minLength: 0)
-                    playButton(size: 40)
+                    playButton(size: 40, active: style == .wide || Morph.inAlpha(p) > 0)
                     if style == .wide {
                         Button { Live.shared.userNext() } label: { Image(systemName: "forward.fill").frame(width: 36, height: 40) }
                             .buttonStyle(.plain)
@@ -89,8 +89,8 @@ struct MiniPlayer: View {
                 .onTapGesture { chrome.showPlayer = true }
     }
 
-    private func playButton(size: CGFloat) -> some View {
-        Button { Live.shared.userToggle() } label: { PlayRing(size: size) }
+    private func playButton(size: CGFloat, active: Bool) -> some View {
+        Button { Live.shared.userToggle() } label: { PlayRing(size: size, active: active) }
             .buttonStyle(.plain)
             .opacity(Live.shared.playbackLocked ? 0.4 : 1)
     }
@@ -100,6 +100,7 @@ struct MiniPlayer: View {
 /// re-render only the ring, not the whole miniplayer.
 private struct PlayRing: View {
     let size: CGFloat
+    var active = true
     @Environment(Player.self) private var player
 
     var body: some View {
@@ -110,7 +111,7 @@ private struct PlayRing: View {
             .contentTransition(.symbolEffect(.replace))
             .opacity(player.loading ? 0 : 1)
             .frame(width: size, height: size)
-            .overlay { ProgressRing(progress: player.progress, spinning: player.loading).padding(size * 0.14) }
+            .overlay { ProgressRing(progress: player.loading ? 0 : player.progress, spinning: player.loading && active).padding(size * 0.14) }
             .contentShape(.circle)
     }
 }

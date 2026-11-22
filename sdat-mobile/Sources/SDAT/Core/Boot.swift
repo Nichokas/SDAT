@@ -26,51 +26,60 @@ final class Boot {
         run = Task { await warmUp() }
     }
 
-    private func set(_ k: String, _ f: Double) { if f > (parts[k] ?? 0) { parts[k] = f } }  // monotonic
+    // A cancelled run (timed out, or replaced by a new start()) must not write into the next one.
+    private func set(_ k: String, _ f: Double) { if !Task.isCancelled, f > (parts[k] ?? 0) { parts[k] = f } }  // monotonic
 
     private func warmUp() async {
-        let begin = Date()
-        var done = 0
-        let steps: [(String, Double, () async -> Void)] = [
-            ("discover", 15, { await self.discover() }),
-            ("playlists", 8, { if let p = try? await collectionPlaylists().nextPage() { self.addCovers(p.prefix(24).map(\.coverUrl)) } }),
-            ("albums", 8, { if let a = try? await collectionAlbums().nextPage() { self.addCovers(a.prefix(24).map(\.coverUrl)) } }),
-            ("favs", 8, {
+        await Self.timed(25) {
+            async let discoverDone: Void = self.runStep("discover", timeout: 15) { await self.discover() }
+            async let libraryAndCovers: Void = self.runLibraryAndCovers()
+            await discoverDone
+            await libraryAndCovers
+        }
+        guard !Task.isCancelled else { return }
+        for k in Self.weights.keys { set(k, 1) }
+        try? await Task.sleep(for: .milliseconds(350))   // let the ring visibly reach 100%
+        guard !Task.isCancelled else { return }
+        active = false
+    }
+
+    private func runStep(_ k: String, timeout: Double, _ op: @escaping @MainActor () async -> Void) async {
+        await Self.timed(timeout, op)
+        set(k, 1)
+    }
+
+    private func runLibraryAndCovers() async {
+        await Self.timed(10) {
+            async let playlists: Void = self.runStep("playlists", timeout: 8) {
+                if let p = try? await collectionPlaylists().nextPage() { self.addCovers(p.prefix(24).map(\.coverUrl)) }
+            }
+            async let albums: Void = self.runStep("albums", timeout: 8) {
+                if let a = try? await collectionAlbums().nextPage() { self.addCovers(a.prefix(24).map(\.coverUrl)) }
+            }
+            async let favs: Void = self.runStep("favs", timeout: 8) {
                 async let t = try? collectionTracks().nextPage()
                 async let a = try? collectionArtists().nextPage()
                 if let t = await t { Favs.shared.mark(t.map(\.id), true) }
                 if let a = await a { self.addCovers(a.prefix(24).map(\.pictureUrl)) }
-            }),
-        ]
-        var libraryDone = 0
-        for (k, timeout, op) in steps {
-            Task {
-                _ = await Self.timed(timeout) { await op(); return true }
-                self.set(k, 1); done += 1
-                if k != "discover" { libraryDone += 1 }
             }
+            await playlists
+            await albums
+            await favs
         }
         // Cover prefetch once the library lists are in (or timed out).
-        Task {
-            while libraryDone < 3, Date().timeIntervalSince(begin) < 10 { try? await Task.sleep(for: .milliseconds(100)) }
-            let list = covers.map { CoverURL.sized($0, points: 52) }
+        guard !Task.isCancelled else { return }
+        let list = covers.map { CoverURL.sized($0, points: 52) }
+        await Self.timed(6) {
             var n = 0
-            _ = await Self.timed(6) {
-                await withTaskGroup(of: Void.self) { g in
-                    for u in list { g.addTask { _ = await ImageStore.shared.image(u) } }
-                    for await _ in g { n += 1; self.set("covers", Double(n) / Double(max(list.count, 1))) }
-                }
-                return true
+            await withTaskGroup(of: Void.self) { g in
+                for u in list { g.addTask { _ = await ImageStore.shared.image(u) } }
+                for await _ in g { n += 1; self.set("covers", Double(n) / Double(max(list.count, 1))) }
             }
-            self.set("covers", 1); done += 1
         }
-        while done < 5, Date().timeIntervalSince(begin) < 25 { try? await Task.sleep(for: .milliseconds(100)) }
-        for k in Self.weights.keys { set(k, 1) }
-        try? await Task.sleep(for: .milliseconds(350))   // let the ring visibly reach 100%
-        active = false
+        set("covers", 1)
     }
 
-    private func addCovers(_ urls: [String?]) { covers += urls.compactMap { $0 } }
+    private func addCovers(_ urls: [String?]) { if !Task.isCancelled { covers += urls.compactMap { $0 } } }
 
     /// Same source and dedupe as DiscoverView.load, but continues until the pool is varied.
     private func discover() async {
@@ -84,6 +93,7 @@ final class Boot {
                 guard let a = t.album, let c = a.coverUrl else { continue }
                 if ids.insert(t.id).inserted, albums.insert(a.id).inserted, seen.insert(c).inserted { pool.append(t) }
             }
+            guard !Task.isCancelled else { break }
             if !pool.isEmpty { DiscoverCache.save(pool) }   // incremental: a timeout keeps what we have
             set("discover", Double(pool.count) / Double(Self.targetCovers))
             if pool.count >= 320 || (pool.count >= Self.targetCovers && batch.isEmpty) { break }
@@ -91,18 +101,24 @@ final class Boot {
         }
     }
 
-    /// Runs `op`, returning nil if it hasn't finished within `s` seconds (it is cancelled).
-    private static func timed<T>(_ s: Double, _ op: @escaping @MainActor () async -> T?) async -> T? {
-        await withCheckedContinuation { c in
-            var fired = false
-            let work = Task { @MainActor in
-                let v = await op()
-                if !fired { fired = true; c.resume(returning: v) }
+    /// Runs `op`, returning early if it hasn't finished within `s` seconds (it is cancelled).
+    /// Cancelling the caller cancels `op` too, which an unstructured task would not inherit.
+    private static func timed(_ s: Double, _ op: @escaping @MainActor () async -> Void) async {
+        let work = Task { @MainActor in await op() }
+        await withTaskCancellationHandler {
+            await withCheckedContinuation { (c: CheckedContinuation<Void, Never>) in
+                var fired = false
+                let timer = Task { @MainActor in
+                    try? await Task.sleep(for: .seconds(s))
+                    if !fired { fired = true; work.cancel(); c.resume() }
+                }
+                Task { @MainActor in
+                    await work.value
+                    if !fired { fired = true; timer.cancel(); c.resume() }
+                }
             }
-            Task { @MainActor in
-                try? await Task.sleep(for: .seconds(s))
-                if !fired { fired = true; work.cancel(); c.resume(returning: nil) }
-            }
+        } onCancel: {
+            work.cancel()
         }
     }
 }
