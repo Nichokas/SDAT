@@ -14,11 +14,14 @@ use crate::ui::dsl::{W, label, hstack, spacing, vstack, spacer, on_state};
 use crate::{imgutil, settings};
 
 type BindFn = Box<dyn Fn(&Track, usize)>;
+type RepositionFn = Box<dyn Fn(usize)>;
+type LivePos = Rc<Cell<Option<usize>>>;
 
 /// One recycled cell: built once per row widget, then re-bound as the row scrolls.
 pub struct ColCell {
     pub widget: gtk::Widget,
     bind: BindFn,
+    reposition: RepositionFn,
     unbind: Box<dyn Fn()>,
     /// Shares the row's flexible space equally with the other flexible columns.
     flex: bool,
@@ -26,10 +29,20 @@ pub struct ColCell {
 
 impl ColCell {
     fn new(widget: impl IsA<gtk::Widget>, bind: impl Fn(&Track, usize) + 'static) -> Self {
-        ColCell { widget: widget.upcast(), bind: Box::new(bind), unbind: Box::new(|| {}), flex: false }
+        ColCell {
+            widget: widget.upcast(),
+            bind: Box::new(bind),
+            reposition: Box::new(|_| {}),
+            unbind: Box::new(|| {}),
+            flex: false,
+        }
     }
     fn flexible(mut self) -> Self {
         self.flex = true;
+        self
+    }
+    fn with_reposition(mut self, f: impl Fn(usize) + 'static) -> Self {
+        self.reposition = Box::new(f);
         self
     }
     fn with_unbind(mut self, f: impl Fn() + 'static) -> Self {
@@ -147,13 +160,32 @@ impl Col {
     }
 
     /// Port of `CustomWidgetButtonColumn` (rebuilt per bind; used by the short queue lists).
-    pub fn custom_widget_button(button: impl Fn(&str, usize, i32) -> gtk::Widget + 'static) -> Self {
+    pub fn custom_widget_button(button: impl Fn(&str, LivePos) -> gtk::Widget + 'static) -> Self {
         let button = Rc::new(button);
         Col::new(move || {
             let bin = adw::Bin::new().halign(gtk::Align::Center).valign(gtk::Align::Center);
-            let (b, button) = (bin.clone(), Rc::clone(&button));
-            let b2 = bin.clone();
-            ColCell::new(bin, move |t, p| b.set_child(Some(&hstack(&[&button(t.id(), p, 0)])))).with_unbind(move || b2.set_child(gtk::Widget::NONE))
+            let current_pos: Rc<RefCell<Option<LivePos>>> = Rc::default();
+            let (b, button, pos_bind) = (bin.clone(), Rc::clone(&button), Rc::clone(&current_pos));
+            let pos_reposition = Rc::clone(&current_pos);
+            let (b2, pos_unbind) = (bin.clone(), current_pos);
+            ColCell::new(bin, move |t, p| {
+                let live_pos = Rc::new(Cell::new(Some(p)));
+                if let Some(prev) = pos_bind.borrow_mut().replace(Rc::clone(&live_pos)) {
+                    prev.set(None);
+                }
+                b.set_child(Some(&hstack(&[&button(t.id(), live_pos)])));
+            })
+            .with_reposition(move |p| {
+                if let Some(live_pos) = pos_reposition.borrow().as_ref() {
+                    live_pos.set(Some(p));
+                }
+            })
+            .with_unbind(move || {
+                if let Some(prev) = pos_unbind.borrow_mut().take() {
+                    prev.set(None);
+                }
+                b2.set_child(gtk::Widget::NONE);
+            })
         })
     }
 
@@ -175,7 +207,9 @@ impl Col {
             l.set_width_chars(4);
             l.set_xalign(0.0);
             let l2 = l.clone();
+            let l3 = l.clone();
             ColCell::new(l, move |_, p| l2.set_label(&(p + 1).to_string()))
+                .with_reposition(move |p| l3.set_label(&(p + 1).to_string()))
         })
     }
 
@@ -420,10 +454,17 @@ impl TrackList {
     }
 }
 
+fn clear_drag(i: &Inner) {
+    i.being_moved.borrow_mut().take();
+    i.moving_source.set(-1);
+    i.moving_target.set(-1);
+}
+
 /// Diffs `new` into the store. The `RefCell` is never borrowed while the store
 /// is mutated: splicing emits items-changed, which synchronously runs `bind()`
 /// (and other handlers) that borrow `tracks` again.
 fn sync(i: &Inner, new: &[Track]) {
+    clear_drag(i);
     let old = std::mem::replace(&mut *i.tracks.borrow_mut(), new.to_vec());
     for (idx, op) in diff_ops(&old, new) {
         match op {
@@ -573,6 +614,18 @@ const DRAG_MIME: &str = "application/x-tonearm-track";
 
 fn setup(i: &Inner, w: &Weak<Inner>, item: &gtk::ListItem) {
     let container = adw::Bin::new();
+    // Shifting rows in `ListStore` updates `GtkListItem:position` without re-emitting `bind`.
+    item.connect_position_notify(|item| {
+        let pos = item.position();
+        if pos == gtk::INVALID_LIST_POSITION {
+            return;
+        }
+        if let Some(row) = item.child().and_downcast::<adw::Bin>().as_ref().and_then(row_of) {
+            for c in &row.cells {
+                (c.reposition)(pos as usize);
+            }
+        }
+    });
     let source: Rc<RefCell<Option<gtk::DragSource>>> = Rc::default();
     let (w, cw, li) = (Weak::clone(w), container.downgrade(), item.downgrade());
     i.reorderable.on(move |on| {
@@ -608,11 +661,13 @@ fn setup(i: &Inner, w: &Weak<Inner>, item: &gtk::ListItem) {
             let w2 = Rc::downgrade(&inner);
             ds.connect_drag_cancel(move |_, _, _| {
                 let Some(i) = w2.upgrade() else { return true };
-                if i.being_moved.borrow().is_none() {
-                    return true;
-                }
                 let (s, t) = (i.moving_source.get(), i.moving_target.get());
-                if s >= 0 && t >= 0 {
+                let Some(tr) = i.being_moved.borrow_mut().take() else {
+                    return true;
+                };
+                i.moving_source.set(-1);
+                i.moving_target.set(-1);
+                if s >= 0 && t >= 0 && s != t {
                     // Never hold the borrow while touching the store (items-changed re-enters bind()).
                     let removed = {
                         let mut tracks = i.tracks.borrow_mut();
@@ -621,19 +676,14 @@ fn setup(i: &Inner, w: &Weak<Inner>, item: &gtk::ListItem) {
                     if removed {
                         i.store.remove(t as u32);
                     }
-                    let tr = i.being_moved.borrow_mut().take();
-                    if let Some(tr) = tr {
-                        let s = {
-                            let mut tracks = i.tracks.borrow_mut();
-                            let s = (s as usize).min(tracks.len());
-                            tracks.insert(s, tr);
-                            s
-                        };
-                        i.store.insert(s as u32, &empty());
-                    }
+                    let s = {
+                        let mut tracks = i.tracks.borrow_mut();
+                        let s = (s as usize).min(tracks.len());
+                        tracks.insert(s, tr);
+                        s
+                    };
+                    i.store.insert(s as u32, &empty());
                 }
-                i.moving_source.set(-1);
-                i.moving_target.set(-1);
                 true
             });
             container.add_controller(ds.clone());
@@ -660,7 +710,7 @@ fn toggle_drop_target(i: &Inner, w: &Weak<Inner>, on: bool) {
             let h = i.view.upgrade().and_then(|v| v.first_child()).map_or(1, |c| c.height()).max(1);
             let idx = (y / f64::from(h)).floor().max(0.0) as i64;
             if idx != i.moving_target.get() {
-                if idx as usize > i.tracks.borrow().len() {
+                if idx as usize >= i.tracks.borrow().len() {
                     return gdk::DragAction::empty();
                 }
                 let cur = i.moving_target.get();
@@ -685,14 +735,21 @@ fn toggle_drop_target(i: &Inner, w: &Weak<Inner>, on: bool) {
         });
         let w2 = Weak::clone(w);
         target.connect_drop(move |_, drop, _, _| {
-            drop.finish(gdk::DragAction::MOVE);
-            let Some(i) = w2.upgrade() else { return false };
+            let Some(i) = w2.upgrade() else {
+                drop.finish(gdk::DragAction::empty());
+                return false;
+            };
             let (s, t) = (i.moving_source.get(), i.moving_target.get());
             let tr = i.being_moved.borrow_mut().take();
             i.moving_source.set(-1);
             i.moving_target.set(-1);
+            let Some(tr) = tr else {
+                drop.finish(gdk::DragAction::empty());
+                return false;
+            };
+            drop.finish(gdk::DragAction::MOVE);
             let cb = i.reorder.borrow().clone();
-            if let (Some(cb), Some(tr)) = (cb, tr)
+            if let Some(cb) = cb
                 && s >= 0
                 && t >= 0
             {
@@ -733,6 +790,49 @@ mod sync_tests {
 }
 
 #[cfg(test)]
+pub(crate) fn run_gtk_test(f: impl FnOnce() + Send + 'static) {
+    use std::sync::{Mutex, OnceLock, mpsc};
+
+    type Job = Box<dyn FnOnce() + Send + 'static>;
+    type Reply = mpsc::Sender<std::thread::Result<()>>;
+    type Runner = Mutex<mpsc::Sender<(Job, Reply)>>;
+    // GTK4 crashes if `gtk::init()` is called a second time after failing headless,
+    // and requires all widget operations to stay on the thread that initialized it.
+    static RUNNER: OnceLock<Option<Runner>> = OnceLock::new();
+    let tx = RUNNER.get_or_init(|| {
+        let (init_tx, init_rx) = mpsc::channel();
+        let (job_tx, job_rx) = mpsc::channel::<(Job, Reply)>();
+        std::thread::spawn(move || {
+            let ok = gtk::init().is_ok();
+            if ok {
+                let _ = adw::init();
+            }
+            let _ = init_tx.send(ok);
+            if !ok {
+                return;
+            }
+            while let Ok((job, done)) = job_rx.recv() {
+                let res = std::panic::catch_unwind(std::panic::AssertUnwindSafe(job));
+                let _ = done.send(res);
+            }
+        });
+        init_rx.recv().is_ok_and(|ok| ok).then(|| Mutex::new(job_tx))
+    });
+    let Some(tx) = tx else {
+        eprintln!("no display; skipping");
+        return;
+    };
+    let (done_tx, done_rx) = mpsc::channel();
+    tx.lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
+        .send((Box::new(f), done_tx))
+        .expect("GTK test thread exited unexpectedly");
+    if let Err(payload) = done_rx.recv().expect("GTK test thread dropped result") {
+        std::panic::resume_unwind(payload);
+    }
+}
+
+#[cfg(test)]
 mod lifetime_tests {
     use super::*;
 
@@ -741,24 +841,97 @@ mod lifetime_tests {
     /// every row binds empty (collection/search "Tracks" showed nothing).
     #[test]
     fn state_lives_as_long_as_the_view() {
-        if gtk::init().is_err() {
-            eprintln!("no display; skipping");
-            return;
+        run_gtk_test(|| {
+            let list = TrackList::new(vec![Col::duration()]);
+            list.add_track(Track::default());
+            let inner = Rc::downgrade(&list.0);
+            let view = list.widget().clone();
+            drop(list);
+            assert!(inner.upgrade().is_some(), "state dropped while the view is alive");
+            assert_eq!(inner.upgrade().map(|i| i.tracks.borrow().len()), Some(1));
+            drop(view);
+            assert!(inner.upgrade().is_none(), "state leaked after the view was destroyed");
+        });
+    }
+
+    fn collect_labels(w: &gtk::Widget, out: &mut Vec<String>) {
+        if let Some(l) = w.downcast_ref::<gtk::Label>() {
+            out.push(l.label().to_string());
         }
-        let list = TrackList::new(vec![Col::duration()]);
-        list.add_track(Track::default());
-        let inner = Rc::downgrade(&list.0);
-        let view = list.widget().clone();
-        drop(list);
-        assert!(inner.upgrade().is_some(), "state dropped while the view is alive");
-        assert_eq!(inner.upgrade().map(|i| i.tracks.borrow().len()), Some(1));
-        drop(view);
-        assert!(inner.upgrade().is_none(), "state leaked after the view was destroyed");
+        let mut child = w.first_child();
+        while let Some(c) = child {
+            collect_labels(&c, out);
+            child = c.next_sibling();
+        }
+    }
+
+    #[test]
+    fn shifted_rows_update_live_positions_and_sync_cancels_drag() {
+        run_gtk_test(|| {
+            let make = |id: &str| {
+                let mut t = Track::default();
+                t.info.id = id.into();
+                t
+            };
+            let recorded: Rc<RefCell<std::collections::HashMap<String, LivePos>>> = Rc::default();
+            let rec = Rc::clone(&recorded);
+            let list = TrackList::new(vec![
+                Col::position(),
+                Col::custom_widget_button(move |id, pos| {
+                    rec.borrow_mut().insert(id.to_owned(), pos);
+                    gtk::Button::new().upcast()
+                }),
+            ]);
+            list.replace_all(&[make("a"), make("b"), make("c")]);
+            let win = gtk::Window::new();
+            win.set_default_size(400, 400);
+            win.set_child(Some(list.widget()));
+            win.present();
+            let ctx = glib::MainContext::default();
+            for _ in 0..20 {
+                while ctx.iteration(false) {}
+                if recorded.borrow().len() == 3 {
+                    break;
+                }
+                std::thread::sleep(std::time::Duration::from_millis(5));
+            }
+            let mut before_labels = Vec::new();
+            collect_labels(list.widget(), &mut before_labels);
+            assert_eq!(before_labels, ["1", "2", "3"]);
+            assert_eq!(recorded.borrow().get("a").and_then(|p| p.get()), Some(0));
+            assert_eq!(recorded.borrow().get("b").and_then(|p| p.get()), Some(1));
+            assert_eq!(recorded.borrow().get("c").and_then(|p| p.get()), Some(2));
+
+            // Simulate drag_motion moving row 2 ("c") to row 0 without re-binding "a" or "b".
+            let moved = list.0.tracks.borrow_mut().remove(2);
+            list.0.store.remove(2);
+            list.0.tracks.borrow_mut().insert(0, moved);
+            list.0.store.insert(0, &empty());
+            while ctx.iteration(false) {}
+
+            let mut after_labels = Vec::new();
+            collect_labels(list.widget(), &mut after_labels);
+            assert_eq!(after_labels, ["1", "2", "3"]);
+            assert_eq!(recorded.borrow().get("c").and_then(|p| p.get()), Some(0));
+            assert_eq!(recorded.borrow().get("a").and_then(|p| p.get()), Some(1));
+            assert_eq!(recorded.borrow().get("b").and_then(|p| p.get()), Some(2));
+
+            // External sync during an active drag clears in-flight drag state.
+            list.0.moving_source.set(2);
+            list.0.moving_target.set(0);
+            *list.0.being_moved.borrow_mut() = Some(make("c"));
+            list.replace_all(&[make("a"), make("b")]);
+            assert!(list.0.being_moved.borrow().is_none());
+            assert_eq!(list.0.moving_source.get(), -1);
+            assert_eq!(list.0.moving_target.get(), -1);
+            win.close();
+            while ctx.iteration(false) {}
+        });
     }
 }
 
 /// The track context menu model (same entries as the "More…" button).
-pub fn track_menu(t: &Track) -> (gio::Menu, gio::Menu) {
+pub fn track_menu(t: &Track) -> (gio::Menu, Option<gio::Menu>) {
     let model = gio::Menu::new();
     let queue = gio::Menu::new();
     let next = gio::MenuItem::new(Some(&tr("Play Next")), Some("win.player.play-next-track"));
@@ -785,8 +958,11 @@ pub fn track_menu(t: &Track) -> (gio::Menu, gio::Menu) {
         item.set_action_and_target_value(Some("win.route.artist"), Some(&a.id.to_variant()));
         model.append_item(&item);
     }
-    let playlists = super::add_to_playlist::submenu(t.id());
-    model.append_submenu(Some(&tr("Add to Playlist")), &playlists);
+    let playlists = crate::state::signed_in_changed().get().then(|| {
+        let playlists = super::add_to_playlist::submenu(t.id());
+        model.append_submenu(Some(&tr("Add to Playlist")), &playlists);
+        playlists
+    });
     (model, playlists)
 }
 
@@ -797,7 +973,9 @@ pub fn track_menu_popover(t: &Track) -> gtk::PopoverMenu {
     // Size the pages before the first frame, and fetch the playlists now (once per
     // session) so the shared width doesn't change after the menu is already shown.
     stabilize(popover.upcast_ref());
-    super::add_to_playlist::ensure_loaded(&playlists, t.id());
+    if let Some(playlists) = playlists {
+        super::add_to_playlist::ensure_loaded(&playlists, t.id());
+    }
     popover
 }
 

@@ -6,7 +6,7 @@
 //! * The user's own changes (add to playlist, favourites) invalidate entries.
 
 use std::collections::{HashSet, VecDeque};
-use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
 use std::sync::PoisonError;
 use std::time::Duration;
 
@@ -93,6 +93,21 @@ const YIELD_PAUSE: Duration = Duration::from_millis(300);
 const START_DELAY: Duration = Duration::from_secs(5);
 
 static STARTED: AtomicUsize = AtomicUsize::new(0);
+static PREFETCH_EPOCH: AtomicU64 = AtomicU64::new(0);
+
+fn prefetch_current(epoch: u64) -> bool {
+    PREFETCH_EPOCH.load(Ordering::SeqCst) == epoch
+}
+
+fn prefetch_still_valid(epoch: u64) -> bool {
+    prefetch_current(epoch) && preload_enabled() && !crate::secrets::user_id().is_empty()
+}
+
+fn clear_started_if_current(epoch: u64) {
+    if prefetch_current(epoch) {
+        STARTED.store(0, Ordering::SeqCst);
+    }
+}
 
 // ------------------------------------------------------------- preference
 // Stored as a marker file (like the country choice) so an older installed
@@ -137,6 +152,7 @@ pub fn set_preload_enabled(on: bool) {
 
 /// Lets the next Home visit prefetch again (the account changed).
 pub fn allow_prefetch_again() {
+    PREFETCH_EPOCH.fetch_add(1, Ordering::SeqCst);
     STARTED.store(0, Ordering::SeqCst);
 }
 
@@ -146,13 +162,17 @@ pub fn start_prefetch() {
         log::debug!("prefetch: disabled in preferences");
         return;
     }
+    if crate::secrets::user_id().is_empty() {
+        return;
+    }
     if STARTED.fetch_add(1, Ordering::SeqCst) > 0 {
         return;
     }
-    glib::spawn_future_local(async {
+    let epoch = PREFETCH_EPOCH.load(Ordering::SeqCst);
+    glib::spawn_future_local(async move {
         glib::timeout_future(START_DELAY).await;
-        if !preload_enabled() {
-            STARTED.store(0, Ordering::SeqCst);
+        if !prefetch_still_valid(epoch) {
+            clear_started_if_current(epoch);
             return;
         }
         let mut queue = Queue::default();
@@ -161,15 +181,23 @@ pub fn start_prefetch() {
             Ok(ps) => ps.iter().for_each(|p| queue.push(Job::Playlist(p.info.id.clone()))),
             Err(e) => log::debug!("prefetch: playlists list failed error={e:#}"),
         }
+        if !prefetch_still_valid(epoch) {
+            clear_started_if_current(epoch);
+            return;
+        }
         match api::run(|| service::user_collection_albums("me").get_all()).await {
             Ok(al) => al.iter().for_each(|a| queue.push(Job::Album(a.info.id.clone()))),
             Err(e) => log::debug!("prefetch: albums list failed error={e:#}"),
         }
+        if !prefetch_still_valid(epoch) {
+            clear_started_if_current(epoch);
+            return;
+        }
         log::debug!("prefetch: {} lists queued", queue.len());
         while let Some(job) = queue.pop(|k| get(k).is_some()) {
-            if !prefetch_one(&job).await {
-                log::debug!("prefetch: stopped (disabled in preferences)");
-                STARTED.store(0, Ordering::SeqCst);
+            if !prefetch_one(&job, epoch).await {
+                log::debug!("prefetch: stopped");
+                clear_started_if_current(epoch);
                 return;
             }
         }
@@ -177,29 +205,57 @@ pub fn start_prefetch() {
     });
 }
 
-/// Returns `false` if preloading was disabled meanwhile.
-async fn prefetch_one(job: &Job) -> bool {
+/// Returns `false` if preloading was disabled or the session changed meanwhile.
+async fn prefetch_one(job: &Job, epoch: u64) -> bool {
     let key = job.key();
     let generation_at_start = generation(&key);
     let p = service::shared(job.paginator());
+    prefetch_paginator(&key, generation_at_start, p, epoch, PAGE_PAUSE, YIELD_PAUSE, || {
+        preload_enabled() && !crate::secrets::user_id().is_empty()
+    })
+    .await
+}
+
+async fn prefetch_paginator(
+    key: &str,
+    generation_at_start: u64,
+    p: service::SharedPaginator<Track>,
+    epoch: u64,
+    page_pause: Duration,
+    yield_pause: Duration,
+    can_continue: impl Fn() -> bool,
+) -> bool {
+    let still_valid = || prefetch_current(epoch) && can_continue();
     loop {
         while foreground_busy() {
-            glib::timeout_future(YIELD_PAUSE).await;
+            if !still_valid() {
+                return false;
+            }
+            glib::timeout_future(yield_pause).await;
         }
-        if !preload_enabled() {
+        if !still_valid() {
             return false;
         }
         if p.lock().unwrap_or_else(PoisonError::into_inner).is_consumed() {
             break;
         }
         if let Err(e) = service::next_page(&p).await {
+            if !still_valid() {
+                return false;
+            }
             log::debug!("prefetch: {key} failed error={e:#}");
             return true;
         }
-        glib::timeout_future(PAGE_PAUSE).await;
+        if !still_valid() {
+            return false;
+        }
+        glib::timeout_future(page_pause).await;
+    }
+    if !still_valid() {
+        return false;
     }
     let all = p.lock().unwrap_or_else(PoisonError::into_inner).items().to_vec();
-    put(&key, generation_at_start, all);
+    put(key, generation_at_start, all);
     true
 }
 
@@ -255,5 +311,76 @@ mod tests {
         assert!(same_ids(&[track("1"), track("2")], &[track("1"), track("2")]));
         assert!(!same_ids(&[track("1"), track("2")], &[track("2"), track("1")]));
         assert!(!same_ids(&[track("1")], &[]));
+    }
+
+    #[test]
+    fn bumping_prefetch_epoch_stops_active_loop() {
+        use std::sync::Arc;
+        use crate::api::openapi::{LinksMeta, Relationships};
+
+        let fetched = Arc::new(AtomicUsize::new(0));
+        let count = Arc::clone(&fetched);
+        let paginator = service::shared(Paginator::new(
+            Box::new(move |_| {
+                let n = count.fetch_add(1, Ordering::SeqCst) + 1;
+                if n == 1 {
+                    allow_prefetch_again();
+                }
+                let mut page = Relationships::default();
+                page.links.meta = Some(LinksMeta { next_cursor: (n < 3).then(|| format!("page-{}", n + 1)) });
+                Ok(page)
+            }),
+            Box::new(|_| vec![track("1")]),
+        ));
+        let key = "playlist:test-epoch-cancel";
+        invalidate(key);
+        let epoch = PREFETCH_EPOCH.load(Ordering::SeqCst);
+        let completed = glib::MainContext::new().block_on(prefetch_paginator(
+            key,
+            generation(key),
+            paginator,
+            epoch,
+            Duration::ZERO,
+            Duration::from_millis(1),
+            || true,
+        ));
+        assert!(!completed, "loop must stop once allow_prefetch_again bumps PREFETCH_EPOCH");
+        assert_eq!(fetched.load(Ordering::SeqCst), 1, "subsequent pages must not be fetched after epoch bump");
+        assert!(get(key).is_none(), "cancelled prefetch must not populate cache");
+
+        let signed_in = AtomicBool::new(true);
+        let fetched2 = Arc::new(AtomicUsize::new(0));
+        let count2 = Arc::clone(&fetched2);
+        let paginator2 = service::shared(Paginator::new(
+            Box::new(move |_| {
+                let n = count2.fetch_add(1, Ordering::SeqCst) + 1;
+                let mut page = Relationships::default();
+                page.links.meta = Some(LinksMeta { next_cursor: (n < 3).then(|| format!("page-{}", n + 1)) });
+                Ok(page)
+            }),
+            Box::new(|_| vec![track("2")]),
+        ));
+        let key2 = "playlist:test-signed-out-cancel";
+        invalidate(key2);
+        let epoch2 = PREFETCH_EPOCH.load(Ordering::SeqCst);
+        let completed2 = glib::MainContext::new().block_on(prefetch_paginator(
+            key2,
+            generation(key2),
+            paginator2,
+            epoch2,
+            Duration::ZERO,
+            Duration::from_millis(1),
+            || {
+                let ok = signed_in.load(Ordering::SeqCst);
+                if fetched2.load(Ordering::SeqCst) >= 1 {
+                    signed_in.store(false, Ordering::SeqCst);
+                    return false;
+                }
+                ok
+            },
+        ));
+        assert!(!completed2, "loop must stop when signed out");
+        assert_eq!(fetched2.load(Ordering::SeqCst), 1);
+        assert!(get(key2).is_none());
     }
 }

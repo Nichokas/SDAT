@@ -9,7 +9,7 @@ use crate::{api, global_signal, secrets};
 use crate::i18n::tr;
 use crate::signals::{CONTINUE, Signal, State, UNSUBSCRIBE};
 use crate::state::{self, FavouriteCache};
-use crate::ui::dsl::{W, on_state};
+use crate::ui::dsl::{W, on_state_lazy};
 
 fn render(b: &gtk::Button, loading: bool, fav: bool) {
     if loading {
@@ -28,22 +28,39 @@ fn render(b: &gtk::Button, loading: bool, fav: bool) {
 
 pub fn favourite_button(cache: &'static FavouriteCache, id: &str) -> gtk::Button {
     let b = gtk::Button::from_icon_name("heart-outline-thick-symbolic").class("flat");
-    on_state(state::signed_in_changed(), &b, |b, s| b.set_sensitive(*s));
     let fav = Rc::new(Cell::new(false));
     let loading = Rc::new(Cell::new(false));
+    let revision = Rc::new(Cell::new(0u64));
     let id = id.to_string();
-    {
-        let (fav, loading, id) = (Rc::clone(&fav), Rc::clone(&loading), id.clone());
-        b.connect_realize(move |b| {
+    let refresh: Rc<dyn Fn(&gtk::Button)> = {
+        let (fav, loading, revision, id) = (Rc::clone(&fav), Rc::clone(&loading), Rc::clone(&revision), id.clone());
+        Rc::new(move |b: &gtk::Button| {
+            let rev = revision.get() + 1;
+            revision.set(rev);
+            let available = track_favourites_available().get();
+            b.set_sensitive(available);
+            if !available {
+                fav.set(false);
+                loading.set(false);
+                render(b, false, false);
+                return;
+            }
             loading.set(true);
             render(b, true, fav.get());
             let w = b.downgrade();
-            let (fav, loading, id) = (Rc::clone(&fav), Rc::clone(&loading), id.clone());
+            let (fav, loading, revision, id) = (Rc::clone(&fav), Rc::clone(&loading), Rc::clone(&revision), id.clone());
+            let generation = secrets::session_generation();
             glib::spawn_future_local(async move {
-                let id2 = id.clone();
-                match api::run(move || cache.contains(&id2)).await {
-                    Ok(v) => fav.set(v),
-                    Err(e) => log::error!("Failed to get favourites error={e:#}"),
+                let result = api::run(move || secrets::with_session(generation, || cache.contains(&id))).await;
+                if revision.get() != rev {
+                    return;
+                }
+                if secrets::session_generation() == generation {
+                    match result {
+                        Ok(Some(v)) => fav.set(v),
+                        Ok(None) => {}
+                        Err(e) => log::error!("Failed to get favourites error={e:#}"),
+                    }
                 }
                 loading.set(false);
                 if let Some(b) = w.upgrade() {
@@ -52,20 +69,43 @@ pub fn favourite_button(cache: &'static FavouriteCache, id: &str) -> gtk::Button
             });
         })
     };
+    b.set_sensitive(track_favourites_available().get());
+    let (on_realize, loading_on_realize) = (Rc::clone(&refresh), Rc::clone(&loading));
+    b.connect_realize(move |b| {
+        if !loading_on_realize.get() {
+            on_realize(b);
+        }
+    });
+    on_state_lazy(track_favourites_available(), &b, move |b, &available| {
+        if !available || b.is_realized() {
+            refresh(b);
+        } else {
+            b.set_sensitive(true);
+        }
+    });
     b.connect_clicked(move |b| {
-        if loading.get() {
+        if loading.get() || !track_favourites_available().get() {
             return;
         }
+        let rev = revision.get() + 1;
+        revision.set(rev);
         loading.set(true);
         render(b, true, fav.get());
         let w = b.downgrade();
-        let (fav, loading, id) = (Rc::clone(&fav), Rc::clone(&loading), id.clone());
+        let (fav, loading, revision, id) = (Rc::clone(&fav), Rc::clone(&loading), Rc::clone(&revision), id.clone());
+        let generation = secrets::session_generation();
         glib::spawn_future_local(async move {
             let was = fav.get();
-            let id2 = id.clone();
-            let r = api::run(move || if was { cache.remove(&id2) } else { cache.add(&id2) }).await;
+            let r = api::run(move || {
+                secrets::with_session(generation, || if was { cache.remove(&id) } else { cache.add(&id) })
+            })
+            .await;
+            if revision.get() != rev {
+                return;
+            }
             match r {
-                Ok(()) => fav.set(!was),
+                Ok(Some(())) if secrets::session_generation() == generation && track_favourites_available().get() => fav.set(!was),
+                Ok(Some(()) | None) => {}
                 Err(e) if was => log::error!("error while removing item from favourites error={e:#}"),
                 Err(e) => log::error!("error while adding item to favourites error={e:#}"),
             }

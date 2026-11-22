@@ -87,13 +87,15 @@ fn on_reach_bottom_soon(sw: &gtk::ScrolledWindow, more: impl Fn(Rc<dyn Fn(bool)>
                 return;
             }
             busy.set(true);
-            let (busy, done, adj) = (Rc::clone(&busy), Rc::clone(&done), adj.clone());
+            let (busy, done, adj) = (Rc::clone(&busy), Rc::clone(&done), adj.downgrade());
             more(Rc::new(move |has_more| {
                 busy.set(false);
                 if has_more {
-                    // Chain: new rows change `upper`, which re-runs the check; also
-                    // nudge it in case the layout didn't change.
-                    adj.emit_by_name::<()>("changed", &[]);
+                    if let Some(adj) = adj.upgrade() {
+                        // Chain: new rows change `upper`, which re-runs the check; also
+                        // nudge it in case the layout didn't change.
+                        adj.emit_by_name::<()>("changed", &[]);
+                    }
                 } else {
                     done.set(true);
                 }
@@ -105,7 +107,12 @@ fn on_reach_bottom_soon(sw: &gtk::ScrolledWindow, more: impl Fn(Rc<dyn Fn(bool)>
     let c = Rc::clone(&check);
     adj.connect_changed(move |a| c(a));
     // Start prefetching right away, not only once the user scrolls.
-    glib::idle_add_local_once(move || check(&adj));
+    let adj = adj.downgrade();
+    glib::idle_add_local_once(move || {
+        if let Some(adj) = adj.upgrade() {
+            check(&adj);
+        }
+    });
 }
 
 /// After a failed page load, allow another attempt in a few seconds instead of
@@ -161,6 +168,75 @@ mod pagination_tests {
     fn unrealized_viewport_still_fetches_small_content() {
         assert!(should_fetch(false, false, 0.0, 0.0, 0.0));
     }
+
+    #[test]
+    fn on_reach_bottom_soon_drops_closed_page_and_stops_retry() {
+        use std::cell::{Cell, RefCell};
+        use std::rc::Rc;
+
+        type Finish = Rc<dyn Fn(bool)>;
+        crate::ui::components::tracklist::run_gtk_test(|| {
+            let list = super::TrackList::new(vec![super::Col::duration()]);
+            list.add_track(super::Track::default());
+            let weak_list = list.downgrade();
+            let sw = super::tracklist_scroller(&list, 0);
+            let probe = Rc::new(());
+            let weak_probe = Rc::downgrade(&probe);
+            let calls = Rc::new(Cell::new(0usize));
+            let captured_finish: Rc<RefCell<Option<Finish>>> = Rc::default();
+            let (lw, c, cf) = (list.downgrade(), Rc::clone(&calls), Rc::clone(&captured_finish));
+            super::on_reach_bottom_soon(&sw, move |finish| {
+                let _ = Rc::strong_count(&probe);
+                c.set(c.get() + 1);
+                if lw.upgrade().is_none() {
+                    return finish(false);
+                }
+                *cf.borrow_mut() = Some(finish);
+            });
+            let ctx = glib::MainContext::default();
+            while ctx.iteration(false) {}
+            assert_eq!(calls.get(), 1);
+            let finish = captured_finish.borrow_mut().take().expect("initial fetch captured finish");
+            drop(list);
+            assert!(weak_list.upgrade().is_some(), "tracklist dropped while scrolled window is alive");
+            drop(sw);
+            assert!(weak_list.upgrade().is_none(), "tracklist leaked through on_reach_bottom_soon");
+            assert!(weak_probe.upgrade().is_none(), "scroll handler leaked while retry callback is pending");
+            finish(true);
+            while ctx.iteration(false) {}
+            assert_eq!(calls.get(), 1, "closed page retried after finish(true)");
+        });
+    }
+
+    #[test]
+    fn paginated_tracklist_page_releases_list_when_dropped() {
+        use crate::api::openapi::{LinksMeta, Relationships};
+
+        crate::ui::components::tracklist::run_gtk_test(|| {
+            let mut first = true;
+            let paginator = super::Paginator::new(
+                Box::new(move |_| {
+                    if std::mem::take(&mut first) {
+                        let mut page = Relationships::default();
+                        page.links.meta = Some(LinksMeta { next_cursor: Some("page-2".into()) });
+                        Ok(page)
+                    } else {
+                        Err(tonearm_core::error::CoreError::Other("boom".into()))
+                    }
+                }),
+                Box::new(|_| vec![super::Track::default()]),
+            );
+            let ctx = glib::MainContext::default();
+            let (sw, list) = ctx
+                .block_on(super::paginated_tracklist_page(paginator, vec![super::Col::duration()], 0, None, None))
+                .expect("paginated tracklist page");
+            let weak_list = list.downgrade();
+            drop(list);
+            assert!(weak_list.upgrade().is_some(), "tracklist dropped while scrolled window is alive");
+            drop(sw);
+            assert!(weak_list.upgrade().is_none(), "paginated tracklist leaked after closing");
+        });
+    }
 }
 
 /// Port of `NewPaginatedMediaCardPage`.
@@ -189,8 +265,8 @@ async fn paginated_media_card_page<T: Clone + Send + 'static>(p: Paginator<T>, f
                     add(&l, &chunk);
                     glib::ControlFlow::Continue
                 }
-                _ => {
-                    finish(true);
+                upgraded => {
+                    finish(upgraded.is_some());
                     glib::ControlFlow::Break
                 }
             }
@@ -214,7 +290,11 @@ async fn paginated_media_card_page<T: Clone + Send + 'static>(p: Paginator<T>, f
                 },
                 Err(e) => {
                     log::error!("loading next page failed error={e:#}");
-                    retry_later(finish);
+                    if lw.upgrade().is_some() {
+                        retry_later(finish);
+                    } else {
+                        finish(false);
+                    }
                 }
             }
         });
@@ -334,11 +414,13 @@ async fn paginated_tracklist_page(p: Paginator<Track>, columns: Vec<Col>, margin
         play_whole_list_on_click(&list, Some(std::sync::Arc::clone(&p)), s);
     }
     let sw = tracklist_scroller(&list, margin);
-    let l = list.clone();
+    let lw = list.downgrade();
     on_reach_bottom_soon(&sw, move |finish| {
-        let (p, l, key) = (std::sync::Arc::clone(&p), l.clone(), key.clone());
+        let (p, lw, key) = (std::sync::Arc::clone(&p), lw.clone(), key.clone());
         glib::spawn_future_local(async move {
-            let start = l.len();
+            let Some(start) = lw.upgrade().map(|l| l.len()) else {
+                return finish(false);
+            };
             let has_cache = key.is_some();
             let fg = cache::Foreground::begin();
             let page = api::run(move || {
@@ -354,15 +436,22 @@ async fn paginated_tracklist_page(p: Paginator<Track>, columns: Vec<Col>, margin
             drop(fg);
             match page {
                 Ok((rows, more, cached)) => {
-                    append_loaded_tracks(&l, start, &rows);
                     if let (Some(k), Some(g), Some(tracks)) = (key.as_deref(), generation_at_start, cached) {
                         cache::put(k, g, tracks);
                     }
+                    let Some(l) = lw.upgrade() else {
+                        return finish(false);
+                    };
+                    append_loaded_tracks(&l, start, &rows);
                     finish(more);
                 }
                 Err(e) => {
                     log::error!("loading next page failed error={e:#}");
-                    retry_later(finish);
+                    if lw.upgrade().is_some() {
+                        retry_later(finish);
+                    } else {
+                        finish(false);
+                    }
                 }
             }
         });
@@ -380,14 +469,16 @@ fn tracklist_scroller(list: &TrackList, margin: i32) -> gtk::ScrolledWindow {
 
 /// Refetches a cached list in the background and updates the page if it changed.
 fn revalidate(job: cache::Job, cached: Vec<Track>, list: &TrackList) {
-    let l = list.clone();
+    let lw = list.downgrade();
     glib::spawn_future_local(async move {
         let key = job.key();
         let g = cache::generation(&key);
         let mut p = job.paginator();
         match api::run(move || p.get_all()).await {
             Ok(fresh) => {
-                if !cache::same_ids(&cached, &fresh) {
+                if !cache::same_ids(&cached, &fresh)
+                    && let Some(l) = lw.upgrade()
+                {
                     l.replace_all(&fresh);
                 }
                 cache::put(&key, g, fresh);
@@ -683,10 +774,8 @@ async fn feed() -> Response {
                 bx.append(&b);
             }
             ("NEW_HISTORY_MIX", _, Some(mix)) => {
-                let Some(tex) = imgutil::fetch(&mix.images.medium.url).await else {
-                    return Response::from_error(tr("Feed"), anyhow::anyhow!("failed to load image {}", mix.images.medium.url));
-                };
-                let img = gtk::Image::from_paintable(Some(&tex));
+                let img = gtk::Image::from_paintable(Some(&imgutil::missing_album()));
+                imgutil::load_into_image(&mix.images.medium.url, &img, false);
                 let b = feed_entry(&img, &mix.title, &mix.subtitle, false);
                 let id = mix.id.clone();
                 b.connect_clicked(move |_| router::navigate(&format!("playlist/{id}")));

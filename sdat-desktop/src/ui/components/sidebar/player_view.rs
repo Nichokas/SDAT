@@ -70,8 +70,11 @@ pub fn playing_from() -> gtk::Button {
     let t2 = Rc::clone(&target);
     b.connect_clicked(move |_| router::navigate(&t2.borrow()));
     let (tw, iw) = (title.downgrade(), img.downgrade());
+    let token = Rc::new(Cell::new(0u64));
     on_state_lazy(player::source_changed(), &b, move |b, s| {
         let (Some(title), Some(img)) = (tw.upgrade(), iw.upgrade()) else { return };
+        let mine = token.get().wrapping_add(1);
+        token.set(mine);
         if let Some(s) = s {
             title.set_text(&s.title());
             let route = s.route();
@@ -81,16 +84,18 @@ pub fn playing_from() -> gtk::Button {
                 img.set_icon_name(Some("heart-filled-symbolic"));
                 return;
             }
+            img.set_paintable(Some(&imgutil::missing_album()));
             let cover = s.cover(80);
             if !cover.has_static() {
-                img.set_paintable(Some(&imgutil::missing_album()));
                 return;
             }
-            let w = img.downgrade();
+            let (w, tok) = (img.downgrade(), Rc::clone(&token));
             glib::spawn_future_local(async move {
                 match imgutil::fetch_cropped(&cover.static_).await {
                     Some(t) => {
-                        if let Some(i) = w.upgrade() {
+                        if tok.get() == mine
+                            && let Some(i) = w.upgrade()
+                        {
                             i.set_paintable(Some(&t));
                         }
                     }

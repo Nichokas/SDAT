@@ -27,9 +27,10 @@ fn queue_tracklist(kind: QueueKind) -> TrackList {
     let list = TrackList::new(vec![
         Col::cover(),
         Col::title_album(),
-        Col::custom_widget_button(move |_, pos, _| {
+        Col::custom_widget_button(move |_, pos| {
             let b = gtk::Button::from_icon_name("user-trash-symbolic").tooltip(&tr("Remove Track from Queue")).class("flat").mend(10);
             b.connect_clicked(move |_| {
+                let Some(pos) = pos.get() else { return };
                 let r = match kind {
                     QueueKind::User => player::remove_from_user_queue(pos),
                     QueueKind::Base => player::base_queue().remove_at(pos),

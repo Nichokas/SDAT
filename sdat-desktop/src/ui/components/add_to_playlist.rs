@@ -46,6 +46,15 @@ pub fn begin_account_change() {
 /// The session now belongs to the new account: loads its playlists for any menu
 /// still waiting, or leaves that to the next menu.
 pub fn end_account_change() {
+    end_account_change_for(crate::state::signed_in_changed().get());
+}
+
+fn end_account_change_for(signed_in: bool) {
+    if !signed_in {
+        WAITING.with_borrow_mut(Vec::clear);
+        CACHE.with_borrow_mut(|c| *c = Cache::Empty);
+        return;
+    }
     let waiting = WAITING.with_borrow(|w| !w.is_empty());
     CACHE.with_borrow_mut(|c| *c = if waiting { Cache::Loading } else { Cache::Empty });
     if waiting {
@@ -114,6 +123,13 @@ pub fn submenu(track_id: &str) -> gio::Menu {
 
 /// Starts loading the playlists if needed and refreshes `menu` when done.
 pub fn ensure_loaded(menu: &gio::Menu, track_id: &str) {
+    ensure_loaded_for(menu, track_id, crate::state::signed_in_changed().get());
+}
+
+fn ensure_loaded_for(menu: &gio::Menu, track_id: &str, signed_in: bool) {
+    if !signed_in {
+        return;
+    }
     let start = CACHE.with_borrow_mut(|c| match c {
         Cache::Ready(_) => false,
         Cache::Loading | Cache::Switching => {
@@ -133,17 +149,31 @@ pub fn ensure_loaded(menu: &gio::Menu, track_id: &str) {
 
 fn start_load() {
     let epoch = ACCOUNT_EPOCH.get();
+    let generation = crate::secrets::session_generation();
     glib::spawn_future_local(async move {
-        finish_load(epoch, api::run(api::client::own_playlists).await);
+        match api::run(move || crate::secrets::with_session(generation, api::client::own_playlists)).await {
+            Ok(Some(list)) => finish_load(epoch, Ok(list)),
+            Ok(None) => {}
+            Err(e) => finish_load(epoch, Err(e)),
+        }
     });
 }
 
 fn finish_load(epoch: u64, result: anyhow::Result<Vec<OwnPlaylist>>) {
+    finish_load_for(epoch, result, crate::state::signed_in_changed().get());
+}
+
+fn finish_load_for(epoch: u64, result: anyhow::Result<Vec<OwnPlaylist>>, signed_in: bool) {
     if ACCOUNT_EPOCH.get() != epoch {
         return;
     }
     if STALE.replace(false) {
-        start_load();
+        if signed_in {
+            start_load();
+        } else {
+            WAITING.with_borrow_mut(Vec::clear);
+            CACHE.with_borrow_mut(|c| *c = Cache::Empty);
+        }
         return;
     }
     let list = match result {
@@ -164,19 +194,30 @@ fn finish_load(epoch: u64, result: anyhow::Result<Vec<OwnPlaylist>>) {
 
 /// Adds a track to a playlist and reports the result with a toast.
 pub fn add(playlist_id: String, track_id: String) {
+    if !crate::state::signed_in_changed().get() || CACHE.with_borrow(|c| matches!(c, Cache::Switching)) {
+        return;
+    }
     let name = CACHE.with_borrow(|c| match c {
         Cache::Ready(l) => l.iter().find(|p| p.id == playlist_id).map(|p| p.name.clone()),
         _ => None,
     });
+    let generation = crate::secrets::session_generation();
     glib::spawn_future_local(async move {
-        match api::run(move || api::client::playlist_add_track(&playlist_id, &track_id)).await {
-            Ok(()) => player::toasts().notify(&match name {
-                Some(n) => crate::i18n::trf("Added to %s", &[&n]),
-                None => tr("Added to playlist"),
-            }),
+        match api::run(move || crate::secrets::with_session(generation, || api::client::playlist_add_track(&playlist_id, &track_id))).await {
+            Ok(Some(())) => {
+                if crate::secrets::session_generation() == generation {
+                    player::toasts().notify(&match name {
+                        Some(n) => crate::i18n::trf("Added to %s", &[&n]),
+                        None => tr("Added to playlist"),
+                    });
+                }
+            }
+            Ok(None) => {}
             Err(e) => {
                 log::error!("adding track to playlist failed error={e:#}");
-                player::toasts().notify(&tr("Could not add the track to the playlist"));
+                if crate::secrets::session_generation() == generation {
+                    player::toasts().notify(&tr("Could not add the track to the playlist"));
+                }
             }
         }
     });
@@ -202,11 +243,11 @@ mod tests {
         glib::MainContext::new()
             .with_thread_default(|| {
                 let menu = submenu("t");
-                ensure_loaded(&menu, "t");
+                ensure_loaded_for(&menu, "t", true);
                 forget();
-                finish_load(ACCOUNT_EPOCH.get(), Ok(vec![pl("a", "Old")]));
+                finish_load_for(ACCOUNT_EPOCH.get(), Ok(vec![pl("a", "Old")]), true);
                 assert_eq!(labels(&menu), [tr("Loading…")]);
-                finish_load(ACCOUNT_EPOCH.get(), Ok(vec![pl("a", "Old"), pl("b", "Imported")]));
+                finish_load_for(ACCOUNT_EPOCH.get(), Ok(vec![pl("a", "Old"), pl("b", "Imported")]), true);
                 assert_eq!(labels(&menu), ["Old", "Imported"]);
             })
             .expect("thread default context");
@@ -214,7 +255,7 @@ mod tests {
 
     #[test]
     fn account_switch_forgets_the_playlists() {
-        finish_load(ACCOUNT_EPOCH.get(), Ok(vec![pl("a", "Old account")]));
+        finish_load_for(ACCOUNT_EPOCH.get(), Ok(vec![pl("a", "Old account")]), true);
         assert_eq!(labels(&submenu("t")), ["Old account"]);
         begin_account_change();
         assert_eq!(labels(&submenu("t")), [tr("Loading…")]);
@@ -226,17 +267,17 @@ mod tests {
         glib::MainContext::new()
             .with_thread_default(|| {
                 let before = submenu("t");
-                ensure_loaded(&before, "t");
+                ensure_loaded_for(&before, "t", true);
                 let previous = ACCOUNT_EPOCH.get();
                 begin_account_change();
                 let during = submenu("t");
-                ensure_loaded(&during, "t");
+                ensure_loaded_for(&during, "t", true);
                 assert!(CACHE.with_borrow(|c| matches!(c, Cache::Switching)));
-                end_account_change();
+                end_account_change_for(true);
                 assert!(CACHE.with_borrow(|c| matches!(c, Cache::Loading)));
-                finish_load(previous, Ok(vec![pl("a", "Old account")]));
+                finish_load_for(previous, Ok(vec![pl("a", "Old account")]), true);
                 assert_eq!(labels(&before), [tr("Loading…")]);
-                finish_load(ACCOUNT_EPOCH.get(), Ok(vec![pl("b", "New account")]));
+                finish_load_for(ACCOUNT_EPOCH.get(), Ok(vec![pl("b", "New account")]), true);
                 assert_eq!(labels(&before), ["New account"]);
                 assert_eq!(labels(&during), ["New account"]);
             })
@@ -246,7 +287,7 @@ mod tests {
     #[test]
     fn with_no_menu_waiting_the_next_menu_loads() {
         begin_account_change();
-        end_account_change();
+        end_account_change_for(true);
         assert!(CACHE.with_borrow(|c| matches!(c, Cache::Empty)));
     }
 
@@ -254,13 +295,33 @@ mod tests {
     fn a_load_from_the_previous_account_is_dropped() {
         let previous = ACCOUNT_EPOCH.get();
         begin_account_change();
-        end_account_change();
+        end_account_change_for(true);
         let menu = submenu("t");
         WAITING.with_borrow_mut(|w| w.push((menu.downgrade(), "t".to_owned())));
-        finish_load(previous, Ok(vec![pl("a", "Old account")]));
+        finish_load_for(previous, Ok(vec![pl("a", "Old account")]), true);
         assert_eq!(labels(&menu), [tr("Loading…")]);
-        finish_load(ACCOUNT_EPOCH.get(), Ok(vec![pl("b", "New account")]));
+        finish_load_for(ACCOUNT_EPOCH.get(), Ok(vec![pl("b", "New account")]), true);
         assert_eq!(labels(&menu), ["New account"]);
+    }
+
+    #[test]
+    fn signed_out_ensure_loaded_and_end_account_change_do_not_load() {
+        let ctx = glib::MainContext::new();
+        ctx.with_thread_default(|| {
+            let menu = submenu("t");
+            ensure_loaded_for(&menu, "t", false);
+            assert!(CACHE.with_borrow(|c| matches!(c, Cache::Empty)));
+            assert!(WAITING.with_borrow(Vec::is_empty));
+            assert!(!ctx.pending());
+
+            begin_account_change();
+            WAITING.with_borrow_mut(|w| w.push((menu.downgrade(), "t".to_owned())));
+            end_account_change_for(false);
+            assert!(CACHE.with_borrow(|c| matches!(c, Cache::Empty)));
+            assert!(WAITING.with_borrow(Vec::is_empty));
+            assert!(!ctx.pending());
+        })
+        .expect("thread-default context");
     }
 
     #[test]
