@@ -40,7 +40,10 @@ class Session(context: Context) : TokenStore {
 
     fun signIn(tokens: LoginTokens) {
         val replacing = signedIn
-        if (replacing) Handoff.accountChanging()
+        if (replacing) {
+            Handoff.accountChanging()
+            AudioCache.purge(keepPlaying = true)
+        }
         picture.value = null
         // Before the new session is saved, so a process killed in between can't pair it with the old history.
         Recents.clear()

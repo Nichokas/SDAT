@@ -1,10 +1,7 @@
 package com.nichokas.sdat.core
 
 import android.content.Context
-import android.net.ConnectivityManager
-import android.net.NetworkCapabilities
 import android.net.Uri
-import android.util.Log
 import android.os.SystemClock
 import androidx.annotation.OptIn
 import androidx.compose.runtime.getValue
@@ -40,7 +37,6 @@ import kotlinx.coroutines.isActive
 import kotlinx.coroutines.MainScope
 import kotlinx.coroutines.launch
 import uniffi.tonearm_ffi.CachedTrack
-import uniffi.tonearm_ffi.FfiException
 import uniffi.tonearm_ffi.Mix
 import uniffi.tonearm_ffi.Quality
 import uniffi.tonearm_ffi.Shuffle
@@ -117,9 +113,7 @@ class Playback(context: Context, private val prefs: Preferences, secrets: Secret
     /** The cold current track going into the cache after the next one, so playing it again starts from disk; one try
      * per entry. */
     private var replay: Job? = null
-    /** The track whose fill runs now. One at a time, so a fill never halves another's bandwidth. */
-    private var filling: String? = null
-    private val connectivity = context.getSystemService(ConnectivityManager::class.java)
+    private val fills = CacheFills(context, player, scope, prefs) { (duration * 1000).toLong() }
     private val saver = QueueSaver(context.filesDir, scope)
     private var restoring = true
     /** A Discover queue without its endless source, restored or played before the home mixes loaded, until
@@ -796,7 +790,7 @@ class Playback(context: Context, private val prefs: Preferences, secrets: Secret
      * downloaded twice. */
     private suspend fun nextSource(next: Track): Source {
         local(next)?.let { return it }
-        if (AudioCache.on) fillInTime(next) { filling != null }?.let { return cachedSource(it) }
+        if (AudioCache.on) fills.inTime(next) { fills.filling != null }?.let { return cachedSource(it) }
         return streamed(next)
     }
 
@@ -807,60 +801,14 @@ class Playback(context: Context, private val prefs: Preferences, secrets: Secret
         val nextPending = { preloading != null && preloaded == null }
         if (replay != null || nextPending() || origin != Origin.NETWORK || !AudioCache.on || liveEngine.liveFollowing) return
         if (busy || player.currentMediaItem?.mediaId != t.id) return
-        if (!prefs.downloadOverCellular && !unmetered()) return
-        replay = scope.launch { fillInTime(t) { filling != null || nextPending() } }
+        if (!fills.mayDownloadAgain()) return
+        replay = scope.launch { fills.inTime(t) { fills.filling != null || nextPending() } }
     }
 
     private fun dropReplay() {
         replay?.cancel()
         replay = null
     }
-
-    /** Fills [t] at the streaming quality as [fillStep] allows; null when it gives up or fails. */
-    private suspend fun fillInTime(t: Track, blocked: () -> Boolean): CachedTrack? {
-        while (true) {
-            val headroom = hasHeadroom(player.playbackState == Player.STATE_READY, player.currentPosition, player.bufferedPosition, durationMs())
-            when (fillStep(remainingMs(), headroom, blocked())) {
-                FillStep.Start -> break
-                FillStep.Wait -> delay(FILL_POLL_MS)
-                FillStep.GiveUp -> return null
-            }
-        }
-        filling = t.id
-        // Undispatched, the core registers the fill before this returns, so the cancel below always reaches it.
-        val fill = scope.async(start = CoroutineStart.UNDISPATCHED) { AudioCache.fill(t, prefs.streamingQuality) }
-        var landed = false
-        try {
-            while (fill.isActive) {
-                // A stalled stream needs the bandwidth more than the fill.
-                if (player.playbackState == Player.STATE_BUFFERING) return null
-                if (fillStep(remainingMs(), headroom = true, blocked = false) == FillStep.GiveUp) return null
-                delay(FILL_POLL_MS)
-            }
-            return fill.await().also { landed = true }
-        } catch (e: CancellationException) {
-            throw e
-        } catch (_: FfiException.Cancelled) {
-            return null
-        } catch (e: Exception) {
-            Log.w("SDAT/audio-cache", "failed to cache track ${t.id}: $e")
-            return null
-        } finally {
-            if (filling == t.id) filling = null
-            // The core's fill runs on its own thread: cancelling the call leaves it downloading.
-            if (!landed) {
-                AudioCache.cancel(t.id)
-                fill.cancel()
-            }
-        }
-    }
-
-    private fun durationMs() = (duration * 1000).toLong()
-
-    private fun remainingMs() = durationMs() - player.currentPosition
-
-    private fun unmetered() =
-        connectivity.getNetworkCapabilities(connectivity.activeNetwork)?.hasCapability(NetworkCapabilities.NET_CAPABILITY_NOT_METERED) == true
 
     private suspend fun source(t: Track, online: Boolean = false): Source = (if (online) null else local(t)) ?: streamed(t)
 
@@ -1122,24 +1070,6 @@ private fun metadata(t: Track) = MediaMetadata.Builder()
     .setAlbumTitle(t.album?.title)
     .setArtworkUri(Downloads.coverFile(t.album?.coverUrlLarge)?.let(Uri::fromFile) ?: t.album?.coverUrlLarge?.let(Uri::parse))
     .build()
-
-internal enum class FillStep { Start, Wait, GiveUp }
-
-/** A fill starts once the current track's stream has headroom and no other fill runs, and gives up when only
- * [FILL_DEADLINE_MS] of the current track remain: the next track then streams as before, in time for a gapless start. */
-internal fun fillStep(remainingMs: Long, headroom: Boolean, blocked: Boolean) = when {
-    remainingMs <= FILL_DEADLINE_MS -> FillStep.GiveUp
-    headroom && !blocked -> FillStep.Start
-    else -> FillStep.Wait
-}
-
-/** Buffered far enough ahead ([HEADROOM_MS], or to the end) that a fill takes no bandwidth the stream needs. */
-internal fun hasHeadroom(ready: Boolean, positionMs: Long, bufferedMs: Long, durationMs: Long) =
-    ready && bufferedMs - positionMs >= minOf(HEADROOM_MS, maxOf(durationMs - positionMs - 1_000, 0))
-
-internal const val FILL_DEADLINE_MS = 20_000L
-internal const val HEADROOM_MS = 30_000L
-private const val FILL_POLL_MS = 500L
 
 internal fun clampSeek(secs: Double, duration: Double) = if (duration > 0) secs.coerceIn(0.0, duration) else maxOf(secs, 0.0)
 
