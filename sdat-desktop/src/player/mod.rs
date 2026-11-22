@@ -335,8 +335,8 @@ fn on_bus_message(msg: &gst::Message) {
     match msg.view() {
         MessageView::Error(err) => {
             let e = err.error();
-            if cached_copy_failed() {
-                fire(Trigger::Deferred(Box::new(stream_after_cached_copy_failed)));
+            if let Some(id) = cached_copy_failed() {
+                fire(Trigger::Deferred(Box::new(move || stream_after_cached_copy_failed(&id))));
                 return;
             }
             if e.matches(gst::ResourceError::NotAuthorized) || e.matches(gst::ResourceError::NotFound) {
@@ -356,18 +356,17 @@ fn on_bus_message(msg: &gst::Message) {
 }
 
 // A track that has not started yet goes to Stopped on TokenExpired, so it is started again instead.
-fn stream_after_cached_copy_failed() {
-    if !with(|p| p.machine.preparing()).unwrap_or(false) {
-        fire(Trigger::TokenExpired);
-    } else if let Some(t) = track_changed().with(|t| t.as_ref().map(|e| e.track.clone())) {
-        fire(Trigger::PlayTrack(t, false));
+fn stream_after_cached_copy_failed(id: &str) {
+    let current = track_changed().with(|t| t.as_ref().map(|e| e.track.clone()));
+    match current {
+        Some(t) if t.id() == id && with(|p| p.machine.preparing()).unwrap_or(false) => fire(Trigger::PlayTrack(t, false)),
+        _ => fire(Trigger::TokenExpired),
     }
 }
 
-fn cached_copy_failed() -> bool {
-    let Some(uri) = playbin().and_then(|p| p.element.property::<Option<String>>("current-uri")) else { return false };
-    let Some(id) = track_changed().with(|t| t.as_ref().map(|e| e.track.id().to_owned())) else { return false };
-    audio_cache::drop_failed_copy(&uri, &id)
+fn cached_copy_failed() -> Option<String> {
+    let uri = playbin().and_then(|p| p.element.property::<Option<String>>("current-uri"))?;
+    audio_cache::drop_failed_copy(&uri)
 }
 
 fn on_volume_change(v: f64) {

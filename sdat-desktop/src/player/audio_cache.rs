@@ -96,13 +96,17 @@ pub fn manifest(track_id: &str, quality: TrackQuality) -> Option<TrackManifest> 
     }
 }
 
-pub fn drop_failed_copy(uri: &str, track_id: &str) -> bool {
-    let cached = glib::filename_to_uri(dir(), None).is_ok_and(|d| uri.starts_with(d.as_str()));
-    if cached {
-        log::warn!("cached track failed to play, streaming it instead id={track_id}");
-        audio_cache::remove(track_id);
+/// Removes the cached copy `uri` plays from and returns its track, which the file names: during a gapless
+/// handoff `uri` already belongs to the next track.
+pub fn drop_failed_copy(uri: &str) -> Option<String> {
+    let (path, _) = glib::filename_from_uri(uri).ok()?;
+    if !path.starts_with(dir()) {
+        return None;
     }
-    cached
+    let id = path.file_stem()?.to_str()?.split('-').next()?.to_owned();
+    log::warn!("cached track failed to play, streaming it instead id={id}");
+    audio_cache::remove(&id);
+    Some(id)
 }
 
 /// Called (from a streaming thread) for every element added to playbin.
