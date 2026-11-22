@@ -188,8 +188,6 @@ pub struct Job<'a> {
     id: TrackId,
     quality: TrackQuality,
     label: Vec<u8>,
-    /// [`State::stops`] at [`Store::begin`].
-    stops: u64,
     step: Step,
 }
 
@@ -198,16 +196,7 @@ impl Job<'_> {
     pub fn finish(mut self) -> CoreResult<Cached> {
         let fill = match &self.step {
             Step::Hit(c) => return Ok(c.clone()),
-            Step::Join(running) => {
-                let c = running.wait()?;
-                if rank(running.requested) >= rank(self.quality) {
-                    return Ok(c);
-                }
-                // That fill was for a lower tier. A cancel or purge since this job began must stop this one too, but
-                // it found that fill only, which has left the store.
-                let label = std::mem::take(&mut self.label);
-                return self.store.begin_since(self.id.as_str(), self.quality, label, Some(self.stops))?.finish();
-            }
+            Step::Join(running) => return running.wait(),
             Step::Own(fill) => Arc::clone(fill),
         };
         let store = self.store;
@@ -269,8 +258,6 @@ struct State {
     /// `remove`. Files nothing indexes go when their track leaves.
     recent: VecDeque<String>,
     fills: HashMap<String, Arc<Fill>>,
-    /// Counts the calls that stop fills: cancel, remove, purge and turning the cache off.
-    stops: u64,
 }
 
 impl State {
@@ -298,7 +285,7 @@ impl Store {
         fs::create_dir_all(&dir)?;
         let index = fs::read(dir.join(INDEX)).ok().and_then(|b| serde_json::from_slice(&b).ok()).unwrap_or_default();
         let index = reconcile(&dir, index)?;
-        let store = Self { dir, upstream, state: Mutex::new(State { index, limit, recent: VecDeque::new(), fills: HashMap::new(), stops: 0 }) };
+        let store = Self { dir, upstream, state: Mutex::new(State { index, limit, recent: VecDeque::new(), fills: HashMap::new() }) };
         let mut st = store.lock();
         store.evict(&mut st, None);
         store.save(&st);
@@ -421,18 +408,10 @@ impl Store {
 
     /// The non-blocking start of [`Store::fill`]: from its return, a cancel of `track_id` stops this fill.
     pub fn begin(&self, track_id: &str, quality: TrackQuality, label: Vec<u8>) -> CoreResult<Job<'_>> {
-        self.begin_since(track_id, quality, label, None)
-    }
-
-    /// Fails as cancelled if fills were stopped after `stops`.
-    fn begin_since(&self, track_id: &str, quality: TrackQuality, label: Vec<u8>, stops: Option<u64>) -> CoreResult<Job<'_>> {
         let id = TrackId::parse(track_id)?;
         let mut st = self.lock();
         if st.limit == 0 {
             return Err(CoreError::Cancelled("audio cache is off".into()));
-        }
-        if stops.is_some_and(|s| s != st.stops) {
-            return Err(cancelled());
         }
         let entries = st.index.entries.len();
         let hit = self.hit(&mut st, id.as_str(), quality);
@@ -442,15 +421,19 @@ impl Store {
         let step = if let Some(c) = hit {
             Step::Hit(c)
         // A cancelled fill may take a while to notice; a new request starts its own instead of failing with it.
-        } else if let Some(running) = st.fills.get(id.as_str()).filter(|f| !f.cancel.load(Ordering::Relaxed)) {
+        } else if let Some(running) = st.fills.get(id.as_str()).filter(|f| !f.cancel.load(Ordering::Relaxed) && rank(f.requested) >= rank(quality)) {
             Step::Join(Arc::clone(running))
         } else {
+            // A fill for a lower tier gives way: its copy would not serve this request.
+            if let Some(lower) = st.fills.get(id.as_str()) {
+                lower.cancel.store(true, Ordering::Relaxed);
+            }
             st.index.clock += 1;
             let fill = Arc::new(Fill { file: st.index.clock, requested: quality, ..Fill::default() });
             st.fills.insert(id.0.clone(), Arc::clone(&fill));
             Step::Own(fill)
         };
-        Ok(Job { store: self, id, quality, label, stops: st.stops, step })
+        Ok(Job { store: self, id, quality, label, step })
     }
 
     fn release(&self, id: &TrackId, fill: &Arc<Fill>, result: CoreResult<Cached>) {
@@ -544,9 +527,7 @@ impl Store {
 
     /// Stops a running fill of `track_id` at its next read; it deletes its partial file.
     pub fn cancel(&self, track_id: &str) {
-        let mut st = self.lock();
-        st.stops += 1;
-        if let Some(f) = st.fills.get(track_id) {
+        if let Some(f) = self.lock().fills.get(track_id) {
             f.cancel.store(true, Ordering::Relaxed);
         }
     }
@@ -569,7 +550,6 @@ impl Store {
         let mut st = self.lock();
         st.limit = bytes;
         if bytes == 0 {
-            st.stops += 1;
             for f in st.fills.values() {
                 f.cancel.store(true, Ordering::Relaxed);
             }
@@ -581,7 +561,6 @@ impl Store {
     /// Also stops a running fill of `track_id`, so it does not come back.
     pub fn remove(&self, track_id: &str) {
         let mut st = self.lock();
-        st.stops += 1;
         if let Some(f) = st.fills.get(track_id) {
             f.cancel.store(true, Ordering::Relaxed);
         }
@@ -595,7 +574,6 @@ impl Store {
     /// they stop playing; without it, nothing stays.
     pub fn purge(&self, keep_playing: bool) {
         let mut st = self.lock();
-        st.stops += 1;
         for f in st.fills.values() {
             f.cancel.store(true, Ordering::Relaxed);
         }
@@ -637,16 +615,21 @@ fn reconcile(dir: &Path, mut index: Index) -> CoreResult<Index> {
 }
 
 static STORE: OnceLock<Store> = OnceLock::new();
+/// A limit set while the store was still opening; it is newer than the one `install` was given.
+static EARLY_LIMIT: Mutex<Option<u64>> = Mutex::new(None);
 
 /// Opens the process-wide cache in `dir`, which only the cache may use: see [`Store::open`]. A second call only
 /// applies `limit`.
 pub fn install(dir: PathBuf, limit: u64) -> CoreResult<()> {
+    let mut early = EARLY_LIMIT.lock().unwrap_or_else(PoisonError::into_inner);
     if let Some(s) = STORE.get() {
         s.set_limit(limit);
         return Ok(());
     }
+    let limit = early.take().unwrap_or(limit);
     let client = crate::http::client_builder().connect_timeout(Duration::from_secs(15)).timeout(Duration::from_secs(20)).build()?;
-    let _ = STORE.set(Store::open(dir, limit, Box::new(Tidal(client)))?);
+    let store = Store::open(dir, limit, Box::new(Tidal(client))).inspect_err(|_| *early = Some(limit))?;
+    let _ = STORE.set(store);
     Ok(())
 }
 
@@ -681,8 +664,10 @@ pub fn usage() -> Usage {
 }
 
 pub fn set_limit(bytes: u64) {
-    if let Some(s) = STORE.get() {
-        s.set_limit(bytes);
+    let mut early = EARLY_LIMIT.lock().unwrap_or_else(PoisonError::into_inner);
+    match STORE.get() {
+        Some(s) => s.set_limit(bytes),
+        None => *early = Some(bytes),
     }
 }
 

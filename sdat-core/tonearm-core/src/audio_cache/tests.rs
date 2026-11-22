@@ -507,26 +507,15 @@ fn a_job_dropped_unfinished_releases_the_fill_that_joined_it() {
 }
 
 #[test]
-fn a_fill_that_joined_a_lower_tier_fills_its_own_tier() {
+fn a_request_for_a_higher_tier_supersedes_a_lower_fill() {
     let dir = TempDir::new();
     let fake = Arc::new(Fake::default());
     let store = open(&dir, LIMIT_DEFAULT, &fake);
     let low = store.begin("1", TrackQuality::High, Vec::new()).unwrap();
     let high = store.begin("1", TrackQuality::Lossless, Vec::new()).unwrap();
-    assert_eq!(low.finish().unwrap().quality, TrackQuality::High);
+    let lower = store.begin("1", TrackQuality::High, Vec::new()).unwrap();
+    assert!(matches!(low.finish(), Err(CoreError::Cancelled(_))));
     assert_eq!(high.finish().unwrap().quality, TrackQuality::Lossless);
-}
-
-#[test]
-fn a_fill_that_joined_a_lower_tier_stops_after_a_purge() {
-    let dir = TempDir::new();
-    let fake = Arc::new(Fake::default());
-    let store = open(&dir, LIMIT_DEFAULT, &fake);
-    let low = store.begin("1", TrackQuality::High, Vec::new()).unwrap();
-    let high = store.begin("1", TrackQuality::Lossless, Vec::new()).unwrap();
-    low.finish().unwrap();
-    store.purge(false);
-    assert!(matches!(high.finish(), Err(CoreError::Cancelled(_))));
-    assert_eq!(store.usage().tracks, 0);
-    assert_eq!(files(&dir), [INDEX]);
+    assert_eq!(lower.finish().unwrap().quality, TrackQuality::Lossless, "a lower request joins the higher fill");
+    assert_eq!(store.usage().tracks, 1);
 }
