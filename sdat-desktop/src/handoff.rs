@@ -417,7 +417,11 @@ fn local_now(seek_target: Option<Duration>) -> LocalPlayback {
         }
         changed
     });
-    let position = if changed { Duration::ZERO } else { seek_target.or_else(player::position).unwrap_or(ps.position) };
+    let position = match seek_target {
+        Some(target) => target,
+        None if changed => Duration::ZERO,
+        None => player::position().unwrap_or(ps.position),
+    };
     let played = player::base_queue().played(current.as_deref().unwrap_or_default(), &player::user_queue().source_occurrences());
     local(
         current,
@@ -451,9 +455,9 @@ fn starts() -> u64 {
 }
 
 fn install_hooks() {
-    player::track_changed().on_lazy(|_| {
+    player::track_changed().on_lazy(|ev| {
         STARTS.with(|s| s.set(s.get() + 1));
-        report();
+        report_at(ev.is_some().then_some(Duration::ZERO));
         resumed_loaded();
         apply_upcoming();
         CONTINUE
@@ -461,7 +465,7 @@ fn install_hooks() {
     // A repeat-one restart moves the position back to 0 without a track change.
     player::track_repeated().on(|_| {
         STARTS.with(|s| s.set(s.get() + 1));
-        report();
+        report_at(Some(Duration::ZERO));
         CONTINUE
     });
     player::user_queue().entries().on_lazy(|_| {
@@ -584,5 +588,24 @@ mod tests {
         assert_eq!(pretty_hostname("PRETTY_HOSTNAME=plain").as_deref(), Some("plain"));
         assert_eq!(pretty_hostname("PRETTY_HOSTNAME=\"\""), None);
         assert_eq!(pretty_hostname("CHASSIS=desktop"), None);
+    }
+
+    #[test]
+    fn local_now_zeroes_explicit_same_id_track_restart() {
+        let mut t = crate::model::Track::default();
+        t.info.id = "42".into();
+        LAST_TRACK.with(|l| *l.borrow_mut() = Some("42".into()));
+        player::track_changed().set(Some(player::statemachine::TrackChangedEvent { track: t, skip_history: true }));
+        player::playback_state_changed().set(player::PlaybackState {
+            status: PlaybackStatus::Playing,
+            position: Duration::from_secs(180),
+            ..Default::default()
+        });
+
+        // Explicit zero from track_changed / track_repeated overrides stale position even when ID matches.
+        assert_eq!(local_now(Some(Duration::ZERO)).position_ms, 0);
+        // Normal mid-song report keeps the real position.
+        assert_eq!(local_now(None).position_ms, 180_000);
+        player::track_changed().set(None);
     }
 }

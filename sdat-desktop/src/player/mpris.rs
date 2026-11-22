@@ -166,9 +166,10 @@ impl PlayerIface {
     fn loop_status(&self) -> String {
         self.loop_status.clone()
     }
+    // The exported value follows `repeat_mode_changed`, so a refused request keeps reading the real mode.
     #[zbus(property)]
+    #[expect(clippy::needless_pass_by_ref_mut, reason = "zbus property setters take &mut self")]
     fn set_loop_status(&mut self, v: String) {
-        self.loop_status.clone_from(&v);
         self.send(Cmd::LoopStatus(v));
     }
     #[zbus(property)]
@@ -183,8 +184,8 @@ impl PlayerIface {
         self.shuffle
     }
     #[zbus(property)]
+    #[expect(clippy::needless_pass_by_ref_mut, reason = "zbus property setters take &mut self")]
     fn set_shuffle(&mut self, v: bool) {
-        self.shuffle = v;
         self.send(Cmd::Shuffle(v));
     }
     #[zbus(property)]
@@ -441,16 +442,17 @@ fn handle(cmd: Cmd) {
         Cmd::Play => crate::live::user_play(),
         // Relative seeks are based on the host's position for guests.
         Cmd::Seek(off) if crate::live::user_seek_by(off / 1000) => {}
-        Cmd::Previous | Cmd::Stop | Cmd::SetPosition(..) if crate::live::guest_refuses() => {}
+        Cmd::Previous | Cmd::Stop | Cmd::SetPosition(..) | Cmd::LoopStatus(_) | Cmd::Shuffle(_)
+            if crate::live::guest_refuses() => {}
         Cmd::Previous => previous(),
         Cmd::Stop => super::stop(),
         Cmd::Seek(off) => {
             let pos = (playback_state_changed().get().position.as_micros() as i64).saturating_add(off);
-            seek_to_position(Duration::from_micros(pos.max(0) as u64), false);
+            let _ = seek_to_position(Duration::from_micros(pos.max(0) as u64), false);
         }
         Cmd::SetPosition(track_id, p) => {
             if current_track_id().is_some_and(|id| track_path(&id) == track_id) {
-                seek_to_position(Duration::from_micros(p.max(0) as u64), false);
+                let _ = seek_to_position(Duration::from_micros(p.max(0) as u64), false);
             }
         }
         Cmd::LoopStatus(s) => match s.as_str() {
@@ -461,5 +463,24 @@ fn handle(cmd: Cmd) {
         },
         Cmd::Shuffle(v) => set_shuffle(v, &current_track_id().unwrap_or_default()),
         Cmd::Volume(v) => set_volume(v),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn guest_refuses_loop_status_and_shuffle() {
+        set_repeat_mode(RepeatMode::None);
+        shuffle_state_changed().set(false);
+        crate::live::set_test_guest(Some(true));
+
+        handle(Cmd::LoopStatus("Track".into()));
+        handle(Cmd::Shuffle(true));
+
+        assert_eq!(repeat_mode_changed().get(), RepeatMode::None);
+        assert!(!shuffle_state_changed().get());
+        crate::live::set_test_guest(None);
     }
 }
