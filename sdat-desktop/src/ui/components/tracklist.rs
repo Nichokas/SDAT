@@ -250,6 +250,7 @@ struct DragState {
     source: usize,
     target: usize,
     track: Track,
+    over_valid_row: bool,
 }
 
 struct Inner {
@@ -469,8 +470,27 @@ fn start_drag(i: &Inner, pos: usize) -> bool {
     let Some(track) = i.tracks.borrow().get(pos).cloned() else {
         return false;
     };
-    *i.drag.borrow_mut() = Some(DragState { source: pos, target: pos, track });
+    *i.drag.borrow_mut() = Some(DragState { source: pos, target: pos, track, over_valid_row: false });
     true
+}
+
+fn row_index_at(i: &Inner, y: f64) -> Option<usize> {
+    if !y.is_finite() || y < 0.0 {
+        return None;
+    }
+    let view = i.view.upgrade()?;
+    let h = std::iter::successors(view.first_child(), gtk::Widget::next_sibling)
+        .map(|c| c.height())
+        .find(|&h| h > 0)
+        .unwrap_or(1);
+    let idx = (y / f64::from(h)).floor() as usize;
+    (idx < i.tracks.borrow().len()).then_some(idx)
+}
+
+fn leave_drag(i: &Inner) {
+    if let Some(drag) = i.drag.borrow_mut().as_mut() {
+        drag.over_valid_row = false;
+    }
 }
 
 /// Moves the row at `from` to `to` in both `tracks` and `store`.
@@ -506,22 +526,39 @@ fn move_drag(i: &Inner, dst: usize) -> bool {
     let Some((cur, expected_id)) = i.drag.borrow().as_ref().map(|d| (d.target, d.track.id().to_owned())) else {
         return false;
     };
-    if dst == cur {
-        return true;
-    }
     if dst >= i.tracks.borrow().len() {
+        leave_drag(i);
         return false;
     }
-    let Some(new_pos) = move_row(i, cur, dst, &expected_id) else {
+    let new_pos = if dst == cur {
+        let tracks = i.tracks.borrow();
+        let valid = i.store.n_items() as usize == tracks.len() + i.placeholders.get()
+            && tracks.get(cur).is_some_and(|t| t.id() == expected_id);
+        valid.then_some(cur)
+    } else {
+        move_row(i, cur, dst, &expected_id)
+    };
+    let Some(new_pos) = new_pos else {
         clear_drag(i);
         return false;
     };
     if let Some(drag) = i.drag.borrow_mut().as_mut() {
         drag.target = new_pos;
+        drag.over_valid_row = true;
         true
     } else {
         false
     }
+}
+
+fn drag_motion(i: &Inner, y: f64) -> gdk::DragAction {
+    if let Some(idx) = row_index_at(i, y)
+        && move_drag(i, idx)
+    {
+        return gdk::DragAction::MOVE;
+    }
+    leave_drag(i);
+    gdk::DragAction::empty()
 }
 
 fn cancel_drag(i: &Inner) {
@@ -533,8 +570,23 @@ fn cancel_drag(i: &Inner) {
     }
 }
 
-fn finish_drag(i: &Inner) -> Option<DragState> {
-    i.drag.borrow_mut().take()
+fn drop_drag(i: &Inner, y: f64, on_accept: impl FnOnce()) -> bool {
+    let accepted = i.drag.borrow().as_ref().is_some_and(|d| d.over_valid_row)
+        && row_index_at(i, y).is_some_and(|dst| move_drag(i, dst));
+    if !accepted {
+        cancel_drag(i);
+        return false;
+    }
+    let Some(drag) = i.drag.borrow_mut().take() else {
+        return false;
+    };
+    on_accept();
+    if drag.source != drag.target
+        && let Some(cb) = i.reorder.borrow().clone()
+    {
+        cb(drag.source, drag.target, &drag.track);
+    }
+    true
 }
 
 /// Diffs `new` into the store. The `RefCell` is never borrowed while the store
@@ -764,27 +816,25 @@ fn toggle_drop_target(i: &Inner, w: &Weak<Inner>, on: bool) {
         // Only this list's own drags carry a track being moved.
         target.connect_accept(move |_, _| w0.upgrade().is_some_and(|i| i.drag.borrow().is_some()));
         let w1 = Weak::clone(w);
-        target.connect_drag_motion(move |_, _, _, y| {
-            let Some(i) = w1.upgrade() else { return gdk::DragAction::empty() };
-            let h = i.view.upgrade().and_then(|v| v.first_child()).map_or(1, |c| c.height()).max(1);
-            let idx = (y / f64::from(h)).floor().max(0.0) as usize;
-            if move_drag(&i, idx) { gdk::DragAction::MOVE } else { gdk::DragAction::empty() }
+        target.connect_drag_enter(move |_, _, _, _| {
+            if let Some(i) = w1.upgrade() {
+                leave_drag(&i);
+            }
+            gdk::DragAction::empty()
         });
         let w2 = Weak::clone(w);
-        target.connect_drop(move |_, drop, _, _| {
-            let Some(i) = w2.upgrade() else {
-                drop.finish(gdk::DragAction::empty());
-                return false;
-            };
-            let Some(drag) = finish_drag(&i) else {
-                drop.finish(gdk::DragAction::empty());
-                return false;
-            };
-            drop.finish(gdk::DragAction::MOVE);
-            if let Some(cb) = i.reorder.borrow().clone() {
-                cb(drag.source, drag.target, &drag.track);
+        target.connect_drag_motion(move |_, _, _, y| {
+            w2.upgrade().map_or_else(gdk::DragAction::empty, |i| drag_motion(&i, y))
+        });
+        let w3 = Weak::clone(w);
+        target.connect_drag_leave(move |_, _| {
+            if let Some(i) = w3.upgrade() {
+                leave_drag(&i);
             }
-            true
+        });
+        let w4 = Weak::clone(w);
+        target.connect_drop(move |_, drop, _, y| {
+            w4.upgrade().is_some_and(|i| drop_drag(&i, y, || drop.finish(gdk::DragAction::MOVE)))
         });
         if let Some(v) = i.view.upgrade() {
             v.add_controller(target.clone());

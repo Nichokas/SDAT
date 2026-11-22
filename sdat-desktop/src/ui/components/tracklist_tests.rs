@@ -206,12 +206,12 @@ fn drag_cancel_never_duplicates_or_corrupts_tracks() {
         assert!(list.0.drag.borrow().is_none());
 
         // 5. Diverged drag state (target out of bounds or mismatched track): never inserts without removing.
-        *list.0.drag.borrow_mut() = Some(DragState { source: 0, target: 5, track: make("a") });
+        *list.0.drag.borrow_mut() = Some(DragState { source: 0, target: 5, track: make("a"), over_valid_row: true });
         cancel_drag(&list.0);
         assert_eq!(ids(&list), ["a", "b"]);
         assert_eq!(list.0.store.n_items(), 2);
 
-        *list.0.drag.borrow_mut() = Some(DragState { source: 0, target: 1, track: make("a") });
+        *list.0.drag.borrow_mut() = Some(DragState { source: 0, target: 1, track: make("a"), over_valid_row: true });
         cancel_drag(&list.0);
         assert_eq!(ids(&list), ["a", "b"]);
         assert_eq!(list.0.store.n_items(), 2);
@@ -229,6 +229,118 @@ fn drag_cancel_never_duplicates_or_corrupts_tracks() {
         while ctx.iteration(false) {}
         assert_eq!(ids(&list), ["a", "b"]);
         assert_eq!(list.0.store.n_items(), 4);
+
+        win.close();
+        while ctx.iteration(false) {}
+    });
+}
+
+#[test]
+fn invalid_drop_is_rejected_and_restores_original_order() {
+    run_gtk_test(|| {
+        let make = |id: &str| {
+            let mut t = Track::default();
+            t.info.id = id.into();
+            t
+        };
+        let ids = |list: &TrackList| -> Vec<String> {
+            list.tracks().into_iter().map(|t| t.id().to_owned()).collect()
+        };
+        let reorders: Rc<RefCell<Vec<(usize, usize, String)>>> = Rc::default();
+        let rec = Rc::clone(&reorders);
+        let list = TrackList::new(vec![Col::position(), Col::title()]);
+        list.set_reorder_callback(Some(Box::new(move |src, dst, t| {
+            rec.borrow_mut().push((src, dst, t.id().to_owned()));
+        })));
+        list.replace_all(&[make("a"), make("b"), make("c")]);
+        let win = gtk::Window::new();
+        win.set_default_size(400, 400);
+        win.set_child(Some(list.widget()));
+        win.present();
+        let ctx = glib::MainContext::default();
+        for _ in 0..20 {
+            while ctx.iteration(false) {}
+            if list.0.view.upgrade().and_then(|v| v.first_child()).is_some_and(|c| c.height() > 0) {
+                break;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(5));
+        }
+        let h = list.0.view.upgrade().and_then(|v| v.first_child()).map_or(1, |c| c.height()).max(1);
+        let row_y = |idx: usize| (idx as f64 + 0.5) * f64::from(h);
+
+        // 1. Dropping before any valid motion event is rejected without firing reorder.
+        assert!(start_drag(&list.0, 2));
+        let accepted = Cell::new(false);
+        assert!(!drop_drag(&list.0, row_y(0), || accepted.set(true)));
+        assert!(!accepted.get());
+        assert_eq!(ids(&list), ["a", "b", "c"]);
+        assert_eq!(list.0.store.n_items(), 3);
+        assert!(list.0.drag.borrow().is_none());
+        assert!(reorders.borrow().is_empty());
+
+        // 2. Dropping after drag-leave rejects the drop and restores the original order.
+        assert!(start_drag(&list.0, 2));
+        assert_eq!(drag_motion(&list.0, row_y(0)), gdk::DragAction::MOVE);
+        assert_eq!(ids(&list), ["c", "a", "b"]);
+        leave_drag(&list.0);
+        let accepted = Cell::new(false);
+        assert!(!drop_drag(&list.0, row_y(0), || accepted.set(true)));
+        assert!(!accepted.get());
+        assert_eq!(ids(&list), ["a", "b", "c"]);
+        assert_eq!(list.0.store.n_items(), 3);
+        assert!(list.0.drag.borrow().is_none());
+        assert!(reorders.borrow().is_empty());
+
+        // 3. Moving outside valid rows (onto placeholders or above row 0) rejects a subsequent drop.
+        list.set_placeholders(2);
+        assert!(start_drag(&list.0, 2));
+        assert_eq!(drag_motion(&list.0, row_y(0)), gdk::DragAction::MOVE);
+        assert_eq!(ids(&list), ["c", "a", "b"]);
+        assert_eq!(drag_motion(&list.0, row_y(3)), gdk::DragAction::empty());
+        let accepted = Cell::new(false);
+        assert!(!drop_drag(&list.0, row_y(0), || accepted.set(true)));
+        assert!(!accepted.get());
+        assert_eq!(ids(&list), ["a", "b", "c"]);
+        assert_eq!(list.0.store.n_items(), 5);
+        assert!(list.0.drag.borrow().is_none());
+        assert!(reorders.borrow().is_empty());
+
+        // 4. Dropping directly at an out-of-range y (negative or placeholder) restores original order.
+        assert!(start_drag(&list.0, 2));
+        assert_eq!(drag_motion(&list.0, row_y(0)), gdk::DragAction::MOVE);
+        assert_eq!(drag_motion(&list.0, -5.0), gdk::DragAction::empty());
+        assert!(!drop_drag(&list.0, -5.0, || accepted.set(true)));
+        assert_eq!(ids(&list), ["a", "b", "c"]);
+        assert!(start_drag(&list.0, 2));
+        assert_eq!(drag_motion(&list.0, row_y(0)), gdk::DragAction::MOVE);
+        assert!(!drop_drag(&list.0, row_y(3), || accepted.set(true)));
+        assert!(!accepted.get());
+        assert_eq!(ids(&list), ["a", "b", "c"]);
+        assert_eq!(list.0.store.n_items(), 5);
+        assert!(reorders.borrow().is_empty());
+
+        // 5. Dropping back on the original row finishes cleanly without firing reorder.
+        assert!(start_drag(&list.0, 1));
+        assert_eq!(drag_motion(&list.0, row_y(0)), gdk::DragAction::MOVE);
+        assert_eq!(drag_motion(&list.0, row_y(1)), gdk::DragAction::MOVE);
+        let accepted = Cell::new(false);
+        assert!(drop_drag(&list.0, row_y(1), || accepted.set(true)));
+        assert!(accepted.get());
+        assert_eq!(ids(&list), ["a", "b", "c"]);
+        assert!(list.0.drag.borrow().is_none());
+        assert!(reorders.borrow().is_empty());
+
+        // 6. Leaving and re-entering on a valid row allows the drop to commit.
+        assert!(start_drag(&list.0, 2));
+        assert_eq!(drag_motion(&list.0, row_y(0)), gdk::DragAction::MOVE);
+        leave_drag(&list.0);
+        assert_eq!(drag_motion(&list.0, row_y(1)), gdk::DragAction::MOVE);
+        let accepted = Cell::new(false);
+        assert!(drop_drag(&list.0, row_y(1), || accepted.set(true)));
+        assert!(accepted.get());
+        assert_eq!(ids(&list), ["a", "c", "b"]);
+        assert!(list.0.drag.borrow().is_none());
+        assert_eq!(*reorders.borrow(), vec![(2, 1, "c".to_owned())]);
 
         win.close();
         while ctx.iteration(false) {}
