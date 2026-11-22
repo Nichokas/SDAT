@@ -172,8 +172,12 @@ private fun NowPlayingPage(playback: Playback, track: Track, showQueue: () -> Un
         QualityBadge(playback, Modifier.padding(top = 2.dp))
         Row(Modifier.padding(top = 20.dp), horizontalArrangement = Arrangement.spacedBy(46.dp), verticalAlignment = Alignment.CenterVertically) {
             IconTap("backward.fill", "Previous", 30.dp, Modifier.alpha(if (Live.isGuest) 0.4f else 1f)) {
-                forward = false
-                if (!Live.guestRefuses()) playback.previous()
+                if (!Live.guestRefuses()) {
+                    val before = playback.track?.id
+                    playback.previous()
+                    // A restart (seek to 0) keeps the track, so the next change must still slide forward.
+                    if (playback.track?.id != before) forward = false
+                }
             }
             Box(
                 Modifier.size(64.dp).alpha(if (Live.playbackLocked) 0.4f else 1f)
