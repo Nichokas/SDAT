@@ -33,6 +33,8 @@ struct Inner {
     etag: String,
     items: Option<Vec<String>>,
     last_fetched: Option<Instant>,
+    /// Bumped on reset/invalidation so an in-flight fetch can't store stale data.
+    generation: u64,
 }
 
 #[derive(Debug)]
@@ -51,7 +53,7 @@ const TTL: Duration = Duration::from_mins(5);
 
 impl FavouriteCache {
     const fn new(kind: Kind) -> Self {
-        FavouriteCache { kind, inner: Mutex::new(Inner { etag: String::new(), items: None, last_fetched: None }) }
+        FavouriteCache { kind, inner: Mutex::new(Inner { etag: String::new(), items: None, last_fetched: None, generation: 0 }) }
     }
 
     fn v1_kind(&self) -> &'static str {
@@ -94,28 +96,36 @@ impl FavouriteCache {
     }
 
     pub fn bust(&self) {
-        self.inner.lock().unwrap_or_else(std::sync::PoisonError::into_inner).last_fetched = None;
+        let mut inner = self.inner.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        inner.last_fetched = None;
+        inner.generation = inner.generation.wrapping_add(1);
     }
 
     /// Forgets the cached ids and `ETag` (another account's).
     pub fn reset(&self) {
-        *self.inner.lock().unwrap_or_else(std::sync::PoisonError::into_inner) = Inner { etag: String::new(), items: None, last_fetched: None };
+        let mut inner = self.inner.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        *inner = Inner { generation: inner.generation.wrapping_add(1), ..Inner::default() };
     }
 
     pub fn get(&self) -> Result<Vec<String>> {
-        // Read the account under the lock, so a `reset` for an account switch
-        // either waits for this fetch or happens before it.
-        let mut inner = self.inner.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
-        let uid = crate::auth::tokens().user_id();
-        if uid.is_empty() {
-            log::debug!("not logged in, ignoring favourite fetch");
-            return Ok(vec![]);
-        }
-        if let (Some(items), Some(t)) = (&inner.items, inner.last_fetched)
-            && t.elapsed() < TTL {
+        // Release the lock before HTTP so `reset` on an account switch never waits on I/O.
+        let (uid, etag, prev_items, generation) = {
+            let inner = self.inner.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+            let uid = crate::auth::tokens().user_id();
+            if uid.is_empty() {
+                log::debug!("not logged in, ignoring favourite fetch");
+                return Ok(vec![]);
+            }
+            if let (Some(items), Some(t)) = (&inner.items, inner.last_fetched)
+                && t.elapsed() < TTL
+            {
                 return Ok(items.clone());
             }
-        if self.kind == Kind::Mixes {
+            let etag = if inner.items.is_some() { inner.etag.clone() } else { String::new() };
+            (uid, etag, inner.items.clone(), inner.generation)
+        };
+
+        let fetched = if self.kind == Kind::Mixes {
             let (mut list, mut etag) = api::favourite_mix_ids("", "")?;
             let mut items = std::mem::take(&mut list.content);
             while !list.cursor.is_empty() {
@@ -124,26 +134,36 @@ impl FavouriteCache {
                 etag = e;
                 items.append(&mut list.content);
             }
-            inner.items = Some(items);
-            inner.etag = etag;
+            Some((items, etag))
         } else {
-            let etag = if inner.items.is_some() { &inner.etag } else { "" };
-            let res = api::favourite_ids(&uid, etag)?;
-            if let Some((lists, etag)) = res {
+            api::favourite_ids(&uid, &etag)?.map(|(lists, etag)| {
                 let list = match self.kind {
                     Kind::Albums => lists.album,
                     Kind::Artists => lists.artist,
                     Kind::Playlists => lists.playlist,
                     _ => lists.track,
                 };
-                inner.items = Some(list);
+                (list, etag)
+            })
+        };
+
+        let mut inner = self.inner.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        if let Some((items, etag)) = fetched {
+            if inner.generation == generation {
+                inner.items = Some(items.clone());
                 inner.etag = etag;
-            } else if inner.items.is_none() {
-                crate::error::bail!("favourite IDs returned not modified without cached items");
+                inner.last_fetched = Some(Instant::now());
             }
+            Ok(items)
+        } else {
+            let Some(items) = prev_items else {
+                crate::error::bail!("favourite IDs returned not modified without cached items");
+            };
+            if inner.generation == generation {
+                inner.last_fetched = Some(Instant::now());
+            }
+            Ok(items)
         }
-        inner.last_fetched = Some(Instant::now());
-        Ok(inner.items.clone().unwrap_or_default())
     }
 
     pub fn contains(&self, id: &str) -> Result<bool> {

@@ -196,7 +196,7 @@ pub fn parse_iso8601_duration(s: &str) -> Option<Duration> {
             }
         }
     }
-    Some(Duration::from_secs_f64(secs))
+    Duration::try_from_secs_f64(secs).ok()
 }
 
 pub fn de_iso_duration<'de, D: Deserializer<'de>>(d: D) -> Result<Duration, D::Error> {
@@ -352,7 +352,7 @@ pub struct ArtworkFileMeta {
     pub width: i64,
 }
 
-/// Same selection algorithm as `ArtworkFiles.AtLeast` in Go.
+/// Selects the smallest square artwork at least `size`, or the largest available.
 pub fn files_at_least(files: &[ArtworkFile], size: i64) -> Option<ArtworkFile> {
     if files.is_empty() {
         return None;
@@ -362,23 +362,11 @@ pub fn files_at_least(files: &[ArtworkFile], size: i64) -> Option<ArtworkFile> {
         square = files.to_vec();
     }
     square.sort_by_key(|a| (a.meta.height, a.meta.width));
-    if size == i64::MAX {
-        let mut best = ArtworkFile::default();
-        let mut max_h = 0;
-        for f in &square {
-            if f.meta.height > max_h {
-                max_h = f.meta.height;
-                best = f.clone();
-            }
-        }
-        return Some(best);
-    }
-    for f in &square {
-        if f.meta.height.min(f.meta.width) >= size {
-            return Some(f.clone());
-        }
-    }
-    Some(square[0].clone())
+    square
+        .iter()
+        .find(|f| f.meta.height.min(f.meta.width) >= size)
+        .or_else(|| square.last())
+        .cloned()
 }
 
 #[derive(Debug, Clone, Default)]
@@ -651,6 +639,8 @@ mod tests {
         assert_eq!(parse_iso8601_duration("PT3M25S"), Some(Duration::from_secs(205)));
         assert_eq!(parse_iso8601_duration("PT1H"), Some(Duration::from_hours(1)));
         assert_eq!(parse_iso8601_duration("P1DT1S"), Some(Duration::from_secs(86401)));
+        assert_eq!(parse_iso8601_duration("PT99999999999999999999S"), None);
+        assert_eq!(parse_iso8601_duration("P999999999999999Y"), None);
     }
 
     #[test]
@@ -672,8 +662,14 @@ mod tests {
         let files = vec![f(1280, 1280, "big"), f(80, 80, "small"), f(320, 320, "mid"), f(100, 50, "rect")];
         assert_eq!(files_at_least(&files, 200).unwrap().href, "mid");
         assert_eq!(files_at_least(&files, 0).unwrap().href, "small");
-        assert_eq!(files_at_least(&files, 5000).unwrap().href, "small");
+        assert_eq!(files_at_least(&files, 5000).unwrap().href, "big");
         assert_eq!(files_at_least(&files, i64::MAX).unwrap().href, "big");
+
+        let capped = vec![f(80, 80, "80"), f(320, 320, "320"), f(1080, 1080, "1080")];
+        assert_eq!(files_at_least(&capped, 1280).expect("capped").href, "1080");
+
+        let zero_sized = vec![f(0, 0, "zero")];
+        assert_eq!(files_at_least(&zero_sized, i64::MAX).expect("zero").href, "zero");
     }
 }
 
