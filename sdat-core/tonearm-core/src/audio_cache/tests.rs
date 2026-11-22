@@ -408,7 +408,24 @@ fn purge_and_remove_keep_the_playing_files() {
     assert_eq!(store.lookup("1", Q), None);
     assert!(a.mp4.exists() && a.playlist.exists(), "still playing");
     assert!(!b.mp4.exists() && !b.playlist.exists());
-    drop(store);
-    open(&dir, LIMIT_DEFAULT, &fake);
-    assert_eq!(files(&dir), [INDEX]);
+    store.lookup("5", Q);
+    assert!(a.mp4.exists(), "still the previous track");
+    store.lookup("6", Q);
+    assert_eq!(files(&dir), [INDEX], "gone once it stops playing");
+}
+
+#[test]
+fn a_removed_copy_that_failed_goes_once_its_track_stops_playing() {
+    let dir = TempDir::new();
+    let fake = Arc::new(Fake::default());
+    let store = open(&dir, LIMIT_DEFAULT, &fake);
+    let failed = store.fill("1", Q, Vec::new()).unwrap();
+    let next = store.fill("2", Q, Vec::new()).unwrap();
+    store.lookup("1", Q).unwrap();
+    store.remove("1");
+    assert!(failed.mp4.exists());
+    store.lookup("2", Q).unwrap();
+    store.lookup("3", Q);
+    assert!(!failed.mp4.exists() && !failed.playlist.exists());
+    assert!(next.mp4.exists() && next.playlist.exists(), "indexed files stay");
 }

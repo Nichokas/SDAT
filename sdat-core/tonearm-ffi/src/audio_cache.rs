@@ -106,7 +106,7 @@ pub fn audio_cache_remove(track_id: String) {
     audio_cache::remove(&track_id);
 }
 
-/// Empties the cache. The files of what is playing go at the next start.
+/// Empties the cache. The files of what is playing go once it stops playing.
 #[uniffi::export]
 pub fn audio_cache_purge() {
     audio_cache::purge();

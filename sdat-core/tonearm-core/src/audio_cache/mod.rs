@@ -21,6 +21,8 @@ pub const LIMIT_DEFAULT: u64 = 2 << 30;
 
 const INDEX: &str = "index.json";
 const TRIES: u32 = 3;
+/// What plays now and what plays next.
+const PROTECTED: usize = 2;
 
 /// A TIDAL track id: digits only, because it becomes a file name.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
@@ -203,8 +205,8 @@ impl Fill {
 struct State {
     index: Index,
     limit: u64,
-    /// The last tracks a player looked up (what plays now and what plays next): their files are never deleted
-    /// while they are here, even by `purge` or `remove`; the next `open` removes what nothing indexes.
+    /// The last tracks a player looked up: their files are never deleted while they are here, even by `purge` or
+    /// `remove`. Files nothing indexes go when their track leaves.
     recent: VecDeque<String>,
     fills: HashMap<String, Arc<Fill>>,
 }
@@ -283,6 +285,21 @@ impl Store {
         }
     }
 
+    /// Files of `id` that a purge, a removal or a newer fill left on disk while it played.
+    fn delete_unindexed_files(&self, st: &State, id: &str) {
+        let keep = st.index.entries.get(id).map(|e| format!("{}.", stem(id, e.file)));
+        let Ok(dir) = fs::read_dir(&self.dir) else { return };
+        for f in dir.flatten() {
+            let name = f.file_name();
+            let Some(name) = name.to_str() else { continue };
+            let ours = name.strip_prefix(id).is_some_and(|rest| rest.starts_with('-'));
+            let done = matches!(Path::new(name).extension().and_then(|e| e.to_str()), Some("mp4" | "m3u8"));
+            if ours && done && !keep.as_ref().is_some_and(|k| name.starts_with(k.as_str())) {
+                let _ = fs::remove_file(f.path());
+            }
+        }
+    }
+
     fn evict(&self, st: &mut State, filled: Option<&str>) {
         let entries: Vec<(&str, u64, u64)> = st.index.entries.iter().map(|(id, e)| (id.as_str(), e.bytes, e.last_used)).collect();
         let mut protect: Vec<&str> = st.recent.iter().map(String::as_str).collect();
@@ -316,7 +333,10 @@ impl Store {
         let mut st = self.lock();
         st.recent.retain(|r| r != track_id);
         st.recent.push_front(track_id.to_owned());
-        st.recent.truncate(2);
+        let released = if st.recent.len() > PROTECTED { st.recent.split_off(PROTECTED) } else { VecDeque::new() };
+        for id in &released {
+            self.delete_unindexed_files(&st, id);
+        }
         // A track that just lost its protection may be over the limit.
         self.evict(&mut st, None);
         let c = self.hit(&mut st, track_id, wanted);
