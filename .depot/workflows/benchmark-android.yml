@@ -46,7 +46,7 @@ jobs:
           packages: ""
       - uses: gradle/actions/setup-gradle@v4
         with:
-          cache-read-only: ${{ github.ref != 'refs/heads/main' }}
+          cache-read-only: ${{ github.ref != 'refs/heads/main' || github.event_name == 'api' }}
       - name: Unit tests and release APK
         working-directory: benchmarks/android-glass
         # SDAT's own Gradle wrapper, so the benchmark builds with the same Gradle as the app.
