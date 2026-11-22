@@ -483,13 +483,18 @@ pub async fn add_track_to_user_queue(track_id: &str) -> Result<()> {
 /// Queues `tracks`, in order, right after the current one (and after any
 /// earlier "play next" tracks). The caller starts playback if needed.
 fn insert_tracklist_next(tracks: Vec<Track>) {
-    insert_tracklist_next_after(tracks, with(|p| p.machine.gapless_entry()).flatten());
+    if insert_tracklist_next_after(tracks, with(|p| p.machine.gapless_entry()).flatten()) {
+        with(|p| p.machine.move_gapless_to_user_queue());
+    }
 }
 
-fn insert_tracklist_next_after(tracks: Vec<Track>, armed: Option<GaplessEntry>) {
+/// Returns whether the armed base-queue track moved to the user queue, which
+/// the machine's armed entry must then follow.
+fn insert_tracklist_next_after(tracks: Vec<Track>, armed: Option<GaplessEntry>) -> bool {
     if tracks.is_empty() {
-        return;
+        return false;
     }
+    let mut moved = false;
     // Keep an already-chosen gapless track ahead of Play Next entries when it
     // came from the queues so the queue view matches playback order.
     let floor = match armed {
@@ -506,7 +511,7 @@ fn insert_tracklist_next_after(tracks: Vec<Track>, armed: Option<GaplessEntry>) 
             }
             if next_in_base && let Some(head) = base_queue().take_for_gapless() {
                 user_queue().prepend(head);
-                with(|p| p.machine.move_gapless_to_user_queue());
+                moved = true;
                 1
             } else {
                 0
@@ -519,6 +524,7 @@ fn insert_tracklist_next_after(tracks: Vec<Track>, armed: Option<GaplessEntry>) 
         let pinned = play_next::insert(entries, pinned, floor, tracks.into_iter().map(HistoryEntry::from).collect());
         update_pinned(|_| pinned);
     });
+    moved
 }
 
 pub fn add_tracklist_to_user_queue(tracks: Vec<Track>) {

@@ -825,6 +825,17 @@ fn gapless_lifecycle_hooks_coordinate_arm_promote_and_cancel() {
             GaplessEntry { track, did_repeat: false, source: GaplessSource::BaseQueue { rewound: false } }
         };
 
+        // Play Next moving the armed track to the user queue repoints the entry, before and after arming.
+        let m = Machine::new(Rc::new(Testbin::default()) as Rc<dyn Playbin>, hooks());
+        m.begin_gapless(entry("a"));
+        m.move_gapless_to_user_queue();
+        assert_eq!(m.gapless_entry().map(|e| e.source), Some(GaplessSource::UserQueue));
+        m.begin_gapless(entry("a"));
+        assert!(m.arm_gapless(TrackManifest::default(), 1.0).unwrap());
+        m.move_gapless_to_user_queue();
+        assert_eq!(m.gapless_entry().map(|e| e.source), Some(GaplessSource::UserQueue));
+        assert!(m.has_armed_gapless());
+
         // Canceling when idle is a no-op.
         GAPLESS_EVENTS.with(|e| e.borrow_mut().clear());
         let pb = Rc::new(Testbin::default());

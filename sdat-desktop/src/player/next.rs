@@ -360,12 +360,17 @@ mod tests {
         let armed = peek_gapless().unwrap();
         assert_eq!((armed.track.id(), armed.source), ("B", GaplessSource::BaseQueue { rewound: false }));
 
-        insert_tracklist_next_after(vec![track("X", None)], Some(armed));
+        assert!(insert_tracklist_next_after(vec![track("X", None)], Some(armed.clone())));
         // The armed B moves ahead of the Play Next entries, so the queue view shows the playback order.
         assert_eq!(
             user_queue().entries().with(|v| v.iter().map(|t| t.id().to_string()).collect::<Vec<_>>()),
             vec!["B", "X"],
         );
+        assert_eq!(base_queue().entries().with(|v| v.iter().map(|t| t.id().to_string()).collect::<Vec<_>>()), vec!["C"]);
+
+        // The track change commits it from the user queue, where the armed entry now points.
+        commit_gapless(&GaplessEntry { source: GaplessSource::UserQueue, ..armed });
+        assert_eq!(user_queue().entries().with(|v| v.iter().map(|t| t.id().to_string()).collect::<Vec<_>>()), vec!["X"]);
         assert_eq!(base_queue().entries().with(|v| v.iter().map(|t| t.id().to_string()).collect::<Vec<_>>()), vec!["C"]);
 
         clear_queues();
