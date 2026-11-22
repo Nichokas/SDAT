@@ -143,6 +143,16 @@ pub fn on_track_changed() {
 }
 
 pub fn on_playback_state(s: &PlaybackState) {
+    if s.buffering {
+        // A stalled stream needs the bandwidth more than the fills; they plan again once it has headroom.
+        let planned = PLANNED.with(RefCell::take);
+        if !planned.is_empty() {
+            for id in &planned {
+                audio_cache::cancel(id);
+            }
+            PENDING.set(true);
+        }
+    }
     if !PENDING.get() || !has_headroom(s) {
         return;
     }

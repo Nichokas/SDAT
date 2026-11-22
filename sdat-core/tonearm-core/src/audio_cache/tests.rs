@@ -236,6 +236,22 @@ fn a_cancelled_fill_leaves_nothing_behind() {
 }
 
 #[test]
+fn a_removed_track_does_not_come_back_from_its_running_fill() {
+    let dir = TempDir::new();
+    let fake = Arc::new(Fake { hold: Mutex::new(true), ..Fake::default() });
+    let store = Arc::new(open(&dir, LIMIT_DEFAULT, &fake));
+    let s = Arc::clone(&store);
+    let fill = std::thread::spawn(move || s.fill("1", Q, Vec::new()));
+    while store.lock().fills.get("1").is_none_or(|f| Arc::strong_count(f) < 2) {
+        std::thread::yield_now();
+    }
+    store.remove("1");
+    fake.release();
+    assert!(matches!(fill.join().unwrap(), Err(CoreError::Cancelled(_))));
+    assert_eq!(store.usage().tracks, 0);
+}
+
+#[test]
 fn a_fill_after_a_cancel_starts_its_own_instead_of_failing() {
     let dir = TempDir::new();
     let fake = Arc::new(Fake { hold: Mutex::new(true), ..Fake::default() });

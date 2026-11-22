@@ -492,8 +492,12 @@ impl Store {
         self.save(&st);
     }
 
+    /// Also stops a running fill of `track_id`, so it does not come back.
     pub fn remove(&self, track_id: &str) {
         let mut st = self.lock();
+        if let Some(f) = st.fills.get(track_id) {
+            f.cancel.store(true, Ordering::Relaxed);
+        }
         if let Some(e) = st.index.entries.remove(track_id) {
             self.delete_files(&st, track_id, e.file);
             self.save(&st);
