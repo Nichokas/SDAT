@@ -236,6 +236,30 @@ fn drag_cancel_never_duplicates_or_corrupts_tracks() {
 }
 
 #[test]
+fn list_update_during_drag_restores_the_dragged_row() {
+    run_gtk_test(|| {
+        let make = |id: &str| {
+            let mut t = Track::default();
+            t.info.id = id.into();
+            t
+        };
+        let ids = |list: &TrackList| -> Vec<String> {
+            list.tracks().into_iter().map(|t| t.id().to_owned()).collect()
+        };
+        let list = TrackList::new(vec![Col::position(), Col::title()]);
+        list.set_reorder_callback(Some(Box::new(|_, _, _| {})));
+        list.replace_all(&[make("a"), make("b"), make("c")]);
+        assert!(start_drag(&list.0, 0));
+        assert!(move_drag(&list.0, 2));
+        assert_eq!(ids(&list), ["b", "c", "a"]);
+        list.add_track(make("d"));
+        assert!(list.0.drag.borrow().is_none());
+        assert_eq!(ids(&list), ["a", "b", "c", "d"]);
+        assert_eq!(list.0.store.n_items(), 4);
+    });
+}
+
+#[test]
 fn invalid_drop_is_rejected_and_restores_original_order() {
     run_gtk_test(|| {
         let make = |id: &str| {

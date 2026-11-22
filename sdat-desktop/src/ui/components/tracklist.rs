@@ -393,7 +393,7 @@ impl TrackList {
 
     pub fn add_track(&self, t: Track) {
         let i = &self.0;
-        clear_drag(i);
+        cancel_drag(i);
         i.tracks.borrow_mut().push(t);
         i.store.append(&empty());
     }
@@ -496,13 +496,15 @@ fn leave_drag(i: &Inner) {
 fn move_row(i: &Inner, from: usize, to: usize, expected_id: &str) -> Option<usize> {
     let dst = {
         let mut tracks = i.tracks.borrow_mut();
+        // Both ends are track rows, so the splice below never touches the placeholders after them.
         if i.store.n_items() as usize != tracks.len() + i.placeholders.get()
+            || to >= tracks.len()
             || tracks.get(from).is_none_or(|t| t.id() != expected_id)
         {
             return None;
         }
         let t = tracks.remove(from);
-        let dst = to.min(tracks.len());
+        let dst = to;
         tracks.insert(dst, t);
         dst
     };
@@ -587,7 +589,7 @@ fn drop_drag(i: &Inner, y: f64, on_finish: impl FnOnce(gdk::DragAction)) -> bool
 /// is mutated: splicing emits items-changed, which synchronously runs `bind()`
 /// (and other handlers) that borrow `tracks` again.
 fn sync(i: &Inner, new: &[Track]) {
-    clear_drag(i);
+    cancel_drag(i);
     let old = std::mem::replace(&mut *i.tracks.borrow_mut(), new.to_vec());
     for (idx, op) in diff_ops(&old, new) {
         match op {
