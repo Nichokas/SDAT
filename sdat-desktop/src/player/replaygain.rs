@@ -12,29 +12,36 @@ use crate::settings::{self, ReplayGainMode};
 type NormalizationPair = (Option<Normalization>, Option<Normalization>);
 
 #[derive(Debug, Default, Clone, Copy, PartialEq)]
+enum PendingGapless {
+    #[default]
+    Empty,
+    Armed(Option<NormalizationPair>),
+}
+
+#[derive(Debug, Default, Clone, Copy, PartialEq)]
 struct ReplayGainState {
     current: Option<NormalizationPair>,
-    pending_gapless: Option<NormalizationPair>,
+    pending_gapless: PendingGapless,
 }
 
 impl ReplayGainState {
     fn set_current(&mut self, norm: Option<NormalizationPair>) {
         self.current = norm;
-        self.pending_gapless = None;
+        self.pending_gapless = PendingGapless::Empty;
     }
 
     fn set_pending_gapless(&mut self, norm: Option<NormalizationPair>) {
-        self.pending_gapless = norm;
+        self.pending_gapless = PendingGapless::Armed(norm);
     }
 
     fn promote_gapless(&mut self) {
-        if let Some(next) = self.pending_gapless.take() {
-            self.current = Some(next);
+        if let PendingGapless::Armed(next) = std::mem::take(&mut self.pending_gapless) {
+            self.current = next;
         }
     }
 
     fn clear_pending_gapless(&mut self) {
-        self.pending_gapless = None;
+        self.pending_gapless = PendingGapless::Empty;
     }
 
     fn active(&self) -> Option<NormalizationPair> {
@@ -45,18 +52,19 @@ impl ReplayGainState {
 /// State shared with the streaming thread (the Go code read signals directly).
 static NORMALIZE: AtomicBool = AtomicBool::new(false);
 static ALBUM_MODE: AtomicBool = AtomicBool::new(false);
-static STATE: Mutex<ReplayGainState> = Mutex::new(ReplayGainState { current: None, pending_gapless: None });
+static STATE: Mutex<ReplayGainState> = Mutex::new(ReplayGainState { current: None, pending_gapless: PendingGapless::Empty });
 
-fn norm_pair(m: &TrackManifest) -> NormalizationPair {
-    (m.album_normalization, m.track_normalization)
+fn norm_pair(m: &TrackManifest) -> Option<NormalizationPair> {
+    (m.album_normalization.is_some() || m.track_normalization.is_some())
+        .then_some((m.album_normalization, m.track_normalization))
 }
 
 pub fn set_current(m: Option<&TrackManifest>) {
-    STATE.lock().unwrap_or_else(std::sync::PoisonError::into_inner).set_current(m.map(norm_pair));
+    STATE.lock().unwrap_or_else(std::sync::PoisonError::into_inner).set_current(m.and_then(norm_pair));
 }
 
 pub fn set_pending_gapless(m: Option<&TrackManifest>) {
-    STATE.lock().unwrap_or_else(std::sync::PoisonError::into_inner).set_pending_gapless(m.map(norm_pair));
+    STATE.lock().unwrap_or_else(std::sync::PoisonError::into_inner).set_pending_gapless(m.and_then(norm_pair));
 }
 
 pub fn promote_gapless() {
@@ -214,5 +222,39 @@ mod tests {
         assert_eq!(s.active(), Some(c));
         s.promote_gapless();
         assert_eq!(s.active(), Some(c));
+    }
+
+    #[test]
+    fn gapless_preload_without_normalization_clears_current_on_promote() {
+        let a = (Some(Normalization { peak: 0.9, gain: -6.0 }), Some(Normalization { peak: 0.8, gain: -4.0 }));
+        let mut s = ReplayGainState::default();
+
+        s.set_current(Some(a));
+        assert_eq!(s.active(), Some(a));
+
+        // Preloading a track without normalization keeps Track A active until StreamStart,
+        // then clears current on promotion so Track A's tags are not reused.
+        s.set_pending_gapless(None);
+        assert_eq!(s.active(), Some(a));
+        s.promote_gapless();
+        assert_eq!(s.active(), None);
+        s.promote_gapless();
+        assert_eq!(s.active(), None);
+
+        // A manifest with neither album nor track normalization maps to None and clears current.
+        let empty_manifest = TrackManifest::default();
+        assert_eq!(norm_pair(&empty_manifest), None);
+        s.set_current(Some(a));
+        s.set_pending_gapless(norm_pair(&empty_manifest));
+        assert_eq!(s.active(), Some(a));
+        s.promote_gapless();
+        assert_eq!(s.active(), None);
+
+        // Clearing an armed empty preload keeps current intact.
+        s.set_current(Some(a));
+        s.set_pending_gapless(None);
+        s.clear_pending_gapless();
+        s.promote_gapless();
+        assert_eq!(s.active(), Some(a));
     }
 }

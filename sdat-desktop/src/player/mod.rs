@@ -583,20 +583,31 @@ fn commit_gapless(entry: &GaplessEntry) {
         GaplessSource::UserQueue => {
             let idx = user_queue()
                 .entries()
-                .with(|rows| rows.iter().position(|t| track_matches(t, &entry.track)));
+                .with(|rows| rows.iter().position(|t| t.info.streamable && track_matches(t, &entry.track)));
             let removed = idx.and_then(|idx| {
                 user_queue().edit(|rows| {
                     if idx >= rows.len() {
                         return None;
                     }
+                    let leading_unstreamable = rows[..idx].iter().take_while(|r| !r.track.info.streamable).count();
                     let row = rows.remove(idx);
-                    update_pinned(|p| play_next::after_remove(p, idx));
+                    if leading_unstreamable > 0 {
+                        rows.drain(..leading_unstreamable);
+                    }
+                    update_pinned(|p| play_next::after_skip(play_next::after_remove(p, idx), leading_unstreamable));
                     Some(row)
                 })
             });
             base_queue().select_history_occurrence(removed.as_ref().and_then(|r| r.occurrence.as_ref()));
         }
         GaplessSource::BaseQueue { rewound } => {
+            if user_queue().entries().with(|rows| rows.first().is_some_and(|t| !t.info.streamable)) {
+                user_queue().edit(|rows| {
+                    let leading_unstreamable = rows.iter().take_while(|r| !r.track.info.streamable).count();
+                    rows.drain(..leading_unstreamable);
+                    update_pinned(|p| play_next::after_skip(p, leading_unstreamable));
+                });
+            }
             let mut idx = base_queue()
                 .entries()
                 .with(|rows| rows.iter().position(|t| track_matches(t, &entry.track)));
@@ -1190,10 +1201,96 @@ mod playlist_tests {
 
         assert!(user_queue().is_empty(), "previous_now must not enqueue duplicates under RepeatMode::Track");
         assert_eq!(PLAY_NEXT_PINNED.with(Cell::get), 0);
+        // `HistoryQueue` holds the current track (`B`) as pending until another track starts;
+        // prepending `C` flushes `B` ahead of `A` so popping verifies both remained intact.
+        history().prepend(HistoryEntry::from(track("C", None)));
+        assert_eq!(history().pop().map(|e| e.track.id().to_string()).as_deref(), Some("B"));
         assert_eq!(history().pop().map(|e| e.track.id().to_string()).as_deref(), Some("A"));
         assert!(history().is_empty());
 
         set_repeat_mode(RepeatMode::None);
+        track_changed().set(None);
+    }
+
+    #[test]
+    fn gapless_commit_drops_leading_unstreamable_user_entries_and_updates_pinned() {
+        clear_queues();
+        set_repeat_mode(RepeatMode::None);
+
+        let mut unstreamable = track("A", None);
+        unstreamable.info.streamable = false;
+
+        // Both the skipped unstreamable head and the chosen streamable entry are pinned.
+        insert_tracklist_next(vec![unstreamable.clone(), track("B", None), track("C", None)]);
+        user_queue().append(track("D", None));
+        assert_eq!(PLAY_NEXT_PINNED.with(Cell::get), 3);
+
+        let armed = peek_gapless().unwrap();
+        assert_eq!(armed.track.id(), "B");
+        assert_eq!(armed.source, GaplessSource::UserQueue);
+
+        commit_gapless(&armed);
+        assert_eq!(
+            user_queue().entries().with(|v| v.iter().map(|t| t.id().to_string()).collect::<Vec<_>>()),
+            vec!["C", "D"],
+        );
+        assert_eq!(PLAY_NEXT_PINNED.with(Cell::get), 1);
+
+        // Only the leading unstreamable entry is pinned; the chosen streamable entry is appended.
+        clear_queues();
+        insert_tracklist_next(vec![unstreamable.clone()]);
+        user_queue().append(track("B", None));
+        user_queue().append(track("C", None));
+        assert_eq!(PLAY_NEXT_PINNED.with(Cell::get), 1);
+
+        let armed = peek_gapless().unwrap();
+        assert_eq!(armed.track.id(), "B");
+        assert_eq!(armed.source, GaplessSource::UserQueue);
+
+        commit_gapless(&armed);
+        assert_eq!(
+            user_queue().entries().with(|v| v.iter().map(|t| t.id().to_string()).collect::<Vec<_>>()),
+            vec!["C"],
+        );
+        assert_eq!(PLAY_NEXT_PINNED.with(Cell::get), 0);
+
+        // A streamable Play Next entry inserted before commit is preserved while the leading
+        // unstreamable entry and the armed track are both removed.
+        clear_queues();
+        insert_tracklist_next(vec![unstreamable.clone()]);
+        user_queue().append(track("B", None));
+        let armed = peek_gapless().unwrap();
+        assert_eq!(armed.track.id(), "B");
+        insert_tracklist_next(vec![track("X", None)]);
+        assert_eq!(PLAY_NEXT_PINNED.with(Cell::get), 2);
+
+        commit_gapless(&armed);
+        assert_eq!(
+            user_queue().entries().with(|v| v.iter().map(|t| t.id().to_string()).collect::<Vec<_>>()),
+            vec!["X"],
+        );
+        assert_eq!(PLAY_NEXT_PINNED.with(Cell::get), 1);
+
+        // When user_queue only has unstreamable entries, committing a base_queue gapless entry
+        // also drops the skipped unstreamable prefix and updates the pinned count.
+        clear_queues();
+        insert_tracklist_next(vec![unstreamable]);
+        base_queue().set(vec![track("B", None), track("C", None)]);
+        assert_eq!(PLAY_NEXT_PINNED.with(Cell::get), 1);
+
+        let armed = peek_gapless().unwrap();
+        assert_eq!(armed.track.id(), "B");
+        assert_eq!(armed.source, GaplessSource::BaseQueue { rewound: false });
+
+        commit_gapless(&armed);
+        assert!(user_queue().is_empty());
+        assert_eq!(PLAY_NEXT_PINNED.with(Cell::get), 0);
+        assert_eq!(
+            base_queue().entries().with(|v| v.iter().map(|t| t.id().to_string()).collect::<Vec<_>>()),
+            vec!["C"],
+        );
+
+        clear_queues();
         track_changed().set(None);
     }
 
