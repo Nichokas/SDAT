@@ -61,7 +61,7 @@ class Session(context: Context) : TokenStore {
         if (replacing) Handoff.accountChanged()
     }
 
-    /** Also the way out of a session TIDAL no longer accepts. Downloads never outlive the account, as on iOS. */
+    /** Also the way out of a session TIDAL no longer accepts. Downloads and cached tracks never outlive the account, as on iOS. */
     fun signOut() {
         Live.signOut()
         Handoff.stop()
@@ -69,6 +69,7 @@ class Session(context: Context) : TokenStore {
         Discover.reset()
         DiscoverCache.of(app).clear()
         Downloads.removeAll()
+        AudioCache.purge()
         prefs.edit { clear() }
         picture.value = null
         Favs.clear()
