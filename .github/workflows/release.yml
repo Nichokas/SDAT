@@ -150,7 +150,7 @@ jobs:
       tag: ${{ needs.bump.outputs.desktop }}
     secrets:
       SENTRY_DSN_DESKTOP: ${{ secrets.SENTRY_DSN_DESKTOP }}
-      # The publish-aur job gets the value from its deployment environment.
+      # Pass the name so publish-aur can use the key from its environment.
       AUR_SSH_KEY: ${{ secrets.AUR_SSH_KEY }}
 
   ios:

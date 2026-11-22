@@ -10,7 +10,7 @@ on:
       SENTRY_DSN_DESKTOP:
         required: false
       AUR_SSH_KEY:
-        required: true
+        required: false
   workflow_dispatch:
     inputs:
       tag:
