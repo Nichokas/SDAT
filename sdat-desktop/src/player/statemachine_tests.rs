@@ -840,6 +840,8 @@ fn gapless_lifecycle_hooks_coordinate_arm_promote_and_cancel() {
         assert_eq!(m.arm_gapless(manifest, 1.0).unwrap_err().to_string(), "set volume failed");
         assert!(m.gapless_entry().is_none());
         assert!(!m.has_armed_gapless());
+        // No next URI is left behind to play without its queue commit.
+        assert!(failing_pb.uri.borrow().is_empty());
         assert_eq!(GAPLESS_EVENTS.with(|e| e.borrow().clone()), ["arm:https://example.invalid/b", "cancel"]);
 
         // Stop cancels an armed gapless handoff once.

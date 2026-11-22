@@ -273,8 +273,10 @@ fn cancels_gapless(t: &Trigger) -> bool {
 }
 
 fn enqueue_playbin(playbin: &dyn Playbin, manifest: &TrackManifest, volume: f64) -> Result<()> {
+    // Volume first: a failure must not leave a next URI that plays without its queue commit.
+    playbin.set_volume(volume)?;
     playbin.set_uri(&manifest.url);
-    playbin.set_volume(volume)
+    Ok(())
 }
 
 async fn fetch_and_enqueue_track(playbin: &dyn Playbin, track_id: &str) -> Result<TrackManifest> {
