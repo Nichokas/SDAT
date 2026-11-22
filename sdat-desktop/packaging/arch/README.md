@@ -1,24 +1,15 @@
 # Publish sdat-bin to the AUR
 
-The Release workflow builds the x86_64 Arch binary for each desktop release.
-To build it for an existing release, run the **Desktop Arch Linux** workflow
-with its `desktop-vX.Y.Z` tag. The workflow attaches the archive to that release
-and keeps any previously uploaded copy so the AUR checksum stays valid.
+When you run **Release** with a desktop version bump, GitHub Actions builds the
+x86_64 Arch binary, attaches it to the GitHub release, and updates
+[`sdat-bin`](https://aur.archlinux.org/packages/sdat-bin) in the AUR. The AUR
+package downloads the release archive from GitHub.
 
-From the SDAT repository root on Arch Linux, download the release archive and
-generate the files in your AUR checkout. Set `version` to the desktop version
-you are publishing.
+To publish an existing desktop release, run **Desktop Arch Linux** from
+`main` and enter its `desktop-vX.Y.Z` tag. To retry a failed publication, use
+**Re-run failed jobs**. The workflow keeps the existing GitHub release archive
+and skips AUR updates for older versions.
 
-```sh
-version=2.3.0
-archive="sdat-desktop-$version-arch-x86_64.tar.zst"
-downloads=$(mktemp -d)
-aur_checkout=/path/to/sdat-bin
-gh release download "desktop-v$version" --pattern "$archive" --dir "$downloads"
-bash sdat-desktop/packaging/arch/make-pkgbuild.sh "$downloads/$archive" "$aur_checkout"
-cd "$aur_checkout"
-makepkg --printsrcinfo > .SRCINFO
-makepkg --syncdeps
-```
-
-Commit `PKGBUILD` and `.SRCINFO`, then push to the AUR's `master` branch.
+The publishing job uses the `AUR_SSH_KEY` secret in the `aur` GitHub Actions
+environment. Restrict the environment to deployments from `main` and use an
+SSH key registered to an AUR maintainer of `sdat-bin`.
