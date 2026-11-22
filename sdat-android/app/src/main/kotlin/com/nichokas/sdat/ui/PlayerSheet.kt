@@ -275,7 +275,7 @@ private fun Scrubber(playback: Playback, modifier: Modifier = Modifier) {
                 val digits = IosTypography.caption1.copy(fontFeatureSettings = "tnum")
                 Text(Fmt.time(displayed), style = digits, color = Color.White.copy(alpha = 0.6f))
                 Spacer(Modifier.weight(1f))
-                Text("-" + Fmt.time(playback.duration - displayed), style = digits, color = Color.White.copy(alpha = 0.6f))
+                Text("-" + Fmt.time(maxOf(0.0, playback.duration - displayed)), style = digits, color = Color.White.copy(alpha = 0.6f))
             }
         }
     }
