@@ -246,6 +246,12 @@ type ClickFn = Rc<dyn Fn(&Track, usize)>;
 type PlaceholderFn = Rc<dyn Fn(usize)>;
 type ReorderFn = Rc<dyn Fn(usize, usize, &Track)>;
 
+struct DragState {
+    source: usize,
+    target: usize,
+    track: Track,
+}
+
 struct Inner {
     columns: Vec<Col>,
     store: gio::ListStore,
@@ -253,9 +259,8 @@ struct Inner {
     click: RefCell<ClickFn>,
     reorder: RefCell<Option<ReorderFn>>,
     reorderable: State<bool>,
-    moving_source: Cell<i64>,
-    moving_target: Cell<i64>,
-    being_moved: RefCell<Option<Track>>,
+    drag: RefCell<Option<DragState>>,
+    list_rev: Cell<u64>,
     view: glib::WeakRef<gtk::ListView>,
     drop_target: RefCell<Option<gtk::DropTargetAsync>>,
     /// Rows after the tracks that stand for tracks not loaded yet.
@@ -311,9 +316,8 @@ impl TrackList {
             click: RefCell::new(Rc::new(|t: &Track, _| player::play_track(t.clone()))),
             reorder: RefCell::new(None),
             reorderable: State::new(false),
-            moving_source: Cell::new(-1),
-            moving_target: Cell::new(-1),
-            being_moved: RefCell::new(None),
+            drag: RefCell::new(None),
+            list_rev: Cell::new(0),
             view: view.downgrade(),
             drop_target: RefCell::new(None),
             placeholders: Cell::new(0),
@@ -389,8 +393,11 @@ impl TrackList {
     }
 
     pub fn add_track(&self, t: Track) {
-        self.0.tracks.borrow_mut().push(t);
-        self.0.store.append(&empty());
+        let i = &self.0;
+        clear_drag(i);
+        i.list_rev.set(i.list_rev.get().wrapping_add(1));
+        i.tracks.borrow_mut().push(t);
+        i.store.append(&empty());
     }
 
     /// Keeps the list in sync with `state` for the lifetime of the widget.
@@ -455,9 +462,79 @@ impl TrackList {
 }
 
 fn clear_drag(i: &Inner) {
-    i.being_moved.borrow_mut().take();
-    i.moving_source.set(-1);
-    i.moving_target.set(-1);
+    i.drag.borrow_mut().take();
+}
+
+fn start_drag(i: &Inner, pos: usize) -> bool {
+    let Some(track) = i.tracks.borrow().get(pos).cloned() else {
+        return false;
+    };
+    *i.drag.borrow_mut() = Some(DragState { source: pos, target: pos, track });
+    true
+}
+
+/// Moves the row at `from` to `to` in both `tracks` and `store`.
+/// Never inserts without removing the expected row first, and aborts if a
+/// re-entrant list mutation occurs while the store removes `from`.
+fn move_row(i: &Inner, from: usize, to: usize, expected_id: &str) -> Option<usize> {
+    let rev = i.list_rev.get();
+    let removed = {
+        let mut tracks = i.tracks.borrow_mut();
+        if i.store.n_items() as usize != tracks.len() + i.placeholders.get()
+            || tracks.get(from).is_none_or(|t| t.id() != expected_id)
+        {
+            return None;
+        }
+        tracks.remove(from)
+    };
+    // Never hold the tracks borrow while touching the store (items-changed re-enters bind()).
+    i.store.remove(from as u32);
+    if i.list_rev.get() != rev {
+        return None;
+    }
+    let dst = {
+        let mut tracks = i.tracks.borrow_mut();
+        let dst = to.min(tracks.len());
+        tracks.insert(dst, removed);
+        dst
+    };
+    i.store.insert(dst as u32, &empty());
+    Some(dst)
+}
+
+fn move_drag(i: &Inner, dst: usize) -> bool {
+    let Some((cur, expected_id)) = i.drag.borrow().as_ref().map(|d| (d.target, d.track.id().to_owned())) else {
+        return false;
+    };
+    if dst == cur {
+        return true;
+    }
+    if dst >= i.tracks.borrow().len() {
+        return false;
+    }
+    let Some(new_pos) = move_row(i, cur, dst, &expected_id) else {
+        clear_drag(i);
+        return false;
+    };
+    if let Some(drag) = i.drag.borrow_mut().as_mut() {
+        drag.target = new_pos;
+        true
+    } else {
+        false
+    }
+}
+
+fn cancel_drag(i: &Inner) {
+    let Some(drag) = i.drag.borrow_mut().take() else {
+        return;
+    };
+    if drag.source != drag.target {
+        let _ = move_row(i, drag.target, drag.source, drag.track.id());
+    }
+}
+
+fn finish_drag(i: &Inner) -> Option<DragState> {
+    i.drag.borrow_mut().take()
 }
 
 /// Diffs `new` into the store. The `RefCell` is never borrowed while the store
@@ -465,6 +542,7 @@ fn clear_drag(i: &Inner) {
 /// (and other handlers) that borrow `tracks` again.
 fn sync(i: &Inner, new: &[Track]) {
     clear_drag(i);
+    i.list_rev.set(i.list_rev.get().wrapping_add(1));
     let old = std::mem::replace(&mut *i.tracks.borrow_mut(), new.to_vec());
     for (idx, op) in diff_ops(&old, new) {
         match op {
@@ -637,13 +715,10 @@ fn setup(i: &Inner, w: &Weak<Inner>, item: &gtk::ListItem) {
             let (w1, li1) = (Rc::downgrade(&inner), item.downgrade());
             ds.connect_prepare(move |_, _, _| {
                 let (i, item) = (w1.upgrade()?, li1.upgrade()?);
-                let p = i64::from(item.position());
-                if p as usize >= i.tracks.borrow().len() {
+                let pos = item.position();
+                if pos == gtk::INVALID_LIST_POSITION || !start_drag(&i, pos as usize) {
                     return None; // placeholder rows can't be dragged
                 }
-                i.moving_source.set(p);
-                i.moving_target.set(p);
-                *i.being_moved.borrow_mut() = i.tracks.borrow().get(p as usize).cloned();
                 // The token identifies this list; drops from other lists are rejected.
                 Some(gdk::ContentProvider::for_bytes(DRAG_MIME, &glib::Bytes::from_static(b"track")))
             });
@@ -660,31 +735,16 @@ fn setup(i: &Inner, w: &Weak<Inner>, item: &gtk::ListItem) {
             });
             let w2 = Rc::downgrade(&inner);
             ds.connect_drag_cancel(move |_, _, _| {
-                let Some(i) = w2.upgrade() else { return true };
-                let (s, t) = (i.moving_source.get(), i.moving_target.get());
-                let Some(tr) = i.being_moved.borrow_mut().take() else {
-                    return true;
-                };
-                i.moving_source.set(-1);
-                i.moving_target.set(-1);
-                if s >= 0 && t >= 0 && s != t {
-                    // Never hold the borrow while touching the store (items-changed re-enters bind()).
-                    let removed = {
-                        let mut tracks = i.tracks.borrow_mut();
-                        ((t as usize) < tracks.len()).then(|| tracks.remove(t as usize)).is_some()
-                    };
-                    if removed {
-                        i.store.remove(t as u32);
-                    }
-                    let s = {
-                        let mut tracks = i.tracks.borrow_mut();
-                        let s = (s as usize).min(tracks.len());
-                        tracks.insert(s, tr);
-                        s
-                    };
-                    i.store.insert(s as u32, &empty());
+                if let Some(i) = w2.upgrade() {
+                    cancel_drag(&i);
                 }
                 true
+            });
+            let w3 = Rc::downgrade(&inner);
+            ds.connect_drag_end(move |_, _, _| {
+                if let Some(i) = w3.upgrade() {
+                    cancel_drag(&i);
+                }
             });
             container.add_controller(ds.clone());
             *src = Some(ds);
@@ -702,36 +762,13 @@ fn toggle_drop_target(i: &Inner, w: &Weak<Inner>, on: bool) {
         let target = gtk::DropTargetAsync::new(Some(gdk::ContentFormats::new(&[DRAG_MIME])), gdk::DragAction::MOVE);
         let w0 = Weak::clone(w);
         // Only this list's own drags carry a track being moved.
-        target.connect_accept(move |_, _| w0.upgrade().is_some_and(|i| i.being_moved.borrow().is_some()));
+        target.connect_accept(move |_, _| w0.upgrade().is_some_and(|i| i.drag.borrow().is_some()));
         let w1 = Weak::clone(w);
         target.connect_drag_motion(move |_, _, _, y| {
             let Some(i) = w1.upgrade() else { return gdk::DragAction::empty() };
-            let Some(tr) = i.being_moved.borrow().clone() else { return gdk::DragAction::empty() };
             let h = i.view.upgrade().and_then(|v| v.first_child()).map_or(1, |c| c.height()).max(1);
-            let idx = (y / f64::from(h)).floor().max(0.0) as i64;
-            if idx != i.moving_target.get() {
-                if idx as usize >= i.tracks.borrow().len() {
-                    return gdk::DragAction::empty();
-                }
-                let cur = i.moving_target.get();
-                // Mutate the Vec in short borrows; the store is touched with no borrow held.
-                let removed = {
-                    let mut tracks = i.tracks.borrow_mut();
-                    (cur >= 0 && (cur as usize) < tracks.len()).then(|| tracks.remove(cur as usize)).is_some()
-                };
-                if removed {
-                    i.store.remove(cur as u32);
-                }
-                let idx = {
-                    let mut tracks = i.tracks.borrow_mut();
-                    let idx = (idx as usize).min(tracks.len());
-                    tracks.insert(idx, tr);
-                    idx
-                };
-                i.store.insert(idx as u32, &empty());
-                i.moving_target.set(idx as i64);
-            }
-            gdk::DragAction::MOVE
+            let idx = (y / f64::from(h)).floor().max(0.0) as usize;
+            if move_drag(&i, idx) { gdk::DragAction::MOVE } else { gdk::DragAction::empty() }
         });
         let w2 = Weak::clone(w);
         target.connect_drop(move |_, drop, _, _| {
@@ -739,21 +776,13 @@ fn toggle_drop_target(i: &Inner, w: &Weak<Inner>, on: bool) {
                 drop.finish(gdk::DragAction::empty());
                 return false;
             };
-            let (s, t) = (i.moving_source.get(), i.moving_target.get());
-            let tr = i.being_moved.borrow_mut().take();
-            i.moving_source.set(-1);
-            i.moving_target.set(-1);
-            let Some(tr) = tr else {
+            let Some(drag) = finish_drag(&i) else {
                 drop.finish(gdk::DragAction::empty());
                 return false;
             };
             drop.finish(gdk::DragAction::MOVE);
-            let cb = i.reorder.borrow().clone();
-            if let Some(cb) = cb
-                && s >= 0
-                && t >= 0
-            {
-                cb(s as usize, t as usize, &tr);
+            if let Some(cb) = i.reorder.borrow().clone() {
+                cb(drag.source, drag.target, &drag.track);
             }
             true
         });
@@ -761,11 +790,13 @@ fn toggle_drop_target(i: &Inner, w: &Weak<Inner>, on: bool) {
             v.add_controller(target.clone());
         }
         *dt = Some(target);
-    } else if !on
-        && let Some(t) = dt.take()
-        && let Some(v) = i.view.upgrade()
-    {
-        v.remove_controller(&t);
+    } else if !on {
+        cancel_drag(i);
+        if let Some(t) = dt.take()
+            && let Some(v) = i.view.upgrade()
+        {
+            v.remove_controller(&t);
+        }
     }
 }
 

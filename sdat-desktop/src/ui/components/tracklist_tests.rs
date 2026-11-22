@@ -123,11 +123,9 @@ fn shifted_rows_update_live_positions_and_sync_cancels_drag() {
         assert_eq!(recorded.borrow().get("b").and_then(|p| p.get()), Some(1));
         assert_eq!(recorded.borrow().get("c").and_then(|p| p.get()), Some(2));
 
-        // Simulate drag_motion moving row 2 ("c") to row 0 without re-binding "a" or "b".
-        let moved = list.0.tracks.borrow_mut().remove(2);
-        list.0.store.remove(2);
-        list.0.tracks.borrow_mut().insert(0, moved);
-        list.0.store.insert(0, &empty());
+        // Drag row 2 ("c") to row 0 without re-binding "a" or "b".
+        assert!(start_drag(&list.0, 2));
+        assert!(move_drag(&list.0, 0));
         while ctx.iteration(false) {}
 
         let mut after_labels = Vec::new();
@@ -138,13 +136,100 @@ fn shifted_rows_update_live_positions_and_sync_cancels_drag() {
         assert_eq!(recorded.borrow().get("b").and_then(|p| p.get()), Some(2));
 
         // External sync during an active drag clears in-flight drag state.
-        list.0.moving_source.set(2);
-        list.0.moving_target.set(0);
-        *list.0.being_moved.borrow_mut() = Some(make("c"));
         list.replace_all(&[make("a"), make("b")]);
-        assert!(list.0.being_moved.borrow().is_none());
-        assert_eq!(list.0.moving_source.get(), -1);
-        assert_eq!(list.0.moving_target.get(), -1);
+        assert!(list.0.drag.borrow().is_none());
+        win.close();
+        while ctx.iteration(false) {}
+    });
+}
+
+#[test]
+fn drag_cancel_never_duplicates_or_corrupts_tracks() {
+    run_gtk_test(|| {
+        let make = |id: &str| {
+            let mut t = Track::default();
+            t.info.id = id.into();
+            t
+        };
+        let ids = |list: &TrackList| -> Vec<String> {
+            list.tracks().into_iter().map(|t| t.id().to_owned()).collect()
+        };
+        let list = TrackList::new(vec![Col::position(), Col::title()]);
+        list.set_reorder_callback(Some(Box::new(|_, _, _| {})));
+        let win = gtk::Window::new();
+        win.set_default_size(400, 400);
+        win.set_child(Some(list.widget()));
+        win.present();
+        let ctx = glib::MainContext::default();
+
+        // 1. Drag start -> immediate cancel (before any motion): zero duplicates.
+        list.replace_all(&[make("a"), make("b"), make("c")]);
+        while ctx.iteration(false) {}
+        assert!(start_drag(&list.0, 1));
+        cancel_drag(&list.0);
+        while ctx.iteration(false) {}
+        assert_eq!(ids(&list), ["a", "b", "c"]);
+        assert_eq!(list.0.store.n_items(), 3);
+        assert!(list.0.drag.borrow().is_none());
+
+        // 2. Drag start -> motion -> cancel: exact original order restored, zero duplicates.
+        assert!(start_drag(&list.0, 2));
+        assert!(move_drag(&list.0, 0));
+        assert_eq!(ids(&list), ["c", "a", "b"]);
+        assert_eq!(list.0.store.n_items(), 3);
+        cancel_drag(&list.0);
+        // A follow-up drag_end/cancel is a no-op.
+        cancel_drag(&list.0);
+        while ctx.iteration(false) {}
+        assert_eq!(ids(&list), ["a", "b", "c"]);
+        assert_eq!(list.0.store.n_items(), 3);
+        assert!(list.0.drag.borrow().is_none());
+
+        // 3. Drag start (before motion) -> sync arrives mid-drag -> cancel: synced list intact.
+        assert!(start_drag(&list.0, 0));
+        list.replace_all(&[make("x"), make("y")]);
+        cancel_drag(&list.0);
+        while ctx.iteration(false) {}
+        assert_eq!(ids(&list), ["x", "y"]);
+        assert_eq!(list.0.store.n_items(), 2);
+        assert!(list.0.drag.borrow().is_none());
+
+        // 4. Drag start -> motion -> sync arrives mid-drag -> cancel: synced list intact.
+        list.replace_all(&[make("a"), make("b"), make("c")]);
+        assert!(start_drag(&list.0, 2));
+        assert!(move_drag(&list.0, 0));
+        list.replace_all(&[make("a"), make("b")]);
+        cancel_drag(&list.0);
+        while ctx.iteration(false) {}
+        assert_eq!(ids(&list), ["a", "b"]);
+        assert_eq!(list.0.store.n_items(), 2);
+        assert!(list.0.drag.borrow().is_none());
+
+        // 5. Diverged drag state (target out of bounds or mismatched track): never inserts without removing.
+        *list.0.drag.borrow_mut() = Some(DragState { source: 0, target: 5, track: make("a") });
+        cancel_drag(&list.0);
+        assert_eq!(ids(&list), ["a", "b"]);
+        assert_eq!(list.0.store.n_items(), 2);
+
+        *list.0.drag.borrow_mut() = Some(DragState { source: 0, target: 1, track: make("a") });
+        cancel_drag(&list.0);
+        assert_eq!(ids(&list), ["a", "b"]);
+        assert_eq!(list.0.store.n_items(), 2);
+
+        // 6. Placeholders stay intact across drag motion + cancel and cannot be dragged.
+        list.set_placeholders(2);
+        assert_eq!(list.0.store.n_items(), 4);
+        assert!(!start_drag(&list.0, 2));
+        assert!(start_drag(&list.0, 1));
+        assert!(move_drag(&list.0, 0));
+        assert!(!move_drag(&list.0, 2));
+        assert_eq!(ids(&list), ["b", "a"]);
+        assert_eq!(list.0.store.n_items(), 4);
+        cancel_drag(&list.0);
+        while ctx.iteration(false) {}
+        assert_eq!(ids(&list), ["a", "b"]);
+        assert_eq!(list.0.store.n_items(), 4);
+
         win.close();
         while ctx.iteration(false) {}
     });
