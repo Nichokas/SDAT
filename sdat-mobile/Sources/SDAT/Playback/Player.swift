@@ -1,6 +1,7 @@
 import AVFoundation
 import Combine
 import MediaPlayer
+import Network
 import Observation
 import UIKit
 
@@ -65,6 +66,9 @@ final class Player: LivePlaybackPort {
     private var preloadTask: Task<Void, Never>?
     @ObservationIgnored private var advanceTask: Task<Void, Never>?
     private var preloaded: (trackId: String, item: AVPlayerItem, source: Source)?
+    /// The track being fetched into the audio cache: one at a time.
+    @ObservationIgnored private var filling: String?
+    private let network = NWPathMonitor()
     /// The engine item of `current`: ends of other items are stale.
     @ObservationIgnored private var playingItem: AVPlayerItem? {
         didSet { if playingItem !== oldValue { watchFailure(playingItem) } }
@@ -81,6 +85,7 @@ final class Player: LivePlaybackPort {
         avPlayer.actionAtItemEnd = .advance
         configureSession()
         configureRemote()
+        network.start(queue: .main)
         Task { await restore() }
         timeObserver = avPlayer.addPeriodicTimeObserver(
             forInterval: CMTime(seconds: 0.25, preferredTimescale: 600), queue: .main
@@ -406,6 +411,7 @@ final class Player: LivePlaybackPort {
         advanceTask?.cancel(); advanceTask = nil
         cancelRefill()
         clearPreload()
+        cancelFill()
         infinite = nil
         restoredInfinite = false
         discoverWait &+= 1
@@ -635,6 +641,8 @@ final class Player: LivePlaybackPort {
         playingItem = nil
         advanceTask?.cancel(); advanceTask = nil
         clearPreload()
+        // Its stream would compete with the fill for the same bytes.
+        if filling == track.id { cancelFill() }
         loadTask?.cancel()
         loadTask = Task {
             do {
@@ -790,13 +798,22 @@ final class Player: LivePlaybackPort {
         return Source(stream: s, origin: .network)
     }
 
-    /// Prepares the next track's AVPlayerItem behind the current one (gapless-ish start).
+    /// Prepares the next track's AVPlayerItem behind the current one (gapless-ish start). With the audio cache on,
+    /// the next track is first fetched into the cache and plays from disk; a fill that has not landed when
+    /// `fillDeadline` seconds of the current track remain gives way to the stream.
     private func schedulePreload() {
         preloadTask?.cancel(); preloadTask = nil
         guard !liveEngine.liveFollowing, Preferences.shared.preloadNext, repeatMode != .one,
               let (next, _, _) = following(), let cur = current else { return }
         let started = starts
         preloadTask = Task {
+            if Self.caching, Self.local(next.id) == nil {
+                if duration - position > Self.fillDeadline { fill(next) }
+                while !Task.isCancelled, filling == next.id, duration - position > Self.fillDeadline {
+                    try? await Task.sleep(for: .milliseconds(500))
+                }
+                if !Task.isCancelled, filling == next.id { cancelFill() }
+            }
             guard let s = try? await Self.source(next.id),
                   !Task.isCancelled, !liveEngine.liveFollowing, starts == started,
                   current?.id == cur.id, let url = URL(string: s.stream.url),
@@ -805,7 +822,39 @@ final class Player: LivePlaybackPort {
             guard avPlayer.canInsert(item, after: curItem) else { return }
             avPlayer.insert(item, after: curItem)
             preloaded = (next.id, item, s)
+            if s.origin != .network { fillCold(cur) }
         }
+    }
+
+    private static var caching: Bool { Preferences.shared.audioCacheLimit > 0 }
+    private static let fillDeadline: Double = 20
+
+    /// A new fill stops the one running.
+    private func fill(_ t: Track) {
+        guard filling != t.id else { return }
+        cancelFill()
+        filling = t.id
+        let quality = Preferences.shared.streamingQuality
+        Task {
+            _ = try? await audioCacheFill(track: t, quality: quality)
+            if filling == t.id { filling = nil }
+            AudioCache.shared.refresh()
+        }
+    }
+
+    private func cancelFill() {
+        if let id = filling { audioCacheCancel(trackId: id) }
+        filling = nil
+    }
+
+    /// The streamed current track goes into the cache for its next play once the next track is local. Its bytes
+    /// come down a second time, so only on a link that costs no mobile data, unless downloads may use cellular.
+    private func fillCold(_ t: Track) {
+        let path = network.currentPath
+        let unmetered = path.status == .satisfied && !path.isExpensive && !path.isConstrained
+        guard Self.caching, filling == nil, current?.id == t.id, origin == .network,
+              unmetered || Preferences.shared.downloadOverCellular else { return }
+        fill(t)
     }
 
     private func clearPreload() {
