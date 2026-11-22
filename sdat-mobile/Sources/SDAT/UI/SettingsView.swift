@@ -111,7 +111,7 @@ struct SettingsView: View {
             Button("Erase everything", role: .destructive) { session.eraseAll() }
         } message: { Text("This cannot be undone.") }
         .confirmationDialog("Clear the cache?", isPresented: $confirmClearCache, titleVisibility: .visible) {
-            Button("Clear \(Fmt.cacheBytes(cache.usage.bytes))", role: .destructive) { cache.purge() }
+            Button("Clear \(Fmt.cacheBytes(cache.usage.bytes))", role: .destructive) { cache.purge(keepPlaying: true) }
         } message: { Text("Downloads stay.") }
         .confirmationDialog("Log out of TIDAL?", isPresented: $confirmLogout, titleVisibility: .visible) {
             Button("Log out", role: .destructive) { session.logOut() }

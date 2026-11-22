@@ -35,8 +35,9 @@ final class AudioCache {
         refresh()
     }
 
-    func purge() {
-        audioCachePurge()
+    /// `keepPlaying` for Clear Cache; false once playback stopped, as at sign-out.
+    func purge(keepPlaying: Bool) {
+        audioCachePurge(keepPlaying: keepPlaying)
         refresh()
     }
 }
