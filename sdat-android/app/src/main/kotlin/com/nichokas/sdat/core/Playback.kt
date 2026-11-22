@@ -22,6 +22,7 @@ import com.google.common.util.concurrent.Futures
 import com.google.common.util.concurrent.ListenableFuture
 import com.nichokas.sdat.ui.TrackPlayer
 import kotlin.coroutines.cancellation.CancellationException
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Deferred
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.async
@@ -84,8 +85,7 @@ class Playback(context: Context, private val prefs: Preferences, secrets: Secret
         override fun followingChanged() = syncPreload()
     }, scope, SystemClock::uptimeMillis)
     private var request: Job? = null
-    private var waitJob: Job? = null
-    private var handoffLimit = 0L
+    private val pendingWait = AdvanceWait()
     private val queue = PlayQueue<Track> { it.id }
     private var infinite: Shuffle? = null
     private var refilling: Deferred<Boolean>? = null
@@ -534,12 +534,11 @@ class Playback(context: Context, private val prefs: Preferences, secrets: Secret
             player.stop()
             player.playWhenReady = true
         }
-        val limit = if (waitJob?.isActive == true) handoffLimit else (SystemClock.elapsedRealtime() + HANDOFF_WAIT_MS).also { handoffLimit = it }
-        waitJob?.cancel()
-        val job = scope.launch {
+        pendingWait.launchOrJoin(scope, auto) {
             // A handoff's own tracks come first, when they are still on their way, and a Discover queue waits for
             // its source. A track to play ends the wait, and so does another start. The tracks have a limit, for an
             // answer of the core that never comes; the source is asked for until it comes.
+            val limit = SystemClock.elapsedRealtime() + HANDOFF_WAIT_MS
             // Handed over, or added with Play Next meanwhile.
             val queued = { queue.upNext.isNotEmpty() || queue.userQueue.isNotEmpty() }
             while (track === from && entry == entryBefore && !queued()) {
@@ -549,25 +548,25 @@ class Playback(context: Context, private val prefs: Preferences, secrets: Secret
                 delay(100)
             }
             // A track picked during the wait owns playback now: its queue is not this one's to refill.
-            if (track !== from || entry != entryBefore) return@launch
+            if (track !== from || entry != entryBefore) return@launchOrJoin
             // Once the handoff wait settles without upcoming tracks, stop waiting on later skips or repeats.
-            if (!queued() && awaitingUpNext) resumedBase = null
+            val timedOut = !queued() && awaitingUpNext
+            if (timedOut) resumedBase = null
             if (!queued()) infinite?.let { fetchMore(it) }
             // A track picked during the fetch owns playback now; a source replaced meanwhile had nothing more.
-            if (track !== from || entry != entryBefore) return@launch
+            if (track !== from || entry != entryBefore) return@launchOrJoin
             fetching = false
+            val finalAuto = pendingWait.auto
             // A Replay tapped during the fetch wins; that track's next end advances again.
-            if (auto && player.playbackState != Player.STATE_ENDED) return@launch
-            if (waitJob === coroutineContext.job) waitJob = null
-            when (postWaitAction(auto = auto, hasNext = queued(), repeat = queue.repeat)) {
-                PostWait.Advance -> advance(auto, play = player.playWhenReady)
+            if (finalAuto && player.playbackState != Player.STATE_ENDED) return@launchOrJoin
+            pendingWait.clear(coroutineContext.job)
+            when (postWaitAction(auto = finalAuto, hasNext = queued(), repeat = queue.repeat, timedOut = timedOut)) {
+                PostWait.Advance -> advance(finalAuto, play = player.playWhenReady)
                 PostWait.StopAtEnd -> stopAtEnd()
                 // The skip found nothing; the player may hold a stale item, so the track is loaded again, paused.
                 PostWait.RestartPaused -> from?.let { start(it, play = false) }
             }
         }
-        waitJob = job
-        job.invokeOnCompletion { if (waitJob === job) waitJob = null }
     }
 
     /** End of a finite queue: rewound and paused, and saved that way. Playing it again counts as a new listen. */
@@ -644,7 +643,7 @@ class Playback(context: Context, private val prefs: Preferences, secrets: Secret
     private fun start(t: Track, play: Boolean = true, resumeAt: Double = 0.0, online: Boolean = false) {
         entry++
         request?.cancel()
-        waitJob?.cancel()
+        pendingWait.cancel()
         liveEngine.cancelLive()
         dropPreload()
         // Following a playing host: start only with a healthy buffer and on time, so nothing needs correcting after.
@@ -828,7 +827,7 @@ class Playback(context: Context, private val prefs: Preferences, secrets: Secret
             Tap.Retry -> start(t, resumeAt = position)
             Tap.Replay -> {
                 // The ended item plays again with no fetch; a refill still loading gives way to it.
-                waitJob?.cancel()
+                pendingWait.cancel()
                 fetching = false
                 entry++
                 listen = newListen(t)
@@ -848,7 +847,7 @@ class Playback(context: Context, private val prefs: Preferences, secrets: Secret
         restore.cancel()
         restoring = false
         request?.cancel()
-        waitJob?.cancel()
+        pendingWait.cancel()
         resumedBase = null
         // Mixes still on their way are this account's, not the next one's.
         mixesJob?.cancel()
@@ -943,10 +942,45 @@ internal fun advanceAction(
     else -> Advance.Stop
 }
 
+internal class AdvanceWait {
+    private var job: Job? = null
+    var auto = false
+        private set
+
+    val active get() = job?.isActive == true
+
+    /** Reuses an active wait (upgrading auto to manual on a skip) or starts a new one. */
+    fun launchOrJoin(scope: CoroutineScope, auto: Boolean, block: suspend CoroutineScope.() -> Unit) {
+        if (job?.isActive == true) {
+            this.auto = this.auto && auto
+            return
+        }
+        this.auto = auto
+        val launched = scope.launch {
+            try {
+                block()
+            } finally {
+                clear(coroutineContext.job)
+            }
+        }
+        job = launched
+        launched.invokeOnCompletion { clear(launched) }
+    }
+
+    fun clear(current: Job) {
+        if (job === current) job = null
+    }
+
+    fun cancel() {
+        job?.cancel()
+        job = null
+    }
+}
+
 internal enum class PostWait { Advance, StopAtEnd, RestartPaused }
 
-internal fun postWaitAction(auto: Boolean, hasNext: Boolean, repeat: Repeat): PostWait = when {
-    hasNext || repeat == Repeat.All || (auto && repeat == Repeat.One) -> PostWait.Advance
+internal fun postWaitAction(auto: Boolean, hasNext: Boolean, repeat: Repeat, timedOut: Boolean): PostWait = when {
+    hasNext || (!timedOut && repeat == Repeat.All) || (auto && repeat == Repeat.One) -> PostWait.Advance
     auto -> PostWait.StopAtEnd
     else -> PostWait.RestartPaused
 }

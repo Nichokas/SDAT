@@ -1,6 +1,10 @@
 package com.nichokas.sdat.core
 
 import androidx.media3.common.Player
+import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.job
+import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.yield
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
@@ -181,14 +185,94 @@ class PlaybackTest {
     }
 
     @Test fun postWaitRestartsPausedOnEmptyManualSkipAndAdvancesWhenQueuedOrRepeating() {
-        assertEquals(PostWait.RestartPaused, postWaitAction(auto = false, hasNext = false, repeat = Repeat.Off))
-        assertEquals(PostWait.RestartPaused, postWaitAction(auto = false, hasNext = false, repeat = Repeat.One))
-        assertEquals(PostWait.Advance, postWaitAction(auto = false, hasNext = false, repeat = Repeat.All))
-        assertEquals(PostWait.Advance, postWaitAction(auto = false, hasNext = true, repeat = Repeat.Off))
-        assertEquals(PostWait.Advance, postWaitAction(auto = false, hasNext = true, repeat = Repeat.One))
-        assertEquals(PostWait.StopAtEnd, postWaitAction(auto = true, hasNext = false, repeat = Repeat.Off))
-        assertEquals(PostWait.Advance, postWaitAction(auto = true, hasNext = false, repeat = Repeat.All))
-        assertEquals(PostWait.Advance, postWaitAction(auto = true, hasNext = false, repeat = Repeat.One))
-        assertEquals(PostWait.Advance, postWaitAction(auto = true, hasNext = true, repeat = Repeat.Off))
+        assertEquals(PostWait.RestartPaused, postWaitAction(auto = false, hasNext = false, repeat = Repeat.Off, timedOut = false))
+        assertEquals(PostWait.RestartPaused, postWaitAction(auto = false, hasNext = false, repeat = Repeat.One, timedOut = false))
+        assertEquals(PostWait.Advance, postWaitAction(auto = false, hasNext = false, repeat = Repeat.All, timedOut = false))
+        assertEquals(PostWait.Advance, postWaitAction(auto = false, hasNext = true, repeat = Repeat.Off, timedOut = false))
+        assertEquals(PostWait.Advance, postWaitAction(auto = false, hasNext = true, repeat = Repeat.One, timedOut = false))
+        assertEquals(PostWait.StopAtEnd, postWaitAction(auto = true, hasNext = false, repeat = Repeat.Off, timedOut = false))
+        assertEquals(PostWait.Advance, postWaitAction(auto = true, hasNext = false, repeat = Repeat.All, timedOut = false))
+        assertEquals(PostWait.Advance, postWaitAction(auto = true, hasNext = false, repeat = Repeat.One, timedOut = false))
+        assertEquals(PostWait.Advance, postWaitAction(auto = true, hasNext = true, repeat = Repeat.Off, timedOut = false))
+    }
+
+    @Test fun postWaitDoesNotLoopRepeatAllAfterHandoffTimeout() {
+        assertEquals(PostWait.StopAtEnd, postWaitAction(auto = true, hasNext = false, repeat = Repeat.All, timedOut = true))
+        assertEquals(PostWait.RestartPaused, postWaitAction(auto = false, hasNext = false, repeat = Repeat.All, timedOut = true))
+        assertEquals(PostWait.Advance, postWaitAction(auto = true, hasNext = true, repeat = Repeat.All, timedOut = true))
+        assertEquals(PostWait.Advance, postWaitAction(auto = false, hasNext = true, repeat = Repeat.All, timedOut = true))
+        assertEquals(PostWait.Advance, postWaitAction(auto = true, hasNext = false, repeat = Repeat.One, timedOut = true))
+        assertEquals(PostWait.RestartPaused, postWaitAction(auto = false, hasNext = false, repeat = Repeat.One, timedOut = true))
+    }
+
+    @Test fun followUpSkipKeepsActiveWaitAndUpgradesAutoToManual() = runBlocking {
+        val wait = AdvanceWait()
+        val gate = CompletableDeferred<Unit>()
+        var launches = 0
+        var cancelled = false
+        var observedAuto: Boolean? = null
+
+        wait.launchOrJoin(this, auto = true) {
+            launches++
+            try {
+                gate.await()
+                observedAuto = wait.auto
+                wait.clear(coroutineContext.job)
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                cancelled = true
+                throw e
+            }
+        }
+        yield()
+        assertTrue(wait.active)
+        assertTrue(wait.auto)
+
+        wait.launchOrJoin(this, auto = false) {
+            launches++
+        }
+        yield()
+        assertEquals(1, launches)
+        assertFalse(cancelled)
+        assertTrue(wait.active)
+        assertFalse(wait.auto)
+
+        gate.complete(Unit)
+        yield()
+        assertFalse(wait.active)
+        assertEquals(false, observedAuto)
+
+        wait.launchOrJoin(this, auto = true) {
+            launches++
+        }
+        yield()
+        assertEquals(2, launches)
+        assertTrue(wait.auto)
+        assertFalse(wait.active)
+    }
+
+    @Test fun cancelledWaitDoesNotClearAReplacementWait() = runBlocking {
+        val wait = AdvanceWait()
+        val firstGate = CompletableDeferred<Unit>()
+        val secondGate = CompletableDeferred<Unit>()
+
+        wait.launchOrJoin(this, auto = false) {
+            firstGate.await()
+        }
+        yield()
+        assertTrue(wait.active)
+
+        wait.cancel()
+        assertFalse(wait.active)
+
+        wait.launchOrJoin(this, auto = true) {
+            secondGate.await()
+        }
+        yield()
+        assertTrue(wait.active)
+        assertTrue(wait.auto)
+
+        secondGate.complete(Unit)
+        yield()
+        assertFalse(wait.active)
     }
 }
