@@ -446,6 +446,11 @@ fn track_timeline() -> gtk::Overlay {
                             shown_secs.set(Some(secs));
                         }
                     }
+                    // Polls stopped: the clock is capped, so stop ticking until the next sync restarts it.
+                    if state.at.is_some_and(|at| now.saturating_duration_since(at) >= TimelineClock::MAX_EXTRAPOLATION) {
+                        tick.set(None);
+                        return glib::ControlFlow::Break;
+                    }
                     glib::ControlFlow::Continue
                 })
             });
