@@ -418,7 +418,8 @@ fn track_timeline() -> gtk::Overlay {
             }
             return;
         };
-        if !scale.has_css_class("dragging") {
+        // A stop (zero duration) resets even mid-drag: no later update would move the thumb back.
+        if ps.duration.is_zero() || !scale.has_css_class("dragging") {
             scale.set_value(state.percent_at(now));
         }
         if advancing {
