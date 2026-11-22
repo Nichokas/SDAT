@@ -28,7 +28,8 @@ import uniffi.tonearm_ffi.audioCacheUsage
 object AudioCache {
     private lateinit var prefs: Preferences
     private val scope = MainScope()
-    // The calls touch the disk. One at a time, in call order, so the listing published last is the newest.
+    // The calls touch the disk. One at a time, in call order, so the listing published last is the newest. A fill is
+    // not one of them: it runs for minutes on the core's own thread, and the core orders it against the others.
     private val io = Dispatchers.IO.limitedParallelism(1)
 
     /** Most recently played first. */
@@ -58,8 +59,7 @@ object AudioCache {
 
     fun remove(id: String) = update { audioCacheRemove(id) }
 
-    /** Also stops the running fills. */
-    /** [keepPlaying] for Clear Cache; false once playback stopped, as at sign-out. */
+    /** Also stops the running fills. [keepPlaying] for Clear Cache; false once playback stopped, as at sign-out. */
     fun purge(keepPlaying: Boolean) = update { audioCachePurge(keepPlaying) }
 
     fun cancel(id: String) = audioCacheCancel(id)

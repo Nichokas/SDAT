@@ -774,7 +774,10 @@ class Playback(context: Context, private val prefs: Preferences, secrets: Secret
                 throw e
             } catch (_: Exception) {
                 // The next sync tries this track again.
-                if (isActive) preloading = null
+                if (isActive) {
+                    preloading = null
+                    syncReplay()
+                }
                 return@launch
             }
             // Dropped while the stream call returned: the player no longer expects this item.
@@ -799,7 +802,7 @@ class Playback(context: Context, private val prefs: Preferences, secrets: Secret
     private fun syncReplay() {
         val t = track ?: return
         val nextPending = { preloading != null && preloaded == null }
-        if (replay != null || nextPending() || origin != Origin.NETWORK || !AudioCache.on || liveEngine.liveFollowing) return
+        if (replay?.isActive == true || nextPending() || origin != Origin.NETWORK || !AudioCache.on || liveEngine.liveFollowing) return
         if (busy || player.currentMediaItem?.mediaId != t.id) return
         if (!fills.mayDownloadAgain()) return
         replay = scope.launch { fills.inTime(t) { fills.filling != null || nextPending() } }
