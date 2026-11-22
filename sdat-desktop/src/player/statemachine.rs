@@ -260,8 +260,16 @@ pub fn on_playing_retry_exit(playbin: &dyn Playbin, position: Duration) {
 
 async fn fetch_track_manifest(track_id: &str) -> Result<TrackManifest> {
     let id = track_id.to_string();
-    api::run(move || service::get_track_manifest(&id))
-        .await
+    let quality = settings::audio_quality();
+    api::run(move || {
+        if let Some(m) = super::audio_cache::manifest(&id, quality) {
+            return Ok(m);
+        }
+        // Streaming replaces an unfinished fill of this track, so its bytes are not downloaded twice at once.
+        tonearm_core::audio_cache::cancel(&id);
+        service::get_track_manifest(&id)
+    })
+    .await
         .map_err(|e| anyhow!("failed to fetch and enqueue track: {e}"))
 }
 

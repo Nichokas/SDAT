@@ -2,6 +2,7 @@
 //! playback, `ReplayGain`, stream quality and MPRIS.
 
 
+mod audio_cache;
 pub mod mpris;
 pub mod play_next;
 pub use tonearm_core::playqueue;
@@ -294,8 +295,12 @@ pub fn init() -> Result<()> {
     if let Some(bin) = playbin.downcast_ref::<gst::Bin>() {
         for element in bin.iterate_recurse().into_iter().flatten() {
             quality::on_deep_element_added(&element);
+            audio_cache::on_element_added(&element);
         }
-        bin.connect_deep_element_added(|_, _, element| quality::on_deep_element_added(element));
+        bin.connect_deep_element_added(|_, _, element| {
+            quality::on_deep_element_added(element);
+            audio_cache::on_element_added(element);
+        });
     }
 
     replaygain::init(&playbin)?;
@@ -310,8 +315,14 @@ pub fn init() -> Result<()> {
             && !ev.skip_history {
                 history().prepend(HistoryEntry { track: ev.track.clone(), occurrence: base_queue().current_occurrence(&ev.track) });
             }
+        audio_cache::on_track_changed();
         CONTINUE
     });
+    playback_state_changed().on(|s| {
+        audio_cache::on_playback_state(s);
+        CONTINUE
+    });
+    audio_cache::init();
     source_changed().on(|_| {
         replaygain::update_album_mode();
         CONTINUE
@@ -324,6 +335,10 @@ fn on_bus_message(msg: &gst::Message) {
     match msg.view() {
         MessageView::Error(err) => {
             let e = err.error();
+            if cached_copy_failed() {
+                fire(Trigger::TokenExpired);
+                return;
+            }
             if e.matches(gst::ResourceError::NotAuthorized) || e.matches(gst::ResourceError::NotFound) {
                 log::warn!("playback token expired, restarting playback session");
                 fire(Trigger::TokenExpired);
@@ -338,6 +353,12 @@ fn on_bus_message(msg: &gst::Message) {
         MessageView::Eos(_) => fire(Trigger::Eos),
         _ => {}
     }
+}
+
+fn cached_copy_failed() -> bool {
+    let Some(uri) = playbin().and_then(|p| p.element.property::<Option<String>>("current-uri")) else { return false };
+    let Some(id) = track_changed().with(|t| t.as_ref().map(|e| e.track.id().to_owned())) else { return false };
+    audio_cache::drop_failed_copy(&uri, &id)
 }
 
 fn on_volume_change(v: f64) {

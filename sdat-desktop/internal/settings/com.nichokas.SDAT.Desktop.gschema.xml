@@ -91,6 +91,11 @@
 			<summary>Maximum Router History Size</summary>
 			<description>The maximum number of router history entries to keep</description>
 		</key>
+		<key name="audio-cache-limit" type="t">
+			<default>2147483648</default>
+			<summary>Audio Cache Limit</summary>
+			<description>Bytes of played and upcoming tracks kept on disk so they play without the network; 0 turns the cache off</description>
+		</key>
     </schema>
 
 	<!-- Player State -->
