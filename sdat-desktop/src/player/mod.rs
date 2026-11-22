@@ -243,7 +243,12 @@ pub fn init() -> Result<()> {
         Arc::clone(&gate),
         Hooks {
             peek_gapless,
-            commit_gapless,
+            on_gapless_arm: |manifest| replaygain::set_pending_gapless(Some(manifest)),
+            on_gapless_promote: |entry| {
+                commit_gapless(entry);
+                replaygain::promote_gapless();
+            },
+            on_gapless_cancel: replaygain::clear_pending_gapless,
             on_eos_stopped: || Box::pin(on_eos_stopped()),
             clear_source: || source_changed().set(None),
             on_error: |track, e| {
@@ -482,83 +487,166 @@ fn random_index(len: usize) -> usize {
     }
 }
 
-fn peek_next_queue_entry() -> Option<(Track, GaplessSource)> {
-    if let Some(t) = user_queue().entries().with(|v| v.iter().find(|t| t.info.streamable).cloned()) {
-        return Some((t, GaplessSource::UserQueue));
+fn find_streamable_index(tracks: &[Track], target: Option<&Track>) -> Option<usize> {
+    tracks
+        .iter()
+        .position(|t| t.info.streamable && target.is_none_or(|want| track_matches(t, want)))
+}
+
+fn leading_unstreamable_count(tracks: &[Track]) -> usize {
+    tracks.iter().take_while(|t| !t.info.streamable).count()
+}
+
+fn first_streamable(entries: &State<Vec<Track>>) -> Option<Track> {
+    entries.with(|rows| find_streamable_index(rows, None).map(|i| rows[i].clone()))
+}
+
+fn can_repeat_base_queue() -> bool {
+    !list_pending() && repeat_mode_changed().get() == RepeatMode::Queue
+}
+
+fn rewind_base_queue() {
+    log::debug!("queue repeat mode is enabled, replaying base queue");
+    base_queue().rewind();
+    if shuffle_state_changed().get() {
+        base_queue().shuffle(&current_track_id().unwrap_or_default(), &user_queue().source_occurrences());
     }
-    if let Some(t) = base_queue().entries().with(|v| v.iter().find(|t| t.info.streamable).cloned()) {
-        return Some((t, GaplessSource::BaseQueue { rewound: false }));
+}
+
+fn drain_unstreamable_user_rows(rows: &mut Vec<HistoryEntry>, limit: usize) -> usize {
+    let leading = rows[..limit].iter().take_while(|r| !r.track.info.streamable).count();
+    if leading > 0 {
+        rows.drain(..leading);
     }
-    if list_pending() || repeat_mode_changed().get() != RepeatMode::Queue {
-        return None;
+    leading
+}
+
+fn drain_unstreamable_user_prefix() {
+    if user_queue().entries().with(|rows| leading_unstreamable_count(rows)) == 0 {
+        return;
     }
+    user_queue().edit(|rows| {
+        let len = rows.len();
+        let leading = drain_unstreamable_user_rows(rows, len);
+        update_pinned(|p| play_next::after_skip(p, leading));
+    });
+}
+
+fn drain_unstreamable_base_prefix() {
+    let leading = base_queue().entries().with(|rows| leading_unstreamable_count(rows));
+    if leading > 0 {
+        let _ = base_queue().skip(leading);
+    }
+}
+
+fn drain_unstreamable_queues() {
+    drain_unstreamable_user_prefix();
+    drain_unstreamable_base_prefix();
+}
+
+fn peek_rewound_base_queue() -> Option<Track> {
     // Sentinel id never matches a real track, so all source tracks are visible
     // without mutating `base_queue` during a peek.
     let mut streamable = base_queue()
         .played("\0", &user_queue().source_occurrences())
         .into_iter()
         .filter(|t| t.info.streamable);
-    let next = if shuffle_state_changed().get() {
-        let mut candidates: Vec<_> = streamable.collect();
-        if candidates.is_empty() {
-            return None;
-        }
-        if let Some(current_id) = current_track_id()
-            && candidates.iter().any(|t| t.id() != current_id)
-        {
-            candidates.retain(|t| t.id() != current_id);
-        }
-        candidates.swap_remove(random_index(candidates.len()))
-    } else {
-        streamable.next()?
+    if !shuffle_state_changed().get() {
+        return streamable.next();
+    }
+    let mut candidates: Vec<_> = streamable.collect();
+    if candidates.is_empty() {
+        return None;
+    }
+    if let Some(current_id) = current_track_id()
+        && candidates.iter().any(|t| t.id() != current_id)
+    {
+        candidates.retain(|t| t.id() != current_id);
+    }
+    Some(candidates.swap_remove(random_index(candidates.len())))
+}
+
+fn consume_user_queue_entry(target: &Track) -> Option<Track> {
+    let idx = user_queue().entries().with(|rows| find_streamable_index(rows, Some(target)));
+    let removed = idx.and_then(|idx| {
+        user_queue().edit(|rows| {
+            if idx >= rows.len() {
+                return None;
+            }
+            let row = rows.remove(idx);
+            let leading = drain_unstreamable_user_rows(rows, idx);
+            update_pinned(|p| play_next::after_skip(play_next::after_remove(p, idx), leading));
+            Some(row)
+        })
+    });
+    base_queue().select_history_occurrence(removed.as_ref().and_then(|r| r.occurrence.as_ref()));
+    removed.map(|r| r.track)
+}
+
+fn consume_base_queue_entry(target: &Track, allow_rewind: bool) -> Option<Track> {
+    let mut idx = base_queue().entries().with(|rows| find_streamable_index(rows, Some(target)));
+    if idx.is_none() && allow_rewind {
+        rewind_base_queue();
+        idx = base_queue().entries().with(|rows| find_streamable_index(rows, Some(target)));
+    }
+    let Some(i) = idx else {
+        base_queue().select_history_occurrence(None);
+        return None;
     };
-    Some((next, GaplessSource::BaseQueue { rewound: true }))
+    let leading_unstreamable = i > 0
+        && base_queue().entries().with(|rows| leading_unstreamable_count(rows) >= i);
+    if leading_unstreamable {
+        let _ = base_queue().skip(i);
+    } else if i > 0 {
+        base_queue().move_entry(i, 0);
+    }
+    base_queue().pop()
+}
+
+fn peek_next_queue_entry() -> Option<(Track, GaplessSource)> {
+    if let Some(t) = first_streamable(user_queue().entries()) {
+        return Some((t, GaplessSource::UserQueue));
+    }
+    if let Some(t) = first_streamable(base_queue().entries()) {
+        return Some((t, GaplessSource::BaseQueue { rewound: false }));
+    }
+    if !can_repeat_base_queue() {
+        return None;
+    }
+    peek_rewound_base_queue().map(|next| (next, GaplessSource::BaseQueue { rewound: true }))
+}
+
+fn commit_queue_entry(source: GaplessSource, track: &Track) -> Option<Track> {
+    match source {
+        GaplessSource::RepeatTrack => Some(track.clone()),
+        GaplessSource::UserQueue => consume_user_queue_entry(track),
+        GaplessSource::BaseQueue { rewound } => {
+            drain_unstreamable_user_prefix();
+            consume_base_queue_entry(track, rewound && can_repeat_base_queue())
+        }
+    }
 }
 
 fn pop_next_streamable_from_queue() -> Option<Track> {
-    while let Some(t) = pop_user_queue() {
-        if t.info.streamable {
-            return Some(t);
-        }
-    }
-    while let Some(t) = base_queue().pop() {
-        if t.info.streamable {
-            return Some(t);
-        }
-    }
-    if list_pending() || repeat_mode_changed().get() != RepeatMode::Queue {
+    let Some((track, source)) = peek_next_queue_entry() else {
+        drain_unstreamable_queues();
         return None;
-    }
-    log::debug!("queue repeat mode is enabled, replaying base queue");
-    base_queue().rewind();
-    if shuffle_state_changed().get() {
-        base_queue().shuffle(&current_track_id().unwrap_or_default(), &user_queue().source_occurrences());
-    }
-    while let Some(t) = base_queue().pop() {
-        if t.info.streamable {
-            return Some(t);
-        }
-    }
-    None
+    };
+    commit_queue_entry(source, &track)
 }
 
 /// Returns the next streamable track and whether it is a track repeat.
 fn next_track(peek: bool) -> (Option<Track>, bool) {
-    if crate::live::is_guest() {
+    let Some(entry) = peek_gapless() else {
+        if !peek && !crate::live::is_guest() && repeat_mode_changed().get() != RepeatMode::Track {
+            drain_unstreamable_queues();
+        }
         return (None, false);
+    };
+    if !peek {
+        commit_gapless(&entry);
     }
-    if repeat_mode_changed().get() == RepeatMode::Track {
-        return (track_changed().with(|t| t.as_ref().map(|e| e.track.clone())), true);
-    }
-    (next_streamable_from_queue(peek), false)
-}
-
-fn next_streamable_from_queue(peek: bool) -> Option<Track> {
-    if peek {
-        peek_next_queue_entry().map(|(t, _)| t)
-    } else {
-        pop_next_streamable_from_queue()
-    }
+    (Some(entry.track), entry.did_repeat)
 }
 
 fn peek_gapless() -> Option<GaplessEntry> {
@@ -578,63 +666,7 @@ fn peek_gapless() -> Option<GaplessEntry> {
 }
 
 fn commit_gapless(entry: &GaplessEntry) {
-    match entry.source {
-        GaplessSource::RepeatTrack => {}
-        GaplessSource::UserQueue => {
-            let idx = user_queue()
-                .entries()
-                .with(|rows| rows.iter().position(|t| t.info.streamable && track_matches(t, &entry.track)));
-            let removed = idx.and_then(|idx| {
-                user_queue().edit(|rows| {
-                    if idx >= rows.len() {
-                        return None;
-                    }
-                    let leading_unstreamable = rows[..idx].iter().take_while(|r| !r.track.info.streamable).count();
-                    let row = rows.remove(idx);
-                    if leading_unstreamable > 0 {
-                        rows.drain(..leading_unstreamable);
-                    }
-                    update_pinned(|p| play_next::after_skip(play_next::after_remove(p, idx), leading_unstreamable));
-                    Some(row)
-                })
-            });
-            base_queue().select_history_occurrence(removed.as_ref().and_then(|r| r.occurrence.as_ref()));
-        }
-        GaplessSource::BaseQueue { rewound } => {
-            if user_queue().entries().with(|rows| rows.first().is_some_and(|t| !t.info.streamable)) {
-                user_queue().edit(|rows| {
-                    let leading_unstreamable = rows.iter().take_while(|r| !r.track.info.streamable).count();
-                    rows.drain(..leading_unstreamable);
-                    update_pinned(|p| play_next::after_skip(p, leading_unstreamable));
-                });
-            }
-            let mut idx = base_queue()
-                .entries()
-                .with(|rows| rows.iter().position(|t| track_matches(t, &entry.track)));
-            if idx.is_none() && rewound && repeat_mode_changed().get() == RepeatMode::Queue {
-                log::debug!("queue repeat mode is enabled, replaying base queue");
-                base_queue().rewind();
-                if shuffle_state_changed().get() {
-                    base_queue().shuffle(&current_track_id().unwrap_or_default(), &user_queue().source_occurrences());
-                }
-                idx = base_queue()
-                    .entries()
-                    .with(|rows| rows.iter().position(|t| track_matches(t, &entry.track)));
-            }
-            if let Some(i) = idx {
-                let leading_unstreamable = i > 0
-                    && base_queue().entries().with(|rows| rows[..i].iter().all(|t| !t.info.streamable));
-                if leading_unstreamable {
-                    let _ = base_queue().skip(i);
-                } else if i > 0 {
-                    base_queue().move_entry(i, 0);
-                }
-                base_queue().pop();
-            } else {
-                base_queue().select_history_occurrence(None);
-            }
-        }
-    }
+    let _ = commit_queue_entry(entry.source, &entry.track);
 }
 
 fn previous_track() -> Option<HistoryEntry> {
@@ -657,12 +689,11 @@ fn insert_tracklist_next(tracks: Vec<Track>) {
     }
     // Keep an already-chosen gapless track ahead of Play Next entries when it
     // came from the queues so the queue view matches playback order.
-    let armed = with(|p| (p.machine.gapless_source(), p.machine.gapless_track()));
-    let floor = match armed {
-        Some((Some(GaplessSource::UserQueue), Some(armed))) => {
+    let floor = match with(|p| p.machine.gapless_entry()).flatten() {
+        Some(GaplessEntry { source: GaplessSource::UserQueue, track: armed, .. }) => {
             usize::from(user_queue().peek().is_some_and(|head| track_matches(&head, &armed)))
         }
-        Some((Some(GaplessSource::BaseQueue { rewound: false }), Some(armed))) => {
+        Some(GaplessEntry { source: GaplessSource::BaseQueue { rewound: false }, track: armed, .. }) => {
             if user_queue().is_empty()
                 && base_queue().peek().is_some_and(|head| track_matches(&head, &armed))
                 && let Some(head) = base_queue().take_for_gapless()
@@ -1295,6 +1326,34 @@ mod playlist_tests {
     }
 
     #[test]
+    fn next_track_pop_skips_unstreamable_prefixes_and_updates_pinned() {
+        clear_queues();
+        set_repeat_mode(RepeatMode::None);
+
+        let mut unstreamable_u = track("U1", None);
+        unstreamable_u.info.streamable = false;
+        let mut unstreamable_b = track("U2", None);
+        unstreamable_b.info.streamable = false;
+
+        insert_tracklist_next(vec![unstreamable_u.clone(), track("B", None)]);
+        assert_eq!(PLAY_NEXT_PINNED.with(Cell::get), 2);
+        assert_eq!(next_track(false).0.as_ref().map(Track::id), Some("B"));
+        assert!(user_queue().is_empty());
+        assert_eq!(PLAY_NEXT_PINNED.with(Cell::get), 0);
+
+        insert_tracklist_next(vec![unstreamable_u]);
+        base_queue().set(vec![unstreamable_b, track("C", None), track("D", None)]);
+        assert_eq!(PLAY_NEXT_PINNED.with(Cell::get), 1);
+        assert_eq!(next_track(false).0.as_ref().map(Track::id), Some("C"));
+        assert!(user_queue().is_empty());
+        assert_eq!(PLAY_NEXT_PINNED.with(Cell::get), 0);
+        assert_eq!(base_queue().entries().with(|v| v.iter().map(|t| t.id().to_string()).collect::<Vec<_>>()), vec!["D"]);
+
+        clear_queues();
+        track_changed().set(None);
+    }
+
+    #[test]
     fn peek_next_track_does_not_mutate_base_queue_on_repeat_or_shuffle() {
         clear_queues();
         set_repeat_mode(RepeatMode::Queue);
@@ -1700,7 +1759,7 @@ fn play_tracks(tracks: Vec<Track>, shuffle: bool, starting_position: usize) -> R
             Err(e) => log::warn!("could not skip to position {starting_position}: {e:#}"),
         }
     }
-    let Some(t) = next_streamable_from_queue(false) else {
+    let Some(t) = pop_next_streamable_from_queue() else {
         anyhow::bail!("tracklist produced no valid tracks to be played");
     };
     fire(Trigger::PlayTrack(t.clone(), false));
