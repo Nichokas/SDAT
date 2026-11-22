@@ -15,7 +15,7 @@
 %global legacy_appid dev.dergs.Tonearm
 
 Name:           sdat-desktop
-Version:        2.3.0
+Version:        2.4.0
 Release:        1%{?dist}
 Summary:        Native GTK4/libadwaita TIDAL client (Rust port)
 
@@ -118,6 +118,9 @@ glib-compile-schemas --strict --dry-run %{buildroot}%{_datadir}/glib-2.0/schemas
 %{_datadir}/icons/hicolor/128x128/apps/%{appid}.png
 
 %changelog
+* Sun Nov 22 2026 sdat-desktop CI <noreply@github.com> - 2.4.0-1
+- Update to 2.4.0
+
 * Thu Nov 19 2026 sdat-desktop CI <noreply@github.com> - 2.3.0-1
 - Update to 2.3.0
 
