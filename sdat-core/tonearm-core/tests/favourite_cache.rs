@@ -69,7 +69,7 @@ fn write_response(stream: &mut std::net::TcpStream, status: &str, etag: Option<&
 }
 
 #[test]
-fn reset_and_bust_do_not_block_on_http_or_cache_stale_data() {
+fn reset_bust_and_concurrent_fetches_behave_consistently() {
     let listener = TcpListener::bind("127.0.0.1:0").expect("bind mock server");
     let base = format!("http://{}", listener.local_addr().expect("local addr"));
     assert!(config::install(Box::new(Local(base))));
@@ -77,14 +77,8 @@ fn reset_and_bust_do_not_block_on_http_or_cache_stale_data() {
     let account = Arc::new(Mutex::new("account-a".to_owned()));
     assert!(auth::install(Box::new(SwitchableAccount(Arc::clone(&account)))));
 
-    let (reset_in_flight_tx, reset_in_flight_rx) = mpsc::channel();
-    let (reset_release_tx, reset_release_rx) = mpsc::channel();
-
-    let (not_mod_in_flight_tx, not_mod_in_flight_rx) = mpsc::channel();
-    let (not_mod_release_tx, not_mod_release_rx) = mpsc::channel();
-
-    let (bust_in_flight_tx, bust_in_flight_rx) = mpsc::channel();
-    let (bust_release_tx, bust_release_rx) = mpsc::channel();
+    let (gate_entered_tx, gate_entered_rx) = mpsc::channel();
+    let (gate_release_tx, gate_release_rx) = mpsc::channel();
 
     let server = std::thread::spawn(move || {
         let mut fav_calls = 0usize;
@@ -101,11 +95,12 @@ fn reset_and_bust_do_not_block_on_http_or_cache_stale_data() {
             }
             fav_calls += 1;
             match fav_calls {
+                // 1-2: 200 OK invalidated by account switch + reset() -> retries for account-b.
                 1 => {
                     assert!(request_line.starts_with("GET /v1/users/account-a/favorites/ids?"), "got {request_line}");
                     assert_eq!(if_none_match, None);
-                    reset_in_flight_tx.send(()).expect("signal reset in-flight");
-                    reset_release_rx.recv().expect("release account-a fetch");
+                    gate_entered_tx.send(1).expect("signal call 1");
+                    gate_release_rx.recv().expect("release call 1");
                     write_response(&mut stream, "200 OK", Some("\"etag-a\""), r#"{"TRACK":["track-a"]}"#);
                 }
                 2 => {
@@ -113,72 +108,201 @@ fn reset_and_bust_do_not_block_on_http_or_cache_stale_data() {
                     assert_eq!(if_none_match, None);
                     write_response(&mut stream, "200 OK", Some("\"etag-b\""), r#"{"TRACK":["track-b"]}"#);
                 }
+                // 3: 200 OK invalidated by sign-out + reset() -> returns empty without retrying.
                 3 => {
+                    assert!(request_line.starts_with("GET /v1/users/account-b/favorites/ids?"), "got {request_line}");
+                    assert_eq!(if_none_match.as_deref(), Some("\"etag-b\""));
+                    gate_entered_tx.send(3).expect("signal call 3");
+                    gate_release_rx.recv().expect("release call 3");
+                    write_response(&mut stream, "200 OK", Some("\"etag-b2\""), r#"{"TRACK":["track-b-stale"]}"#);
+                }
+                // 4-6: 304 Not Modified invalidated by account switch + reset() -> retries for account-c.
+                4 => {
                     assert!(request_line.starts_with("GET /v1/users/account-b/favorites/ids?"), "got {request_line}");
                     assert_eq!(if_none_match, None);
                     write_response(&mut stream, "200 OK", Some("\"album-e1\""), r#"{"ALBUM":["album-1"]}"#);
                 }
-                4 => {
+                5 => {
                     assert!(request_line.starts_with("GET /v1/users/account-b/favorites/ids?"), "got {request_line}");
                     assert_eq!(if_none_match.as_deref(), Some("\"album-e1\""));
-                    not_mod_in_flight_tx.send(()).expect("signal 304 in-flight");
-                    not_mod_release_rx.recv().expect("release 304 fetch");
+                    gate_entered_tx.send(5).expect("signal call 5");
+                    gate_release_rx.recv().expect("release call 5");
                     write_response(&mut stream, "304 Not Modified", None, "");
                 }
-                5 => {
+                6 => {
                     assert!(request_line.starts_with("GET /v1/users/account-c/favorites/ids?"), "got {request_line}");
                     assert_eq!(if_none_match, None);
                     write_response(&mut stream, "200 OK", Some("\"album-e2\""), r#"{"ALBUM":["album-2"]}"#);
                 }
-                6 => {
+                // 7: 304 Not Modified invalidated by sign-out + reset() -> returns empty without retrying.
+                7 => {
                     assert!(request_line.starts_with("GET /v1/users/account-c/favorites/ids?"), "got {request_line}");
-                    bust_in_flight_tx.send(()).expect("signal bust in-flight");
-                    bust_release_rx.recv().expect("release stale artist fetch");
+                    assert_eq!(if_none_match.as_deref(), Some("\"album-e2\""));
+                    gate_entered_tx.send(7).expect("signal call 7");
+                    gate_release_rx.recv().expect("release call 7");
+                    write_response(&mut stream, "304 Not Modified", None, "");
+                }
+                // 8-9: Same-account bust() during HTTP -> discards stale 200 and retries.
+                8 => {
+                    assert!(request_line.starts_with("GET /v1/users/account-c/favorites/ids?"), "got {request_line}");
+                    assert_eq!(if_none_match, None);
+                    gate_entered_tx.send(8).expect("signal call 8");
+                    gate_release_rx.recv().expect("release call 8");
                     write_response(&mut stream, "200 OK", Some("\"artist-e1\""), r#"{"ARTIST":["artist-old"]}"#);
                 }
-                7 => {
+                9 => {
                     assert!(request_line.starts_with("GET /v1/users/account-c/favorites/ids?"), "got {request_line}");
                     assert_eq!(if_none_match, None);
                     write_response(&mut stream, "200 OK", Some("\"artist-e2\""), r#"{"ARTIST":["artist-new"]}"#);
+                }
+                // 10-12: Continuous invalidation exhausts retry budget instead of returning stale data.
+                10..=12 => {
+                    assert!(request_line.starts_with("GET /v1/users/account-c/favorites/ids?"), "got {request_line}");
+                    assert_eq!(if_none_match, None);
+                    gate_entered_tx.send(fav_calls).expect("signal exhaustion call");
+                    gate_release_rx.recv().expect("release exhaustion call");
+                    write_response(&mut stream, "200 OK", Some("\"artist-stale\""), r#"{"ARTIST":["artist-stale"]}"#);
+                }
+                // 13: Concurrent cold-cache get() calls coalesce into a single HTTP request.
+                13 => {
+                    assert!(request_line.starts_with("GET /v1/users/account-c/favorites/ids?"), "got {request_line}");
+                    assert_eq!(if_none_match, None);
+                    gate_entered_tx.send(13).expect("signal call 13");
+                    gate_release_rx.recv().expect("release call 13");
+                    write_response(&mut stream, "200 OK", Some("\"pl-1\""), r#"{"PLAYLIST":["playlist-1"]}"#);
+                }
+                // 14-15: Coalesced callers with mid-flight bust() both receive the newer response, never stale.
+                14 => {
+                    assert!(request_line.starts_with("GET /v1/users/account-c/favorites/ids?"), "got {request_line}");
+                    assert_eq!(if_none_match.as_deref(), Some("\"pl-1\""));
+                    gate_entered_tx.send(14).expect("signal call 14");
+                    gate_release_rx.recv().expect("release call 14");
+                    write_response(&mut stream, "200 OK", Some("\"pl-stale\""), r#"{"PLAYLIST":["playlist-stale"]}"#);
+                }
+                15 => {
+                    assert!(request_line.starts_with("GET /v1/users/account-c/favorites/ids?"), "got {request_line}");
+                    assert_eq!(if_none_match.as_deref(), Some("\"pl-1\""));
+                    write_response(&mut stream, "200 OK", Some("\"pl-2\""), r#"{"PLAYLIST":["playlist-2"]}"#);
                     break;
                 }
                 other => panic!("unexpected favourites request #{other}: {request_line}"),
             }
         }
+        assert_eq!(fav_calls, 15);
     });
 
+    // 1. 200 OK invalidated by account switch + reset().
     let fetch_a = std::thread::spawn(|| state::TRACKS.get());
-    reset_in_flight_rx.recv_timeout(Duration::from_secs(5)).expect("account-a fetch reached server");
-
+    assert_eq!(gate_entered_rx.recv_timeout(Duration::from_secs(5)).expect("call 1"), 1);
     *account.lock().expect("account lock") = "account-b".to_owned();
     let started = Instant::now();
     state::TRACKS.reset();
     assert!(started.elapsed() < Duration::from_millis(100), "reset() blocked for {:?}", started.elapsed());
+    gate_release_tx.send(()).expect("release call 1");
+    assert_eq!(fetch_a.join().expect("fetch_a thread").expect("fetch_a result"), ["track-b"]);
+    assert_eq!(state::TRACKS.get().expect("cached account-b tracks"), ["track-b"]);
 
-    reset_release_tx.send(()).expect("unblock account-a response");
-    assert_eq!(fetch_a.join().expect("fetch_a thread").expect("fetch_a result"), ["track-a"]);
-    assert_eq!(state::TRACKS.get().expect("account-b fetch"), ["track-b"]);
+    // 2. 200 OK invalidated by sign-out + reset().
+    state::TRACKS.bust();
+    let fetch_signout_200 = std::thread::spawn(|| state::TRACKS.get());
+    assert_eq!(gate_entered_rx.recv_timeout(Duration::from_secs(5)).expect("call 3"), 3);
+    account.lock().expect("account lock").clear();
+    let started = Instant::now();
+    state::TRACKS.reset();
+    assert!(started.elapsed() < Duration::from_millis(100), "reset() blocked for {:?}", started.elapsed());
+    gate_release_tx.send(()).expect("release call 3");
+    assert_eq!(fetch_signout_200.join().expect("signout 200 thread").expect("signout 200 result"), Vec::<String>::new());
 
+    // 3. 304 Not Modified invalidated by account switch + reset().
+    *account.lock().expect("account lock") = "account-b".to_owned();
     assert_eq!(state::ALBUMS.get().expect("seed albums"), ["album-1"]);
     state::ALBUMS.bust();
     let fetch_304 = std::thread::spawn(|| state::ALBUMS.get());
-    not_mod_in_flight_rx.recv_timeout(Duration::from_secs(5)).expect("304 fetch reached server");
-
+    assert_eq!(gate_entered_rx.recv_timeout(Duration::from_secs(5)).expect("call 5"), 5);
     *account.lock().expect("account lock") = "account-c".to_owned();
     let started = Instant::now();
     state::ALBUMS.reset();
     assert!(started.elapsed() < Duration::from_millis(100), "reset() blocked for {:?}", started.elapsed());
+    gate_release_tx.send(()).expect("release call 5");
+    assert_eq!(fetch_304.join().expect("fetch_304 thread").expect("fetch_304 result"), ["album-2"]);
+    assert_eq!(state::ALBUMS.get().expect("cached account-c albums"), ["album-2"]);
 
-    not_mod_release_tx.send(()).expect("unblock 304 response");
-    assert_eq!(fetch_304.join().expect("fetch_304 thread").expect("fetch_304 result"), ["album-1"]);
-    assert_eq!(state::ALBUMS.get().expect("account-c albums"), ["album-2"]);
+    // 4. 304 Not Modified invalidated by sign-out + reset().
+    state::ALBUMS.bust();
+    let fetch_signout_304 = std::thread::spawn(|| state::ALBUMS.get());
+    assert_eq!(gate_entered_rx.recv_timeout(Duration::from_secs(5)).expect("call 7"), 7);
+    account.lock().expect("account lock").clear();
+    let started = Instant::now();
+    state::ALBUMS.reset();
+    assert!(started.elapsed() < Duration::from_millis(100), "reset() blocked for {:?}", started.elapsed());
+    gate_release_tx.send(()).expect("release call 7");
+    assert_eq!(fetch_signout_304.join().expect("signout 304 thread").expect("signout 304 result"), Vec::<String>::new());
 
+    // 5. Same-account bust() during HTTP discards stale response and retries.
+    *account.lock().expect("account lock") = "account-c".to_owned();
     let fetch_stale = std::thread::spawn(|| state::ARTISTS.get());
-    bust_in_flight_rx.recv_timeout(Duration::from_secs(5)).expect("artist fetch reached server");
+    assert_eq!(gate_entered_rx.recv_timeout(Duration::from_secs(5)).expect("call 8"), 8);
+    let started = Instant::now();
     state::ARTISTS.bust();
-    bust_release_tx.send(()).expect("unblock stale artist fetch");
-    assert_eq!(fetch_stale.join().expect("fetch_stale thread").expect("fetch_stale result"), ["artist-old"]);
-    assert_eq!(state::ARTISTS.get().expect("fresh artists"), ["artist-new"]);
+    assert!(started.elapsed() < Duration::from_millis(100), "bust() blocked for {:?}", started.elapsed());
+    gate_release_tx.send(()).expect("release call 8");
+    assert_eq!(fetch_stale.join().expect("fetch_stale thread").expect("fetch_stale result"), ["artist-new"]);
+    assert_eq!(state::ARTISTS.get().expect("cached fresh artists"), ["artist-new"]);
+
+    // 6. Continuous invalidation exhausts retries and errors instead of returning stale data.
+    state::ARTISTS.reset();
+    let fetch_exhausted = std::thread::spawn(|| state::ARTISTS.get());
+    for expected in 10..=12 {
+        assert_eq!(gate_entered_rx.recv_timeout(Duration::from_secs(5)).expect("exhaustion call"), expected);
+        state::ARTISTS.bust();
+        gate_release_tx.send(()).expect("release exhaustion call");
+    }
+    let err = fetch_exhausted.join().expect("exhausted thread").expect_err("expected invalidation error");
+    assert!(err.to_string().contains("invalidated"), "unexpected error: {err}");
+
+    // 7. Concurrent cold-cache get() calls coalesce into a single HTTP request.
+    let first = std::thread::spawn(|| state::PLAYLISTS.get());
+    assert_eq!(gate_entered_rx.recv_timeout(Duration::from_secs(5)).expect("call 13"), 13);
+    let (started_tx, started_rx) = mpsc::channel();
+    let second = {
+        let tx = started_tx.clone();
+        std::thread::spawn(move || {
+            tx.send(()).expect("signal second");
+            state::PLAYLISTS.get()
+        })
+    };
+    let third = {
+        let tx = started_tx.clone();
+        std::thread::spawn(move || {
+            tx.send(()).expect("signal third");
+            state::PLAYLISTS.get()
+        })
+    };
+    started_rx.recv_timeout(Duration::from_secs(5)).expect("second started");
+    started_rx.recv_timeout(Duration::from_secs(5)).expect("third started");
+    std::thread::sleep(Duration::from_millis(30));
+    gate_release_tx.send(()).expect("release call 13");
+    assert_eq!(first.join().expect("first thread").expect("first result"), ["playlist-1"]);
+    assert_eq!(second.join().expect("second thread").expect("second result"), ["playlist-1"]);
+    assert_eq!(third.join().expect("third thread").expect("third result"), ["playlist-1"]);
+
+    // 8. Concurrent callers during a mid-flight bust() both receive the newer response without blocking bust().
+    state::PLAYLISTS.bust();
+    let older = std::thread::spawn(|| state::PLAYLISTS.get());
+    assert_eq!(gate_entered_rx.recv_timeout(Duration::from_secs(5)).expect("call 14"), 14);
+    let waiter = std::thread::spawn(move || {
+        started_tx.send(()).expect("signal waiter");
+        state::PLAYLISTS.get()
+    });
+    started_rx.recv_timeout(Duration::from_secs(5)).expect("waiter started");
+    std::thread::sleep(Duration::from_millis(30));
+    let started = Instant::now();
+    state::PLAYLISTS.bust();
+    assert!(started.elapsed() < Duration::from_millis(100), "bust() blocked for {:?}", started.elapsed());
+    gate_release_tx.send(()).expect("release call 14");
+    assert_eq!(older.join().expect("older thread").expect("older result"), ["playlist-2"]);
+    assert_eq!(waiter.join().expect("waiter thread").expect("waiter result"), ["playlist-2"]);
+    assert_eq!(state::PLAYLISTS.get().expect("cached newer playlists"), ["playlist-2"]);
 
     server.join().expect("mock server");
 }

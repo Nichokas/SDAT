@@ -25,7 +25,7 @@ pub(super) struct Follower {
     /// Not connected (also before the first connection, and for good when
     /// the thread could not start), so the worker polls instead.
     down: Arc<AtomicBool>,
-    /// The thread gave up for good (no client): replace this follower.
+    /// The thread gave up for good (no client or account changed): replace this follower.
     dead: Arc<AtomicBool>,
 }
 
@@ -112,7 +112,11 @@ fn run(url: &str, account: &str, tx: &Sender<Cmd>, stop: &AtomicBool, down: &Ato
         let opened = Instant::now();
         let resp = match account_bearer(account, crate::api::user_bearer, || crate::auth::tokens().user_id()) {
             Bearer::Token(t) => send(client.get(url).bearer_auth(t).header("Accept", "text/event-stream")).map_err(|e| e.to_string()),
-            Bearer::AccountChanged => return,
+            Bearer::AccountChanged => {
+                down.store(true, Ordering::Relaxed);
+                dead.store(true, Ordering::Relaxed);
+                return;
+            }
             Bearer::Failed(e) => Err(e),
         };
         match resp {
@@ -170,5 +174,16 @@ mod tests {
             account_bearer("user-a", || Err(CoreError::Network("timeout".into())), || "user-a".into()),
             Bearer::Failed(_)
         ));
+    }
+
+    #[test]
+    fn run_marks_follower_dead_and_down_when_account_changes() {
+        let (tx, _rx) = std::sync::mpsc::channel();
+        let stop = std::sync::atomic::AtomicBool::new(false);
+        let down = std::sync::atomic::AtomicBool::new(false);
+        let dead = std::sync::atomic::AtomicBool::new(false);
+        super::run("https://pulsar.tidal.com/userPlaybackStates/x", "user-a", &tx, &stop, &down, &dead);
+        assert!(down.load(std::sync::atomic::Ordering::Relaxed));
+        assert!(dead.load(std::sync::atomic::Ordering::Relaxed));
     }
 }
