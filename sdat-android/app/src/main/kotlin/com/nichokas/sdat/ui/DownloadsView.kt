@@ -136,12 +136,10 @@ fun DownloadStatusButton(modifier: Modifier = Modifier) {
     }
 }
 
-/** Offline tracks: in progress (cancel), failed, saved (play, remove) and cached (play, download, remove), with their sizes. */
 @Composable
 fun DownloadsView() {
     val player = LocalTrackPlayer.current
     val saved = Downloads.tracks
-    // A download wins over a cached copy, so a track shows once.
     val cached = AudioCache.tracks.filter { !Downloads.isDownloaded(it.track.id) }
     val cachedTracks = cached.map { it.track }
     val queue = Downloads.queue

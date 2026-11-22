@@ -23,10 +23,6 @@ import uniffi.tonearm_ffi.audioCacheSetLimit
 import uniffi.tonearm_ffi.audioCacheTracks
 import uniffi.tonearm_ffi.audioCacheUsage
 
-/**
- * The core's audio cache: whole tracks on disk that play without the network. The core owns the files, the limit and
- * eviction; this keeps its listing and usage as Compose state for Settings and the Downloads screen.
- */
 object AudioCache {
     private lateinit var prefs: Preferences
     private val scope = MainScope()

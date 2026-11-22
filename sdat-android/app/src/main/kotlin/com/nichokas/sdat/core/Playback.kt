@@ -64,8 +64,8 @@ class Playback(context: Context, private val prefs: Preferences, secrets: Secret
                 // A long buffer rides out a poor network; playback starts at 1.5 s buffered and resumes at 3 s, so a
                 // stall does not repeat at once.
                 .setBufferDurationsMs(60_000, 180_000, 1_500, 3_000)
-                // Hi-res FLAC runs near 1 MB/s, so the default 13 MB would cap the buffer near 15 s. The minimum is
-                // always loaded; the byte target caps the rest.
+                // Hi-res FLAC runs near 1 MB/s, so the default 13 MB would cap the buffer near 15 s. The byte target
+                // caps what is loaded past the minimum.
                 .setTargetBufferBytes(64 shl 20)
                 .setPrioritizeTimeOverSizeThresholds(true)
                 .build(),
@@ -304,8 +304,8 @@ class Playback(context: Context, private val prefs: Preferences, secrets: Secret
                 val t = track ?: return fail(e.errorCodeName)
                 // Counts deep sleep, which uptime skips: the expiry follows a pause of hours.
                 val now = SystemClock.elapsedRealtime()
-                // A broken cached copy goes, so a new play streams. A broken download spends no budget: a new play
-                // picks the same file again, and only its online stream can help.
+                // A broken download spends no budget: a new play picks the same file again, and only its online
+                // stream can help.
                 if (origin == Origin.CACHED) AudioCache.remove(t.id)
                 if (origin != Origin.DOWNLOADED) {
                     if (!refetchDue(refetched, t.id, now)) return fail(e.errorCodeName)
@@ -788,8 +788,8 @@ class Playback(context: Context, private val prefs: Preferences, secrets: Secret
         }
     }
 
-    /** A local copy of [next], else its fill into the cache if that lands in time, else its stream. The fill replaces
-     * the stream's preload, so on a poor network the next track starts from disk without being downloaded twice. */
+    /** The fill replaces the stream's preload, so on a poor network the next track starts from disk without being
+     * downloaded twice. */
     private suspend fun nextSource(next: Track): Source {
         local(next)?.let { return it }
         if (AudioCache.on) fillInTime(next) { filling != null }?.let { return cachedSource(it) }
@@ -853,7 +853,6 @@ class Playback(context: Context, private val prefs: Preferences, secrets: Secret
 
     private suspend fun source(t: Track, online: Boolean = false): Source = (if (online) null else local(t)) ?: streamed(t)
 
-    /** A download wins over a cached copy, which must be at the streaming quality or better. */
     private suspend fun local(t: Track): Source? {
         Downloads.localStream(t.id)?.let { return Source(Uri.fromFile(it.playlist).toString(), it.quality, Origin.DOWNLOADED) }
         return AudioCache.lookup(t.id, prefs.streamingQuality)?.let(::cachedSource)
@@ -988,12 +987,10 @@ private val systemPauses = setOf(Player.PLAY_WHEN_READY_CHANGE_REASON_AUDIO_BECO
 /** How long a queue that ran dry waits for the tracks a handoff still owes it. */
 private const val HANDOFF_WAIT_MS = 20_000L
 
-/** Where a track plays from: its stream, the audio cache or a download. */
 enum class Origin { NETWORK, CACHED, DOWNLOADED }
 
 private class Source(val uri: String, val quality: Quality, val origin: Origin)
 
-// Played like a download: the byte-range playlist over the one file.
 private fun cachedSource(c: CachedTrack) = Source(Uri.fromFile(File(c.playlistPath)).toString(), c.quality, Origin.CACHED)
 
 private class Preloaded(val item: MediaItem, val source: Source)
