@@ -9,8 +9,9 @@ use gst::prelude::*;
 use std::cell::{Cell, RefCell};
 use std::collections::VecDeque;
 use std::rc::Rc;
-use std::sync::mpsc;
-use std::time::Duration;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{Arc, Condvar, Mutex};
+use std::time::{Duration, Instant};
 
 use crate::model::{Track, TrackManifest, TrackQuality};
 use crate::signals::{Signal, State as Sig};
@@ -48,7 +49,191 @@ global_signal!(pub fn playback_quality_changed() -> Sig<TrackQuality> = Sig::new
 global_signal!(pub fn track_changed() -> Sig<Option<TrackChangedEvent>> = Sig::new(None));
 // Gapless repeat-one replays the same track without a `track_changed`.
 global_signal!(pub fn track_repeated() -> Signal<Track> = Signal::default());
-global_signal!(pub fn enqueued_track() -> Sig<Option<TrackManifest>> = Sig::new(None));
+
+// ---------------------------------------------------------------- gapless gate
+
+#[derive(Debug, Default)]
+struct WaitState {
+    blocking_ops: usize,
+    generation: u64,
+    waiting: bool,
+    done: bool,
+}
+
+/// Coordinates `GStreamer`'s streaming-thread `about-to-finish` wait with
+/// main-thread playbin operations (`set_state(Ready | Null)`, flushing seeks)
+/// that acquire `GST_PAD_STREAM_LOCK`, preventing a 15 s deadlock.
+#[derive(Debug, Default)]
+pub struct GaplessGate {
+    state: Mutex<WaitState>,
+    cond: Condvar,
+}
+
+#[derive(Debug)]
+pub struct GaplessToken {
+    gate: Arc<GaplessGate>,
+    generation: u64,
+    finished: AtomicBool,
+}
+
+#[derive(Debug)]
+pub struct BlockingOpGuard<'a> {
+    gate: &'a GaplessGate,
+}
+
+impl GaplessGate {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    fn lock(&self) -> std::sync::MutexGuard<'_, WaitState> {
+        self.state.lock().unwrap_or_else(std::sync::PoisonError::into_inner)
+    }
+
+    pub fn generation(&self) -> u64 {
+        self.lock().generation
+    }
+
+    /// Cancels any active or queued gapless waiter without blocking.
+    pub fn cancel(&self) {
+        let mut st = self.lock();
+        st.generation = st.generation.wrapping_add(1);
+        if st.waiting {
+            st.done = true;
+            st.waiting = false;
+            self.cond.notify_all();
+        }
+    }
+
+    /// Wakes any waiting streaming thread and stops new `about-to-finish`
+    /// callbacks from blocking until the guard drops.
+    pub fn enter_blocking_op(&self) -> BlockingOpGuard<'_> {
+        let mut st = self.lock();
+        st.blocking_ops += 1;
+        st.generation = st.generation.wrapping_add(1);
+        if st.waiting {
+            st.done = true;
+            st.waiting = false;
+            self.cond.notify_all();
+        }
+        BlockingOpGuard { gate: self }
+    }
+
+    /// Mints a non-blocking token when `about-to-finish` fires on the main thread.
+    pub fn begin_nonblocking(self: &Arc<Self>) -> Option<GaplessToken> {
+        let mut st = self.lock();
+        if st.blocking_ops > 0 {
+            return None;
+        }
+        st.generation = st.generation.wrapping_add(1);
+        let generation = st.generation;
+        Some(GaplessToken {
+            gate: Arc::clone(self),
+            generation,
+            finished: AtomicBool::new(false),
+        })
+    }
+
+    /// Dispatches `dispatch` with a cancellation-aware token and blocks until
+    /// the token finishes, a main-thread op cancels it, or `timeout` elapses.
+    /// Returns `true` only when the wait timed out.
+    pub fn wait(self: &Arc<Self>, timeout: Duration, dispatch: impl FnOnce(GaplessToken)) -> bool {
+        let generation = {
+            let mut st = self.lock();
+            if st.blocking_ops > 0 {
+                return false;
+            }
+            if st.waiting {
+                st.done = true;
+                self.cond.notify_all();
+            }
+            st.generation = st.generation.wrapping_add(1);
+            st.waiting = true;
+            st.done = false;
+            st.generation
+        };
+        dispatch(GaplessToken {
+            gate: Arc::clone(self),
+            generation,
+            finished: AtomicBool::new(false),
+        });
+        let deadline = Instant::now() + timeout;
+        let mut st = self.lock();
+        while !st.done && st.generation == generation {
+            let Some(remaining) = deadline.checked_duration_since(Instant::now()) else {
+                break;
+            };
+            let (next, res) = self
+                .cond
+                .wait_timeout(st, remaining)
+                .unwrap_or_else(std::sync::PoisonError::into_inner);
+            st = next;
+            if res.timed_out() && !st.done && st.generation == generation {
+                break;
+            }
+        }
+        let timed_out = !st.done && st.generation == generation;
+        if timed_out {
+            st.generation = st.generation.wrapping_add(1);
+            st.waiting = false;
+        } else if st.generation == generation {
+            st.waiting = false;
+        }
+        timed_out
+    }
+}
+
+impl Drop for BlockingOpGuard<'_> {
+    fn drop(&mut self) {
+        let mut st = self.gate.lock();
+        st.blocking_ops = st.blocking_ops.saturating_sub(1);
+    }
+}
+
+impl GaplessToken {
+    pub fn is_cancelled(&self) -> bool {
+        let st = self.gate.lock();
+        st.generation != self.generation || st.blocking_ops > 0
+    }
+
+    pub fn finish(&self) {
+        if self.finished.swap(true, Ordering::AcqRel) {
+            return;
+        }
+        let mut st = self.gate.lock();
+        if st.generation == self.generation && st.waiting {
+            st.done = true;
+            st.waiting = false;
+            self.gate.cond.notify_all();
+        }
+    }
+}
+
+impl Drop for GaplessToken {
+    fn drop(&mut self) {
+        self.finish();
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum GaplessSource {
+    RepeatTrack,
+    UserQueue,
+    BaseQueue { rewound: bool },
+}
+
+#[derive(Debug, Clone)]
+pub struct GaplessEntry {
+    pub track: Track,
+    pub did_repeat: bool,
+    pub source: GaplessSource,
+}
+
+#[derive(Debug, Clone)]
+enum GaplessSlot {
+    Preparing(GaplessEntry),
+    Armed { entry: GaplessEntry, manifest: TrackManifest },
+}
 
 // ---------------------------------------------------------------- playbin
 
@@ -215,17 +400,35 @@ pub fn on_playing_gapless_exit(track: Track, manifest: &TrackManifest, did_repea
 }
 
 pub fn on_playing_retry_exit(playbin: &dyn Playbin, position: Duration) {
-    playbin.seek(position, gst::SeekFlags::FLUSH | gst::SeekFlags::ACCURATE);
+    if playbin.seek(position, gst::SeekFlags::FLUSH | gst::SeekFlags::ACCURATE) {
+        playback_state_changed().notify(|mut s| {
+            s.position = position;
+            s
+        });
+    }
+}
+
+async fn fetch_track_manifest(track_id: &str) -> Result<TrackManifest> {
+    let id = track_id.to_string();
+    api::run(move || service::get_track_manifest(&id))
+        .await
+        .map_err(|e| anyhow!("failed to fetch and enqueue track: {e}"))
+}
+
+fn enqueue_manifest(playbin: &dyn Playbin, manifest: &TrackManifest, gapless: bool) -> Result<()> {
+    playbin.set_uri(&manifest.url);
+    playbin.set_volume(settings::volume())?;
+    if gapless {
+        super::replaygain::set_pending_gapless(Some(manifest));
+    } else {
+        super::replaygain::set_current(Some(manifest));
+    }
+    Ok(())
 }
 
 async fn fetch_and_enqueue_track(playbin: &dyn Playbin, track_id: &str) -> Result<TrackManifest> {
-    let id = track_id.to_string();
-    let manifest = api::run(move || service::get_track_manifest(&id))
-        .await
-        .map_err(|e| anyhow!("failed to fetch and enqueue track: {e}"))?;
-    playbin.set_uri(&manifest.url);
-    playbin.set_volume(settings::volume())?;
-    enqueued_track().set(Some(manifest.clone()));
+    let manifest = fetch_track_manifest(track_id).await?;
+    enqueue_manifest(playbin, &manifest, false)?;
     Ok(manifest)
 }
 
@@ -300,9 +503,10 @@ pub enum Trigger {
     Resume,
     Stop,
     /// Sent from playbin's streaming thread; `done` is signalled once the
-    /// next URI has been enqueued (or enqueuing failed).
-    GaplessHint(Option<mpsc::Sender<()>>),
+    /// next URI has been enqueued (or enqueuing failed or was canceled).
+    GaplessHint(Option<GaplessToken>),
     TokenExpired,
+    #[cfg_attr(not(test), expect(dead_code, reason = "kept in the transition table for parity with Go; gapless failure resets inline"))]
     Failed,
     /// A playback error other than an expired token, with its message.
     Error(String),
@@ -336,7 +540,8 @@ impl std::fmt::Debug for Trigger {
 
 /// Hooks into the player module (queues, autoplay) that the machine needs.
 pub struct Hooks {
-    pub next_track: fn(peek: bool) -> (Option<Track>, bool),
+    pub peek_gapless: fn() -> Option<GaplessEntry>,
+    pub commit_gapless: fn(&GaplessEntry),
     pub on_eos_stopped: fn() -> std::pin::Pin<Box<dyn std::future::Future<Output = ()>>>,
     pub clear_source: fn(),
     /// Playback of the track (its id) stopped on an error.
@@ -350,8 +555,9 @@ pub struct Machine {
     /// Whether the trigger being handled right now starts a track.
     handling_start: Cell<bool>,
     playbin: Rc<dyn Playbin>,
-    gapless_manifest: RefCell<Option<TrackManifest>>,
-    retry_position: Cell<Duration>,
+    gate: Arc<GaplessGate>,
+    gapless: RefCell<Option<GaplessSlot>>,
+    retry_position: Cell<Option<Duration>>,
     /// A pause arrived while the track was still preparing: the stream
     /// starts paused instead of playing (Listen Together aligned start).
     pause_on_start: Cell<bool>,
@@ -365,15 +571,21 @@ pub struct Machine {
 }
 
 impl Machine {
+    #[cfg(test)]
     pub fn new(playbin: Rc<dyn Playbin>, hooks: Hooks) -> Rc<Self> {
+        Self::with_gate(playbin, Arc::new(GaplessGate::new()), hooks)
+    }
+
+    pub fn with_gate(playbin: Rc<dyn Playbin>, gate: Arc<GaplessGate>, hooks: Hooks) -> Rc<Self> {
         Rc::new(Machine {
             state: Cell::new(State::Stopped),
             queue: RefCell::new(VecDeque::new()),
             running: Cell::new(false),
             handling_start: Cell::new(false),
             playbin,
-            gapless_manifest: RefCell::new(None),
-            retry_position: Cell::new(Duration::ZERO),
+            gate,
+            gapless: RefCell::new(None),
+            retry_position: Cell::new(None),
             pause_on_start: Cell::new(false),
             buffering: Cell::new(false),
             reload_on_resume: Cell::new(false),
@@ -381,11 +593,51 @@ impl Machine {
         })
     }
 
+    fn has_armed_gapless(&self) -> bool {
+        matches!(&*self.gapless.borrow(), Some(GaplessSlot::Armed { .. }))
+    }
 
-    /// Whether the next track was already chosen (and is being fetched or
-    /// waiting for its stream to start) for gapless playback.
-    pub fn gapless_pending(&self) -> bool {
-        self.state.get() == State::PlayingGapless
+    /// Source of the currently preparing or armed gapless track, if any.
+    pub fn gapless_source(&self) -> Option<GaplessSource> {
+        self.gapless.borrow().as_ref().map(|slot| match slot {
+            GaplessSlot::Preparing(e) | GaplessSlot::Armed { entry: e, .. } => e.source,
+        })
+    }
+
+    /// Track chosen for the currently preparing or armed gapless handoff.
+    pub fn gapless_track(&self) -> Option<Track> {
+        self.gapless.borrow().as_ref().map(|slot| match slot {
+            GaplessSlot::Preparing(e) | GaplessSlot::Armed { entry: e, .. } => e.track.clone(),
+        })
+    }
+
+    /// Updates the pending gapless entry when Play Next moves it from the base
+    /// queue to the head of the user queue.
+    pub fn move_gapless_to_user_queue(&self) {
+        if let Some(slot) = self.gapless.borrow_mut().as_mut() {
+            match slot {
+                GaplessSlot::Preparing(e) | GaplessSlot::Armed { entry: e, .. } => {
+                    e.source = GaplessSource::UserQueue;
+                }
+            }
+        }
+    }
+
+    fn clear_gapless(&self) {
+        self.gapless.borrow_mut().take();
+        super::replaygain::clear_pending_gapless();
+    }
+
+    fn commit_armed_gapless(&self) {
+        if let Some(GaplessSlot::Armed { entry, manifest }) = self.gapless.borrow_mut().take() {
+            (self.hooks.commit_gapless)(&entry);
+            super::replaygain::promote_gapless();
+            on_playing_gapless_exit(entry.track, &manifest, entry.did_repeat);
+        }
+    }
+
+    fn has_queued_stop_or_start(&self) -> bool {
+        self.queue.borrow().iter().any(|t| matches!(t, Trigger::Stop | Trigger::PlayTrack(..) | Trigger::PlayTrackId(..)))
     }
 
     /// Whether a Stop is waiting behind the trigger being handled.
@@ -407,6 +659,16 @@ impl Machine {
 
     /// Queues a trigger; transitions run in order on the main loop.
     pub fn fire(self: &Rc<Self>, t: Trigger) {
+        if matches!(
+            t,
+            Trigger::Stop
+                | Trigger::PlayTrack(..)
+                | Trigger::PlayTrackId(..)
+                | Trigger::Error(_)
+                | Trigger::TokenExpired
+        ) {
+            self.gate.cancel();
+        }
         self.queue.borrow_mut().push_back(t);
         if self.running.replace(true) {
             return;
@@ -431,7 +693,8 @@ impl Machine {
         match (s, t) {
             // From Preparing too: the newest start wins over one still loading.
             (_, Trigger::PlayTrackId(..) | Trigger::PlayTrack(..)) => Some(Preparing),
-            (Paused, Trigger::Resume) if self.reload_on_resume.get() => Some(PlayingRetrying),
+            (Paused, Trigger::Resume) if self.reload_on_resume.get() || self.retry_position.get().is_some() => Some(PlayingRetrying),
+            (Paused, Trigger::Resume) if self.has_armed_gapless() => Some(PlayingGapless),
             (Paused, Trigger::Resume) => Some(Playing),
             (Paused | Preparing, Trigger::Stop) => Some(Stopped),
             (Preparing, Trigger::TokenExpired) => Some(Stopped),
@@ -443,7 +706,7 @@ impl Machine {
             (_, _) if s.is_playing() => match t {
                 Trigger::Pause => Some(Paused),
                 Trigger::Stop | Trigger::Eos => Some(Stopped),
-                Trigger::GaplessHint(_) if s == Playing => Some(PlayingGapless),
+                Trigger::GaplessHint(tok) if s == Playing && !tok.as_ref().is_some_and(GaplessToken::is_cancelled) => Some(PlayingGapless),
                 Trigger::TokenExpired => Some(PlayingRetrying),
                 _ => None,
             },
@@ -493,14 +756,15 @@ impl Machine {
                         log::error!("failed to resume a preparing track: {e:#}");
                     }
                 }
-                // Ignore(): the hint is a byproduct of retrying / already handled.
-                Trigger::GaplessHint(done) => {
-                    if let Some(d) = done {
-                        let _ = d.send(());
-                    }
-                }
+                // Ignore(): the hint is canceled, retrying, or already handled.
+                Trigger::GaplessHint(done) => drop(done),
                 Trigger::TokenExpired if from == State::Paused => {
                     log::warn!("playback token expired while paused, reloading on resume");
+                    if self.retry_position.get().is_none() {
+                        let pos = self.playbin.query_position().unwrap_or_else(|| playback_state_changed().get().position);
+                        self.retry_position.set(Some(pos));
+                    }
+                    self.clear_gapless();
                     // Tear down now so the stream error that follows the
                     // 401/404 does not stop playback.
                     if let Err(e) = self.playbin.set_state(gst::State::Ready) {
@@ -509,6 +773,14 @@ impl Machine {
                     self.drop_stream_messages();
                     self.reload_on_resume.set(true);
                 }
+                Trigger::StreamStart if from == State::Paused && self.retry_position.get().is_some() => {
+                    if let Some(pos) = self.retry_position.take() {
+                        on_playing_retry_exit(&*self.playbin, pos);
+                    }
+                }
+                Trigger::StreamStart if from == State::Paused && self.has_armed_gapless() => {
+                    self.commit_armed_gapless();
+                }
                 Trigger::Stop if from == State::Stopped => log::debug!("already stopped"),
                 Trigger::Error(e) if from == State::Stopped => log::debug!("playback error while stopped: {e}"),
                 Trigger::StreamStart if from == State::Playing => {}
@@ -516,9 +788,11 @@ impl Machine {
             }
             return;
         };
+        let needs_reload = from == State::Paused && self.reload_on_resume.get();
         // An accepted new start or stop drops a pause meant for the old one.
         if matches!(to, State::Preparing | State::Stopped | State::PlayingRetrying) {
             self.reload_on_resume.set(false);
+            self.clear_gapless();
         }
         // The deferred next / previous started a track: the failure it
         // waited on is superseded.
@@ -528,6 +802,7 @@ impl Machine {
         if matches!(to, State::Preparing | State::Stopped) {
             self.pause_on_start.set(false);
             self.buffering.set(false);
+            self.retry_position.set(None);
         }
         let started_paused = from == State::Preparing && to == State::Playing && self.pause_on_start.replace(false);
         if started_paused {
@@ -539,14 +814,14 @@ impl Machine {
         let sub_to_parent = matches!(from, State::PlayingGapless | State::PlayingRetrying) && to == State::Playing;
         let into_sub = from == State::Playing && matches!(to, State::PlayingGapless | State::PlayingRetrying);
         if from == State::PlayingGapless && matches!(t, Trigger::StreamStart) {
-            let (track, did_repeat) = (self.hooks.next_track)(false);
-            let manifest = self.gapless_manifest.borrow_mut().take();
-            if let (Some(track), Some(manifest)) = (track, manifest) {
-                on_playing_gapless_exit(track, &manifest, did_repeat);
-            }
+            self.commit_armed_gapless();
+        } else if from == State::PlayingGapless && matches!(t, Trigger::Failed) {
+            self.clear_gapless();
         }
-        if from == State::PlayingRetrying && to != State::PlayingRetrying {
-            on_playing_retry_exit(&*self.playbin, self.retry_position.get());
+        if from == State::PlayingRetrying && matches!(t, Trigger::StreamStart)
+            && let Some(pos) = self.retry_position.take()
+        {
+            on_playing_retry_exit(&*self.playbin, pos);
         }
         if from.is_playing() && !to.is_playing() {
             on_playing_exit();
@@ -617,37 +892,72 @@ impl Machine {
                 r
             }
             (State::Playing, _) if sub_to_parent => Ok(()),
-            (State::Playing, _) => on_playing(Rc::clone(&self.playbin), self.buffering.get()),
+            (State::Playing, _) | (State::PlayingGapless, Trigger::Resume) => {
+                on_playing(Rc::clone(&self.playbin), self.buffering.get())
+            }
             (State::PlayingGapless, Trigger::GaplessHint(done)) => {
                 let _ = into_sub;
-                let r = async {
-                    let (track, _) = (self.hooks.next_track)(true);
-                    let track = track.ok_or_else(|| anyhow!("no track available for gapless playback"))?;
-                    let m = fetch_and_enqueue_track(&*self.playbin, track.id()).await?;
-                    *self.gapless_manifest.borrow_mut() = Some(m);
-                    Ok::<_, anyhow::Error>(())
+                let gate_gen = self.gate.generation();
+                let cancelled = |tok: &Option<GaplessToken>| {
+                    tok.as_ref().is_some_and(GaplessToken::is_cancelled)
+                        || self.gate.generation() != gate_gen
+                        || self.has_queued_stop_or_start()
+                };
+                let r: Result<bool> = async {
+                    if cancelled(&done) {
+                        return Ok(false);
+                    }
+                    let Some(entry) = (self.hooks.peek_gapless)() else {
+                        return Ok(false);
+                    };
+                    let track_id = entry.track.id().to_string();
+                    *self.gapless.borrow_mut() = Some(GaplessSlot::Preparing(entry));
+                    let manifest = fetch_track_manifest(&track_id).await?;
+                    if cancelled(&done) {
+                        return Ok(false);
+                    }
+                    enqueue_manifest(&*self.playbin, &manifest, true)?;
+                    let slot = self.gapless.borrow_mut().take();
+                    if let Some(GaplessSlot::Preparing(entry)) = slot {
+                        *self.gapless.borrow_mut() = Some(GaplessSlot::Armed { entry, manifest });
+                    }
+                    Ok(true)
                 }
                 .await;
-                if let Some(d) = done {
-                    let _ = d.send(());
+                match r {
+                    Ok(true) => {}
+                    Ok(false) => {
+                        self.clear_gapless();
+                        self.state.set(State::Playing);
+                    }
+                    Err(e) => {
+                        log::error!("failed to enqueue next track: {e:#}");
+                        self.clear_gapless();
+                        self.state.set(State::Playing);
+                    }
                 }
-                if let Err(e) = r {
-                    log::error!("failed to enqueue next track: {e:#}");
-                    self.fire(Trigger::Failed);
-                }
+                drop(done);
                 Ok(())
             }
             (State::PlayingRetrying, _) => {
-                let mut r = self.retry().await;
-                // Resumed after the token expired while paused: also publish
-                // the playing state that a retry from Playing already has.
-                if r.is_ok() && from == State::Paused {
-                    r = on_playing(Rc::clone(&self.playbin), self.buffering.get());
-                }
+                let r = if from == State::Paused && !needs_reload {
+                    // Resumed while an earlier retry was already loading: wait for
+                    // its StreamStart instead of tearing down and fetching again.
+                    on_playing(Rc::clone(&self.playbin), self.buffering.get())
+                } else {
+                    let mut r = self.retry().await;
+                    // Resumed after the token expired while paused: also publish
+                    // the playing state that a retry from Playing already has.
+                    if r.is_ok() && from == State::Paused {
+                        r = on_playing(Rc::clone(&self.playbin), self.buffering.get());
+                    }
+                    r
+                };
                 if let Err(e) = &r {
                     // Stuck in PlayingRetrying, Play would do nothing.
                     log::error!("failed to reload the stream: {e:#}");
                     let track = track_changed().with(|t| t.as_ref().map(|e| e.track.id().to_string()));
+                    self.retry_position.set(None);
                     self.state.set(State::Stopped);
                     on_playing_exit();
                     if let Err(e) = on_stopped(&*self.playbin) {
@@ -726,7 +1036,15 @@ impl Machine {
     fn drop_stream_messages(&self) {
         self.playbin.flush_bus();
         self.queue.borrow_mut().retain(|t| {
-            !matches!(t, Trigger::Error(_) | Trigger::Buffering(_) | Trigger::TokenExpired | Trigger::StreamStart | Trigger::Eos)
+            !matches!(
+                t,
+                Trigger::Error(_)
+                    | Trigger::Buffering(_)
+                    | Trigger::TokenExpired
+                    | Trigger::StreamStart
+                    | Trigger::Eos
+                    | Trigger::GaplessHint(_)
+            )
         });
     }
 
@@ -738,12 +1056,17 @@ impl Machine {
                 s
             });
         }
+        // Capture live position before State::Ready resets the pipeline clock.
+        let pos = self
+            .retry_position
+            .get()
+            .or_else(|| pb.query_position())
+            .unwrap_or_else(|| playback_state_changed().get().position);
+        self.retry_position.set(Some(pos));
         pb.set_state(gst::State::Ready)?;
         self.drop_stream_messages();
         let id = track_changed().with(|t| t.as_ref().map(|e| e.track.id().to_string())).unwrap_or_default();
         fetch_and_enqueue_track(pb, &id).await?;
-        let pos = pb.query_position().unwrap_or_else(|| playback_state_changed().get().position);
-        self.retry_position.set(pos);
         pb.set_state(gst::State::Playing)
     }
 }
@@ -762,17 +1085,22 @@ pub mod tests {
         pub duration_should_error: bool,
         pub position: Cell<Duration>,
         pub position_should_error: bool,
+        pub reset_position_on_ready: bool,
         pub volume: Cell<f64>,
         pub volume_should_error: bool,
         pub state: Cell<Option<gst::State>>,
         pub state_should_error: bool,
         pub uri: RefCell<String>,
+        pub seeks: RefCell<Vec<Duration>>,
     }
 
     impl Playbin for Testbin {
         fn set_state(&self, state: gst::State) -> Result<()> {
             if self.state_should_error {
                 anyhow::bail!("set state failed");
+            }
+            if self.reset_position_on_ready && matches!(state, gst::State::Ready | gst::State::Null) {
+                self.position.set(Duration::ZERO);
             }
             self.state.set(Some(state));
             Ok(())
@@ -781,9 +1109,16 @@ pub mod tests {
             (!self.duration_should_error).then(|| self.duration.get())
         }
         fn query_position(&self) -> Option<Duration> {
-            (!self.position_should_error).then(|| self.position.get())
+            if self.position_should_error {
+                return None;
+            }
+            if self.reset_position_on_ready && matches!(self.state.get(), Some(gst::State::Ready | gst::State::Null)) {
+                return None;
+            }
+            Some(self.position.get())
         }
         fn seek(&self, position: Duration, _: gst::SeekFlags) -> bool {
+            self.seeks.borrow_mut().push(position);
             self.position.set(position);
             !self.position_should_error
         }
@@ -931,7 +1266,7 @@ pub mod tests {
         use State::*;
         let m = Machine::new(
             Rc::new(Testbin::default()),
-            Hooks { next_track: |_| (None, false), on_eos_stopped: || Box::pin(async {}), clear_source: || {}, on_error: |_, _| {} },
+            Hooks { peek_gapless: || None, commit_gapless: |_| {}, on_eos_stopped: || Box::pin(async {}), clear_source: || {}, on_error: |_, _| {} },
         );
         let play = || Trigger::PlayTrack(Track::default(), false);
         let cases: Vec<(State, Trigger, Option<State>)> = vec![
@@ -973,7 +1308,7 @@ pub mod tests {
     fn eos_from_playing_targets_stopped_and_is_ignored_when_stopped() {
         let m = Machine::new(
             Rc::new(Testbin::default()),
-            Hooks { next_track: |_| (None, false), on_eos_stopped: || Box::pin(async {}), clear_source: || {}, on_error: |_, _| {} },
+            Hooks { peek_gapless: || None, commit_gapless: |_| {}, on_eos_stopped: || Box::pin(async {}), clear_source: || {}, on_error: |_, _| {} },
         );
         assert_eq!(m.target(&Trigger::Eos), None);
         for s in [State::Playing, State::PlayingGapless, State::PlayingRetrying] {
@@ -999,7 +1334,7 @@ pub mod tests {
                 CLEARED.with(|c| c.set(0));
                 let m = Machine::new(
                     Rc::new(Testbin::default()),
-                    Hooks { next_track: |_| (None, false), on_eos_stopped: || Box::pin(async {}), clear_source: || CLEARED.with(|c| c.set(c.get() + 1)), on_error: |_, _| {} },
+                    Hooks { peek_gapless: || None, commit_gapless: |_| {}, on_eos_stopped: || Box::pin(async {}), clear_source: || CLEARED.with(|c| c.set(c.get() + 1)), on_error: |_, _| {} },
                 );
                 m.state.set(from);
                 m.fire(Trigger::Stop);
@@ -1024,7 +1359,7 @@ pub mod tests {
         ctx.with_thread_default(|| {
             let m = Machine::new(
                 Rc::new(Testbin::default()),
-                Hooks { next_track: |_| (None, false), on_eos_stopped: || Box::pin(async {}), clear_source: || {}, on_error: |_, _| {} },
+                Hooks { peek_gapless: || None, commit_gapless: |_| {}, on_eos_stopped: || Box::pin(async {}), clear_source: || {}, on_error: |_, _| {} },
             );
             assert!(m.stopped_without_pending_start());
             m.queue.borrow_mut().push_back(Trigger::Deferred(Box::new(|| DEFERRED_RAN.with(|c| c.set(c.get() + 1)))));
@@ -1052,7 +1387,7 @@ pub mod tests {
         ctx.with_thread_default(|| {
             let m = Machine::new(
                 Rc::new(Testbin::default()),
-                Hooks { next_track: |_| (None, false), on_eos_stopped: || Box::pin(async {}), clear_source: || {}, on_error: |_, _| {} },
+                Hooks { peek_gapless: || None, commit_gapless: |_| {}, on_eos_stopped: || Box::pin(async {}), clear_source: || {}, on_error: |_, _| {} },
             );
             let inner = Rc::clone(&m);
             m.queue.borrow_mut().push_back(Trigger::Deferred(Box::new(move || {
@@ -1081,7 +1416,7 @@ pub mod tests {
             let pb = Rc::new(Testbin { state: Cell::new(Some(gst::State::Playing)), ..Default::default() });
             let m = Machine::new(
                 Rc::clone(&pb) as Rc<dyn Playbin>,
-                Hooks { next_track: |_| (None, false), on_eos_stopped: || Box::pin(async {}), clear_source: || {}, on_error: |_, _| {} },
+                Hooks { peek_gapless: || None, commit_gapless: |_| {}, on_eos_stopped: || Box::pin(async {}), clear_source: || {}, on_error: |_, _| {} },
             );
             m.state.set(State::Preparing);
             m.fire(Trigger::Pause);
@@ -1104,7 +1439,8 @@ pub mod tests {
         Machine::new(
             Rc::clone(pb) as Rc<dyn Playbin>,
             Hooks {
-                next_track: |_| (None, false),
+                peek_gapless: || None,
+                commit_gapless: |_| {},
                 on_eos_stopped: || Box::pin(async {}),
                 clear_source: || {},
                 on_error: |_, e| ERRORS.with(|v| v.borrow_mut().push(e.to_string())),
@@ -1363,5 +1699,243 @@ pub mod tests {
         playback_state_changed().set(PlaybackState { position: secs(150), status: PlaybackStatus::Playing, ..Default::default() });
         on_preparing();
         assert_eq!(playback_state_changed().get().position, Duration::ZERO);
+    }
+
+    #[test]
+    fn gapless_gate_wakes_immediately_on_blocking_op() {
+        let gate = Arc::new(GaplessGate::new());
+        let (tx, rx) = std::sync::mpsc::channel();
+        let waiter_gate = Arc::clone(&gate);
+        let handle = std::thread::spawn(move || {
+            let started = Instant::now();
+            let timed_out = waiter_gate.wait(Duration::from_secs(15), move |token| {
+                tx.send(token).unwrap();
+            });
+            (timed_out, started.elapsed())
+        });
+
+        let token = rx.recv().unwrap();
+        let guard = gate.enter_blocking_op();
+        let (timed_out, elapsed) = handle.join().unwrap();
+        assert!(!timed_out, "canceling the gate must not report a timeout");
+        assert!(elapsed < Duration::from_secs(1), "waiter stalled for {elapsed:?}");
+        assert!(token.is_cancelled());
+
+        // While a blocking op is active, new waits return immediately without dispatching.
+        let dispatched = Arc::new(AtomicBool::new(false));
+        let d = Arc::clone(&dispatched);
+        assert!(!gate.wait(Duration::from_secs(15), move |_| d.store(true, Ordering::SeqCst)));
+        assert!(!dispatched.load(Ordering::SeqCst));
+        drop(guard);
+
+        // Normal completion wakes immediately and keeps the token uncanceled.
+        let (tx, rx) = std::sync::mpsc::channel();
+        let waiter_gate = Arc::clone(&gate);
+        let handle = std::thread::spawn(move || {
+            let started = Instant::now();
+            let timed_out = waiter_gate.wait(Duration::from_secs(15), move |token| {
+                tx.send(token).unwrap();
+            });
+            (timed_out, started.elapsed())
+        });
+        let token = rx.recv().unwrap();
+        assert!(!token.is_cancelled());
+        drop(token);
+        let (timed_out, elapsed) = handle.join().unwrap();
+        assert!(!timed_out);
+        assert!(elapsed < Duration::from_secs(1), "drop wake stalled for {elapsed:?}");
+    }
+
+    #[test]
+    fn cancelled_gapless_hint_does_not_transition_or_enqueue() {
+        let ctx = glib::MainContext::new();
+        ctx.with_thread_default(|| {
+            let pb = Rc::new(Testbin { state: Cell::new(Some(gst::State::Playing)), ..Default::default() });
+            let gate = Arc::new(GaplessGate::new());
+            let m = Machine::with_gate(
+                Rc::clone(&pb) as Rc<dyn Playbin>,
+                Arc::clone(&gate),
+                Hooks {
+                    peek_gapless: || None,
+                    commit_gapless: |_| {},
+                    on_eos_stopped: || Box::pin(async {}),
+                    clear_source: || {},
+                    on_error: |_, _| {},
+                },
+            );
+            m.state.set(State::Playing);
+            let token = gate.begin_nonblocking().unwrap();
+            gate.cancel();
+            assert!(token.is_cancelled());
+            m.fire(Trigger::GaplessHint(Some(token)));
+            while ctx.iteration(false) {}
+            assert_eq!(m.state.get(), State::Playing);
+            assert!(pb.uri.borrow().is_empty());
+        })
+        .unwrap();
+    }
+
+    thread_local! {
+        static COMMITTED: RefCell<Vec<(String, bool, GaplessSource)>> = const { RefCell::new(Vec::new()) };
+    }
+
+    #[test]
+    fn playing_gapless_pause_resume_preserves_and_commits_armed_entry() {
+        let ctx = glib::MainContext::new();
+        ctx.with_thread_default(|| {
+            COMMITTED.with(|c| c.borrow_mut().clear());
+            let pb = Rc::new(Testbin { state: Cell::new(Some(gst::State::Playing)), ..Default::default() });
+            let m = Machine::new(
+                Rc::clone(&pb) as Rc<dyn Playbin>,
+                Hooks {
+                    peek_gapless: || None,
+                    commit_gapless: |entry| {
+                        COMMITTED.with(|c| c.borrow_mut().push((entry.track.id().to_string(), entry.did_repeat, entry.source)));
+                    },
+                    on_eos_stopped: || Box::pin(async {}),
+                    clear_source: || {},
+                    on_error: |_, _| {},
+                },
+            );
+            let mut next = Track::default();
+            next.info.id = "track-b".into();
+            next.info.duration = secs(210);
+            let manifest = TrackManifest { quality: TrackQuality::Lossless, ..Default::default() };
+            m.state.set(State::PlayingGapless);
+            *m.gapless.borrow_mut() = Some(GaplessSlot::Armed {
+                entry: GaplessEntry {
+                    track: next,
+                    did_repeat: false,
+                    source: GaplessSource::BaseQueue { rewound: false },
+                },
+                manifest,
+            });
+            track_changed().set(None);
+
+            m.fire(Trigger::Pause);
+            while ctx.iteration(false) {}
+            assert_eq!(m.state.get(), State::Paused);
+            assert_eq!(pb.state.get(), Some(gst::State::Paused));
+            assert!(m.has_armed_gapless());
+
+            m.fire(Trigger::Resume);
+            while ctx.iteration(false) {}
+            assert_eq!(m.state.get(), State::PlayingGapless);
+            assert_eq!(pb.state.get(), Some(gst::State::Playing));
+
+            m.fire(Trigger::StreamStart);
+            while ctx.iteration(false) {}
+            assert_eq!(m.state.get(), State::Playing);
+            assert!(!m.has_armed_gapless());
+            assert_eq!(
+                COMMITTED.with(|c| c.borrow().clone()),
+                vec![("track-b".into(), false, GaplessSource::BaseQueue { rewound: false })]
+            );
+            assert_eq!(track_changed().with(|t| t.as_ref().map(|e| e.track.id().to_string())).as_deref(), Some("track-b"));
+            assert_eq!(playback_quality_changed().get(), TrackQuality::Lossless);
+            on_playing_exit();
+        })
+        .unwrap();
+    }
+
+    #[test]
+    fn playing_retrying_seeks_only_on_stream_start_and_preserves_across_pause() {
+        let ctx = glib::MainContext::new();
+        ctx.with_thread_default(|| {
+            // Non-StreamStart exits clear retry_position without seeking.
+            for trigger in [Trigger::Stop, Trigger::Eos, Trigger::Error("boom".into()), Trigger::TokenExpired] {
+                let pb = Rc::new(Testbin { state: Cell::new(Some(gst::State::Playing)), ..Default::default() });
+                let m = test_machine(&pb);
+                m.state.set(State::PlayingRetrying);
+                m.retry_position.set(Some(secs(42)));
+                m.fire(trigger);
+                while ctx.iteration(false) {}
+                assert_eq!(m.state.get(), State::Stopped);
+                assert!(pb.seeks.borrow().is_empty(), "non-StreamStart exit sought unexpectedly");
+                assert_eq!(m.retry_position.get(), None);
+            }
+
+            // Starting a different track clears retry_position without seeking.
+            let pb = Rc::new(Testbin { state: Cell::new(Some(gst::State::Playing)), state_should_error: true, ..Default::default() });
+            let m = test_machine(&pb);
+            m.state.set(State::PlayingRetrying);
+            m.retry_position.set(Some(secs(55)));
+            m.fire(Trigger::PlayTrack(Track::default(), false));
+            while ctx.iteration(false) {}
+            assert!(pb.seeks.borrow().is_empty());
+            assert_eq!(m.retry_position.get(), None);
+
+            // Pausing before StreamStart preserves the retry seek until StreamStart arrives.
+            let pb = Rc::new(Testbin { state: Cell::new(Some(gst::State::Playing)), ..Default::default() });
+            let m = test_machine(&pb);
+            m.state.set(State::PlayingRetrying);
+            m.retry_position.set(Some(secs(73)));
+            m.fire(Trigger::Pause);
+            while ctx.iteration(false) {}
+            assert_eq!(m.state.get(), State::Paused);
+            assert!(pb.seeks.borrow().is_empty());
+            assert_eq!(m.retry_position.get(), Some(secs(73)));
+
+            m.fire(Trigger::Resume);
+            while ctx.iteration(false) {}
+            assert_eq!(m.state.get(), State::PlayingRetrying);
+            assert_eq!(pb.state.get(), Some(gst::State::Playing));
+            assert!(pb.seeks.borrow().is_empty());
+
+            m.fire(Trigger::StreamStart);
+            while ctx.iteration(false) {}
+            assert_eq!(m.state.get(), State::Playing);
+            assert_eq!(*pb.seeks.borrow(), vec![secs(73)]);
+            assert_eq!(m.retry_position.get(), None);
+
+            // StreamStart arriving while paused also applies the saved retry seek once.
+            let pb = Rc::new(Testbin { state: Cell::new(Some(gst::State::Playing)), ..Default::default() });
+            let m = test_machine(&pb);
+            m.state.set(State::PlayingRetrying);
+            m.retry_position.set(Some(secs(91)));
+            m.fire(Trigger::Pause);
+            m.fire(Trigger::StreamStart);
+            while ctx.iteration(false) {}
+            assert_eq!(m.state.get(), State::Paused);
+            assert_eq!(*pb.seeks.borrow(), vec![secs(91)]);
+            assert_eq!(m.retry_position.get(), None);
+            on_playing_exit();
+        })
+        .unwrap();
+    }
+
+    #[test]
+    fn retry_and_paused_token_expired_capture_position_before_ready() {
+        let ctx = glib::MainContext::new();
+        ctx.with_thread_default(|| {
+            let pb = Rc::new(Testbin {
+                state: Cell::new(Some(gst::State::Paused)),
+                position: Cell::new(secs(88)),
+                reset_position_on_ready: true,
+                ..Default::default()
+            });
+            playback_state_changed().set(PlaybackState { position: secs(10), status: PlaybackStatus::Paused, ..Default::default() });
+            let m = test_machine(&pb);
+            m.state.set(State::Paused);
+            m.fire(Trigger::TokenExpired);
+            while ctx.iteration(false) {}
+            assert_eq!(pb.state.get(), Some(gst::State::Ready));
+            assert_eq!(pb.query_position(), None);
+            assert_eq!(m.retry_position.get(), Some(secs(88)));
+
+            // `retry()` also captures position before `set_state(Ready)`.
+            let pb = Rc::new(Testbin {
+                state: Cell::new(Some(gst::State::Playing)),
+                position: Cell::new(secs(64)),
+                reset_position_on_ready: true,
+                state_should_error: true,
+                ..Default::default()
+            });
+            playback_state_changed().set(PlaybackState { position: secs(5), status: PlaybackStatus::Playing, ..Default::default() });
+            let m = test_machine(&pb);
+            assert!(ctx.block_on(m.retry()).is_err());
+            assert_eq!(m.retry_position.get(), Some(secs(64)));
+        })
+        .unwrap();
     }
 }

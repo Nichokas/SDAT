@@ -9,13 +9,62 @@ use std::sync::Mutex;
 use crate::model::{Normalization, SourceType, TrackManifest};
 use crate::settings::{self, ReplayGainMode};
 
+type NormalizationPair = (Option<Normalization>, Option<Normalization>);
+
+#[derive(Debug, Default, Clone, Copy, PartialEq)]
+struct ReplayGainState {
+    current: Option<NormalizationPair>,
+    pending_gapless: Option<NormalizationPair>,
+}
+
+impl ReplayGainState {
+    fn set_current(&mut self, norm: Option<NormalizationPair>) {
+        self.current = norm;
+        self.pending_gapless = None;
+    }
+
+    fn set_pending_gapless(&mut self, norm: Option<NormalizationPair>) {
+        self.pending_gapless = norm;
+    }
+
+    fn promote_gapless(&mut self) {
+        if let Some(next) = self.pending_gapless.take() {
+            self.current = Some(next);
+        }
+    }
+
+    fn clear_pending_gapless(&mut self) {
+        self.pending_gapless = None;
+    }
+
+    fn active(&self) -> Option<NormalizationPair> {
+        self.current
+    }
+}
+
 /// State shared with the streaming thread (the Go code read signals directly).
 static NORMALIZE: AtomicBool = AtomicBool::new(false);
 static ALBUM_MODE: AtomicBool = AtomicBool::new(false);
-static ENQUEUED: Mutex<Option<(Option<Normalization>, Option<Normalization>)>> = Mutex::new(None);
+static STATE: Mutex<ReplayGainState> = Mutex::new(ReplayGainState { current: None, pending_gapless: None });
 
-pub fn set_enqueued(m: Option<&TrackManifest>) {
-    *ENQUEUED.lock().unwrap_or_else(std::sync::PoisonError::into_inner) = m.map(|m| (m.album_normalization, m.track_normalization));
+fn norm_pair(m: &TrackManifest) -> NormalizationPair {
+    (m.album_normalization, m.track_normalization)
+}
+
+pub fn set_current(m: Option<&TrackManifest>) {
+    STATE.lock().unwrap_or_else(std::sync::PoisonError::into_inner).set_current(m.map(norm_pair));
+}
+
+pub fn set_pending_gapless(m: Option<&TrackManifest>) {
+    STATE.lock().unwrap_or_else(std::sync::PoisonError::into_inner).set_pending_gapless(m.map(norm_pair));
+}
+
+pub fn promote_gapless() {
+    STATE.lock().unwrap_or_else(std::sync::PoisonError::into_inner).promote_gapless();
+}
+
+pub fn clear_pending_gapless() {
+    STATE.lock().unwrap_or_else(std::sync::PoisonError::into_inner).clear_pending_gapless();
 }
 
 pub fn calculate_album_mode(mode: ReplayGainMode, source: Option<SourceType>) -> bool {
@@ -31,7 +80,7 @@ pub fn update_album_mode() {
 }
 
 fn inject_tags(rgvolume: &gst::Element) {
-    let Some((album, track)) = *ENQUEUED.lock().unwrap_or_else(std::sync::PoisonError::into_inner) else { return };
+    let Some((album, track)) = STATE.lock().unwrap_or_else(std::sync::PoisonError::into_inner).active() else { return };
     let mut tags = gst::TagList::new();
     {
         let t = tags.make_mut();
@@ -74,11 +123,20 @@ fn build_filter_bin() -> Result<gst::Bin> {
     let sink = rgvolume.static_pad("sink").expect("rgvolume always has a sink pad");
     let rgv = rgvolume.downgrade();
     sink.add_probe(gst::PadProbeType::EVENT_DOWNSTREAM, move |_, info| {
-        if let Some(gst::PadProbeData::Event(ev)) = &info.data
-            && ev.type_() == gst::EventType::Segment && NORMALIZE.load(Ordering::Relaxed)
-                && let Some(rgv) = rgv.upgrade() {
-                    inject_tags(&rgv);
+        if let Some(gst::PadProbeData::Event(ev)) = &info.data {
+            match ev.type_() {
+                // Promote before the new stream's Segment arrives so a seek
+                // of the outgoing track keeps its own tags while the next
+                // stream receives the preloaded ones.
+                gst::EventType::StreamStart => promote_gapless(),
+                gst::EventType::Segment if NORMALIZE.load(Ordering::Relaxed) => {
+                    if let Some(rgv) = rgv.upgrade() {
+                        inject_tags(&rgv);
+                    }
                 }
+                _ => {}
+            }
+        }
         gst::PadProbeReturn::Ok
     });
     ghost(&bin, "sink", &sink)?;
@@ -122,5 +180,39 @@ mod tests {
         assert!(!calculate_album_mode(Track, Some(SourceType::Album)));
         assert!(!calculate_album_mode(Auto, Some(SourceType::Playlist)));
         assert!(calculate_album_mode(Album, Some(SourceType::Playlist)));
+    }
+
+    #[test]
+    fn gapless_preload_does_not_overwrite_current_until_promoted() {
+        let a = (Some(Normalization { peak: 0.9, gain: -6.0 }), Some(Normalization { peak: 0.8, gain: -4.0 }));
+        let b = (Some(Normalization { peak: 1.0, gain: -1.5 }), Some(Normalization { peak: 0.95, gain: -2.0 }));
+        let c = (None, Some(Normalization { peak: 0.5, gain: 1.0 }));
+        let mut s = ReplayGainState::default();
+
+        s.set_current(Some(a));
+        assert_eq!(s.active(), Some(a));
+
+        // Preloading Track B leaves Track A active for seeks.
+        s.set_pending_gapless(Some(b));
+        assert_eq!(s.active(), Some(a));
+
+        // StreamStart promotes Track B once; repeating promote is a no-op.
+        s.promote_gapless();
+        assert_eq!(s.active(), Some(b));
+        s.promote_gapless();
+        assert_eq!(s.active(), Some(b));
+
+        // Clearing a canceled preload prevents it from applying later.
+        s.set_pending_gapless(Some(c));
+        s.clear_pending_gapless();
+        s.promote_gapless();
+        assert_eq!(s.active(), Some(b));
+
+        // Starting a new track replaces current and clears any pending gapless preload.
+        s.set_pending_gapless(Some(a));
+        s.set_current(Some(c));
+        assert_eq!(s.active(), Some(c));
+        s.promote_gapless();
+        assert_eq!(s.active(), Some(c));
     }
 }

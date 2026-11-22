@@ -13,7 +13,7 @@ use anyhow::{anyhow, Result};
 use gst::prelude::*;
 use std::cell::{Cell, OnceCell};
 use std::rc::Rc;
-use std::sync::mpsc;
+use std::sync::Arc;
 use std::time::Duration;
 
 use crate::model::{PlaybackSource, PlaylistInfo, Track};
@@ -21,7 +21,7 @@ use crate::signals::{Signal, State, CONTINUE};
 use crate::{api, global_signal, i18n::tr, service, settings};
 use playqueue::{DurableQueue, HistoryEntry, HistoryQueue, UserQueue};
 pub use quality::audio_stream_quality;
-use statemachine::{Hooks, Machine, Trigger};
+use statemachine::{GaplessEntry, GaplessGate, GaplessSource, Hooks, Machine, Trigger};
 pub use statemachine::{
     playback_quality_changed, playback_state_changed, track_changed, track_repeated, PlaybackState, PlaybackStatus,
 };
@@ -161,8 +161,45 @@ pub fn remove_from_user_queue(index: usize) -> tonearm_core::error::CoreResult<(
 
 // ---------------------------------------------------------------- player
 
+struct GuardedPlaybin {
+    element: gst::Element,
+    gate: Arc<GaplessGate>,
+}
+
+impl statemachine::Playbin for GuardedPlaybin {
+    fn set_state(&self, state: gst::State) -> Result<()> {
+        let _guard = matches!(state, gst::State::Ready | gst::State::Null).then(|| self.gate.enter_blocking_op());
+        statemachine::Playbin::set_state(&self.element, state)
+    }
+
+    fn query_duration(&self) -> Option<Duration> {
+        statemachine::Playbin::query_duration(&self.element)
+    }
+
+    fn query_position(&self) -> Option<Duration> {
+        statemachine::Playbin::query_position(&self.element)
+    }
+
+    fn seek(&self, position: Duration, flags: gst::SeekFlags) -> bool {
+        let _guard = flags.contains(gst::SeekFlags::FLUSH).then(|| self.gate.enter_blocking_op());
+        statemachine::Playbin::seek(&self.element, position, flags)
+    }
+
+    fn set_uri(&self, uri: &str) {
+        statemachine::Playbin::set_uri(&self.element, uri);
+    }
+
+    fn set_volume(&self, volume: f64) -> Result<()> {
+        statemachine::Playbin::set_volume(&self.element, volume)
+    }
+
+    fn flush_bus(&self) {
+        statemachine::Playbin::flush_bus(&self.element);
+    }
+}
+
 struct Player {
-    playbin: gst::Element,
+    playbin: Rc<GuardedPlaybin>,
     machine: Rc<Machine>,
     _bus_watch: gst::bus::BusWatchGuard,
 }
@@ -184,8 +221,8 @@ fn fire(t: Trigger) {
     }
 }
 
-fn playbin() -> Option<gst::Element> {
-    with(|p| p.playbin.clone())
+fn playbin() -> Option<Rc<GuardedPlaybin>> {
+    with(|p| Rc::clone(&p.playbin))
 }
 
 /// Initialises `GStreamer`, playbin3, the state machine and MPRIS.
@@ -196,12 +233,16 @@ pub fn init() -> Result<()> {
     }
     gst::init()?;
     let playbin = gst::ElementFactory::make("playbin3").build().map_err(|e| anyhow!("playbin3 unavailable: {e}"))?;
+    let gate = Arc::new(GaplessGate::new());
+    let guarded = Rc::new(GuardedPlaybin { element: playbin.clone(), gate: Arc::clone(&gate) });
 
-    let pb: Rc<dyn statemachine::Playbin> = Rc::new(playbin.clone());
-    let machine = Machine::new(
+    let pb: Rc<dyn statemachine::Playbin> = Rc::clone(&guarded) as Rc<dyn statemachine::Playbin>;
+    let machine = Machine::with_gate(
         pb,
+        Arc::clone(&gate),
         Hooks {
-            next_track,
+            peek_gapless,
+            commit_gapless,
             on_eos_stopped: || Box::pin(on_eos_stopped()),
             clear_source: || source_changed().set(None),
             on_error: |track, e| {
@@ -223,16 +264,19 @@ pub fn init() -> Result<()> {
         glib::MainContext::default().invoke(move || on_volume_change(v));
     });
 
-    playbin.connect("about-to-finish", false, |_| {
-        let (tx, rx) = mpsc::channel();
+    let about_to_finish_gate = Arc::clone(&gate);
+    playbin.connect("about-to-finish", false, move |_| {
         let ctx = glib::MainContext::default();
         if ctx.is_owner() {
-            fire(Trigger::GaplessHint(None));
+            if let Some(token) = about_to_finish_gate.begin_nonblocking() {
+                fire(Trigger::GaplessHint(Some(token)));
+            }
             return None;
         }
-        ctx.invoke(move || fire(Trigger::GaplessHint(Some(tx))));
-        // Block the streaming thread until the next URI is set (gapless).
-        if rx.recv_timeout(Duration::from_secs(15)).is_err() {
+        // Block the streaming thread until the next URI is set (gapless) or canceled.
+        if about_to_finish_gate.wait(Duration::from_secs(15), |token| {
+            ctx.invoke(move || fire(Trigger::GaplessHint(Some(token))));
+        }) {
             log::warn!("timed out waiting for the next gapless track");
         }
         None
@@ -249,7 +293,7 @@ pub fn init() -> Result<()> {
     playbin.set_property("volume", settings::volume());
 
     PLAYER.with(|p| {
-        let _ = p.set(Player { playbin, machine, _bus_watch: bus_watch });
+        let _ = p.set(Player { playbin: guarded, machine, _bus_watch: bus_watch });
     });
 
     track_changed().on(|ev| {
@@ -263,15 +307,7 @@ pub fn init() -> Result<()> {
         replaygain::update_album_mode();
         CONTINUE
     });
-    enqueued_track_hook();
     Ok(())
-}
-
-fn enqueued_track_hook() {
-    statemachine::enqueued_track().on(|m| {
-        replaygain::set_enqueued(m.as_ref());
-        CONTINUE
-    });
 }
 
 fn on_bus_message(msg: &gst::Message) {
@@ -306,6 +342,14 @@ fn on_volume_change(v: f64) {
 }
 
 async fn on_eos_stopped() {
+    let stop = || {
+        source_changed().set(None);
+        statemachine::on_stopped_stop();
+    };
+    if crate::live::is_guest() {
+        stop();
+        return;
+    }
     if list_pending() {
         // The loaded part ran out before the next page arrived: wait for it
         // instead of stopping, starting a radio or repeating.
@@ -314,10 +358,6 @@ async fn on_eos_stopped() {
         feed(true);
         return;
     }
-    let stop = || {
-        source_changed().set(None);
-        statemachine::on_stopped_stop();
-    };
     // A failed gapless prefetch ends the current track with tracks still
     // queued: carry on with them instead of stopping or starting a radio,
     // unless a Stop or another start is already queued.
@@ -415,33 +455,61 @@ fn pop_user_queue() -> Option<Track> {
     Some(entry.track)
 }
 
-fn get_next_track_from_queue(peek: bool, can_rewind: &mut bool) -> Option<Track> {
-    let t = if peek { user_queue().peek() } else { pop_user_queue() };
-    if t.is_some() {
-        return t;
+fn track_matches(a: &Track, b: &Track) -> bool {
+    a.id() == b.id() && a.playlist_item_id == b.playlist_item_id
+}
+
+fn peek_next_queue_entry() -> Option<(Track, GaplessSource)> {
+    if let Some(t) = user_queue().entries().with(|v| v.iter().find(|t| t.info.streamable).cloned()) {
+        return Some((t, GaplessSource::UserQueue));
     }
-    let t = if peek { base_queue().peek() } else { base_queue().pop() };
-    if t.is_some() {
-        return t;
+    if let Some(t) = base_queue().entries().with(|v| v.iter().find(|t| t.info.streamable).cloned()) {
+        return Some((t, GaplessSource::BaseQueue { rewound: false }));
     }
-    if list_pending() {
-        // More of the list is coming: don't wrap around (repeat) yet.
+    if list_pending() || repeat_mode_changed().get() != RepeatMode::Queue {
         return None;
     }
-    if *can_rewind {
-        *can_rewind = false;
-        log::debug!("queue repeat mode is enabled, replaying base queue");
-        base_queue().rewind();
-        if shuffle_state_changed().get() {
-            base_queue().shuffle("", &[]);
+    // Sentinel id never matches a real track, so all source tracks are visible
+    // without mutating `base_queue` during a peek.
+    base_queue()
+        .played("\0", &user_queue().source_occurrences())
+        .into_iter()
+        .find(|t| t.info.streamable)
+        .map(|t| (t, GaplessSource::BaseQueue { rewound: true }))
+}
+
+fn pop_next_streamable_from_queue() -> Option<Track> {
+    while let Some(t) = pop_user_queue() {
+        if t.info.streamable {
+            return Some(t);
         }
-        return base_queue().peek();
+    }
+    while let Some(t) = base_queue().pop() {
+        if t.info.streamable {
+            return Some(t);
+        }
+    }
+    if list_pending() || repeat_mode_changed().get() != RepeatMode::Queue {
+        return None;
+    }
+    log::debug!("queue repeat mode is enabled, replaying base queue");
+    base_queue().rewind();
+    if shuffle_state_changed().get() {
+        base_queue().shuffle(&current_track_id().unwrap_or_default(), &user_queue().source_occurrences());
+    }
+    while let Some(t) = base_queue().pop() {
+        if t.info.streamable {
+            return Some(t);
+        }
     }
     None
 }
 
 /// Returns the next streamable track and whether it is a track repeat.
 fn next_track(peek: bool) -> (Option<Track>, bool) {
+    if crate::live::is_guest() {
+        return (None, false);
+    }
     if repeat_mode_changed().get() == RepeatMode::Track {
         return (track_changed().with(|t| t.as_ref().map(|e| e.track.clone())), true);
     }
@@ -449,23 +517,79 @@ fn next_track(peek: bool) -> (Option<Track>, bool) {
 }
 
 fn next_streamable_from_queue(peek: bool) -> Option<Track> {
-    let mut can_rewind = repeat_mode_changed().get() == RepeatMode::Queue;
-    let mut next = get_next_track_from_queue(true, &mut can_rewind);
-    while matches!(&next, Some(t) if !t.info.streamable) {
-        get_next_track_from_queue(false, &mut can_rewind);
-        next = get_next_track_from_queue(true, &mut can_rewind);
+    if peek {
+        peek_next_queue_entry().map(|(t, _)| t)
+    } else {
+        pop_next_streamable_from_queue()
     }
-    if !peek && next.is_some() {
-        get_next_track_from_queue(false, &mut can_rewind);
+}
+
+fn peek_gapless() -> Option<GaplessEntry> {
+    if crate::live::is_guest() {
+        return None;
     }
-    next
+    if repeat_mode_changed().get() == RepeatMode::Track {
+        return track_changed().with(|t| {
+            t.as_ref().map(|e| GaplessEntry {
+                track: e.track.clone(),
+                did_repeat: true,
+                source: GaplessSource::RepeatTrack,
+            })
+        });
+    }
+    peek_next_queue_entry().map(|(track, source)| GaplessEntry { track, did_repeat: false, source })
+}
+
+fn commit_gapless(entry: &GaplessEntry) {
+    match entry.source {
+        GaplessSource::RepeatTrack => {}
+        GaplessSource::UserQueue => {
+            let idx = user_queue()
+                .entries()
+                .with(|rows| rows.iter().position(|t| track_matches(t, &entry.track)));
+            let removed = idx.and_then(|idx| {
+                user_queue().edit(|rows| {
+                    if idx >= rows.len() {
+                        return None;
+                    }
+                    let row = rows.remove(idx);
+                    update_pinned(|p| play_next::after_remove(p, idx));
+                    Some(row)
+                })
+            });
+            base_queue().select_history_occurrence(removed.as_ref().and_then(|r| r.occurrence.as_ref()));
+        }
+        GaplessSource::BaseQueue { rewound } => {
+            let mut idx = base_queue()
+                .entries()
+                .with(|rows| rows.iter().position(|t| track_matches(t, &entry.track)));
+            if idx.is_none() && rewound && repeat_mode_changed().get() == RepeatMode::Queue {
+                log::debug!("queue repeat mode is enabled, replaying base queue");
+                base_queue().rewind();
+                if shuffle_state_changed().get() {
+                    base_queue().shuffle(&current_track_id().unwrap_or_default(), &user_queue().source_occurrences());
+                }
+                idx = base_queue()
+                    .entries()
+                    .with(|rows| rows.iter().position(|t| track_matches(t, &entry.track)));
+            }
+            if let Some(i) = idx {
+                let leading_unstreamable = i > 0
+                    && base_queue().entries().with(|rows| rows[..i].iter().all(|t| !t.info.streamable));
+                if leading_unstreamable {
+                    let _ = base_queue().skip(i);
+                } else if i > 0 {
+                    base_queue().move_entry(i, 0);
+                }
+                base_queue().pop();
+            } else {
+                base_queue().select_history_occurrence(None);
+            }
+        }
+    }
 }
 
 fn previous_track() -> Option<HistoryEntry> {
-    if repeat_mode_changed().get() == RepeatMode::Track
-        && let Some(t) = track_changed().with(|t| t.as_ref().map(|e| e.track.clone())) {
-            return Some(HistoryEntry { occurrence: base_queue().current_occurrence(&t), track: t });
-        }
     history().pop()
 }
 
@@ -483,17 +607,27 @@ fn insert_tracklist_next(tracks: Vec<Track>) {
     if tracks.is_empty() {
         return;
     }
-    // A gapless handoff already picked the head of the queues and pops it at
-    // StreamStart; keep that entry first so the popped entry is the one playing.
-    let gapless = with(|p| p.machine.gapless_pending()).unwrap_or(false)
-        && repeat_mode_changed().get() != RepeatMode::Track;
-    if gapless
-        && user_queue().is_empty()
-        && let Some(head) = base_queue().take_for_gapless()
-    {
-        user_queue().prepend(head);
-    }
-    let floor = usize::from(gapless && !user_queue().is_empty());
+    // Keep an already-chosen gapless track ahead of Play Next entries when it
+    // came from the queues so the queue view matches playback order.
+    let armed = with(|p| (p.machine.gapless_source(), p.machine.gapless_track()));
+    let floor = match armed {
+        Some((Some(GaplessSource::UserQueue), Some(armed))) => {
+            usize::from(user_queue().peek().is_some_and(|head| track_matches(&head, &armed)))
+        }
+        Some((Some(GaplessSource::BaseQueue { rewound: false }), Some(armed))) => {
+            if user_queue().is_empty()
+                && base_queue().peek().is_some_and(|head| track_matches(&head, &armed))
+                && let Some(head) = base_queue().take_for_gapless()
+            {
+                user_queue().prepend(head);
+                with(|p| p.machine.move_gapless_to_user_queue());
+                1
+            } else {
+                0
+            }
+        }
+        _ => 0,
+    };
     user_queue().edit(|entries| {
         let pinned = PLAY_NEXT_PINNED.with(Cell::get);
         let pinned = play_next::insert(entries, pinned, floor, tracks.into_iter().map(HistoryEntry::from).collect());
@@ -617,8 +751,11 @@ pub fn previous() {
 }
 
 fn previous_now() {
-    let pos = playbin().and_then(|p| statemachine::Playbin::query_position(&p));
-    if pos.is_some_and(|p| p > Duration::from_secs(5)) || history().is_empty() {
+    let pos = playbin().and_then(|p| statemachine::Playbin::query_position(&*p));
+    if repeat_mode_changed().get() == RepeatMode::Track
+        || pos.is_some_and(|p| p > Duration::from_secs(5))
+        || history().is_empty()
+    {
         seek_to_position(Duration::ZERO, false);
         return;
     }
@@ -642,12 +779,16 @@ pub fn seek_to_percent(percent: f64) {
     seek_to_position(d.mul_f64(percent / 100.0), false);
 }
 
-pub fn seek_to_position(position: Duration, precise: bool) {
-    try_seek(position, precise);
+pub fn seek_to_position(position: Duration, precise: bool) -> bool {
+    try_seek(position, precise)
 }
 
 /// `false` when the pipeline refused the seek.
 fn try_seek(position: Duration, precise: bool) -> bool {
+    playbin().is_some_and(|p| seek_on(&*p, position, precise))
+}
+
+fn seek_on(playbin: &dyn statemachine::Playbin, position: Duration, precise: bool) -> bool {
     let flags = if precise {
         gst::SeekFlags::FLUSH | gst::SeekFlags::ACCURATE
     } else {
@@ -655,8 +796,12 @@ fn try_seek(position: Duration, precise: bool) -> bool {
     };
     // Subscribers (MPRIS `Seeked`, the Listen Together host anchor) take
     // `position` as reached, so a seek the pipeline refused must not notify.
-    let ok = playbin().is_some_and(|p| statemachine::Playbin::seek(&p, position, flags));
+    let ok = playbin.seek(position, flags);
     if ok {
+        playback_state_changed().notify(|mut s| {
+            s.position = position;
+            s
+        });
         seeked().notify(&position);
     }
     ok
@@ -668,7 +813,7 @@ pub fn set_volume(volume: f64) {
         log::warn!("Volume is higher than 1. This will cause overdrive to the speakers.");
     }
     if let Some(p) = playbin() {
-        p.set_property("volume", volume);
+        p.element.set_property("volume", volume);
     }
 }
 
@@ -681,7 +826,7 @@ pub fn stop() {
 /// exits; disposing a playbin that is not in NULL there can hang forever.
 pub fn shutdown() {
     if let Some(p) = playbin()
-        && let Err(e) = p.set_state(gst::State::Null)
+        && let Err(e) = statemachine::Playbin::set_state(&*p, gst::State::Null)
     {
         log::warn!("failed to stop the player on quit error={e}");
     }
@@ -953,6 +1098,155 @@ mod playlist_tests {
         assert_eq!(playlist_start(&fresh[..2], &clicked, 1), Some(0));
         assert_eq!(playlist_start(&fresh, &track("A", None), 1), None);
     }
+
+    #[test]
+    fn gapless_commit_ignores_user_queue_addition_and_repeat_toggle() {
+        clear_queues();
+        set_repeat_mode(RepeatMode::None);
+        base_queue().set(vec![track("A", None), track("B", None), track("C", None)]);
+        let a = base_queue().pop().unwrap();
+        track_changed().set(Some(statemachine::TrackChangedEvent { track: a, skip_history: false }));
+
+        // Arm Track B from the base queue.
+        let armed = peek_gapless().unwrap();
+        assert_eq!(armed.track.id(), "B");
+        assert!(!armed.did_repeat);
+        assert_eq!(armed.source, GaplessSource::BaseQueue { rewound: false });
+
+        // User adds Track X to an empty user_queue and toggles RepeatMode::Track on during PlayingGapless.
+        user_queue().append(track("X", None));
+        set_repeat_mode(RepeatMode::Track);
+
+        // StreamStart commits the exact armed Track B from base_queue without popping X.
+        commit_gapless(&armed);
+        assert_eq!(user_queue().entries().with(|v| v.iter().map(|t| t.id().to_string()).collect::<Vec<_>>()), vec!["X"]);
+        assert_eq!(base_queue().entries().with(|v| v.iter().map(|t| t.id().to_string()).collect::<Vec<_>>()), vec!["C"]);
+
+        // Now arm a RepeatMode::Track repeat, then turn repeat off before commit.
+        let repeated = peek_gapless().unwrap();
+        assert_eq!(repeated.track.id(), "A");
+        assert!(repeated.did_repeat);
+        assert_eq!(repeated.source, GaplessSource::RepeatTrack);
+        set_repeat_mode(RepeatMode::None);
+        commit_gapless(&repeated);
+        assert_eq!(user_queue().entries().with(|v| v.iter().map(|t| t.id().to_string()).collect::<Vec<_>>()), vec!["X"]);
+        assert_eq!(base_queue().entries().with(|v| v.iter().map(|t| t.id().to_string()).collect::<Vec<_>>()), vec!["C"]);
+
+        clear_queues();
+        track_changed().set(None);
+    }
+
+    #[test]
+    fn previous_now_under_repeat_track_does_not_duplicate_queue_or_history() {
+        clear_queues();
+        while history().pop().is_some() {}
+        set_repeat_mode(RepeatMode::None);
+
+        let a = track("A", None);
+        let b = track("B", None);
+        history().prepend(HistoryEntry::from(a));
+        history().prepend(HistoryEntry::from(b.clone()));
+        track_changed().set(Some(statemachine::TrackChangedEvent { track: b, skip_history: false }));
+
+        set_repeat_mode(RepeatMode::Track);
+        previous_now();
+
+        assert!(user_queue().is_empty(), "previous_now must not enqueue duplicates under RepeatMode::Track");
+        assert_eq!(PLAY_NEXT_PINNED.with(Cell::get), 0);
+        assert_eq!(history().pop().map(|e| e.track.id().to_string()).as_deref(), Some("A"));
+        assert!(history().is_empty());
+
+        set_repeat_mode(RepeatMode::None);
+        track_changed().set(None);
+    }
+
+    #[test]
+    fn peek_next_track_does_not_mutate_base_queue_on_repeat_or_shuffle() {
+        clear_queues();
+        set_repeat_mode(RepeatMode::Queue);
+        base_queue().set(vec![track("A", None), track("B", None)]);
+        assert_eq!(base_queue().pop().unwrap().id(), "A");
+        let b = base_queue().pop().unwrap();
+        track_changed().set(Some(statemachine::TrackChangedEvent { track: b, skip_history: false }));
+        assert!(base_queue().is_empty());
+
+        // Peeking under RepeatMode::Queue must inspect without rewinding.
+        let (peeked, did_repeat) = next_track(true);
+        assert!(!did_repeat);
+        assert_eq!(peeked.as_ref().map(Track::id), Some("A"));
+        assert!(base_queue().is_empty(), "peek mutated base_queue by rewinding");
+
+        // Same when shuffle is enabled: peeking must neither rewind nor reshuffle.
+        shuffle_state_changed().set(true);
+        let (peeked_shuf, _) = next_track(true);
+        assert!(peeked_shuf.is_some());
+        assert!(base_queue().is_empty(), "peek mutated base_queue while shuffled");
+
+        // Popping actually rewinds, shuffles, and pops one entry (leaving the other).
+        let (popped, did_repeat) = next_track(false);
+        assert!(!did_repeat);
+        assert!(popped.is_some());
+        assert_eq!(base_queue().entries().with(Vec::len), 1);
+
+        shuffle_state_changed().set(false);
+        set_repeat_mode(RepeatMode::None);
+        clear_queues();
+        track_changed().set(None);
+    }
+
+    #[test]
+    fn seek_while_paused_updates_playback_state_position() {
+        let pb = statemachine::tests::Testbin::default();
+        playback_state_changed().set(PlaybackState {
+            status: PlaybackStatus::Paused,
+            position: Duration::from_secs(5),
+            duration: Duration::from_secs(180),
+            ..Default::default()
+        });
+        let seen = Rc::new(Cell::new(None));
+        let s = Rc::clone(&seen);
+        let sub = seeked().on(move |pos| {
+            s.set(Some(*pos));
+            CONTINUE
+        });
+
+        assert!(seek_on(&pb, Duration::from_secs(42), false));
+        assert_eq!(playback_state_changed().get().position, Duration::from_secs(42));
+        assert_eq!(seen.get(), Some(Duration::from_secs(42)));
+
+        let failing = statemachine::tests::Testbin { position_should_error: true, ..Default::default() };
+        seen.set(None);
+        assert!(!seek_on(&failing, Duration::from_secs(90), true));
+        assert_eq!(playback_state_changed().get().position, Duration::from_secs(42));
+        assert_eq!(seen.get(), None);
+        seeked().unsubscribe(sub);
+    }
+
+    #[test]
+    fn guest_next_track_and_eos_do_not_advance_or_autoplay() {
+        clear_queues();
+        set_repeat_mode(RepeatMode::Track);
+        let current = track("A", None);
+        base_queue().set(vec![track("B", None)]);
+        user_queue().append(track("U", None));
+        track_changed().set(Some(statemachine::TrackChangedEvent { track: current.clone(), skip_history: false }));
+        source_changed().set(Some(PlaybackSource::Track(Box::new(current))));
+
+        crate::live::set_test_guest(Some(true));
+        assert!(next_track(true).0.is_none());
+        assert!(next_track(false).0.is_none());
+        assert!(peek_gapless().is_none());
+
+        glib::MainContext::new().block_on(on_eos_stopped());
+        assert!(track_changed().get().is_none());
+        assert!(source_changed().get().is_none());
+        assert_eq!(user_queue().entries().with(Vec::len), 1);
+        assert_eq!(base_queue().entries().with(Vec::len), 1);
+
+        crate::live::set_test_guest(None);
+        set_repeat_mode(RepeatMode::None);
+        clear_queues();
+    }
 }
 
 thread_local! {
@@ -1075,6 +1369,9 @@ pub fn feed(force: bool) {
     }
     FEEDING.with(|f| f.set(true));
     feeder(Rc::new(move |more| {
+        if LIST_GENERATION.with(std::cell::Cell::get) != generation {
+            return;
+        }
         FEEDING.with(|f| f.set(false));
         if !more {
             FEEDER.with(|f| {
@@ -1084,7 +1381,7 @@ pub fn feed(force: bool) {
             });
         }
         update_unloaded();
-        if LIST_GENERATION.with(std::cell::Cell::get) != generation || !WAITING.with(std::cell::Cell::get) {
+        if !WAITING.with(std::cell::Cell::get) {
             return;
         }
         if !base_queue().is_empty() {
@@ -1268,7 +1565,7 @@ pub fn play_at(source: Option<PlaybackSource>, tracks: Vec<Track>, position: Dur
 
 /// Current playback position as reported by `GStreamer`.
 pub fn position() -> Option<Duration> {
-    playbin().and_then(|p| statemachine::Playbin::query_position(&p))
+    playbin().and_then(|p| statemachine::Playbin::query_position(&*p))
 }
 
 #[cfg(test)]
@@ -1332,6 +1629,63 @@ mod feed_tests {
         assert!(super::needs_more(0));
         assert!(super::needs_more(super::FEED_THRESHOLD));
         assert!(!super::needs_more(super::FEED_THRESHOLD + 1));
+    }
+
+    #[test]
+    fn stale_page_feeder_callback_does_not_clear_feeding_for_new_generation() {
+        use std::cell::{Cell, RefCell};
+        use std::rc::Rc;
+
+        type DoneSlot = Rc<RefCell<Option<Rc<dyn Fn(bool)>>>>;
+
+        super::bump_list_generation();
+        let gen1 = super::list_generation();
+        let stale_done: DoneSlot = Rc::new(RefCell::new(None));
+        let sd = Rc::clone(&stale_done);
+        super::FEEDER.with(|f| {
+            *f.borrow_mut() = Some((
+                gen1,
+                Rc::new(move |done| {
+                    *sd.borrow_mut() = Some(done);
+                }),
+            ));
+        });
+        super::feed(true);
+        assert!(super::FEEDING.with(Cell::get));
+
+        super::bump_list_generation();
+        let gen2 = super::list_generation();
+        let calls = Rc::new(Cell::new(0usize));
+        let active_done: DoneSlot = Rc::new(RefCell::new(None));
+        let c = Rc::clone(&calls);
+        let ad = Rc::clone(&active_done);
+        super::FEEDER.with(|f| {
+            *f.borrow_mut() = Some((
+                gen2,
+                Rc::new(move |done| {
+                    c.set(c.get() + 1);
+                    *ad.borrow_mut() = Some(done);
+                }),
+            ));
+        });
+        super::feed(true);
+        assert_eq!(calls.get(), 1);
+        assert!(super::FEEDING.with(Cell::get));
+
+        // Stale gen 1 callback must not clear gen 2's FEEDING or FEEDER.
+        stale_done.borrow_mut().take().unwrap()(false);
+        assert!(super::FEEDING.with(Cell::get));
+        assert!(super::list_pending());
+        super::feed(true);
+        assert_eq!(calls.get(), 1);
+
+        // Gen 2's own callback clears FEEDING so another request can run.
+        active_done.borrow_mut().take().unwrap()(true);
+        assert!(!super::FEEDING.with(Cell::get));
+        super::feed(true);
+        assert_eq!(calls.get(), 2);
+
+        super::bump_list_generation();
     }
 }
 

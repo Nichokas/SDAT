@@ -165,6 +165,13 @@ pub fn version_number(version: Option<&str>, commit: &str) -> String {
 pub fn new_window(app: &adw::Application) -> adw::ApplicationWindow {
     let window = adw::ApplicationWindow::new(app);
     WINDOW.with(|w| *w.borrow_mut() = Some(window.clone()));
+    window.connect_destroy(|w| {
+        WINDOW.with(|slot| {
+            if slot.borrow().as_ref() == Some(w) {
+                *slot.borrow_mut() = None;
+            }
+        });
+    });
 
     install_actions(app, &window);
     install_mouse_click_handler(&window);
@@ -570,11 +577,21 @@ fn install_actions(app: &adw::Application, window: &adw::ApplicationWindow) {
     window.add_action(&simple("search", || router::navigate("search")));
     accel(app, "win.search", &[p("f")]);
 
-    window.add_action(&with_string("player.play-track", |id| spawn_logged("play track", async move { player::play_track_id(&id).await })));
-    window.add_action(&with_string("player.play-playlist", |id| {
-        spawn_logged("play playlist", async move { player::play_playlist(&id, false).await });
+    window.add_action(&with_string("player.play-track", |id| {
+        if !crate::live::guest_refuses() {
+            spawn_logged("play track", async move { player::play_track_id(&id).await });
+        }
     }));
-    window.add_action(&simple("player.shuffle", player::toggle_shuffle));
+    window.add_action(&with_string("player.play-playlist", |id| {
+        if !crate::live::guest_refuses() {
+            spawn_logged("play playlist", async move { player::play_playlist(&id, false).await });
+        }
+    }));
+    window.add_action(&simple("player.shuffle", || {
+        if !crate::live::guest_refuses() {
+            player::toggle_shuffle();
+        }
+    }));
     accel(app, "win.player.shuffle", &[p("s")]);
     window.add_action(&simple("player.next", crate::live::user_next));
     accel(app, "win.player.next", &[p("Right")]);
@@ -585,7 +602,11 @@ fn install_actions(app: &adw::Application, window: &adw::ApplicationWindow) {
         }
     }));
     accel(app, "win.player.previous", &[p("Left")]);
-    window.add_action(&simple("player.repeat", player::cycle_repeat_mode));
+    window.add_action(&simple("player.repeat", || {
+        if !crate::live::guest_refuses() {
+            player::cycle_repeat_mode();
+        }
+    }));
     accel(app, "win.player.repeat", &[p("r")]);
     let add = gio::SimpleAction::new("playlist.add-track", Some(&<(String, String)>::static_variant_type()));
     add.connect_activate(|_, v| {

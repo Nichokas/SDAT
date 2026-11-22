@@ -50,6 +50,11 @@ pub(crate) fn ensure_schema() {
 }
 
 fn on_activate(app: &adw::Application) {
+    if let Some(window) = ui::window::window() {
+        window.set_visible(true);
+        window.present();
+        return;
+    }
     let window = ui::window::new_window(app);
     window.present();
     window.connect_close_request(|w| {
@@ -109,12 +114,7 @@ fn main() -> glib::ExitCode {
     app.connect_activate(on_activate);
     app.connect_command_line(|app, cmd| {
         let args = cmd.arguments();
-        if ui::window::window().is_none() {
-            app.activate();
-        } else if let Some(w) = ui::window::window() {
-            w.set_visible(true);
-            w.present();
-        }
+        app.activate();
         if args.len() == 2 {
             let url = args[1].to_string_lossy().to_string();
             match live::link::classify(&url) {

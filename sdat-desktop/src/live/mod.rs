@@ -39,6 +39,9 @@ enum Session {
     Guest(Arc<LiveGuest>),
 }
 
+#[cfg(test)]
+type RecordedAnchor = (Option<String>, Duration);
+
 thread_local! {
     static SESSION: RefCell<Option<Session>> = const { RefCell::new(None) };
     /// Bumped for every new or ended session; stale events are dropped.
@@ -64,6 +67,10 @@ thread_local! {
     /// Guest: enqueue chunks paced against the command budget (`true`: Play Next).
     static OUTBOX: RefCell<Outbox<(GuestCommand, bool)>> = RefCell::new(Outbox::default());
     static OUTBOX_BUSY: Cell<bool> = const { Cell::new(false) };
+    #[cfg(test)]
+    static TEST_GUEST: Cell<Option<bool>> = const { Cell::new(None) };
+    #[cfg(test)]
+    static TEST_ANCHORS: RefCell<Option<Vec<RecordedAnchor>>> = const { RefCell::new(None) };
 }
 
 const OUTPUT_DELAY_KEY: &str = "live-output-delay";
@@ -308,7 +315,9 @@ fn apply_guest_command(c: &HostCommand) {
         GuestCommand::Pause => player::pause(),
         GuestCommand::Next => player::next(),
         // `seeked` publishes the new anchor right away.
-        GuestCommand::Seek { position_ms } => player::seek_to_position(Duration::from_millis(u64::try_from(*position_ms).unwrap_or(0)), true),
+        GuestCommand::Seek { position_ms } => {
+            let _ = player::seek_to_position(Duration::from_millis(u64::try_from(*position_ms).unwrap_or(0)), true);
+        }
         GuestCommand::Enqueue { track_ids } => {
             // A Play Next takes its place in line now, like the host's own.
             let ticket = c.next.then(player::play_next_ticket);
@@ -497,7 +506,16 @@ fn run(r: Route) -> bool {
     }
 }
 
+#[cfg(test)]
+pub(crate) fn set_test_guest(v: Option<bool>) {
+    TEST_GUEST.with(|g| g.set(v));
+}
+
 pub(crate) fn is_guest() -> bool {
+    #[cfg(test)]
+    if let Some(v) = TEST_GUEST.with(Cell::get) {
+        return v;
+    }
     guest().is_some()
 }
 
@@ -630,33 +648,62 @@ fn ids(tracks: &[crate::model::Track]) -> Vec<String> {
 }
 
 fn publish_queue() {
-    let Some(h) = host() else { return };
-    let current = player::current_track_id();
-    let user = player::user_queue().entries().with(|t| ids(t));
-    let base = player::base_queue().entries().with(|t| ids(t));
-    let shared = shared_track_ids(current.as_deref(), &user, &base);
-    let current_valid = current.as_ref().is_some_and(|c| shared.first() == Some(c));
-    match h.replace_queue(shared) {
-        Ok(item_ids) => CURRENT_ITEM.with(|c| *c.borrow_mut() = if current_valid { item_ids.into_iter().next() } else { None }),
-        Err(e) => log::warn!("failed to share the queue error={e}"),
+    publish_queue_at(None);
+}
+
+fn publish_queue_at(seek_target: Option<Duration>) {
+    if let Some(h) = host() {
+        let current = player::current_track_id();
+        let user = player::user_queue().entries().with(|t| ids(t));
+        let base = player::base_queue().entries().with(|t| ids(t));
+        let shared = shared_track_ids(current.as_deref(), &user, &base);
+        let current_valid = current.as_ref().is_some_and(|c| shared.first() == Some(c));
+        match h.replace_queue(shared) {
+            Ok(item_ids) => CURRENT_ITEM.with(|c| *c.borrow_mut() = if current_valid { item_ids.into_iter().next() } else { None }),
+            Err(e) => log::warn!("failed to share the queue error={e}"),
+        }
     }
-    publish_playback();
+    publish_playback_at(seek_target);
 }
 
 fn publish_playback() {
     publish_playback_at(None);
 }
 
-/// `seek_target`: the position a seek was just asked for. The pipeline is
-/// still flushing then, so its own position can be the one before the seek.
+fn published_position(seek_target: Option<Duration>, track_changed: bool, queried: Option<Duration>, fallback: Duration) -> Duration {
+    if let Some(target) = seek_target {
+        target
+    } else if track_changed {
+        Duration::ZERO
+    } else {
+        queried.unwrap_or(fallback)
+    }
+}
+
+fn recording_anchors() -> bool {
+    #[cfg(test)]
+    {
+        TEST_ANCHORS.with(|a| a.borrow().is_some())
+    }
+    #[cfg(not(test))]
+    {
+        false
+    }
+}
+
+/// `seek_target`: the position a seek (or fresh track start / repeat) just
+/// asked for; the pipeline may still report the previous position.
 fn publish_playback_at(seek_target: Option<Duration>) {
-    let Some(h) = host() else { return };
+    let h = host();
+    let recording = recording_anchors();
+    if h.is_none() && !recording {
+        return;
+    }
     let ps = player::playback_state_changed().get();
     LAST_STATUS.with(|l| l.set(Some((ps.status, ps.loading || ps.buffering))));
-    let pos = seek_target.or_else(player::position).unwrap_or(ps.position);
     let playing = ps.status == PlaybackStatus::Playing && !ps.loading && !ps.buffering;
     let item = CURRENT_ITEM.with(|c| c.borrow().clone());
-    let track = if item.is_some() { player::current_track_id() } else { None };
+    let track = if item.is_some() || recording { player::current_track_id() } else { None };
     let changed = LAST_TRACK.with(|l| {
         let mut l = l.borrow_mut();
         let changed = track_change_position_is_stale(l.as_deref(), track.as_deref());
@@ -665,8 +712,16 @@ fn publish_playback_at(seek_target: Option<Duration>) {
         }
         changed
     });
-    let pos = if changed { Duration::ZERO } else { pos };
-    h.set_playback(item, track, i64::try_from(pos.as_millis()).unwrap_or(i64::MAX), playing);
+    let pos = published_position(seek_target, changed, player::position(), ps.position);
+    #[cfg(test)]
+    TEST_ANCHORS.with(|a| {
+        if let Some(list) = a.borrow_mut().as_mut() {
+            list.push((track.clone(), pos));
+        }
+    });
+    if let Some(h) = h {
+        h.set_playback(item, track, i64::try_from(pos.as_millis()).unwrap_or(i64::MAX), playing);
+    }
 }
 
 /// Host: whether the position read right at a track change still belongs to
@@ -693,19 +748,23 @@ fn install_hooks() {
     if HOOKED.with(|h| h.replace(true)) {
         return;
     }
-    player::track_changed().on(|_| {
+    player::track_changed().on_lazy(|ev| {
+        publish_queue_at(ev.is_some().then_some(Duration::ZERO));
+        CONTINUE
+    });
+    player::track_repeated().on(|_| {
+        publish_playback_at(Some(Duration::ZERO));
+        CONTINUE
+    });
+    player::user_queue().entries().on_lazy(|_| {
         publish_queue();
         CONTINUE
     });
-    player::user_queue().entries().on(|_| {
+    player::base_queue().entries().on_lazy(|_| {
         publish_queue();
         CONTINUE
     });
-    player::base_queue().entries().on(|_| {
-        publish_queue();
-        CONTINUE
-    });
-    player::playback_state_changed().on(|ps| {
+    player::playback_state_changed().on_lazy(|ps| {
         // Position updates fire often; only status changes are anchors.
         if host().is_some() && LAST_STATUS.with(Cell::get) != Some((ps.status, ps.loading || ps.buffering)) {
             publish_playback();
@@ -889,16 +948,13 @@ impl StartGate {
         }
         let Some(a) = *aim else {
             let to = target_ms.max(0).saturating_add(START_LEAD_MS);
-            *aim = Some(to);
             return StartStep::Seek(to);
         };
         // The host seeked (forwards past the aim, or backwards before where
         // it was when we aimed): aim again from where it is now.
         let missed = target_ms > a.saturating_add(START_MISSED_MS) || target_ms < a.saturating_sub(START_LEAD_MS + START_MISSED_MS);
         if missed && *retries < START_RETRIES {
-            *retries += 1;
             let to = target_ms.max(0).saturating_add(START_LEAD_MS);
-            *aim = Some(to);
             return StartStep::Seek(to);
         }
         if target_ms >= a || missed {
@@ -906,6 +962,16 @@ impl StartGate {
             return StartStep::Play;
         }
         StartStep::Wait
+    }
+
+    /// Commits `to` as the aimed position once the pipeline accepted the seek.
+    pub fn confirm_seek(&mut self, to: i64) {
+        if let Some((_, aim, _, retries)) = self.active.as_mut() {
+            if aim.is_some() {
+                *retries += 1;
+            }
+            *aim = Some(to);
+        }
     }
 }
 
@@ -1015,7 +1081,9 @@ fn guest_tick() {
             if local_playing {
                 player::pause();
             }
-            player::seek_to_position(Duration::from_millis(u64::try_from(to).unwrap_or(0)), true);
+            if player::seek_to_position(Duration::from_millis(u64::try_from(to).unwrap_or(0)), true) {
+                START.with(|s| s.borrow_mut().confirm_seek(to));
+            }
             return;
         }
         StartStep::Play => {
@@ -1039,7 +1107,7 @@ fn guest_tick() {
             // Resuming away from the host (it seeked while paused): move
             // first, so the old spot is never heard.
             if actual.is_some_and(|a| paused_needs_seek(t.position_ms, a)) {
-                player::seek_to_position(Duration::from_millis(u64::try_from(t.position_ms.max(0)).unwrap_or(0)), true);
+                let _ = player::seek_to_position(Duration::from_millis(u64::try_from(t.position_ms.max(0)).unwrap_or(0)), true);
             }
             player::play();
         } else {
@@ -1050,7 +1118,7 @@ fn guest_tick() {
     let Some(actual) = actual else { return };
     if !t.playing {
         if paused_needs_seek(t.position_ms, actual) {
-            player::seek_to_position(Duration::from_millis(u64::try_from(t.position_ms.max(0)).unwrap_or(0)), true);
+            let _ = player::seek_to_position(Duration::from_millis(u64::try_from(t.position_ms.max(0)).unwrap_or(0)), true);
         }
         return;
     }
@@ -1060,7 +1128,9 @@ fn guest_tick() {
         // `Seek`. The playback speed is never changed; core no longer emits
         // `Rate`, and it would be ignored here anyway.
         Correction::None | Correction::Rate(_) => {}
-        Correction::Seek(to) => player::seek_to_position(Duration::from_millis(u64::try_from(to.max(0)).unwrap_or(0)), true),
+        Correction::Seek(to) => {
+            let _ = player::seek_to_position(Duration::from_millis(u64::try_from(to.max(0)).unwrap_or(0)), true);
+        }
     }
 }
 
@@ -1087,6 +1157,7 @@ mod tests {
         // Joining an iOS host already at 42 s: never start from 0:00.
         assert_eq!(g.step("t", 42_000, true, false, t0), StartStep::Wait);
         assert_eq!(g.step("t", 42_500, true, true, at(1)), StartStep::Seek(45_500));
+        g.confirm_seek(45_500);
         assert_eq!(g.step("t", 43_500, true, true, at(2)), StartStep::Wait);
         assert_eq!(g.due_in(43_500), Some(Duration::from_secs(2)));
         assert_eq!(g.due_in(45_400), Some(Duration::from_millis(100)));
@@ -1102,16 +1173,62 @@ mod tests {
         let mut g = StartGate::default();
         g.begin("t", t0);
         assert_eq!(g.step("t", 0, true, true, t0), StartStep::Seek(START_LEAD_MS));
+        g.confirm_seek(START_LEAD_MS);
         assert_eq!(g.step("t", 90_000, true, true, t0), StartStep::Seek(90_000 + START_LEAD_MS));
+        g.confirm_seek(90_000 + START_LEAD_MS);
         assert_eq!(g.step("t", 91_000, true, false, t0 + START_TIMEOUT + Duration::from_secs(1)), StartStep::Play);
         // Backwards host seek re-aims too; extreme positions do not overflow.
         let mut g = StartGate::default();
         g.begin("t", t0);
         assert_eq!(g.step("t", 90_000, true, true, t0), StartStep::Seek(93_000));
+        g.confirm_seek(93_000);
         assert_eq!(g.step("t", 10_000, true, true, t0), StartStep::Seek(13_000));
+        g.confirm_seek(13_000);
         let mut g = StartGate::default();
         g.begin("t", t0);
         assert_eq!(g.step("t", i64::MAX, true, true, t0), StartStep::Seek(i64::MAX));
+    }
+
+    #[test]
+    fn aligned_start_retries_when_seek_fails() {
+        let t0 = Instant::now();
+        let mut g = StartGate::default();
+        g.begin("t", t0);
+        // Pipeline refused the seek: aim is not committed and next tick retries.
+        assert_eq!(g.step("t", 40_000, true, true, t0), StartStep::Seek(43_000));
+        assert_eq!(g.due_in(40_000), None);
+        assert_eq!(g.step("t", 40_250, true, true, t0 + GUEST_TICK), StartStep::Seek(43_250));
+        g.confirm_seek(43_250);
+        assert_eq!(g.step("t", 41_000, true, true, t0 + Duration::from_secs(1)), StartStep::Wait);
+
+        // Failed re-aim seek does not burn retries or commit the new aim.
+        assert_eq!(g.step("t", 90_000, true, true, t0 + Duration::from_secs(2)), StartStep::Seek(93_000));
+        assert_eq!(g.step("t", 90_250, true, true, t0 + Duration::from_secs(2) + GUEST_TICK), StartStep::Seek(93_250));
+        g.confirm_seek(93_250);
+        assert_eq!(g.step("t", 93_250, true, true, t0 + Duration::from_secs(5)), StartStep::Play);
+    }
+
+    #[test]
+    fn host_hooks_publish_zero_on_same_id_track_change_and_repeat() {
+        install_hooks();
+        TEST_ANCHORS.with(|a| *a.borrow_mut() = Some(Vec::new()));
+        LAST_TRACK.with(|l| *l.borrow_mut() = Some("42".into()));
+        player::playback_state_changed().set(player::PlaybackState {
+            status: PlaybackStatus::Playing,
+            position: Duration::from_secs(195),
+            ..Default::default()
+        });
+
+        let mut t = crate::model::Track::default();
+        t.info.id = "42".into();
+        // Consecutive identical track ID must publish 0:00, not stale 195 s.
+        player::track_changed().set(Some(player::statemachine::TrackChangedEvent { track: t.clone(), skip_history: true }));
+        // Gapless repeat-one must also publish 0:00.
+        player::track_repeated().notify(&t);
+
+        let recorded = TEST_ANCHORS.with(|a| a.borrow_mut().take()).unwrap_or_default();
+        assert_eq!(recorded, vec![(Some("42".into()), Duration::ZERO), (Some("42".into()), Duration::ZERO)]);
+        player::track_changed().set(None);
     }
 
     #[test]

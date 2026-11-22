@@ -136,6 +136,10 @@ fn clock_stop() {
     });
 }
 
+fn should_tick(ps: &player::PlaybackState) -> bool {
+    ps.status == PlaybackStatus::Playing && !ps.loading && !ps.buffering
+}
+
 fn start_listen(track: &Track) {
     let meta = TrackMeta::from_track(track);
     now_playing(meta.clone());
@@ -144,7 +148,7 @@ fn start_listen(track: &Track) {
         *c.borrow_mut() = Some(Clock::new(meta, now_unix()));
     });
     let state = player::playback_state_changed().get();
-    if state.status == PlaybackStatus::Playing && !state.buffering {
+    if should_tick(&state) {
         clock_start();
     }
 }
@@ -161,7 +165,7 @@ pub fn init() {
         false
     });
     player::playback_state_changed().on(|ps| {
-        if ps.status == PlaybackStatus::Playing && !ps.buffering {
+        if should_tick(ps) {
             clock_start();
         } else {
             clock_stop();
@@ -192,6 +196,14 @@ mod tests {
         assert!(!c.tick(), "a track is scrobbled only once");
     }
 
-
-
+    #[test]
+    fn clock_ticks_only_when_playing_loaded_and_not_buffering() {
+        let ps = |status, loading, buffering| player::PlaybackState { status, loading, buffering, ..Default::default() };
+        assert!(should_tick(&ps(PlaybackStatus::Playing, false, false)));
+        assert!(!should_tick(&ps(PlaybackStatus::Playing, true, false)));
+        assert!(!should_tick(&ps(PlaybackStatus::Playing, false, true)));
+        assert!(!should_tick(&ps(PlaybackStatus::Playing, true, true)));
+        assert!(!should_tick(&ps(PlaybackStatus::Paused, false, false)));
+        assert!(!should_tick(&ps(PlaybackStatus::Stopped, false, false)));
+    }
 }
