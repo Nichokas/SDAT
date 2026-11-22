@@ -32,9 +32,91 @@ import com.google.zxing.common.HybridBinarizer
 import com.google.zxing.qrcode.QRCodeReader
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.Executor
-import java.util.concurrent.TimeUnit
+import java.util.concurrent.atomic.AtomicBoolean
+import java.util.concurrent.atomic.AtomicInteger
 import kotlin.math.abs
 import uniffi.tonearm_ffi.liveIsInvite
+
+/**
+ * Coordinates surface validity and release between the UI thread and the camera thread.
+ * The active token is 0 when no valid surface exists, and a unique positive id per surface lifecycle.
+ */
+internal class QrSurfaceGate {
+    private val releasedFlag = AtomicBoolean(false)
+    private val nextToken = AtomicInteger(0)
+    private val activeToken = AtomicInteger(0)
+
+    val released: Boolean get() = releasedFlag.get()
+    val hasSurface: Boolean get() = activeToken.get() != 0
+
+    fun isActive(token: Int): Boolean = token != 0 && !releasedFlag.get() && activeToken.get() == token
+
+    fun activateSurface(): Int {
+        if (releasedFlag.get()) return 0
+        while (true) {
+            val current = activeToken.get()
+            if (current != 0) return current
+            if (releasedFlag.get()) return 0
+            val next = nextToken.incrementAndGet()
+            if (activeToken.compareAndSet(0, next)) {
+                if (releasedFlag.get()) {
+                    activeToken.compareAndSet(next, 0)
+                    return 0
+                }
+                return next
+            }
+        }
+    }
+
+    fun markReleased(): Boolean {
+        val first = releasedFlag.compareAndSet(false, true)
+        activeToken.set(0)
+        return first
+    }
+
+    fun destroySurface(
+        onWorkerThread: () -> Boolean,
+        postFront: (Runnable) -> Boolean,
+        joinWorker: () -> Unit,
+        onWorker: () -> Unit,
+    ) {
+        activeToken.set(0)
+        if (onWorkerThread()) {
+            onWorker()
+            return
+        }
+        val closed = CountDownLatch(1)
+        val posted = postFront(Runnable {
+            try {
+                onWorker()
+            } finally {
+                closed.countDown()
+            }
+        })
+        if (posted) {
+            runUninterruptibly { closed.await() }
+        } else {
+            runUninterruptibly { joinWorker() }
+            onWorker()
+        }
+    }
+}
+
+private inline fun runUninterruptibly(wait: () -> Unit) {
+    var interrupted = false
+    try {
+        while (true) {
+            try {
+                wait()
+                return
+            } catch (_: InterruptedException) {
+                interrupted = true
+            }
+        }
+    } finally {
+        if (interrupted) Thread.currentThread().interrupt()
+    }
+}
 
 /**
  * Minimal Camera2 QR reader (iOS QRScanner); reports only SDAT invitations. Camera2 and ZXing's QR decoder keep the
@@ -86,23 +168,25 @@ class QrScannerView(context: Context, private val onCode: (String) -> Unit) : Fr
         }
         (sensor - display + 360) % 180 != 0
     } ?: false
+    private val gate = QrSurfaceGate()
     @Volatile private var camera: CameraDevice? = null
     /** The open attempt in progress or done; cleared by [close], so callbacks of an older attempt are dropped. */
     private var target: Int? = null
     private var attempts = 0
-    /** The preview surface while it exists at the camera's size. */
+    /** The preview surface while it exists at the camera's size, and the token of its lifecycle. */
     private var shown: Surface? = null
+    private var shownToken = 0
     // Another app holding the camera fails the open; it is retried once the camera is free again.
     private val availability = object : CameraManager.AvailabilityCallback() {
         override fun onCameraAvailable(id: String) {
             val s = size
             val surface = shown
-            if (id == cameraId && !released && target == null && s != null && surface != null) open(surface, s)
+            val token = shownToken
+            if (id == cameraId && target == null && s != null && surface != null && gate.isActive(token)) open(surface, s, token)
         }
     }
     private var reader: ImageReader? = null
     @Volatile private var done = false
-    @Volatile private var released = false
 
     init {
         setBackgroundColor(Color.BLACK)
@@ -124,36 +208,33 @@ class QrScannerView(context: Context, private val onCode: (String) -> Unit) : Fr
 
     override fun surfaceChanged(holder: SurfaceHolder, format: Int, width: Int, height: Int) {
         val s = size ?: return
-        if (width == s.width && height == s.height) handler.post {
-            shown = holder.surface
-            open(holder.surface, s)
+        if (width != s.width || height != s.height) return
+        val token = gate.activateSurface()
+        if (token == 0) return
+        val surface = holder.surface
+        handler.post {
+            if (!gate.isActive(token)) return@post
+            shown = surface
+            shownToken = token
+            open(surface, s, token)
         }
     }
 
     override fun surfaceDestroyed(holder: SurfaceHolder) {
-        if (!thread.isAlive) return
         // SurfaceHolder requires the camera thread to stop touching the surface before this returns.
-        val closed = CountDownLatch(1)
-        val posted = handler.post {
-            try {
-                shown = null
-                close()
-            } finally {
-                closed.countDown()
-            }
-        }
-        try {
-            if (posted) closed.await(500, TimeUnit.MILLISECONDS) else thread.join(500)
-        } catch (_: InterruptedException) {
-            Thread.currentThread().interrupt()
-        }
+        gate.destroySurface(
+            onWorkerThread = { Thread.currentThread() === thread },
+            postFront = handler::postAtFrontOfQueue,
+            joinWorker = thread::join,
+            onWorker = ::detachAndClose,
+        )
     }
 
     /** Stops the camera and its thread; the view is gone. */
     fun release() {
-        released = true
+        if (!gate.markReleased()) return
         manager.unregisterAvailabilityCallback(availability)
-        handler.post(::close)
+        handler.postAtFrontOfQueue(::detachAndClose)
         thread.quitSafely()
     }
 
@@ -167,12 +248,12 @@ class QrScannerView(context: Context, private val onCode: (String) -> Unit) : Fr
             .minByOrNull { abs(it.width * it.height - 1280 * 720) }
     }
 
-    private fun open(surface: Surface, s: Size) {
+    private fun open(surface: Surface, s: Size, token: Int) {
         val id = cameraId ?: return
-        if (target != null) return
+        if (!gate.isActive(token) || target != null) return
         val attempt = ++attempts
         target = attempt
-        guarded { openCamera(id, surface, s, attempt) }
+        guarded { openCamera(id, surface, s, attempt, token) }
     }
 
     /** Camera2 throws when the camera is disabled, gone or taken; uncaught on this thread it would end the process. */
@@ -191,22 +272,26 @@ class QrScannerView(context: Context, private val onCode: (String) -> Unit) : Fr
         }
     }
 
-    private fun openCamera(id: String, surface: Surface, s: Size, attempt: Int) {
+    private fun openCamera(id: String, surface: Surface, s: Size, attempt: Int, token: Int) {
         if (context.checkSelfPermission(Manifest.permission.CAMERA) != PackageManager.PERMISSION_GRANTED) {
             target = null
             return
         }
         manager.openCamera(id, executor, object : CameraDevice.StateCallback() {
             override fun onOpened(device: CameraDevice) {
-                if (released || target != attempt) return device.close()
+                if (!gate.isActive(token) || target != attempt) {
+                    device.close()
+                    if (!gate.released && target == attempt) target = null
+                    return
+                }
                 camera = device
-                guarded { configure(device, surface, s) }
+                guarded { configure(device, surface, s, token) }
             }
 
             override fun onDisconnected(device: CameraDevice) {
                 device.close()
                 // After release this may run off the camera thread (it has quit): the scanner state is left alone.
-                if (released) return
+                if (gate.released) return
                 // camera is still null when the open itself failed: its attempt is cleared, unless a newer one owns it.
                 if (camera === device || camera == null && target == attempt) close()
             }
@@ -215,14 +300,18 @@ class QrScannerView(context: Context, private val onCode: (String) -> Unit) : Fr
         })
     }
 
-    private fun configure(device: CameraDevice, surface: Surface, s: Size) {
+    private fun configure(device: CameraDevice, surface: Surface, s: Size, token: Int) {
+        if (!gate.isActive(token) || camera !== device) {
+            if (!gate.released && camera === device) close()
+            return
+        }
         val r = ImageReader.newInstance(s.width, s.height, ImageFormat.YUV_420_888, 2)
         r.setOnImageAvailableListener(::decode, handler)
         reader = r
         val outputs = listOf(OutputConfiguration(surface), OutputConfiguration(r.surface))
         device.createCaptureSession(SessionConfiguration(SessionConfiguration.SESSION_REGULAR, outputs, executor, object : CameraCaptureSession.StateCallback() {
             override fun onConfigured(session: CameraCaptureSession) {
-                if (released || camera !== device) return
+                if (!gate.isActive(token) || camera !== device) return
                 guarded {
                     val request = device.createCaptureRequest(CameraDevice.TEMPLATE_PREVIEW).apply {
                         addTarget(surface)
@@ -234,24 +323,39 @@ class QrScannerView(context: Context, private val onCode: (String) -> Unit) : Fr
             }
 
             override fun onConfigureFailed(session: CameraCaptureSession) {
-                if (released || camera !== device) return
+                if (gate.released || camera !== device) return
                 close()
             }
         }))
     }
 
+    private fun detachAndClose() {
+        shown = null
+        shownToken = 0
+        close()
+    }
+
     private fun close() {
         target = null
-        camera?.close()
+        val dev = camera
         camera = null
-        reader?.close()
+        val rdr = reader
         reader = null
+        try {
+            dev?.close()
+        } finally {
+            rdr?.close()
+        }
     }
 
     private fun decode(r: ImageReader) {
         // A frame callback queued before close() runs after it; the reader is closed by then.
-        if (r !== reader) return
-        val image = r.acquireLatestImage() ?: return
+        if (gate.released || !gate.hasSurface || r !== reader) return
+        val image = try {
+            r.acquireLatestImage()
+        } catch (_: IllegalStateException) {
+            null
+        } ?: return
         try {
             if (done) return
             val plane = image.planes[0]
@@ -273,7 +377,7 @@ class QrScannerView(context: Context, private val onCode: (String) -> Unit) : Fr
             if (text != null && liveIsInvite(text)) {
                 done = true
                 post {
-                    if (released) return@post
+                    if (gate.released) return@post
                     performHapticFeedback(HapticFeedbackConstants.CONFIRM)
                     onCode(text)
                 }
