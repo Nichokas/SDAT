@@ -108,87 +108,89 @@ fn reset_bust_and_concurrent_fetches_behave_consistently() {
                     assert_eq!(if_none_match, None);
                     write_response(&mut stream, "200 OK", Some("\"etag-b\""), r#"{"TRACK":["track-b"]}"#);
                 }
-                // 3: 200 OK invalidated by sign-out + reset() -> returns empty without retrying.
+                // 3: bust() clears ETag; 200 OK invalidated by sign-out + reset() -> returns empty without retrying.
                 3 => {
                     assert!(request_line.starts_with("GET /v1/users/account-b/favorites/ids?"), "got {request_line}");
-                    assert_eq!(if_none_match.as_deref(), Some("\"etag-b\""));
+                    assert_eq!(if_none_match, None);
                     gate_entered_tx.send(3).expect("signal call 3");
                     gate_release_rx.recv().expect("release call 3");
                     write_response(&mut stream, "200 OK", Some("\"etag-b2\""), r#"{"TRACK":["track-b-stale"]}"#);
                 }
-                // 4-6: 304 Not Modified invalidated by account switch + reset() -> retries for account-c.
+                // 4-8: bust() (call 5) and reset() (call 7) drop ETag so fetches omit If-None-Match
+                // and reject rogue 304 responses without corrupting cache; subsequent 200s succeed.
                 4 => {
                     assert!(request_line.starts_with("GET /v1/users/account-b/favorites/ids?"), "got {request_line}");
                     assert_eq!(if_none_match, None);
                     write_response(&mut stream, "200 OK", Some("\"album-e1\""), r#"{"ALBUM":["album-1"]}"#);
                 }
-                5 => {
+                5 | 7 => {
                     assert!(request_line.starts_with("GET /v1/users/account-b/favorites/ids?"), "got {request_line}");
-                    assert_eq!(if_none_match.as_deref(), Some("\"album-e1\""));
-                    gate_entered_tx.send(5).expect("signal call 5");
-                    gate_release_rx.recv().expect("release call 5");
+                    assert_eq!(if_none_match, None);
                     write_response(&mut stream, "304 Not Modified", None, "");
                 }
                 6 => {
-                    assert!(request_line.starts_with("GET /v1/users/account-c/favorites/ids?"), "got {request_line}");
+                    assert!(request_line.starts_with("GET /v1/users/account-b/favorites/ids?"), "got {request_line}");
                     assert_eq!(if_none_match, None);
                     write_response(&mut stream, "200 OK", Some("\"album-e2\""), r#"{"ALBUM":["album-2"]}"#);
                 }
-                // 7: 304 Not Modified invalidated by sign-out + reset() -> returns empty without retrying.
-                7 => {
-                    assert!(request_line.starts_with("GET /v1/users/account-c/favorites/ids?"), "got {request_line}");
-                    assert_eq!(if_none_match.as_deref(), Some("\"album-e2\""));
-                    gate_entered_tx.send(7).expect("signal call 7");
-                    gate_release_rx.recv().expect("release call 7");
-                    write_response(&mut stream, "304 Not Modified", None, "");
-                }
-                // 8-9: Same-account bust() during HTTP -> discards stale 200 and retries.
                 8 => {
+                    assert!(request_line.starts_with("GET /v1/users/account-b/favorites/ids?"), "got {request_line}");
+                    assert_eq!(if_none_match, None);
+                    write_response(&mut stream, "200 OK", Some("\"album-e3\""), r#"{"ALBUM":["album-3"]}"#);
+                }
+                // 9: Account switch without reset() omits the previous account's ETag.
+                9 => {
                     assert!(request_line.starts_with("GET /v1/users/account-c/favorites/ids?"), "got {request_line}");
                     assert_eq!(if_none_match, None);
-                    gate_entered_tx.send(8).expect("signal call 8");
-                    gate_release_rx.recv().expect("release call 8");
+                    write_response(&mut stream, "200 OK", Some("\"album-c1\""), r#"{"ALBUM":["album-c"]}"#);
+                }
+                // 10-11: Same-account bust() during HTTP -> discards stale 200 and retries without ETag.
+                10 => {
+                    assert!(request_line.starts_with("GET /v1/users/account-c/favorites/ids?"), "got {request_line}");
+                    assert_eq!(if_none_match, None);
+                    gate_entered_tx.send(10).expect("signal call 10");
+                    gate_release_rx.recv().expect("release call 10");
                     write_response(&mut stream, "200 OK", Some("\"artist-e1\""), r#"{"ARTIST":["artist-old"]}"#);
                 }
-                9 => {
+                11 => {
                     assert!(request_line.starts_with("GET /v1/users/account-c/favorites/ids?"), "got {request_line}");
                     assert_eq!(if_none_match, None);
                     write_response(&mut stream, "200 OK", Some("\"artist-e2\""), r#"{"ARTIST":["artist-new"]}"#);
                 }
-                // 10-12: Continuous invalidation exhausts retry budget instead of returning stale data.
-                10..=12 => {
+                // 12-14: Continuous invalidation exhausts retry budget instead of returning stale data.
+                12..=14 => {
                     assert!(request_line.starts_with("GET /v1/users/account-c/favorites/ids?"), "got {request_line}");
                     assert_eq!(if_none_match, None);
                     gate_entered_tx.send(fav_calls).expect("signal exhaustion call");
                     gate_release_rx.recv().expect("release exhaustion call");
                     write_response(&mut stream, "200 OK", Some("\"artist-stale\""), r#"{"ARTIST":["artist-stale"]}"#);
                 }
-                // 13: Concurrent cold-cache get() calls coalesce into a single HTTP request.
-                13 => {
-                    assert!(request_line.starts_with("GET /v1/users/account-c/favorites/ids?"), "got {request_line}");
-                    assert_eq!(if_none_match, None);
-                    gate_entered_tx.send(13).expect("signal call 13");
-                    gate_release_rx.recv().expect("release call 13");
-                    write_response(&mut stream, "200 OK", Some("\"pl-1\""), r#"{"PLAYLIST":["playlist-1"]}"#);
-                }
-                // 14-15: Coalesced callers with mid-flight bust() both receive the newer response, never stale.
-                14 => {
-                    assert!(request_line.starts_with("GET /v1/users/account-c/favorites/ids?"), "got {request_line}");
-                    assert_eq!(if_none_match.as_deref(), Some("\"pl-1\""));
-                    gate_entered_tx.send(14).expect("signal call 14");
-                    gate_release_rx.recv().expect("release call 14");
-                    write_response(&mut stream, "200 OK", Some("\"pl-stale\""), r#"{"PLAYLIST":["playlist-stale"]}"#);
-                }
+                // 15: Concurrent cold-cache get() calls coalesce into a single HTTP request.
                 15 => {
                     assert!(request_line.starts_with("GET /v1/users/account-c/favorites/ids?"), "got {request_line}");
-                    assert_eq!(if_none_match.as_deref(), Some("\"pl-1\""));
+                    assert_eq!(if_none_match, None);
+                    gate_entered_tx.send(15).expect("signal call 15");
+                    gate_release_rx.recv().expect("release call 15");
+                    write_response(&mut stream, "200 OK", Some("\"pl-1\""), r#"{"PLAYLIST":["playlist-1"]}"#);
+                }
+                // 16-17: Coalesced callers with bust() omit stale ETag and both receive the newer response, never stale.
+                16 => {
+                    assert!(request_line.starts_with("GET /v1/users/account-c/favorites/ids?"), "got {request_line}");
+                    assert_eq!(if_none_match, None);
+                    gate_entered_tx.send(16).expect("signal call 16");
+                    gate_release_rx.recv().expect("release call 16");
+                    write_response(&mut stream, "200 OK", Some("\"pl-stale\""), r#"{"PLAYLIST":["playlist-stale"]}"#);
+                }
+                17 => {
+                    assert!(request_line.starts_with("GET /v1/users/account-c/favorites/ids?"), "got {request_line}");
+                    assert_eq!(if_none_match, None);
                     write_response(&mut stream, "200 OK", Some("\"pl-2\""), r#"{"PLAYLIST":["playlist-2"]}"#);
                     break;
                 }
                 other => panic!("unexpected favourites request #{other}: {request_line}"),
             }
         }
-        assert_eq!(fav_calls, 15);
+        assert_eq!(fav_calls, 17);
     });
 
     // 1. 200 OK invalidated by account switch + reset().
@@ -213,46 +215,40 @@ fn reset_bust_and_concurrent_fetches_behave_consistently() {
     gate_release_tx.send(()).expect("release call 3");
     assert_eq!(fetch_signout_200.join().expect("signout 200 thread").expect("signout 200 result"), Vec::<String>::new());
 
-    // 3. 304 Not Modified invalidated by account switch + reset().
+    // 3. bust() clears ETag and rejects unexpected 304 without restoring stale items.
     *account.lock().expect("account lock") = "account-b".to_owned();
     assert_eq!(state::ALBUMS.get().expect("seed albums"), ["album-1"]);
     state::ALBUMS.bust();
-    let fetch_304 = std::thread::spawn(|| state::ALBUMS.get());
-    assert_eq!(gate_entered_rx.recv_timeout(Duration::from_secs(5)).expect("call 5"), 5);
-    *account.lock().expect("account lock") = "account-c".to_owned();
-    let started = Instant::now();
-    state::ALBUMS.reset();
-    assert!(started.elapsed() < Duration::from_millis(100), "reset() blocked for {:?}", started.elapsed());
-    gate_release_tx.send(()).expect("release call 5");
-    assert_eq!(fetch_304.join().expect("fetch_304 thread").expect("fetch_304 result"), ["album-2"]);
-    assert_eq!(state::ALBUMS.get().expect("cached account-c albums"), ["album-2"]);
+    let err = state::ALBUMS.get().expect_err("rogue 304 after bust must fail");
+    assert!(err.to_string().contains("not modified"), "unexpected error: {err}");
+    assert_eq!(state::ALBUMS.get().expect("fresh albums after bust"), ["album-2"]);
+    assert_eq!(state::ALBUMS.get().expect("cached account-b albums"), ["album-2"]);
 
-    // 4. 304 Not Modified invalidated by sign-out + reset().
-    state::ALBUMS.bust();
-    let fetch_signout_304 = std::thread::spawn(|| state::ALBUMS.get());
-    assert_eq!(gate_entered_rx.recv_timeout(Duration::from_secs(5)).expect("call 7"), 7);
-    account.lock().expect("account lock").clear();
-    let started = Instant::now();
+    // 4. reset() clears ETag and rejects unexpected 304 without corrupting cache.
     state::ALBUMS.reset();
-    assert!(started.elapsed() < Duration::from_millis(100), "reset() blocked for {:?}", started.elapsed());
-    gate_release_tx.send(()).expect("release call 7");
-    assert_eq!(fetch_signout_304.join().expect("signout 304 thread").expect("signout 304 result"), Vec::<String>::new());
+    let err = state::ALBUMS.get().expect_err("rogue 304 after reset must fail");
+    assert!(err.to_string().contains("not modified"), "unexpected error: {err}");
+    assert_eq!(state::ALBUMS.get().expect("fresh albums after reset"), ["album-3"]);
 
-    // 5. Same-account bust() during HTTP discards stale response and retries.
+    // 5. Account switch without reset() omits the previous account's ETag.
     *account.lock().expect("account lock") = "account-c".to_owned();
+    assert_eq!(state::ALBUMS.get().expect("account-c albums"), ["album-c"]);
+    assert_eq!(state::ALBUMS.get().expect("cached account-c albums"), ["album-c"]);
+
+    // 6. Same-account bust() during HTTP discards stale response and retries.
     let fetch_stale = std::thread::spawn(|| state::ARTISTS.get());
-    assert_eq!(gate_entered_rx.recv_timeout(Duration::from_secs(5)).expect("call 8"), 8);
+    assert_eq!(gate_entered_rx.recv_timeout(Duration::from_secs(5)).expect("call 10"), 10);
     let started = Instant::now();
     state::ARTISTS.bust();
     assert!(started.elapsed() < Duration::from_millis(100), "bust() blocked for {:?}", started.elapsed());
-    gate_release_tx.send(()).expect("release call 8");
+    gate_release_tx.send(()).expect("release call 10");
     assert_eq!(fetch_stale.join().expect("fetch_stale thread").expect("fetch_stale result"), ["artist-new"]);
     assert_eq!(state::ARTISTS.get().expect("cached fresh artists"), ["artist-new"]);
 
-    // 6. Continuous invalidation exhausts retries and errors instead of returning stale data.
+    // 7. Continuous invalidation exhausts retries and errors instead of returning stale data.
     state::ARTISTS.reset();
     let fetch_exhausted = std::thread::spawn(|| state::ARTISTS.get());
-    for expected in 10..=12 {
+    for expected in 12..=14 {
         assert_eq!(gate_entered_rx.recv_timeout(Duration::from_secs(5)).expect("exhaustion call"), expected);
         state::ARTISTS.bust();
         gate_release_tx.send(()).expect("release exhaustion call");
@@ -260,9 +256,9 @@ fn reset_bust_and_concurrent_fetches_behave_consistently() {
     let err = fetch_exhausted.join().expect("exhausted thread").expect_err("expected invalidation error");
     assert!(err.to_string().contains("invalidated"), "unexpected error: {err}");
 
-    // 7. Concurrent cold-cache get() calls coalesce into a single HTTP request.
+    // 8. Concurrent cold-cache get() calls coalesce into a single HTTP request.
     let first = std::thread::spawn(|| state::PLAYLISTS.get());
-    assert_eq!(gate_entered_rx.recv_timeout(Duration::from_secs(5)).expect("call 13"), 13);
+    assert_eq!(gate_entered_rx.recv_timeout(Duration::from_secs(5)).expect("call 15"), 15);
     let (started_tx, started_rx) = mpsc::channel();
     let second = {
         let tx = started_tx.clone();
@@ -281,15 +277,15 @@ fn reset_bust_and_concurrent_fetches_behave_consistently() {
     started_rx.recv_timeout(Duration::from_secs(5)).expect("second started");
     started_rx.recv_timeout(Duration::from_secs(5)).expect("third started");
     std::thread::sleep(Duration::from_millis(30));
-    gate_release_tx.send(()).expect("release call 13");
+    gate_release_tx.send(()).expect("release call 15");
     assert_eq!(first.join().expect("first thread").expect("first result"), ["playlist-1"]);
     assert_eq!(second.join().expect("second thread").expect("second result"), ["playlist-1"]);
     assert_eq!(third.join().expect("third thread").expect("third result"), ["playlist-1"]);
 
-    // 8. Concurrent callers during a mid-flight bust() both receive the newer response without blocking bust().
+    // 9. Concurrent callers during a mid-flight bust() both receive the newer response without blocking bust().
     state::PLAYLISTS.bust();
     let older = std::thread::spawn(|| state::PLAYLISTS.get());
-    assert_eq!(gate_entered_rx.recv_timeout(Duration::from_secs(5)).expect("call 14"), 14);
+    assert_eq!(gate_entered_rx.recv_timeout(Duration::from_secs(5)).expect("call 16"), 16);
     let waiter = std::thread::spawn(move || {
         started_tx.send(()).expect("signal waiter");
         state::PLAYLISTS.get()
@@ -299,7 +295,7 @@ fn reset_bust_and_concurrent_fetches_behave_consistently() {
     let started = Instant::now();
     state::PLAYLISTS.bust();
     assert!(started.elapsed() < Duration::from_millis(100), "bust() blocked for {:?}", started.elapsed());
-    gate_release_tx.send(()).expect("release call 14");
+    gate_release_tx.send(()).expect("release call 16");
     assert_eq!(older.join().expect("older thread").expect("older result"), ["playlist-2"]);
     assert_eq!(waiter.join().expect("waiter thread").expect("waiter result"), ["playlist-2"]);
     assert_eq!(state::PLAYLISTS.get().expect("cached newer playlists"), ["playlist-2"]);
