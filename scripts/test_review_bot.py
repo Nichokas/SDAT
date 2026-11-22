@@ -250,8 +250,8 @@ class GateTests(unittest.TestCase):
         return {"id": 1, "user": {"login": review_bot.BOT_LOGIN},
                 "body": f"{review_bot.MARKER}\n<!-- review-bot-verdict:{sha}:{verdict} -->"}
 
-    def pr(self, sha="abc", draft=False, repo=review_bot.REPO):
-        return {"head": {"sha": sha, "repo": {"full_name": repo}}, "draft": draft}
+    def pr(self, sha="abc", draft=False, repo=review_bot.REPO, state="open"):
+        return {"head": {"sha": sha, "repo": {"full_name": repo}}, "draft": draft, "state": state}
 
     def gate(self, prs, comments, keep_waiting=False):
         prs, comments = iter(prs), iter(comments)
@@ -283,6 +283,9 @@ class GateTests(unittest.TestCase):
 
     def test_keep_waiting_still_fails_when_the_commit_is_superseded(self):
         self.assertFalse(self.gate([self.pr(), self.pr("newer")], [[self.comment("abc", "block")]], keep_waiting=True))
+
+    def test_closed_pr_fails_immediately_even_when_keep_waiting(self):
+        self.assertFalse(self.gate([self.pr(state="closed")], [], keep_waiting=True))
 
     def test_superseded_commit_fails(self):
         self.assertFalse(self.gate([self.pr("newer")], []))
@@ -409,6 +412,101 @@ class InstallCliTests(unittest.TestCase):
             review_bot.install_cli("tool", "script")
         self.assertEqual((Path(self.home.name) / "cache/tool").read_text(), "fresh")
         self.assertIn("cli_installed=true", output.read_text())
+
+    def test_skips_cache_update_when_installed_binary_is_unchanged(self):
+        cache = Path(self.home.name) / "cache"
+        cache.mkdir()
+        cached = cache / "tool"
+        cached.write_text("same")
+        os.utime(cached, (1, 1))
+
+        def fake_install(script):
+            (self.bin / "tool").write_text("same")
+
+        output = Path(self.home.name) / "output"
+        with mock.patch.object(review_bot, "install", side_effect=fake_install), \
+                mock.patch.dict(os.environ, {"GITHUB_OUTPUT": str(output)}):
+            review_bot.install_cli("tool", "script")
+        self.assertEqual(cached.stat().st_mtime, 1)
+        self.assertFalse(output.exists())
+
+    def test_updates_cache_when_installed_binary_changes(self):
+        cache = Path(self.home.name) / "cache"
+        cache.mkdir()
+        (cache / "tool").write_text("old")
+
+        def fake_install(script):
+            (self.bin / "tool").write_text("new")
+
+        output = Path(self.home.name) / "output"
+        with mock.patch.object(review_bot, "install", side_effect=fake_install), \
+                mock.patch.dict(os.environ, {"GITHUB_OUTPUT": str(output)}):
+            review_bot.install_cli("tool", "script")
+        self.assertEqual((cache / "tool").read_text(), "new")
+        self.assertIn("cli_installed=true", output.read_text())
+
+
+class RunReviewTests(unittest.TestCase):
+    def test_timeout_returns_failed_result(self):
+        timeout = subprocess.TimeoutExpired(
+            cmd=["cubic"],
+            timeout=review_bot.REVIEW_TIMEOUT_SECONDS,
+            output=b"partial stdout",
+            stderr=b"partial stderr",
+        )
+        with mock.patch.dict(os.environ, {"PATH": ""}, clear=True), \
+                mock.patch("shutil.which", return_value="/usr/bin/cubic"), \
+                mock.patch("subprocess.run", side_effect=timeout) as run:
+            result = review_bot.run_review("cubic", "main")
+        self.assertEqual(result, Result("cubic", Status.FAILED, note="Timed out."))
+        self.assertEqual(run.call_args.kwargs["timeout"], review_bot.REVIEW_TIMEOUT_SECONDS)
+
+    def test_macroscope_timeout_preserves_emitted_findings(self):
+        event = {"path": "a.rs", "line": 3, "severity": "medium", "body": "Bad thing. More detail."}
+        stderr = f"review_session_id=x\nissue_event={json.dumps(event)}\nissue_event={{truncated".encode()
+        timeout = subprocess.TimeoutExpired(
+            cmd=["macroscope"],
+            timeout=review_bot.REVIEW_TIMEOUT_SECONDS,
+            output=None,
+            stderr=stderr,
+        )
+        with mock.patch.dict(os.environ, {"PATH": ""}, clear=True), \
+                mock.patch("shutil.which", return_value="/usr/bin/macroscope"), \
+                mock.patch("subprocess.run", side_effect=timeout):
+            result = review_bot.run_review("macroscope", "main")
+        self.assertEqual(
+            result,
+            Result(
+                "macroscope",
+                Status.FAILED,
+                findings=[Finding("minor", "a.rs", 3, "Bad thing", "More detail.")],
+                note="Timed out.",
+            ),
+        )
+
+    def test_cubic_timeout_keeps_failed_status_when_findings_were_emitted(self):
+        stdout = json.dumps(
+            {"issues": [{"priority": "P0", "file": "a.rs", "line": 3, "title": "t", "description": "d"}]}
+        )
+        timeout = subprocess.TimeoutExpired(
+            cmd=["cubic"],
+            timeout=review_bot.REVIEW_TIMEOUT_SECONDS,
+            output=stdout,
+            stderr=None,
+        )
+        with mock.patch.dict(os.environ, {"PATH": ""}, clear=True), \
+                mock.patch("shutil.which", return_value="/usr/bin/cubic"), \
+                mock.patch("subprocess.run", side_effect=timeout):
+            result = review_bot.run_review("cubic", "main")
+        self.assertEqual(
+            result,
+            Result(
+                "cubic",
+                Status.FAILED,
+                findings=[Finding("critical", "a.rs", 3, "t", "d")],
+                note="Timed out.",
+            ),
+        )
 
 
 if __name__ == "__main__":

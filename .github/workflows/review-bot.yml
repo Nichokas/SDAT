@@ -110,6 +110,8 @@ jobs:
           restore-keys: review-cli-${{ matrix.reviewer }}-
       - name: Run ${{ matrix.reviewer }}
         id: run
+        # Below the job timeout so a slow reviewer fails instead of cancelling and skipping publish.
+        timeout-minutes: 40
         working-directory: pr
         env:
           BASE: ${{ needs.resolve.outputs.base }}
@@ -119,7 +121,8 @@ jobs:
           MACROSCOPE_AUTH: ${{ matrix.reviewer == 'macroscope' && secrets.MACROSCOPE_AUTH || '' }}
         run: python3 ../bot/scripts/review_bot.py run "$REVIEWER" --base "$BASE" --out "../$REVIEWER.json"
       - name: Save the reviewer CLI cache
-        if: steps.run.outputs.cli_installed == 'true'
+        # PR runs restore main's cache read-only; /review runs on main and refreshes it when a CLI changes.
+        if: steps.run.outputs.cli_installed == 'true' && github.ref == 'refs/heads/main'
         uses: actions/cache/save@v4
         with:
           path: ~/.cache/review-bot-cli
