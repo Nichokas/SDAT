@@ -126,7 +126,7 @@ jobs:
     environment: aur
     concurrency:
       group: aur-sdat-bin
-      cancel-in-progress: false
+      queue: max
     steps:
       - name: Install AUR publishing tools
         run: |
