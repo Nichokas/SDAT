@@ -50,6 +50,7 @@ impl Inner {
     }
 }
 
+#[derive(Debug, PartialEq, Eq)]
 enum FetchOutcome {
     Items(Vec<String>, String),
     NotModified,
@@ -138,20 +139,44 @@ impl FavouriteCache {
         self.inner.lock().unwrap_or_else(std::sync::PoisonError::into_inner).generation
     }
 
+    fn still_valid(&self, uid: &str, generation: u64, user_id: impl FnOnce() -> String) -> bool {
+        self.generation() == generation && user_id() == uid
+    }
+
+    fn fetch_mixes_with(
+        &self,
+        uid: &str,
+        generation: u64,
+        user_id: impl Fn() -> String,
+        mut fetch_page: impl FnMut(&str, &str) -> Result<(api::legacy::FavouritesIds, String)>,
+    ) -> Result<FetchOutcome> {
+        if !self.still_valid(uid, generation, &user_id) {
+            return Ok(FetchOutcome::Invalidated);
+        }
+        let mut cursor = String::new();
+        let mut etag = String::new();
+        let mut items = Vec::new();
+        loop {
+            let (list, next_etag) = fetch_page(&cursor, &etag)?;
+            if !self.still_valid(uid, generation, &user_id) {
+                return Ok(FetchOutcome::Invalidated);
+            }
+            etag = next_etag;
+            if items.is_empty() {
+                items = list.content;
+            } else {
+                items.extend(list.content);
+            }
+            if list.cursor.is_empty() {
+                return Ok(FetchOutcome::Items(items, etag));
+            }
+            cursor = list.cursor;
+        }
+    }
+
     fn fetch_remote(&self, uid: &str, etag: &str, generation: u64) -> Result<FetchOutcome> {
         if self.kind == Kind::Mixes {
-            let (mut list, mut etag) = api::favourite_mix_ids("", "")?;
-            let mut items = std::mem::take(&mut list.content);
-            while !list.cursor.is_empty() {
-                if self.generation() != generation || crate::auth::tokens().user_id() != uid {
-                    return Ok(FetchOutcome::Invalidated);
-                }
-                let (l, e) = api::favourite_mix_ids(&list.cursor, &etag)?;
-                list = l;
-                etag = e;
-                items.append(&mut list.content);
-            }
-            Ok(FetchOutcome::Items(items, etag))
+            self.fetch_mixes_with(uid, generation, || crate::auth::tokens().user_id(), api::favourite_mix_ids)
         } else {
             Ok(match api::favourite_ids(uid, etag)? {
                 Some((lists, etag)) => {
@@ -219,7 +244,7 @@ impl FavouriteCache {
             let outcome = match fetch(&uid, &etag, generation) {
                 Ok(outcome) => outcome,
                 Err(e) => {
-                    if self.generation() != generation || user_id() != uid {
+                    if !self.still_valid(&uid, generation, &user_id) {
                         continue;
                     }
                     return Err(e);
@@ -230,12 +255,9 @@ impl FavouriteCache {
                 FetchOutcome::Items(items, new_etag) => Some((items, new_etag)),
                 FetchOutcome::NotModified => None,
             };
-            if user_id() != uid {
-                continue;
-            }
 
             let mut inner = self.inner.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
-            if inner.generation != generation {
+            if inner.generation != generation || user_id() != uid {
                 continue;
             }
             if let Some((items, new_etag)) = fetched {
@@ -563,5 +585,234 @@ mod tests {
             )
             .expect("fetch account-b");
         assert_eq!(items, ["artist-b"]);
+    }
+
+    #[test]
+    fn mixes_single_page_invalidated_by_account_switch_and_reset_is_discarded() {
+        let cache = FavouriteCache::new(Kind::Mixes);
+        let account = RefCell::new("account-a".to_owned());
+        let mut page_calls = 0usize;
+        let mut invalidated_seen = false;
+
+        let items = cache
+            .get_with(
+                TTL,
+                || account.borrow().clone(),
+                |uid, _, generation| {
+                    let outcome = cache.fetch_mixes_with(uid, generation, || account.borrow().clone(), |cursor, etag| {
+                        page_calls += 1;
+                        assert_eq!(cursor, "");
+                        assert_eq!(etag, "");
+                        match page_calls {
+                            1 => {
+                                assert_eq!(uid, "account-a");
+                                *account.borrow_mut() = "account-b".to_owned();
+                                cache.reset();
+                                Ok((
+                                    api::legacy::FavouritesIds { cursor: String::new(), content: vec!["mix-a-stale".to_owned()] },
+                                    "\"mix-e-a\"".to_owned(),
+                                ))
+                            }
+                            2 => {
+                                assert_eq!(uid, "account-b");
+                                Ok((
+                                    api::legacy::FavouritesIds { cursor: String::new(), content: vec!["mix-b".to_owned()] },
+                                    "\"mix-e-b\"".to_owned(),
+                                ))
+                            }
+                            other => panic!("unexpected mixes page call {other}"),
+                        }
+                    })?;
+                    if page_calls == 1 {
+                        assert_eq!(outcome, FetchOutcome::Invalidated);
+                        invalidated_seen = true;
+                    }
+                    Ok(outcome)
+                },
+            )
+            .expect("retry mixes for account-b");
+
+        assert!(invalidated_seen);
+        assert_eq!(page_calls, 2);
+        assert_eq!(items, ["mix-b"]);
+
+        let cached = cache.inner.lock().expect("lock");
+        let cached = cached.cached.as_ref().expect("account-b cached");
+        assert_eq!(cached.uid, "account-b");
+        assert_eq!(cached.items, ["mix-b"]);
+    }
+
+    #[test]
+    fn mixes_single_page_invalidated_by_reset_or_account_switch_without_reset_is_discarded() {
+        let cache = FavouriteCache::new(Kind::Mixes);
+        let account = RefCell::new("account-a".to_owned());
+        let mut page_calls = 0usize;
+
+        let items = cache
+            .get_with(
+                TTL,
+                || account.borrow().clone(),
+                |uid, _, generation| {
+                    let outcome = cache.fetch_mixes_with(uid, generation, || account.borrow().clone(), |cursor, etag| {
+                        page_calls += 1;
+                        assert_eq!(cursor, "");
+                        assert_eq!(etag, "");
+                        match page_calls {
+                            1 => {
+                                assert_eq!(uid, "account-a");
+                                cache.reset();
+                                Ok((
+                                    api::legacy::FavouritesIds { cursor: String::new(), content: vec!["mix-a-old".to_owned()] },
+                                    "\"e1\"".to_owned(),
+                                ))
+                            }
+                            2 => {
+                                assert_eq!(uid, "account-a");
+                                *account.borrow_mut() = "account-b".to_owned();
+                                Ok((
+                                    api::legacy::FavouritesIds { cursor: String::new(), content: vec!["mix-a-stale".to_owned()] },
+                                    "\"e2\"".to_owned(),
+                                ))
+                            }
+                            3 => {
+                                assert_eq!(uid, "account-b");
+                                Ok((
+                                    api::legacy::FavouritesIds { cursor: String::new(), content: vec!["mix-b".to_owned()] },
+                                    "\"e3\"".to_owned(),
+                                ))
+                            }
+                            other => panic!("unexpected mixes page call {other}"),
+                        }
+                    })?;
+                    if page_calls < 3 {
+                        assert_eq!(outcome, FetchOutcome::Invalidated);
+                    }
+                    Ok(outcome)
+                },
+            )
+            .expect("retry mixes across reset and un-reset account switch");
+
+        assert_eq!(page_calls, 3);
+        assert_eq!(items, ["mix-b"]);
+        let cached = cache.inner.lock().expect("lock");
+        let cached = cached.cached.as_ref().expect("account-b cached");
+        assert_eq!(cached.uid, "account-b");
+        assert_eq!(cached.items, ["mix-b"]);
+    }
+
+    #[test]
+    fn mixes_fetch_invalidated_before_initial_request_skips_page_fetch() {
+        let cache = FavouriteCache::new(Kind::Mixes);
+        let initial_gen = cache.generation();
+        cache.reset();
+
+        let by_generation = cache
+            .fetch_mixes_with("account-a", initial_gen, || "account-a".to_owned(), |_, _| {
+                panic!("stale generation must not start mixes request");
+            })
+            .expect("generation check");
+        assert_eq!(by_generation, FetchOutcome::Invalidated);
+
+        let current_gen = cache.generation();
+        let by_account = cache
+            .fetch_mixes_with("account-a", current_gen, || "account-b".to_owned(), |_, _| {
+                panic!("mismatched account must not start mixes request");
+            })
+            .expect("account check");
+        assert_eq!(by_account, FetchOutcome::Invalidated);
+    }
+
+    #[test]
+    fn mixes_multipage_invalidated_on_final_page_is_discarded() {
+        let cache = FavouriteCache::new(Kind::Mixes);
+        let account = RefCell::new("account-a".to_owned());
+        let mut page_calls = 0usize;
+
+        let items = cache
+            .get_with(
+                TTL,
+                || account.borrow().clone(),
+                |uid, _, generation| {
+                    cache.fetch_mixes_with(uid, generation, || account.borrow().clone(), |cursor, etag| {
+                        page_calls += 1;
+                        match page_calls {
+                            1 => {
+                                assert_eq!(uid, "account-a");
+                                assert_eq!(cursor, "");
+                                assert_eq!(etag, "");
+                                Ok((
+                                    api::legacy::FavouritesIds { cursor: "page-2".to_owned(), content: vec!["mix-a-1".to_owned()] },
+                                    "\"e-p1\"".to_owned(),
+                                ))
+                            }
+                            2 => {
+                                assert_eq!(uid, "account-a");
+                                assert_eq!(cursor, "page-2");
+                                assert_eq!(etag, "\"e-p1\"");
+                                *account.borrow_mut() = "account-b".to_owned();
+                                cache.reset();
+                                Ok((
+                                    api::legacy::FavouritesIds { cursor: String::new(), content: vec!["mix-a-2".to_owned()] },
+                                    "\"e-p2\"".to_owned(),
+                                ))
+                            }
+                            3 => {
+                                assert_eq!(uid, "account-b");
+                                assert_eq!(cursor, "");
+                                assert_eq!(etag, "");
+                                Ok((
+                                    api::legacy::FavouritesIds { cursor: String::new(), content: vec!["mix-b-1".to_owned()] },
+                                    "\"e-b1\"".to_owned(),
+                                ))
+                            }
+                            other => panic!("unexpected mixes page call {other}"),
+                        }
+                    })
+                },
+            )
+            .expect("retry after multipage invalidation");
+
+        assert_eq!(page_calls, 3);
+        assert_eq!(items, ["mix-b-1"]);
+        let cached = cache.inner.lock().expect("lock");
+        let cached = cached.cached.as_ref().expect("account-b cached");
+        assert_eq!(cached.uid, "account-b");
+        assert_eq!(cached.items, ["mix-b-1"]);
+    }
+
+    #[test]
+    fn account_switch_without_reset_during_fetch_rejects_commit_and_retries() {
+        let cache = FavouriteCache::new(Kind::Mixes);
+        let account = RefCell::new("account-a".to_owned());
+        let mut attempts = 0usize;
+
+        let items = cache
+            .get_with(
+                TTL,
+                || account.borrow().clone(),
+                |uid, _, _| {
+                    attempts += 1;
+                    match attempts {
+                        1 => {
+                            assert_eq!(uid, "account-a");
+                            *account.borrow_mut() = "account-b".to_owned();
+                            Ok(FetchOutcome::Items(vec!["mix-a-stale".to_owned()], "\"e-a\"".to_owned()))
+                        }
+                        2 => {
+                            assert_eq!(uid, "account-b");
+                            Ok(FetchOutcome::Items(vec!["mix-b".to_owned()], "\"e-b\"".to_owned()))
+                        }
+                        other => panic!("unexpected attempt {other}"),
+                    }
+                },
+            )
+            .expect("retry for account-b");
+
+        assert_eq!(attempts, 2);
+        assert_eq!(items, ["mix-b"]);
+        let cached = cache.inner.lock().expect("lock");
+        let cached = cached.cached.as_ref().expect("account-b cached");
+        assert_eq!(cached.uid, "account-b");
+        assert_eq!(cached.items, ["mix-b"]);
     }
 }

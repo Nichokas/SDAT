@@ -185,12 +185,25 @@ fn reset_bust_and_concurrent_fetches_behave_consistently() {
                     assert!(request_line.starts_with("GET /v1/users/account-c/favorites/ids?"), "got {request_line}");
                     assert_eq!(if_none_match, None);
                     write_response(&mut stream, "200 OK", Some("\"pl-2\""), r#"{"PLAYLIST":["playlist-2"]}"#);
+                }
+                // 18-19: Single-page Mixes fetch invalidated by account switch + reset() retries for account-d.
+                18 => {
+                    assert!(request_line.starts_with("GET /v2/favorites/mixes/ids?"), "got {request_line}");
+                    assert_eq!(if_none_match, None);
+                    gate_entered_tx.send(18).expect("signal call 18");
+                    gate_release_rx.recv().expect("release call 18");
+                    write_response(&mut stream, "200 OK", Some("\"mix-c\""), r#"{"cursor":"","content":["mix-c-stale"]}"#);
+                }
+                19 => {
+                    assert!(request_line.starts_with("GET /v2/favorites/mixes/ids?"), "got {request_line}");
+                    assert_eq!(if_none_match, None);
+                    write_response(&mut stream, "200 OK", Some("\"mix-d\""), r#"{"cursor":"","content":["mix-d"]}"#);
                     break;
                 }
                 other => panic!("unexpected favourites request #{other}: {request_line}"),
             }
         }
-        assert_eq!(fav_calls, 17);
+        assert_eq!(fav_calls, 19);
     });
 
     // 1. 200 OK invalidated by account switch + reset().
@@ -299,6 +312,17 @@ fn reset_bust_and_concurrent_fetches_behave_consistently() {
     assert_eq!(older.join().expect("older thread").expect("older result"), ["playlist-2"]);
     assert_eq!(waiter.join().expect("waiter thread").expect("waiter result"), ["playlist-2"]);
     assert_eq!(state::PLAYLISTS.get().expect("cached newer playlists"), ["playlist-2"]);
+
+    // 10. Single-page Mixes fetch invalidated by account switch + reset() discards stale mixes and retries.
+    let fetch_mixes = std::thread::spawn(|| state::MIXES.get());
+    assert_eq!(gate_entered_rx.recv_timeout(Duration::from_secs(5)).expect("call 18"), 18);
+    *account.lock().expect("account lock") = "account-d".to_owned();
+    let started = Instant::now();
+    state::MIXES.reset();
+    assert!(started.elapsed() < Duration::from_millis(100), "reset() blocked for {:?}", started.elapsed());
+    gate_release_tx.send(()).expect("release call 18");
+    assert_eq!(fetch_mixes.join().expect("fetch_mixes thread").expect("fetch_mixes result"), ["mix-d"]);
+    assert_eq!(state::MIXES.get().expect("cached account-d mixes"), ["mix-d"]);
 
     server.join().expect("mock server");
 }
