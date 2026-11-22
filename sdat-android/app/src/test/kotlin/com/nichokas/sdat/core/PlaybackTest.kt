@@ -2,6 +2,9 @@ package com.nichokas.sdat.core
 
 import androidx.media3.common.Player
 import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.cancel
 import kotlinx.coroutines.job
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.yield
@@ -273,6 +276,63 @@ class PlaybackTest {
 
         secondGate.complete(Unit)
         yield()
+        assertFalse(wait.active)
+    }
+
+    @Test fun abandonedWaitClearsActiveStateWithoutManualClear() = runBlocking {
+        val wait = AdvanceWait()
+        val gate = CompletableDeferred<Unit>()
+        var abandoned = false
+
+        wait.launchOrJoin(this, auto = true) {
+            gate.await()
+            abandoned = true
+            // Early return without calling wait.clear (e.g. track/entry changed or playback no longer STATE_ENDED).
+            return@launchOrJoin
+        }
+        assertTrue(wait.active)
+        yield()
+        assertTrue(wait.active)
+
+        gate.complete(Unit)
+        yield()
+        assertTrue(abandoned)
+        assertFalse(wait.active)
+    }
+
+    @Test fun reentrantLaunchAfterClearKeepsReplacementWaitActive() = runBlocking {
+        val wait = AdvanceWait()
+        val firstGate = CompletableDeferred<Unit>()
+        val secondGate = CompletableDeferred<Unit>()
+
+        wait.launchOrJoin(this, auto = true) {
+            firstGate.await()
+            wait.clear(coroutineContext.job)
+            assertFalse(wait.active)
+            wait.launchOrJoin(this@runBlocking, auto = false) {
+                secondGate.await()
+            }
+            assertTrue(wait.active)
+        }
+        yield()
+        assertTrue(wait.active)
+
+        firstGate.complete(Unit)
+        yield()
+        assertTrue(wait.active)
+        assertFalse(wait.auto)
+
+        secondGate.complete(Unit)
+        yield()
+        assertFalse(wait.active)
+    }
+
+    @Test fun launchOnCancelledScopeLeavesWaitInactive() {
+        val wait = AdvanceWait()
+        val scope = CoroutineScope(Job())
+        scope.cancel()
+
+        wait.launchOrJoin(scope, auto = true) {}
         assertFalse(wait.active)
     }
 }

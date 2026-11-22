@@ -154,6 +154,7 @@ object Downloads {
 
     fun remove(id: String) {
         cancel(id)
+        if (restoring?.isActive == true) dropped += id
         queue = queue.forget(id)
         val e = entries[id] ?: return
         entries = entries - id
@@ -214,11 +215,10 @@ object Downloads {
                     List(list.length()) { TrackJson.decode(list.getJSONObject(it)) }
                 }.getOrDefault(emptyList())
             }
-            val keep = pendingToRestore(saved, dropped, queue.failures.keys)
+            queue = queue.restore(saved, dropped, ::isDownloaded)
             dropped.clear()
             restoring = null
             pendingLoaded = true
-            queue = queue.enqueue(keep, ::isDownloaded)
             // Also rewrites a saved queue whose tracks were all skipped as downloaded.
             savePending()
             pump()
@@ -487,6 +487,3 @@ object Downloads {
 
 internal fun shouldRestorePending(pendingLoaded: Boolean, frozen: Boolean, restoring: Boolean) =
     !restoring && (!pendingLoaded || frozen)
-
-internal fun pendingToRestore(saved: List<Track>, dropped: Set<String>, failed: Set<String>): List<Track> =
-    saved.filterNot { it.id in dropped || it.id in failed }
