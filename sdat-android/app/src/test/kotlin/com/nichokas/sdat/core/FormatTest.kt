@@ -30,6 +30,15 @@ class FormatTest {
         assertEquals("0:00", Fmt.time(Double.NaN))
     }
 
+    @Test fun cacheBytes() {
+        assertEquals("Zero KB", Fmt.cacheBytes(0))
+        assertEquals("640 KB", Fmt.cacheBytes(640L shl 10))
+        assertEquals("512 MB", Fmt.cacheBytes(512L shl 20))
+        assertEquals("1 GB", Fmt.cacheBytes(1L shl 30))
+        assertEquals("1.4 GB", Fmt.cacheBytes(1_500_000_000))
+        assertEquals("10 GB", Fmt.cacheBytes(10L shl 30))
+    }
+
     @Test fun bytes() {
         assertEquals("Zero KB", Fmt.bytes(0))
         assertEquals("1 byte", Fmt.bytes(1))
