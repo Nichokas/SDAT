@@ -401,19 +401,15 @@ final class Player: LivePlaybackPort {
         resumeAfterInterruption = false
         holdAutoplay = false
         clearPreload()
-        if loading {
-            loading = false
-            liveEngine.loadResumeAt = nil
-            avPlayer.pause()
-            avPlayer.removeAllItems()
-            playingItem = nil
-            needsStart = current != nil
-            if isPlaying { reportPlaying(false) }
-        } else if avPlayer.currentItem == nil, playingItem != nil || isPlaying {
-            playingItem = nil
-            needsStart = current != nil
-            if isPlaying { reportPlaying(false) }
-        }
+        seekGeneration += 1
+        seeking = false
+        loading = false
+        liveEngine.loadResumeAt = nil
+        avPlayer.pause()
+        avPlayer.removeAllItems()
+        playingItem = nil
+        needsStart = current != nil
+        if isPlaying || current != nil { reportPlaying(false) }
     }
 
     func loadLive(_ tracks: [Track], index i: Int, at secs: Double, playing: Bool) {
