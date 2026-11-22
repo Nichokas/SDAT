@@ -75,30 +75,51 @@ class PlaybackTest {
             Player.COMMAND_CHANGE_MEDIA_ITEMS,
             Player.COMMAND_RELEASE,
         )
-        val kept = setOf(
+        val readOnly = setOf(
+            Player.COMMAND_GET_CURRENT_MEDIA_ITEM,
+            Player.COMMAND_GET_TIMELINE,
+            Player.COMMAND_GET_METADATA,
+            Player.COMMAND_GET_AUDIO_ATTRIBUTES,
+            Player.COMMAND_GET_VOLUME,
+            Player.COMMAND_GET_TEXT,
+            Player.COMMAND_GET_TRACKS,
+        )
+        val playback = setOf(
             Player.COMMAND_PLAY_PAUSE,
             Player.COMMAND_PREPARE,
             Player.COMMAND_STOP,
-            Player.COMMAND_GET_CURRENT_MEDIA_ITEM,
         )
-        val base = kept + blocked
+        val keptWithTrack = readOnly + playback
+        val base = keptWithTrack + blocked
 
         val loaded = sessionCommands(base, hasTrack = true, emptyTimeline = false)
-        assertTrue(loaded.containsAll(kept))
+        assertTrue(loaded.containsAll(keptWithTrack))
         assertTrue(Player.COMMAND_SEEK_TO_NEXT in loaded)
         assertTrue(Player.COMMAND_SEEK_TO_PREVIOUS in loaded)
         assertFalse(Player.COMMAND_SEEK_IN_CURRENT_MEDIA_ITEM in loaded)
         blocked.forEach { assertFalse(it in loaded) }
 
         val restored = sessionCommands(base, hasTrack = true, emptyTimeline = true)
-        assertTrue(restored.containsAll(kept))
+        assertTrue(restored.containsAll(keptWithTrack))
         assertTrue(Player.COMMAND_SEEK_TO_NEXT in restored)
         assertTrue(Player.COMMAND_SEEK_IN_CURRENT_MEDIA_ITEM in restored)
         blocked.forEach { assertFalse(it in restored) }
 
-        val empty = sessionCommands(base, hasTrack = false, emptyTimeline = true)
-        assertEquals(kept, empty)
-        blocked.forEach { assertFalse(it in empty) }
+        val emptyBase = base + setOf(
+            Player.COMMAND_SEEK_TO_DEFAULT_POSITION,
+            Player.COMMAND_SEEK_IN_CURRENT_MEDIA_ITEM,
+            Player.COMMAND_SEEK_TO_NEXT,
+            Player.COMMAND_SEEK_TO_PREVIOUS,
+            Player.COMMAND_SEEK_BACK,
+            Player.COMMAND_SEEK_FORWARD,
+            Player.COMMAND_SET_VOLUME,
+            Player.COMMAND_SET_PLAYLIST_METADATA,
+            Player.COMMAND_SET_AUDIO_ATTRIBUTES,
+            Player.COMMAND_SET_TRACK_SELECTION_PARAMETERS,
+            Player.COMMAND_SET_VIDEO_SURFACE,
+        )
+        assertEquals(readOnly, sessionCommands(emptyBase, hasTrack = false, emptyTimeline = true))
+        assertEquals(readOnly, sessionCommands(emptyBase, hasTrack = false, emptyTimeline = false))
     }
 
     @Test fun nonDiscoverHandoffWaitsForUpcomingUnderRepeatOffAndRepeatAll() {
@@ -138,8 +159,16 @@ class PlaybackTest {
             advanceAction(auto = true, repeat = Repeat.Off, hasNext = false, hasInfinite = false, awaitingMixes = false, awaitingUpNext = false),
         )
         assertEquals(
+            Advance.Stop,
+            advanceAction(auto = false, repeat = Repeat.Off, hasNext = false, hasInfinite = false, awaitingMixes = false, awaitingUpNext = false),
+        )
+        assertEquals(
             Advance.Queue,
             advanceAction(auto = true, repeat = Repeat.All, hasNext = false, hasInfinite = false, awaitingMixes = false, awaitingUpNext = false),
+        )
+        assertEquals(
+            Advance.Queue,
+            advanceAction(auto = false, repeat = Repeat.All, hasNext = false, hasInfinite = false, awaitingMixes = false, awaitingUpNext = false),
         )
         assertEquals(
             Advance.Wait,
@@ -149,5 +178,17 @@ class PlaybackTest {
             Advance.Wait,
             advanceAction(auto = false, repeat = Repeat.Off, hasNext = false, hasInfinite = false, awaitingMixes = true, awaitingUpNext = false),
         )
+    }
+
+    @Test fun postWaitRestartsPausedOnEmptyManualSkipAndAdvancesWhenQueuedOrRepeating() {
+        assertEquals(PostWait.RestartPaused, postWaitAction(auto = false, hasNext = false, repeat = Repeat.Off))
+        assertEquals(PostWait.RestartPaused, postWaitAction(auto = false, hasNext = false, repeat = Repeat.One))
+        assertEquals(PostWait.Advance, postWaitAction(auto = false, hasNext = false, repeat = Repeat.All))
+        assertEquals(PostWait.Advance, postWaitAction(auto = false, hasNext = true, repeat = Repeat.Off))
+        assertEquals(PostWait.Advance, postWaitAction(auto = false, hasNext = true, repeat = Repeat.One))
+        assertEquals(PostWait.StopAtEnd, postWaitAction(auto = true, hasNext = false, repeat = Repeat.Off))
+        assertEquals(PostWait.Advance, postWaitAction(auto = true, hasNext = false, repeat = Repeat.All))
+        assertEquals(PostWait.Advance, postWaitAction(auto = true, hasNext = false, repeat = Repeat.One))
+        assertEquals(PostWait.Advance, postWaitAction(auto = true, hasNext = true, repeat = Repeat.Off))
     }
 }

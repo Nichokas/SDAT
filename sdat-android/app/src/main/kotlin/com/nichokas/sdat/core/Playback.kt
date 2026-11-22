@@ -84,6 +84,8 @@ class Playback(context: Context, private val prefs: Preferences, secrets: Secret
         override fun followingChanged() = syncPreload()
     }, scope, SystemClock::uptimeMillis)
     private var request: Job? = null
+    private var waitJob: Job? = null
+    private var handoffLimit = 0L
     private val queue = PlayQueue<Track> { it.id }
     private var infinite: Shuffle? = null
     private var refilling: Deferred<Boolean>? = null
@@ -477,7 +479,7 @@ class Playback(context: Context, private val prefs: Preferences, secrets: Secret
         persist()
     }
 
-    private fun advance(auto: Boolean, play: Boolean = true, waitForUpNext: Boolean = true) {
+    private fun advance(auto: Boolean, play: Boolean = true) {
         when (
             advanceAction(
                 auto = auto,
@@ -485,7 +487,7 @@ class Playback(context: Context, private val prefs: Preferences, secrets: Secret
                 hasNext = queue.upNext.isNotEmpty() || queue.userQueue.isNotEmpty(),
                 hasInfinite = infinite != null,
                 awaitingMixes = awaitingMixes,
-                awaitingUpNext = waitForUpNext && awaitingUpNext,
+                awaitingUpNext = awaitingUpNext,
             )
         ) {
             Advance.Stop -> return stopAtEnd()
@@ -532,11 +534,12 @@ class Playback(context: Context, private val prefs: Preferences, secrets: Secret
             player.stop()
             player.playWhenReady = true
         }
-        scope.launch {
+        val limit = if (waitJob?.isActive == true) handoffLimit else (SystemClock.elapsedRealtime() + HANDOFF_WAIT_MS).also { handoffLimit = it }
+        waitJob?.cancel()
+        val job = scope.launch {
             // A handoff's own tracks come first, when they are still on their way, and a Discover queue waits for
             // its source. A track to play ends the wait, and so does another start. The tracks have a limit, for an
             // answer of the core that never comes; the source is asked for until it comes.
-            val limit = SystemClock.elapsedRealtime() + HANDOFF_WAIT_MS
             // Handed over, or added with Play Next meanwhile.
             val queued = { queue.upNext.isNotEmpty() || queue.userQueue.isNotEmpty() }
             while (track === from && entry == entryBefore && !queued()) {
@@ -547,21 +550,24 @@ class Playback(context: Context, private val prefs: Preferences, secrets: Secret
             }
             // A track picked during the wait owns playback now: its queue is not this one's to refill.
             if (track !== from || entry != entryBefore) return@launch
-            val more = queued() || infinite?.let { fetchMore(it) } == true
+            // Once the handoff wait settles without upcoming tracks, stop waiting on later skips or repeats.
+            if (!queued() && awaitingUpNext) resumedBase = null
+            if (!queued()) infinite?.let { fetchMore(it) }
             // A track picked during the fetch owns playback now; a source replaced meanwhile had nothing more.
             if (track !== from || entry != entryBefore) return@launch
             fetching = false
             // A Replay tapped during the fetch wins; that track's next end advances again.
             if (auto && player.playbackState != Player.STATE_ENDED) return@launch
-            when {
-                // A Play Next added during the fetch plays even when the source had nothing more.
-                more || queue.userQueue.isNotEmpty() || queue.repeat == Repeat.All ->
-                    advance(auto, play = player.playWhenReady, waitForUpNext = false)
-                auto -> stopAtEnd()
+            if (waitJob === coroutineContext.job) waitJob = null
+            when (postWaitAction(auto = auto, hasNext = queued(), repeat = queue.repeat)) {
+                PostWait.Advance -> advance(auto, play = player.playWhenReady)
+                PostWait.StopAtEnd -> stopAtEnd()
                 // The skip found nothing; the player may hold a stale item, so the track is loaded again, paused.
-                else -> from?.let { start(it, play = false) }
+                PostWait.RestartPaused -> from?.let { start(it, play = false) }
             }
         }
+        waitJob = job
+        job.invokeOnCompletion { if (waitJob === job) waitJob = null }
     }
 
     /** End of a finite queue: rewound and paused, and saved that way. Playing it again counts as a new listen. */
@@ -638,6 +644,7 @@ class Playback(context: Context, private val prefs: Preferences, secrets: Secret
     private fun start(t: Track, play: Boolean = true, resumeAt: Double = 0.0, online: Boolean = false) {
         entry++
         request?.cancel()
+        waitJob?.cancel()
         liveEngine.cancelLive()
         dropPreload()
         // Following a playing host: start only with a healthy buffer and on time, so nothing needs correcting after.
@@ -821,6 +828,7 @@ class Playback(context: Context, private val prefs: Preferences, secrets: Secret
             Tap.Retry -> start(t, resumeAt = position)
             Tap.Replay -> {
                 // The ended item plays again with no fetch; a refill still loading gives way to it.
+                waitJob?.cancel()
                 fetching = false
                 entry++
                 listen = newListen(t)
@@ -840,6 +848,8 @@ class Playback(context: Context, private val prefs: Preferences, secrets: Secret
         restore.cancel()
         restoring = false
         request?.cancel()
+        waitJob?.cancel()
+        resumedBase = null
         // Mixes still on their way are this account's, not the next one's.
         mixesJob?.cancel()
         liveEngine.cancelLive()
@@ -898,9 +908,20 @@ private val unguardedSessionCommands = setOf(
     Player.COMMAND_RELEASE,
 )
 
+private val readOnlySessionCommands = setOf(
+    Player.COMMAND_GET_CURRENT_MEDIA_ITEM,
+    Player.COMMAND_GET_TIMELINE,
+    Player.COMMAND_GET_METADATA,
+    Player.COMMAND_GET_AUDIO_ATTRIBUTES,
+    Player.COMMAND_GET_VOLUME,
+    Player.COMMAND_GET_DEVICE_VOLUME,
+    Player.COMMAND_GET_TEXT,
+    Player.COMMAND_GET_TRACKS,
+)
+
 internal fun sessionCommands(base: Set<Int>, hasTrack: Boolean, emptyTimeline: Boolean): Set<Int> {
+    if (!hasTrack) return base intersect readOnlySessionCommands
     val allowed = base - unguardedSessionCommands
-    if (!hasTrack) return allowed
     return if (emptyTimeline) allowed + queueCommands + Player.COMMAND_SEEK_IN_CURRENT_MEDIA_ITEM else allowed + queueCommands
 }
 
@@ -920,6 +941,14 @@ internal fun advanceAction(
     repeat == Repeat.All -> Advance.Queue
     hasInfinite || awaitingMixes -> Advance.Wait
     else -> Advance.Stop
+}
+
+internal enum class PostWait { Advance, StopAtEnd, RestartPaused }
+
+internal fun postWaitAction(auto: Boolean, hasNext: Boolean, repeat: Repeat): PostWait = when {
+    hasNext || repeat == Repeat.All || (auto && repeat == Repeat.One) -> PostWait.Advance
+    auto -> PostWait.StopAtEnd
+    else -> PostWait.RestartPaused
 }
 
 // The core only hands out HLS manifests, and a download is indexed by a local one.
