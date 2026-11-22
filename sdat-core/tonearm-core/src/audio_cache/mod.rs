@@ -545,7 +545,8 @@ fn reconcile(dir: &Path, mut index: Index) -> CoreResult<Index> {
 
 static STORE: OnceLock<Store> = OnceLock::new();
 
-/// Opens the process-wide cache in `dir`. A second call only applies `limit`.
+/// Opens the process-wide cache in `dir`, which only the cache may use: see [`Store::open`]. A second call only
+/// applies `limit`.
 pub fn install(dir: PathBuf, limit: u64) -> CoreResult<()> {
     if let Some(s) = STORE.get() {
         s.set_limit(limit);

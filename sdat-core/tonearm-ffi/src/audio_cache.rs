@@ -40,7 +40,8 @@ fn cached_track(c: audio_cache::Cached) -> Option<CachedTrack> {
     })
 }
 
-/// Opens the cache in `dir` (an OS cache directory). Call once at startup; a later call only applies the limit.
+/// Opens the cache in `dir`, a folder of its own inside an OS cache directory: opening deletes every file in `dir`
+/// the cache does not list. Call once at startup; a later call only applies the limit.
 #[uniffi::export]
 pub fn audio_cache_open(dir: String, limit_bytes: u64) -> Result<(), FfiError> {
     Ok(audio_cache::install(PathBuf::from(dir), limit_bytes)?)

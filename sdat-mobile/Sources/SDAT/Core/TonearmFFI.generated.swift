@@ -9449,7 +9449,8 @@ public func audioCacheLookup(trackId: String, quality: Quality) -> CachedTrack? 
 })
 }
 /**
- * Opens the cache in `dir` (an OS cache directory). Call once at startup; a later call only applies the limit.
+ * Opens the cache in `dir`, a folder of its own inside an OS cache directory: opening deletes every file in `dir`
+ * the cache does not list. Call once at startup; a later call only applies the limit.
  */
 public func audioCacheOpen(dir: String, limitBytes: UInt64)throws   {try rustCallWithError(FfiConverterTypeFfiError_lift) {
         uniffiCallStatus in
@@ -10261,7 +10262,7 @@ private let initializationResult: InitializationResult = {
     if (uniffi_tonearm_ffi_checksum_func_audio_cache_lookup() != 39229) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_tonearm_ffi_checksum_func_audio_cache_open() != 52318) {
+    if (uniffi_tonearm_ffi_checksum_func_audio_cache_open() != 57295) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_tonearm_ffi_checksum_func_audio_cache_purge() != 9712) {
