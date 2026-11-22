@@ -1,6 +1,5 @@
 import SwiftUI
 
-/// Offline tracks: in-progress, failed (retry), saved (swipe to delete), total size, then the audio cache.
 struct DownloadsView: View {
     @Environment(Player.self) private var player
     @State private var confirmAll = false

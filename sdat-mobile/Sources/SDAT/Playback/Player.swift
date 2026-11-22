@@ -11,7 +11,6 @@ final class Player: LivePlaybackPort {
     static let shared = Player()
 
     enum Repeat { case off, all, one }
-    /// Where an item's audio comes from.
     enum Origin { case network, cached, downloaded }
     struct Source { var stream: Stream; var origin: Origin }
 
@@ -66,7 +65,6 @@ final class Player: LivePlaybackPort {
     private var preloadTask: Task<Void, Never>?
     @ObservationIgnored private var advanceTask: Task<Void, Never>?
     private var preloaded: (trackId: String, item: AVPlayerItem, source: Source)?
-    /// The track being fetched into the audio cache: one at a time.
     @ObservationIgnored private var filling: String?
     private let network = NWPathMonitor()
     /// The engine item of `current`: ends of other items are stale.
@@ -641,7 +639,6 @@ final class Player: LivePlaybackPort {
         playingItem = nil
         advanceTask?.cancel(); advanceTask = nil
         clearPreload()
-        // Its stream would compete with the fill for the same bytes.
         if filling == track.id { cancelFill() }
         loadTask?.cancel()
         loadTask = Task {
@@ -709,8 +706,7 @@ final class Player: LivePlaybackPort {
     private func streamFailed(_ item: AVPlayerItem) {
         guard item === playingItem, let t = current else { return }
         let now = Date()
-        // A broken local copy spends no budget: only the online stream can help. A new play would pick a download
-        // again, so it stays; a cached copy goes.
+        // A broken local copy spends no budget: only the online stream can help.
         switch origin {
         case .network:
             guard Self.refetchDue(refetched, t.id, now: now) else {
@@ -774,13 +770,11 @@ final class Player: LivePlaybackPort {
         return item
     }
 
-    /// A local copy when there is one (works offline), else a fresh HLS stream.
     private static func source(_ id: String) async throws -> Source {
         if let s = local(id) { return s }
         return try await online(id)
     }
 
-    /// The downloaded file, else a cached copy at the streaming quality or better.
     private static func local(_ id: String) -> Source? {
         if let s = Downloads.shared.localStream(id) { return Source(stream: s, origin: .downloaded) }
         guard let c = audioCacheLookup(trackId: id, quality: Preferences.shared.streamingQuality) else { return nil }
@@ -798,9 +792,7 @@ final class Player: LivePlaybackPort {
         return Source(stream: s, origin: .network)
     }
 
-    /// Prepares the next track's AVPlayerItem behind the current one (gapless-ish start). With the audio cache on,
-    /// the next track is first fetched into the cache and plays from disk; a fill that has not landed when
-    /// `fillDeadline` seconds of the current track remain gives way to the stream.
+    /// Prepares the next track's AVPlayerItem behind the current one (gapless-ish start).
     private func schedulePreload() {
         preloadTask?.cancel(); preloadTask = nil
         guard !liveEngine.liveFollowing, Preferences.shared.preloadNext, repeatMode != .one,
@@ -829,7 +821,6 @@ final class Player: LivePlaybackPort {
     private static var caching: Bool { Preferences.shared.audioCacheLimit > 0 }
     private static let fillDeadline: Double = 20
 
-    /// A new fill stops the one running.
     private func fill(_ t: Track) {
         guard filling != t.id else { return }
         cancelFill()

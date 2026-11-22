@@ -49,7 +49,7 @@ final class Preferences {
     }
     var downloadOverCellular: Bool { didSet { d.set(downloadOverCellular, forKey: "downloadOverCellular") } }
     var preloadNext: Bool { didSet { d.set(preloadNext, forKey: "preloadNext") } }
-    /// Bytes of played tracks to keep on disk; 0 turns the audio cache off.
+    /// Bytes the audio cache may use; 0 turns it off.
     var audioCacheLimit: UInt64 {
         didSet {
             d.set(audioCacheLimit, forKey: "audioCacheLimit")

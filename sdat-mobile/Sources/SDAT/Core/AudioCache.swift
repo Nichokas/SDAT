@@ -1,8 +1,6 @@
 import Foundation
 import Observation
 
-/// What the core's audio cache holds, as Settings and Downloads show it. The core owns the files and the
-/// limit; this copy is refreshed after every change.
 @MainActor @Observable
 final class AudioCache {
     static let shared = AudioCache()

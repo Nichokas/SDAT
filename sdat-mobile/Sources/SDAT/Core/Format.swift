@@ -36,9 +36,8 @@ enum Fmt {
         ByteCountFormatter.string(fromByteCount: n, countStyle: .file)
     }
 
-    /// Binary units, so the cache size presets read 512 MB, 1 GB, 2 GB.
     static func cacheBytes(_ n: UInt64) -> String {
-        ByteCountFormatter.string(fromByteCount: Int64(clamping: n), countStyle: .memory)
+        ByteCountFormatter.string(fromByteCount: Int64(clamping: n), countStyle: .binary)
     }
 
     /// "just now", "5 min ago", "2 h ago", "3 d ago".
