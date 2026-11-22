@@ -49,6 +49,13 @@ final class Preferences {
     }
     var downloadOverCellular: Bool { didSet { d.set(downloadOverCellular, forKey: "downloadOverCellular") } }
     var preloadNext: Bool { didSet { d.set(preloadNext, forKey: "preloadNext") } }
+    /// Bytes of played tracks to keep on disk; 0 turns the audio cache off.
+    var audioCacheLimit: UInt64 {
+        didSet {
+            d.set(audioCacheLimit, forKey: "audioCacheLimit")
+            audioCacheSetLimit(bytes: audioCacheLimit)
+        }
+    }
     var scrobbleLastFm: Bool { didSet { d.set(scrobbleLastFm, forKey: "scrobbleLastFm") } }
     var scrobbleListenBrainz: Bool { didSet { d.set(scrobbleListenBrainz, forKey: "scrobbleListenBrainz") } }
 
@@ -65,6 +72,7 @@ final class Preferences {
         downloadQuality = Quality(key: d.string(forKey: "downloadQuality") ?? "") ?? .hiFi
         downloadOverCellular = d.bool(forKey: "downloadOverCellular")
         preloadNext = d.object(forKey: "preloadNext") as? Bool ?? true
+        audioCacheLimit = (d.object(forKey: "audioCacheLimit") as? NSNumber)?.uint64Value ?? audioCacheLimitDefault()
         scrobbleLastFm = d.bool(forKey: "scrobbleLastFm")
         scrobbleListenBrainz = d.bool(forKey: "scrobbleListenBrainz")
     }
@@ -74,6 +82,7 @@ final class Preferences {
         downloadQuality = .hiFi
         downloadOverCellular = false
         preloadNext = true
+        audioCacheLimit = audioCacheLimitDefault()
         scrobbleLastFm = false
         scrobbleListenBrainz = false
     }
