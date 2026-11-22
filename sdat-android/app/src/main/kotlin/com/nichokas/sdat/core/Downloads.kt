@@ -71,6 +71,7 @@ object Downloads {
     private var worker: Job? = null
     private var fetching: Job? = null
     private var restoring: Job? = null
+    /** Tracks the saved queue must not bring back, kept until it is merged or deleted. */
     private val dropped = mutableSetOf<String>()
     private val gate = Mutex()
     private val albumMeta = mutableMapOf<String, AlbumDetail>()
@@ -145,8 +146,8 @@ object Downloads {
         val wasCurrent = queue.current?.id == id
         queue = queue.cancel(id)
         if (wasCurrent) fetching?.cancel()
-        // Otherwise a restore still reading the saved queue would bring the track back.
-        if (restoring?.isActive == true) dropped += id
+        // Until the saved queue is merged (a timeout keeps it on disk unmerged), it would bring the track back.
+        if (!pendingLoaded) dropped += id
         savePending()
     }
 
@@ -154,7 +155,7 @@ object Downloads {
 
     fun remove(id: String) {
         cancel(id)
-        if (restoring?.isActive == true) dropped += id
+        if (!pendingLoaded) dropped += id
         queue = queue.forget(id)
         val e = entries[id] ?: return
         entries = entries - id
@@ -177,6 +178,7 @@ object Downloads {
         work.coroutineContext.cancelChildren()
         frozen = false
         pendingLoaded = false
+        dropped.clear()
         queue = DownloadQueue()
         entries = emptyMap()
         albumMeta.clear()
@@ -206,8 +208,6 @@ object Downloads {
             return
         }
         frozen = false
-        // A restore cancelled by sign-out or a timeout may have left its tombstones behind.
-        dropped.clear()
         restoring = work.launch {
             val saved = withContext(writes) {
                 runCatching {
@@ -253,7 +253,7 @@ object Downloads {
             fetching = job
             job.join()
             queue = queue.finish(t.id, error)
-            if (error != null && restoring?.isActive == true) dropped += t.id
+            if (error != null && !pendingLoaded) dropped += t.id
             savePending()
         }
     }
@@ -274,7 +274,7 @@ object Downloads {
                 if (entries[t.id] !== e) return@withContext
                 entries = entries - t.id
                 queue = queue.fail(t.id, DownloadFailure.storage.message.orEmpty())
-                if (restoring?.isActive == true) dropped += t.id
+                if (!pendingLoaded) dropped += t.id
                 saveIndex()
                 launch(writes) { discard(t.id) }
             }
