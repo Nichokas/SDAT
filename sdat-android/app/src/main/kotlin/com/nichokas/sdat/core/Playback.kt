@@ -19,6 +19,7 @@ import androidx.media3.common.MimeTypes
 import androidx.media3.common.PlaybackException
 import androidx.media3.common.Player
 import androidx.media3.common.util.UnstableApi
+import androidx.media3.exoplayer.DefaultLoadControl
 import androidx.media3.exoplayer.ExoPlayer
 import com.google.common.util.concurrent.Futures
 import com.google.common.util.concurrent.ListenableFuture
@@ -58,6 +59,17 @@ class Playback(context: Context, private val prefs: Preferences, secrets: Secret
             true,
         )
         .setHandleAudioBecomingNoisy(true)
+        .setLoadControl(
+            DefaultLoadControl.Builder()
+                // A long buffer rides out a poor network; playback starts at 1.5 s buffered and resumes at 3 s, so a
+                // stall does not repeat at once.
+                .setBufferDurationsMs(60_000, 180_000, 1_500, 3_000)
+                // Hi-res FLAC runs near 1 MB/s, so the default 13 MB would cap the buffer near 15 s. The minimum is
+                // always loaded; the byte target caps the rest.
+                .setTargetBufferBytes(64 shl 20)
+                .setPrioritizeTimeOverSizeThresholds(true)
+                .build(),
+        )
         .build()
     internal val liveEngine: LiveEngine = LiveEngine(object : LivePlaybackPort {
         override val currentId get() = track?.id
