@@ -797,7 +797,11 @@ final class Player: LivePlaybackPort {
     private func schedulePreload() {
         preloadTask?.cancel(); preloadTask = nil
         guard !liveEngine.liveFollowing, Preferences.shared.preloadNext, repeatMode != .one,
-              let (next, _, _) = following(), let cur = current else { return }
+              let (next, _, _) = following(), let cur = current else {
+            // No preload takes over the cancelled one's fill of the next track.
+            if let f = filling, f != current?.id { cancelFill() }
+            return
+        }
         let started = starts
         preloadTask = Task {
             if Self.caching, Self.local(next.id) == nil {
