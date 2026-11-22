@@ -134,6 +134,8 @@ object Downloads {
         if (frozen) resumePending()
         val next = queue.enqueue(list, ::isDownloaded)
         if (next === queue) return
+        // Asked for again: the saved queue may bring it back.
+        list.forEach { if (next.isQueued(it.id)) dropped -= it.id }
         queue = next
         savePending()
         pump()
