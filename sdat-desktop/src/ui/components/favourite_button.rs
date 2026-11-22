@@ -191,18 +191,26 @@ pub fn track_favourite_button() -> (gtk::Button, SetId) {
             };
             render(&b, true, false);
             let (w, binding, id) = (w.clone(), Rc::clone(&binding), id.to_owned());
-            let generation = secrets::session_generation();
             glib::spawn_future_local(async move {
-                let result = api::run(move || secrets::with_session(generation, || state::TRACKS.contains(&id))).await;
-                if binding.revision.get() != revision || secrets::session_generation() != generation {
-                    return;
-                }
-                let favourite = match result {
-                    Ok(Some(favourite)) => favourite,
-                    Ok(None) => return,
-                    Err(e) => {
-                        log::error!("Failed to get favourites error={e:#}");
-                        false
+                // A rebind renders its own state; a session switched under the lookup (with no
+                // availability change to rebind) is asked again, so the spinner always ends.
+                let favourite = loop {
+                    let generation = secrets::session_generation();
+                    let id = id.clone();
+                    let result = api::run(move || secrets::with_session(generation, || state::TRACKS.contains(&id))).await;
+                    if binding.revision.get() != revision {
+                        return;
+                    }
+                    if secrets::session_generation() != generation {
+                        continue;
+                    }
+                    match result {
+                        Ok(Some(favourite)) => break favourite,
+                        Ok(None) => {}
+                        Err(e) => {
+                            log::error!("Failed to get favourites error={e:#}");
+                            break false;
+                        }
                     }
                 };
                 binding.favourite.set(Some(favourite));
