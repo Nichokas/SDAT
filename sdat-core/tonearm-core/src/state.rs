@@ -1,5 +1,6 @@
 //! Port of `internal/state`: favourite ID caches and the signed-in state.
 
+use std::collections::HashSet;
 use std::sync::Mutex;
 use std::time::{Duration, Instant};
 
@@ -73,6 +74,7 @@ pub static TRACKS: FavouriteCache = FavouriteCache::new(Kind::Tracks);
 
 const TTL: Duration = Duration::from_mins(5);
 const MAX_FETCH_ATTEMPTS: usize = 3;
+const MAX_MIX_PAGES: usize = 200;
 
 impl FavouriteCache {
     const fn new(kind: Kind) -> Self {
@@ -156,7 +158,8 @@ impl FavouriteCache {
         let mut cursor = String::new();
         let mut etag = String::new();
         let mut items = Vec::new();
-        loop {
+        let mut seen_cursors = HashSet::new();
+        for _ in 0..MAX_MIX_PAGES {
             let (list, next_etag) = fetch_page(&cursor, &etag)?;
             if !self.still_valid(uid, generation, &user_id) {
                 return Ok(FetchOutcome::Invalidated);
@@ -170,8 +173,12 @@ impl FavouriteCache {
             if list.cursor.is_empty() {
                 return Ok(FetchOutcome::Items(items, etag));
             }
+            if !seen_cursors.insert(list.cursor.clone()) {
+                crate::error::bail!("favourite mix pagination returned a repeated cursor");
+            }
             cursor = list.cursor;
         }
+        crate::error::bail!("favourite mix pagination exceeded {MAX_MIX_PAGES} pages");
     }
 
     fn fetch_remote(&self, uid: &str, etag: &str, generation: u64) -> Result<FetchOutcome> {
@@ -814,5 +821,97 @@ mod tests {
         let cached = cached.cached.as_ref().expect("account-b cached");
         assert_eq!(cached.uid, "account-b");
         assert_eq!(cached.items, ["mix-b"]);
+    }
+
+    #[test]
+    fn mixes_repeated_cursor_terminates_without_caching() {
+        let cache = FavouriteCache::new(Kind::Mixes);
+        let mut page_calls = 0usize;
+
+        let err = cache
+            .get_with(
+                TTL,
+                || "account-a".to_owned(),
+                |uid, _, generation| {
+                    cache.fetch_mixes_with(uid, generation, || "account-a".to_owned(), |cursor, _| {
+                        page_calls += 1;
+                        match page_calls {
+                            1 => {
+                                assert_eq!(cursor, "");
+                                Ok((
+                                    api::legacy::FavouritesIds { cursor: "page-2".to_owned(), content: vec!["mix-1".to_owned()] },
+                                    "\"e1\"".to_owned(),
+                                ))
+                            }
+                            2 => {
+                                assert_eq!(cursor, "page-2");
+                                Ok((
+                                    api::legacy::FavouritesIds { cursor: "page-3".to_owned(), content: vec!["mix-2".to_owned()] },
+                                    "\"e2\"".to_owned(),
+                                ))
+                            }
+                            3 => {
+                                assert_eq!(cursor, "page-3");
+                                Ok((
+                                    api::legacy::FavouritesIds { cursor: "page-2".to_owned(), content: vec!["mix-3".to_owned()] },
+                                    "\"e3\"".to_owned(),
+                                ))
+                            }
+                            other => panic!("unexpected mixes page call {other}"),
+                        }
+                    })
+                },
+            )
+            .expect_err("repeated cursor must error instead of looping");
+
+        assert!(err.to_string().contains("repeated cursor"), "unexpected error: {err}");
+        assert_eq!(page_calls, 3);
+        assert!(cache.inner.lock().expect("lock").cached.is_none());
+
+        let recovered = cache
+            .get_with(
+                TTL,
+                || "account-a".to_owned(),
+                |uid, _, generation| {
+                    cache.fetch_mixes_with(uid, generation, || "account-a".to_owned(), |cursor, _| {
+                        assert_eq!(cursor, "");
+                        Ok((
+                            api::legacy::FavouritesIds { cursor: String::new(), content: vec!["mix-ok".to_owned()] },
+                            "\"e-ok\"".to_owned(),
+                        ))
+                    })
+                },
+            )
+            .expect("subsequent refresh after repeated cursor must succeed");
+        assert_eq!(recovered, ["mix-ok"]);
+    }
+
+    #[test]
+    fn mixes_pagination_exceeding_max_pages_terminates_without_caching() {
+        let cache = FavouriteCache::new(Kind::Mixes);
+        let mut page_calls = 0usize;
+
+        let err = cache
+            .get_with(
+                TTL,
+                || "account-a".to_owned(),
+                |uid, _, generation| {
+                    cache.fetch_mixes_with(uid, generation, || "account-a".to_owned(), |_, _| {
+                        page_calls += 1;
+                        Ok((
+                            api::legacy::FavouritesIds {
+                                cursor: format!("page-{page_calls}"),
+                                content: vec![format!("mix-{page_calls}")],
+                            },
+                            format!("\"e-{page_calls}\""),
+                        ))
+                    })
+                },
+            )
+            .expect_err("pagination past MAX_MIX_PAGES must error");
+
+        assert!(err.to_string().contains("exceeded"), "unexpected error: {err}");
+        assert_eq!(page_calls, MAX_MIX_PAGES);
+        assert!(cache.inner.lock().expect("lock").cached.is_none());
     }
 }
