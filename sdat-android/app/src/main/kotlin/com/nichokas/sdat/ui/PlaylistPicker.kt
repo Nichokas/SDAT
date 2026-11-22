@@ -28,13 +28,9 @@ import io.github.neoruaa.glasmio.core.GlasmioTheme
 import io.github.neoruaa.glasmio.core.IosTypography
 import io.github.neoruaa.glasmio.ui.GlasmioBottomSheet
 import kotlin.coroutines.cancellation.CancellationException
-import kotlinx.coroutines.MainScope
 import kotlinx.coroutines.launch
 import uniffi.tonearm_ffi.Track
 import uniffi.tonearm_ffi.addToPlaylist
-
-// The add outlives the sheet, which closes as soon as a playlist is picked.
-private val pickerScope = MainScope()
 
 /** iOS PlaylistPicker: the user's own playlists, freshly loaded; picking one adds [track] to it. */
 @Composable
@@ -53,7 +49,7 @@ fun PlaylistPicker(track: Track, onDismiss: () -> Unit) {
                         Modifier.fillMaxWidth()
                             .clickable(role = Role.Button) {
                                 onDismiss()
-                                pickerScope.launch {
+                                Chrome.actionScope.launch {
                                     try {
                                         addToPlaylist(p.id, track.id)
                                         Chrome.flash("Added to ${p.name}")

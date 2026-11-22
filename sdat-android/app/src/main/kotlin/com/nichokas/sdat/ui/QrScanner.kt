@@ -30,7 +30,9 @@ import com.google.zxing.PlanarYUVLuminanceSource
 import com.google.zxing.ReaderException
 import com.google.zxing.common.HybridBinarizer
 import com.google.zxing.qrcode.QRCodeReader
+import java.util.concurrent.CountDownLatch
 import java.util.concurrent.Executor
+import java.util.concurrent.TimeUnit
 import kotlin.math.abs
 import uniffi.tonearm_ffi.liveIsInvite
 
@@ -55,11 +57,15 @@ class QrScannerView(context: Context, private val onCode: (String) -> Unit) : Fr
         } ?: manager.cameraIdList.firstOrNull()
     } catch (_: CameraAccessException) {
         null
+    } catch (_: IllegalArgumentException) {
+        null
     }
     private val size: Size? = cameraId?.let { id ->
         try {
             pickSize(id)
         } catch (_: CameraAccessException) {
+            null
+        } catch (_: IllegalArgumentException) {
             null
         }
     }
@@ -68,6 +74,8 @@ class QrScannerView(context: Context, private val onCode: (String) -> Unit) : Fr
         val sensor = try {
             manager.getCameraCharacteristics(it).get(CameraCharacteristics.SENSOR_ORIENTATION) ?: 0
         } catch (_: CameraAccessException) {
+            0
+        } catch (_: IllegalArgumentException) {
             0
         }
         val display = when (context.display.rotation) {
@@ -78,7 +86,7 @@ class QrScannerView(context: Context, private val onCode: (String) -> Unit) : Fr
         }
         (sensor - display + 360) % 180 != 0
     } ?: false
-    private var camera: CameraDevice? = null
+    @Volatile private var camera: CameraDevice? = null
     /** The open attempt in progress or done; cleared by [close], so callbacks of an older attempt are dropped. */
     private var target: Int? = null
     private var attempts = 0
@@ -123,9 +131,21 @@ class QrScannerView(context: Context, private val onCode: (String) -> Unit) : Fr
     }
 
     override fun surfaceDestroyed(holder: SurfaceHolder) {
-        handler.post {
-            shown = null
-            close()
+        if (!thread.isAlive) return
+        // SurfaceHolder requires the camera thread to stop touching the surface before this returns.
+        val closed = CountDownLatch(1)
+        val posted = handler.post {
+            try {
+                shown = null
+                close()
+            } finally {
+                closed.countDown()
+            }
+        }
+        try {
+            if (posted) closed.await(500, TimeUnit.MILLISECONDS) else thread.join(500)
+        } catch (_: InterruptedException) {
+            Thread.currentThread().interrupt()
         }
     }
 
@@ -139,10 +159,11 @@ class QrScannerView(context: Context, private val onCode: (String) -> Unit) : Fr
 
     private fun pickSize(id: String): Size? {
         val map = manager.getCameraCharacteristics(id).get(CameraCharacteristics.SCALER_STREAM_CONFIGURATION_MAP) ?: return null
-        val previewSizes = map.getOutputSizes(SurfaceHolder::class.java).toSet()
+        val previewSizes = map.getOutputSizes(SurfaceHolder::class.java)?.toSet().orEmpty()
         // About 720p: enough detail for a phone-screen QR code, cheap to decode.
         return map.getOutputSizes(ImageFormat.YUV_420_888)
-            .filter { it in previewSizes && it.width <= 1920 && it.height <= 1080 }
+            ?.filter { it in previewSizes && it.width <= 1920 && it.height <= 1080 }
+            .orEmpty()
             .minByOrNull { abs(it.width * it.height - 1280 * 720) }
     }
 
@@ -171,7 +192,10 @@ class QrScannerView(context: Context, private val onCode: (String) -> Unit) : Fr
     }
 
     private fun openCamera(id: String, surface: Surface, s: Size, attempt: Int) {
-        if (context.checkSelfPermission(Manifest.permission.CAMERA) != PackageManager.PERMISSION_GRANTED) return
+        if (context.checkSelfPermission(Manifest.permission.CAMERA) != PackageManager.PERMISSION_GRANTED) {
+            target = null
+            return
+        }
         manager.openCamera(id, executor, object : CameraDevice.StateCallback() {
             override fun onOpened(device: CameraDevice) {
                 if (released || target != attempt) return device.close()
@@ -198,7 +222,7 @@ class QrScannerView(context: Context, private val onCode: (String) -> Unit) : Fr
         val outputs = listOf(OutputConfiguration(surface), OutputConfiguration(r.surface))
         device.createCaptureSession(SessionConfiguration(SessionConfiguration.SESSION_REGULAR, outputs, executor, object : CameraCaptureSession.StateCallback() {
             override fun onConfigured(session: CameraCaptureSession) {
-                if (camera !== device) return
+                if (released || camera !== device) return
                 guarded {
                     val request = device.createCaptureRequest(CameraDevice.TEMPLATE_PREVIEW).apply {
                         addTarget(surface)
@@ -210,7 +234,8 @@ class QrScannerView(context: Context, private val onCode: (String) -> Unit) : Fr
             }
 
             override fun onConfigureFailed(session: CameraCaptureSession) {
-                if (camera === device) close()
+                if (released || camera !== device) return
+                close()
             }
         }))
     }

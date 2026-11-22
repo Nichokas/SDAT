@@ -70,7 +70,6 @@ import io.github.neoruaa.glasmio.ui.GlasmioCascadingMenuItem
 import kotlin.coroutines.cancellation.CancellationException
 import kotlin.math.abs
 import kotlin.math.sin
-import kotlinx.coroutines.MainScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import uniffi.tonearm_ffi.Track
@@ -211,9 +210,6 @@ fun TrackRow(track: Track, modifier: Modifier = Modifier, showCover: Boolean = t
     }
 }
 
-// Menu actions outlive their row, which a lazy list disposes as soon as it scrolls away.
-private val menuScope = MainScope()
-
 /** Long-press menu items shared by every track row. */
 @Composable
 fun trackMenuItems(
@@ -236,7 +232,7 @@ fun trackMenuItems(
         val itemId = track.playlistItemId
         if (ownPlaylistId != null && itemId != null) {
             add(GlasmioCascadingMenuItem("Remove from Playlist", "minus.circle", destructive = true, onClick = {
-                menuScope.launch {
+                Chrome.actionScope.launch {
                     try {
                         removeFromPlaylist(ownPlaylistId, track.id, itemId)
                         onRemoved?.invoke(itemId)
@@ -250,9 +246,9 @@ fun trackMenuItems(
             }))
         }
         add(GlasmioCascadingMenuItem("Start Radio", "dot.radiowaves.left.and.right", separatorBefore = true, onClick = {
-            menuScope.launch {
+            Chrome.actionScope.launch {
                 try {
-                    val list = trackRadio(track.id)?.nextPage()
+                    val list = trackRadio(track.id)?.use { it.nextPage() }
                     if (list.isNullOrEmpty()) Chrome.flash("No radio for this track")
                     else player.play(listOf(track) + list, from = "${track.title} Radio")
                 } catch (e: CancellationException) {
