@@ -8,6 +8,7 @@
 #![allow(clippy::must_use_candidate, reason = "exported API")]
 #![allow(clippy::missing_errors_doc, reason = "every error is FfiError, documented on the type")]
 
+mod audio_cache;
 mod auth;
 mod convert;
 mod country;
@@ -19,6 +20,7 @@ mod live;
 mod playback;
 mod scrobbling;
 
+pub use audio_cache::*;
 pub use auth::*;
 pub use convert::*;
 pub use country::*;

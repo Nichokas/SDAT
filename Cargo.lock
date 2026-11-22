@@ -4466,6 +4466,8 @@ version = "1.0.0"
 dependencies = [
  "blocking",
  "log",
+ "serde",
+ "serde_json",
  "thiserror 2.0.21",
  "tonearm-core",
  "uniffi",

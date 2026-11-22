@@ -925,6 +925,66 @@ uint64_t uniffi_tonearm_ffi_fn_method_shuffle_next_batch(uint64_t ptr, uint32_t 
 void uniffi_tonearm_ffi_fn_func_set_locale(RustBuffer locale, RustCallStatus *_Nonnull out_status
 );
 #endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_TONEARM_FFI_FN_FUNC_AUDIO_CACHE_CANCEL
+#define UNIFFI_FFIDEF_UNIFFI_TONEARM_FFI_FN_FUNC_AUDIO_CACHE_CANCEL
+void uniffi_tonearm_ffi_fn_func_audio_cache_cancel(RustBuffer track_id, RustCallStatus *_Nonnull out_status
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_TONEARM_FFI_FN_FUNC_AUDIO_CACHE_FILL
+#define UNIFFI_FFIDEF_UNIFFI_TONEARM_FFI_FN_FUNC_AUDIO_CACHE_FILL
+uint64_t uniffi_tonearm_ffi_fn_func_audio_cache_fill(RustBuffer track, RustBuffer quality
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_TONEARM_FFI_FN_FUNC_AUDIO_CACHE_LIMIT_DEFAULT
+#define UNIFFI_FFIDEF_UNIFFI_TONEARM_FFI_FN_FUNC_AUDIO_CACHE_LIMIT_DEFAULT
+uint64_t uniffi_tonearm_ffi_fn_func_audio_cache_limit_default(RustCallStatus *_Nonnull out_status
+    
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_TONEARM_FFI_FN_FUNC_AUDIO_CACHE_LIMIT_PRESETS
+#define UNIFFI_FFIDEF_UNIFFI_TONEARM_FFI_FN_FUNC_AUDIO_CACHE_LIMIT_PRESETS
+RustBuffer uniffi_tonearm_ffi_fn_func_audio_cache_limit_presets(RustCallStatus *_Nonnull out_status
+    
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_TONEARM_FFI_FN_FUNC_AUDIO_CACHE_LOOKUP
+#define UNIFFI_FFIDEF_UNIFFI_TONEARM_FFI_FN_FUNC_AUDIO_CACHE_LOOKUP
+RustBuffer uniffi_tonearm_ffi_fn_func_audio_cache_lookup(RustBuffer track_id, RustBuffer quality, RustCallStatus *_Nonnull out_status
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_TONEARM_FFI_FN_FUNC_AUDIO_CACHE_OPEN
+#define UNIFFI_FFIDEF_UNIFFI_TONEARM_FFI_FN_FUNC_AUDIO_CACHE_OPEN
+void uniffi_tonearm_ffi_fn_func_audio_cache_open(RustBuffer dir, uint64_t limit_bytes, RustCallStatus *_Nonnull out_status
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_TONEARM_FFI_FN_FUNC_AUDIO_CACHE_PURGE
+#define UNIFFI_FFIDEF_UNIFFI_TONEARM_FFI_FN_FUNC_AUDIO_CACHE_PURGE
+void uniffi_tonearm_ffi_fn_func_audio_cache_purge(RustCallStatus *_Nonnull out_status
+    
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_TONEARM_FFI_FN_FUNC_AUDIO_CACHE_REMOVE
+#define UNIFFI_FFIDEF_UNIFFI_TONEARM_FFI_FN_FUNC_AUDIO_CACHE_REMOVE
+void uniffi_tonearm_ffi_fn_func_audio_cache_remove(RustBuffer track_id, RustCallStatus *_Nonnull out_status
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_TONEARM_FFI_FN_FUNC_AUDIO_CACHE_SET_LIMIT
+#define UNIFFI_FFIDEF_UNIFFI_TONEARM_FFI_FN_FUNC_AUDIO_CACHE_SET_LIMIT
+void uniffi_tonearm_ffi_fn_func_audio_cache_set_limit(uint64_t bytes, RustCallStatus *_Nonnull out_status
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_TONEARM_FFI_FN_FUNC_AUDIO_CACHE_TRACKS
+#define UNIFFI_FFIDEF_UNIFFI_TONEARM_FFI_FN_FUNC_AUDIO_CACHE_TRACKS
+RustBuffer uniffi_tonearm_ffi_fn_func_audio_cache_tracks(RustCallStatus *_Nonnull out_status
+    
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_TONEARM_FFI_FN_FUNC_AUDIO_CACHE_USAGE
+#define UNIFFI_FFIDEF_UNIFFI_TONEARM_FFI_FN_FUNC_AUDIO_CACHE_USAGE
+RustBuffer uniffi_tonearm_ffi_fn_func_audio_cache_usage(RustCallStatus *_Nonnull out_status
+    
+);
+#endif
 #ifndef UNIFFI_FFIDEF_UNIFFI_TONEARM_FFI_FN_FUNC_INITIALIZE
 #define UNIFFI_FFIDEF_UNIFFI_TONEARM_FFI_FN_FUNC_INITIALIZE
 void uniffi_tonearm_ffi_fn_func_initialize(uint64_t tokens, uint64_t config, RustCallStatus *_Nonnull out_status
@@ -1492,6 +1552,72 @@ void ffi_tonearm_ffi_rust_future_complete_void(uint64_t handle, RustCallStatus *
 #ifndef UNIFFI_FFIDEF_UNIFFI_TONEARM_FFI_CHECKSUM_FUNC_SET_LOCALE
 #define UNIFFI_FFIDEF_UNIFFI_TONEARM_FFI_CHECKSUM_FUNC_SET_LOCALE
 uint16_t uniffi_tonearm_ffi_checksum_func_set_locale(void
+    
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_TONEARM_FFI_CHECKSUM_FUNC_AUDIO_CACHE_CANCEL
+#define UNIFFI_FFIDEF_UNIFFI_TONEARM_FFI_CHECKSUM_FUNC_AUDIO_CACHE_CANCEL
+uint16_t uniffi_tonearm_ffi_checksum_func_audio_cache_cancel(void
+    
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_TONEARM_FFI_CHECKSUM_FUNC_AUDIO_CACHE_FILL
+#define UNIFFI_FFIDEF_UNIFFI_TONEARM_FFI_CHECKSUM_FUNC_AUDIO_CACHE_FILL
+uint16_t uniffi_tonearm_ffi_checksum_func_audio_cache_fill(void
+    
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_TONEARM_FFI_CHECKSUM_FUNC_AUDIO_CACHE_LIMIT_DEFAULT
+#define UNIFFI_FFIDEF_UNIFFI_TONEARM_FFI_CHECKSUM_FUNC_AUDIO_CACHE_LIMIT_DEFAULT
+uint16_t uniffi_tonearm_ffi_checksum_func_audio_cache_limit_default(void
+    
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_TONEARM_FFI_CHECKSUM_FUNC_AUDIO_CACHE_LIMIT_PRESETS
+#define UNIFFI_FFIDEF_UNIFFI_TONEARM_FFI_CHECKSUM_FUNC_AUDIO_CACHE_LIMIT_PRESETS
+uint16_t uniffi_tonearm_ffi_checksum_func_audio_cache_limit_presets(void
+    
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_TONEARM_FFI_CHECKSUM_FUNC_AUDIO_CACHE_LOOKUP
+#define UNIFFI_FFIDEF_UNIFFI_TONEARM_FFI_CHECKSUM_FUNC_AUDIO_CACHE_LOOKUP
+uint16_t uniffi_tonearm_ffi_checksum_func_audio_cache_lookup(void
+    
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_TONEARM_FFI_CHECKSUM_FUNC_AUDIO_CACHE_OPEN
+#define UNIFFI_FFIDEF_UNIFFI_TONEARM_FFI_CHECKSUM_FUNC_AUDIO_CACHE_OPEN
+uint16_t uniffi_tonearm_ffi_checksum_func_audio_cache_open(void
+    
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_TONEARM_FFI_CHECKSUM_FUNC_AUDIO_CACHE_PURGE
+#define UNIFFI_FFIDEF_UNIFFI_TONEARM_FFI_CHECKSUM_FUNC_AUDIO_CACHE_PURGE
+uint16_t uniffi_tonearm_ffi_checksum_func_audio_cache_purge(void
+    
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_TONEARM_FFI_CHECKSUM_FUNC_AUDIO_CACHE_REMOVE
+#define UNIFFI_FFIDEF_UNIFFI_TONEARM_FFI_CHECKSUM_FUNC_AUDIO_CACHE_REMOVE
+uint16_t uniffi_tonearm_ffi_checksum_func_audio_cache_remove(void
+    
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_TONEARM_FFI_CHECKSUM_FUNC_AUDIO_CACHE_SET_LIMIT
+#define UNIFFI_FFIDEF_UNIFFI_TONEARM_FFI_CHECKSUM_FUNC_AUDIO_CACHE_SET_LIMIT
+uint16_t uniffi_tonearm_ffi_checksum_func_audio_cache_set_limit(void
+    
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_TONEARM_FFI_CHECKSUM_FUNC_AUDIO_CACHE_TRACKS
+#define UNIFFI_FFIDEF_UNIFFI_TONEARM_FFI_CHECKSUM_FUNC_AUDIO_CACHE_TRACKS
+uint16_t uniffi_tonearm_ffi_checksum_func_audio_cache_tracks(void
+    
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_TONEARM_FFI_CHECKSUM_FUNC_AUDIO_CACHE_USAGE
+#define UNIFFI_FFIDEF_UNIFFI_TONEARM_FFI_CHECKSUM_FUNC_AUDIO_CACHE_USAGE
+uint16_t uniffi_tonearm_ffi_checksum_func_audio_cache_usage(void
     
 );
 #endif

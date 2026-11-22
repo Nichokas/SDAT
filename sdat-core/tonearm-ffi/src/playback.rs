@@ -27,7 +27,7 @@ pub struct Stream {
     pub album_gain: Option<Gain>,
 }
 
-fn gain(n: Option<tonearm_core::model::Normalization>) -> Option<Gain> {
+pub(crate) fn gain(n: Option<tonearm_core::model::Normalization>) -> Option<Gain> {
     n.map(|n| Gain { gain_db: n.gain, peak: n.peak })
 }
 

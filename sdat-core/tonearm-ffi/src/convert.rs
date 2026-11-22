@@ -44,7 +44,8 @@ impl From<model::TrackQuality> for Quality {
     }
 }
 
-#[derive(Debug, Clone, uniffi::Record)]
+#[derive(Debug, Clone, Default, uniffi::Record, serde::Serialize, serde::Deserialize)]
+#[serde(default)]
 pub struct ArtistRef {
     pub id: String,
     pub name: String,
@@ -57,7 +58,8 @@ impl From<&model::ArtistInfo> for ArtistRef {
     }
 }
 
-#[derive(Debug, Clone, uniffi::Record)]
+#[derive(Debug, Clone, Default, uniffi::Record, serde::Serialize, serde::Deserialize)]
+#[serde(default)]
 pub struct AlbumRef {
     pub id: String,
     pub title: String,
@@ -71,7 +73,8 @@ impl From<&model::AlbumInfo> for AlbumRef {
     }
 }
 
-#[derive(Debug, Clone, uniffi::Record)]
+#[derive(Debug, Clone, Default, uniffi::Record, serde::Serialize, serde::Deserialize)]
+#[serde(default)]
 pub struct Track {
     pub id: String,
     pub title: String,
