@@ -43,12 +43,10 @@ object AudioCache {
     val limit get() = prefs.audioCacheLimit
     val on get() = limit > 0
 
-    /** In the OS cache directory: the system may clear it when storage runs low, and the core reconciles at open. */
-    fun dir(context: Context) = File(context.cacheDir, "audio")
-
     fun open(context: Context, prefs: Preferences) {
         this.prefs = prefs
-        val dir = dir(context).path
+        // The OS cache directory: never backed up, and the core copes with the system clearing it.
+        val dir = File(context.cacheDir, "audio").path
         // Until it is open, lookups miss and fills fail, so playback streams.
         update { audioCacheOpen(dir, prefs.audioCacheLimit.toULong()) }
     }

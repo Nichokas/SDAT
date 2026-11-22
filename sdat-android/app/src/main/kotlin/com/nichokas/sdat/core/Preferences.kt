@@ -137,9 +137,8 @@ fun eraseAll(context: Context, session: Session, prefs: Preferences, secrets: Se
     Vault.forget()
     Region.select(null)
     eraseScope.launch(Dispatchers.IO) {
-        // diagClear emptied the diagnostics files; the core keeps diag.log open, so its directory stays. The sign-out
-        // emptied the audio cache, which the core also keeps open.
-        val kept = setOf(File(context.filesDir, "diag"), AudioCache.dir(context))
-        listOf(context.cacheDir, context.filesDir).forEach { dir -> dir.listFiles()?.filter { it !in kept }?.forEach { it.deleteRecursively() } }
+        // diagClear emptied the diagnostics files; the core keeps diag.log open, so its directory stays.
+        val diag = File(context.filesDir, "diag")
+        listOf(context.cacheDir, context.filesDir).forEach { dir -> dir.listFiles()?.filter { it != diag }?.forEach { it.deleteRecursively() } }
     }
 }
