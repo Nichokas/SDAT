@@ -65,7 +65,7 @@ private struct NowPlayingPage: View {
                     VStack(alignment: .leading, spacing: 4) {
                         Text(player.current?.displayTitle ?? "").font(.title3.bold()).lineLimit(1)
                         HStack(spacing: 6) {
-                            if player.isOffline {
+                            if player.origin == .downloaded {
                                 Image(systemName: "arrow.down.circle.fill").font(.footnote)
                                     .foregroundStyle(Color.primary.opacity(0.65))
                                     .accessibilityLabel("Playing downloaded copy")
