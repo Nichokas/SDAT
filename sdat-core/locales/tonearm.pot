@@ -957,3 +957,48 @@ msgstr ""
 msgid "translator-credits"
 msgstr ""
 
+#: sdat-desktop/src/ui/window.rs
+msgid "Audio Cache"
+msgstr ""
+
+#: sdat-desktop/src/ui/window.rs
+msgid "Keep played and upcoming tracks on disk, so they start sooner and play without the network"
+msgstr ""
+
+#: sdat-desktop/src/ui/window.rs
+msgid "Cached Tracks"
+msgstr ""
+
+#: sdat-desktop/src/ui/window.rs
+msgid "%s of %s · %d track"
+msgid_plural "%s of %s · %d tracks"
+msgstr[0] ""
+msgstr[1] ""
+
+#: sdat-desktop/src/ui/window.rs
+msgid "Off"
+msgstr ""
+
+#: sdat-desktop/src/ui/window.rs
+msgid "Clear"
+msgstr ""
+
+#: sdat-desktop/src/ui/window.rs
+msgid "Clear the audio cache?"
+msgstr ""
+
+#: sdat-desktop/src/ui/window.rs
+msgid "Cached tracks are deleted. They download again when you play them."
+msgstr ""
+
+#: sdat-desktop/src/ui/window.rs
+msgid "Audio cache cleared"
+msgstr ""
+
+#: sdat-desktop/src/ui/window.rs
+msgid "Cache Size"
+msgstr ""
+
+#: sdat-desktop/src/ui/window.rs
+msgid "When the cache is full, the tracks played longest ago are deleted first"
+msgstr ""

@@ -7,7 +7,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use adw::prelude::*;
 use gtk::gio;
 
-use crate::i18n::{tr, trf};
+use crate::i18n::{tr, trf, trn};
 use crate::ui::accels::PRIMARY;
 use crate::ui::components::sidebar::{lyrics, player_view, queue};
 use crate::ui::components::{RouteButton, linking, media_viewer};
@@ -636,7 +636,16 @@ fn install_actions(app: &adw::Application, window: &adw::ApplicationWindow) {
     window.add_action(&simple("sign-out", || {
         glib::spawn_future_local(async {
             match update_session(None).await {
-                Ok(AccountChangeStatus::Completed) => toast(&tr("Signed out")),
+                Ok(AccountChangeStatus::Completed) => {
+                    toast(&tr("Signed out"));
+                    let purge = || {
+                        tonearm_core::audio_cache::purge();
+                        anyhow::Ok(())
+                    };
+                    if let Err(e) = api::run(purge).await {
+                        log::warn!("failed to clear the audio cache on sign-out error={e:#}");
+                    }
+                }
                 Ok(AccountChangeStatus::InProgress) => {}
                 Err(e) => {
                     log::error!("failed to delete refresh token error={e:#}");
@@ -725,6 +734,87 @@ fn preload_row() -> adw::SwitchRow {
         .build();
     row.connect_active_notify(|r| crate::cache::set_preload_enabled(r.is_active()));
     row
+}
+
+fn cache_size_label(bytes: u64) -> String {
+    match bytes {
+        0 => tr("Off"),
+        b if b >= 1 << 30 => format!("{} GiB", b >> 30),
+        b => format!("{} MiB", b >> 20),
+    }
+}
+
+fn audio_cache_group(d: &adw::PreferencesDialog) -> adw::PreferencesGroup {
+    use tonearm_core::audio_cache::{self, LIMIT_DEFAULT, LIMIT_PRESETS};
+    let usage = adw::ActionRow::builder().title(tr("Cached Tracks")).build();
+    let refresh: Rc<dyn Fn()> = {
+        let row = usage.downgrade();
+        Rc::new(move || {
+            let Some(row) = row.upgrade() else { return };
+            let u = audio_cache::usage();
+            let n = i64::from(u.tracks);
+            let used = glib::format_size_full(u.bytes, glib::FormatSizeFlags::IEC_UNITS);
+            row.set_subtitle(&trn("%s of %s · %d track", "%s of %s · %d tracks", n, &[&used, &cache_size_label(u.limit), &n]));
+        })
+    };
+    refresh();
+
+    let clear = gtk::Button::builder().label(tr("Clear")).valign(gtk::Align::Center).css_classes(["destructive-action"]).build();
+    usage.add_suffix(&clear);
+    let (dw, r) = (d.downgrade(), Rc::clone(&refresh));
+    clear.connect_clicked(move |_| {
+        let Some(d) = dw.upgrade() else { return };
+        let ad = adw::AlertDialog::new(Some(&tr("Clear the audio cache?")), Some(&tr("Cached tracks are deleted. They download again when you play them.")));
+        ad.add_response("cancel", &tr("Cancel"));
+        ad.add_response("clear", &tr("Clear"));
+        ad.set_response_appearance("clear", adw::ResponseAppearance::Destructive);
+        ad.set_close_response("cancel");
+        let (dw, r) = (dw.clone(), Rc::clone(&r));
+        ad.connect_response(Some("clear"), move |_, _| {
+            let (dw, r) = (dw.clone(), Rc::clone(&r));
+            glib::spawn_future_local(async move {
+                let purge = || {
+                    audio_cache::purge();
+                    anyhow::Ok(())
+                };
+                if api::run(purge).await.is_ok() {
+                    r();
+                    dialog_toast(&dw, &tr("Audio cache cleared"));
+                }
+            });
+        });
+        ad.present(Some(&d));
+    });
+
+    let labels: Vec<String> = LIMIT_PRESETS.iter().map(|b| cache_size_label(*b)).collect();
+    let labels: Vec<&str> = labels.iter().map(String::as_str).collect();
+    let limit = adw::ComboRow::builder()
+        .title(tr("Cache Size"))
+        .subtitle(tr("When the cache is full, the tracks played longest ago are deleted first"))
+        .model(&gtk::StringList::new(&labels))
+        .build();
+    let stored = settings::audio_cache_limit();
+    let at = LIMIT_PRESETS.iter().position(|b| *b == stored).or_else(|| LIMIT_PRESETS.iter().position(|b| *b == LIMIT_DEFAULT)).unwrap_or(0);
+    limit.set_selected(at as u32);
+    limit.connect_selected_notify(move |row| {
+        let Some(&bytes) = LIMIT_PRESETS.get(row.selected() as usize) else { return };
+        settings::set_audio_cache_limit(bytes);
+        let r = Rc::clone(&refresh);
+        glib::spawn_future_local(async move {
+            let apply = move || {
+                audio_cache::set_limit(bytes);
+                anyhow::Ok(())
+            };
+            if api::run(apply).await.is_ok() {
+                r();
+            }
+        });
+    });
+    group(
+        &tr("Audio Cache"),
+        &tr("Keep played and upcoming tracks on disk, so they start sooner and play without the network"),
+        &[usage.upcast_ref(), limit.upcast_ref()],
+    )
 }
 
 /// Country/region used for API requests. Applies to pages opened afterwards.
@@ -932,7 +1022,7 @@ fn present_preferences(window: &adw::ApplicationWindow) {
             &tr("Network"),
             &tr("Configure how much SDAT downloads in the background"),
             &[preload_row().upcast_ref()],
-        )],
+        ), audio_cache_group(&d)],
     ));
 
     // ---- scrobbling

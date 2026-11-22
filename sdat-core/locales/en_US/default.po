@@ -732,6 +732,41 @@ msgstr ""
 msgid "translator-credits"
 msgstr ""
 
+msgid "Audio Cache"
+msgstr "Audio Cache"
+
+msgid "Keep played and upcoming tracks on disk, so they start sooner and play without the network"
+msgstr "Keep played and upcoming tracks on disk, so they start sooner and play without the network"
+
+msgid "Cached Tracks"
+msgstr "Cached Tracks"
+
+msgid "%s of %s · %d track"
+msgid_plural "%s of %s · %d tracks"
+msgstr[0] "%s of %s · %d track"
+msgstr[1] "%s of %s · %d tracks"
+
+msgid "Off"
+msgstr "Off"
+
+msgid "Clear"
+msgstr "Clear"
+
+msgid "Clear the audio cache?"
+msgstr "Clear the audio cache?"
+
+msgid "Cached tracks are deleted. They download again when you play them."
+msgstr "Cached tracks are deleted. They download again when you play them."
+
+msgid "Audio cache cleared"
+msgstr "Audio cache cleared"
+
+msgid "Cache Size"
+msgstr "Cache Size"
+
+msgid "When the cache is full, the tracks played longest ago are deleted first"
+msgstr "When the cache is full, the tracks played longest ago are deleted first"
+
 #~ msgid ""
 #~ "Allow Tonearm to temporarily store images on the file system to improve "
 #~ "performance and reduce network traffic"
