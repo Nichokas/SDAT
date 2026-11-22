@@ -418,7 +418,7 @@ fn track_timeline() -> gtk::Overlay {
             }
             return;
         };
-        if !scale.state_flags().contains(gtk::StateFlags::ACTIVE) {
+        if !scale.has_css_class("dragging") {
             scale.set_value(state.percent_at(now));
         }
         if advancing {
@@ -434,7 +434,7 @@ fn track_timeline() -> gtk::Overlay {
                         return glib::ControlFlow::Break;
                     }
                     let now = Instant::now();
-                    if !scale.state_flags().contains(gtk::StateFlags::ACTIVE) {
+                    if !scale.has_css_class("dragging") {
                         scale.set_value(state.percent_at(now));
                         let pos = state.position_at(now);
                         let secs = pos.as_secs();

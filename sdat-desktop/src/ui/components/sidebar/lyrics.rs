@@ -220,8 +220,8 @@ fn line_button(text: &str, timing: Option<(Duration, Duration)>, track_id: &str)
             if crate::live::user_seek(start) {
                 return;
             }
-            set_active(Some(b));
             manually_scrolled().set(false);
+            set_active(Some(b));
             player::seek_to_position(start, true);
         });
     }

@@ -96,9 +96,9 @@ impl MediaViewer {
         let copy = gio::SimpleAction::new("copy", None);
         let ov = overlay.downgrade();
         copy.connect_activate(move |_, _| {
-            get().copy_media();
+            let copied = get().copy_media();
             if let Some(o) = ov.upgrade() {
-                let t = adw::Toast::new("Copied image to clipboard");
+                let t = adw::Toast::new(if copied { "Copied image to clipboard" } else { "Couldn't copy the image" });
                 t.set_timeout(3);
                 o.add_toast(t);
             }
@@ -123,11 +123,12 @@ impl MediaViewer {
         &self.revealer
     }
 
-    fn copy_media(&self) {
-        let (Some(display), Some(paintable)) = (gdk::Display::default(), self.picture.paintable()) else { return };
+    /// Whether the clipboard now holds the image.
+    fn copy_media(&self) -> bool {
+        let (Some(display), Some(paintable)) = (gdk::Display::default(), self.picture.paintable()) else { return false };
         if let Some(texture) = paintable.downcast_ref::<gdk::Texture>() {
             display.clipboard().set_texture(texture);
-            return;
+            return true;
         }
         let mut width = f64::from(paintable.intrinsic_width());
         let mut height = f64::from(paintable.intrinsic_height());
@@ -139,13 +140,14 @@ impl MediaViewer {
         }
         let snap = gtk::Snapshot::new();
         paintable.snapshot(&snap, width, height);
-        if let Some(node) = snap.to_node() {
-            let renderer = gsk::CairoRenderer::new();
-            if renderer.realize_for_display(&display).is_ok() {
-                display.clipboard().set_texture(&renderer.render_texture(&node, None));
-                renderer.unrealize();
-            }
+        let Some(node) = snap.to_node() else { return false };
+        let renderer = gsk::CairoRenderer::new();
+        if renderer.realize_for_display(&display).is_err() {
+            return false;
         }
+        display.clipboard().set_texture(&renderer.render_texture(&node, None));
+        renderer.unrealize();
+        true
     }
 
     pub fn show_file(&self, paintable: &gdk::Paintable) {
