@@ -764,12 +764,12 @@ final class Player: LivePlaybackPort {
         schedulePreload()
     }
 
-    /// Every item gets a real forward buffer. The rate is always 1.0
-    /// (Listen Together never changes the speed); the cheap time-domain pitch
+    /// Every item gets a real forward buffer, a long one from the network so a poor link's drops do not stall it.
+    /// The rate is always 1.0 (Listen Together never changes the speed); the cheap time-domain pitch
     /// algorithm is kept so a stray rate change could never cost much CPU.
     private static func makeItem(_ url: URL) -> AVPlayerItem {
         let item = AVPlayerItem(url: url)
-        item.preferredForwardBufferDuration = 10
+        item.preferredForwardBufferDuration = url.isFileURL ? 10 : 60
         item.audioTimePitchAlgorithm = .timeDomain
         return item
     }
