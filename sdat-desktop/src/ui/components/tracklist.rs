@@ -570,17 +570,19 @@ fn cancel_drag(i: &Inner) {
     }
 }
 
-fn drop_drag(i: &Inner, y: f64, on_accept: impl FnOnce()) -> bool {
+fn drop_drag(i: &Inner, y: f64, on_finish: impl FnOnce(gdk::DragAction)) -> bool {
     let accepted = i.drag.borrow().as_ref().is_some_and(|d| d.over_valid_row)
         && row_index_at(i, y).is_some_and(|dst| move_drag(i, dst));
     if !accepted {
         cancel_drag(i);
+        on_finish(gdk::DragAction::empty());
         return false;
     }
     let Some(drag) = i.drag.borrow_mut().take() else {
+        on_finish(gdk::DragAction::empty());
         return false;
     };
-    on_accept();
+    on_finish(gdk::DragAction::MOVE);
     if drag.source != drag.target
         && let Some(cb) = i.reorder.borrow().clone()
     {
@@ -816,11 +818,8 @@ fn toggle_drop_target(i: &Inner, w: &Weak<Inner>, on: bool) {
         // Only this list's own drags carry a track being moved.
         target.connect_accept(move |_, _| w0.upgrade().is_some_and(|i| i.drag.borrow().is_some()));
         let w1 = Weak::clone(w);
-        target.connect_drag_enter(move |_, _, _, _| {
-            if let Some(i) = w1.upgrade() {
-                leave_drag(&i);
-            }
-            gdk::DragAction::empty()
+        target.connect_drag_enter(move |_, _, _, y| {
+            w1.upgrade().map_or_else(gdk::DragAction::empty, |i| drag_motion(&i, y))
         });
         let w2 = Weak::clone(w);
         target.connect_drag_motion(move |_, _, _, y| {
@@ -834,7 +833,12 @@ fn toggle_drop_target(i: &Inner, w: &Weak<Inner>, on: bool) {
         });
         let w4 = Weak::clone(w);
         target.connect_drop(move |_, drop, _, y| {
-            w4.upgrade().is_some_and(|i| drop_drag(&i, y, || drop.finish(gdk::DragAction::MOVE)))
+            if let Some(i) = w4.upgrade() {
+                drop_drag(&i, y, |action| drop.finish(action));
+            } else {
+                drop.finish(gdk::DragAction::empty());
+            }
+            true
         });
         if let Some(v) = i.view.upgrade() {
             v.add_controller(target.clone());

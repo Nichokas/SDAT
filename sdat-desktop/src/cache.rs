@@ -99,8 +99,14 @@ fn prefetch_current(epoch: u64) -> bool {
     PREFETCH_EPOCH.load(Ordering::SeqCst) == epoch
 }
 
-fn prefetch_still_valid(epoch: u64) -> bool {
-    prefetch_current(epoch) && preload_enabled() && !crate::secrets::user_id().is_empty()
+fn prefetch_session_valid(epoch: u64, session: u64) -> bool {
+    prefetch_current(epoch)
+        && crate::secrets::session_generation() == session
+        && crate::state::signed_in_changed().get()
+}
+
+fn prefetch_still_valid(epoch: u64, session: u64) -> bool {
+    prefetch_session_valid(epoch, session) && preload_enabled()
 }
 
 fn clear_started_if_current(epoch: u64) {
@@ -145,7 +151,7 @@ pub fn set_preload_enabled(on: bool) {
     if let Err(e) = r {
         log::warn!("saving preload preference failed error={e}");
     }
-    if on && !crate::secrets::user_id().is_empty() {
+    if on && crate::state::signed_in_changed().get() {
         start_prefetch();
     }
 }
@@ -162,16 +168,17 @@ pub fn start_prefetch() {
         log::debug!("prefetch: disabled in preferences");
         return;
     }
-    if crate::secrets::user_id().is_empty() {
+    if !crate::state::signed_in_changed().get() {
         return;
     }
     if STARTED.fetch_add(1, Ordering::SeqCst) > 0 {
         return;
     }
     let epoch = PREFETCH_EPOCH.load(Ordering::SeqCst);
+    let session = crate::secrets::session_generation();
     glib::spawn_future_local(async move {
         glib::timeout_future(START_DELAY).await;
-        if !prefetch_still_valid(epoch) {
+        if !prefetch_still_valid(epoch, session) {
             clear_started_if_current(epoch);
             return;
         }
@@ -181,7 +188,7 @@ pub fn start_prefetch() {
             Ok(ps) => ps.iter().for_each(|p| queue.push(Job::Playlist(p.info.id.clone()))),
             Err(e) => log::debug!("prefetch: playlists list failed error={e:#}"),
         }
-        if !prefetch_still_valid(epoch) {
+        if !prefetch_still_valid(epoch, session) {
             clear_started_if_current(epoch);
             return;
         }
@@ -189,13 +196,13 @@ pub fn start_prefetch() {
             Ok(al) => al.iter().for_each(|a| queue.push(Job::Album(a.info.id.clone()))),
             Err(e) => log::debug!("prefetch: albums list failed error={e:#}"),
         }
-        if !prefetch_still_valid(epoch) {
+        if !prefetch_still_valid(epoch, session) {
             clear_started_if_current(epoch);
             return;
         }
         log::debug!("prefetch: {} lists queued", queue.len());
         while let Some(job) = queue.pop(|k| get(k).is_some()) {
-            if !prefetch_one(&job, epoch).await {
+            if !prefetch_one(&job, epoch, session).await {
                 log::debug!("prefetch: stopped");
                 clear_started_if_current(epoch);
                 return;
@@ -206,12 +213,12 @@ pub fn start_prefetch() {
 }
 
 /// Returns `false` if preloading was disabled or the session changed meanwhile.
-async fn prefetch_one(job: &Job, epoch: u64) -> bool {
+async fn prefetch_one(job: &Job, epoch: u64, session: u64) -> bool {
     let key = job.key();
     let generation_at_start = generation(&key);
     let p = service::shared(job.paginator());
-    prefetch_paginator(&key, generation_at_start, p, epoch, PAGE_PAUSE, YIELD_PAUSE, || {
-        preload_enabled() && !crate::secrets::user_id().is_empty()
+    prefetch_paginator(&key, generation_at_start, p, PAGE_PAUSE, YIELD_PAUSE, || {
+        prefetch_still_valid(epoch, session)
     })
     .await
 }
@@ -220,12 +227,10 @@ async fn prefetch_paginator(
     key: &str,
     generation_at_start: u64,
     p: service::SharedPaginator<Track>,
-    epoch: u64,
     page_pause: Duration,
     yield_pause: Duration,
-    can_continue: impl Fn() -> bool,
+    still_valid: impl Fn() -> bool,
 ) -> bool {
-    let still_valid = || prefetch_current(epoch) && can_continue();
     loop {
         while foreground_busy() {
             if !still_valid() {
@@ -314,73 +319,76 @@ mod tests {
     }
 
     #[test]
-    fn bumping_prefetch_epoch_stops_active_loop() {
+    fn session_or_epoch_change_stops_active_prefetch() {
         use std::sync::Arc;
         use crate::api::openapi::{LinksMeta, Relationships};
 
-        let fetched = Arc::new(AtomicUsize::new(0));
-        let count = Arc::clone(&fetched);
-        let paginator = service::shared(Paginator::new(
-            Box::new(move |_| {
-                let n = count.fetch_add(1, Ordering::SeqCst) + 1;
-                if n == 1 {
-                    allow_prefetch_again();
-                }
-                let mut page = Relationships::default();
-                page.links.meta = Some(LinksMeta { next_cursor: (n < 3).then(|| format!("page-{}", n + 1)) });
-                Ok(page)
-            }),
-            Box::new(|_| vec![track("1")]),
-        ));
-        let key = "playlist:test-epoch-cancel";
-        invalidate(key);
-        let epoch = PREFETCH_EPOCH.load(Ordering::SeqCst);
-        let completed = glib::MainContext::new().block_on(prefetch_paginator(
-            key,
-            generation(key),
-            paginator,
-            epoch,
-            Duration::ZERO,
-            Duration::from_millis(1),
-            || true,
-        ));
-        assert!(!completed, "loop must stop once allow_prefetch_again bumps PREFETCH_EPOCH");
-        assert_eq!(fetched.load(Ordering::SeqCst), 1, "subsequent pages must not be fetched after epoch bump");
-        assert!(get(key).is_none(), "cancelled prefetch must not populate cache");
+        struct RestoreSignedIn(bool);
+        impl Drop for RestoreSignedIn {
+            fn drop(&mut self) {
+                crate::state::signed_in_changed().set(self.0);
+            }
+        }
+        let _restore = RestoreSignedIn(crate::state::signed_in_changed().get());
 
-        let signed_in = AtomicBool::new(true);
-        let fetched2 = Arc::new(AtomicUsize::new(0));
-        let count2 = Arc::clone(&fetched2);
-        let paginator2 = service::shared(Paginator::new(
-            Box::new(move |_| {
-                let n = count2.fetch_add(1, Ordering::SeqCst) + 1;
-                let mut page = Relationships::default();
-                page.links.meta = Some(LinksMeta { next_cursor: (n < 3).then(|| format!("page-{}", n + 1)) });
-                Ok(page)
+        let run_case = |key: &str, on_first_page: Box<dyn Fn(&glib::MainContext) + Send + Sync>| {
+            crate::state::signed_in_changed().set(true);
+            let ctx = glib::MainContext::new();
+            let main = ctx.clone();
+            let fetched = Arc::new(AtomicUsize::new(0));
+            let count = Arc::clone(&fetched);
+            let paginator = service::shared(Paginator::new(
+                Box::new(move |_| {
+                    let n = count.fetch_add(1, Ordering::SeqCst) + 1;
+                    if n == 1 {
+                        on_first_page(&main);
+                    }
+                    let mut page = Relationships::default();
+                    page.links.meta = Some(LinksMeta { next_cursor: (n < 3).then(|| format!("page-{}", n + 1)) });
+                    Ok(page)
+                }),
+                Box::new(|_| vec![track("1")]),
+            ));
+            invalidate(key);
+            let epoch = PREFETCH_EPOCH.load(Ordering::SeqCst);
+            let session = crate::secrets::session_generation();
+            let completed = ctx.block_on(prefetch_paginator(
+                key,
+                generation(key),
+                paginator,
+                Duration::ZERO,
+                Duration::from_millis(1),
+                || prefetch_session_valid(epoch, session),
+            ));
+            (completed, fetched.load(Ordering::SeqCst))
+        };
+
+        let (completed, pages) = run_case("playlist:test-epoch-cancel", Box::new(|_| allow_prefetch_again()));
+        assert!(!completed, "loop must stop once allow_prefetch_again bumps PREFETCH_EPOCH");
+        assert_eq!(pages, 1, "subsequent pages must not be fetched after epoch bump");
+        assert!(get("playlist:test-epoch-cancel").is_none(), "cancelled prefetch must not populate cache");
+
+        let (completed, pages) = run_case(
+            "playlist:test-session-cancel",
+            Box::new(|_| crate::secrets::bump_session_for_test()),
+        );
+        assert!(!completed, "loop must stop once session_generation advances");
+        assert_eq!(pages, 1, "subsequent pages must not be fetched after session change");
+        assert!(get("playlist:test-session-cancel").is_none());
+
+        let (completed, pages) = run_case(
+            "playlist:test-signed-out-cancel",
+            Box::new(|main| {
+                let (tx, rx) = std::sync::mpsc::channel();
+                main.invoke(move || {
+                    crate::state::signed_in_changed().set(false);
+                    let _ = tx.send(());
+                });
+                let _ = rx.recv();
             }),
-            Box::new(|_| vec![track("2")]),
-        ));
-        let key2 = "playlist:test-signed-out-cancel";
-        invalidate(key2);
-        let epoch2 = PREFETCH_EPOCH.load(Ordering::SeqCst);
-        let completed2 = glib::MainContext::new().block_on(prefetch_paginator(
-            key2,
-            generation(key2),
-            paginator2,
-            epoch2,
-            Duration::ZERO,
-            Duration::from_millis(1),
-            || {
-                let ok = signed_in.load(Ordering::SeqCst);
-                if fetched2.load(Ordering::SeqCst) >= 1 {
-                    signed_in.store(false, Ordering::SeqCst);
-                    return false;
-                }
-                ok
-            },
-        ));
-        assert!(!completed2, "loop must stop when signed out");
-        assert_eq!(fetched2.load(Ordering::SeqCst), 1);
-        assert!(get(key2).is_none());
+        );
+        assert!(!completed, "loop must stop when signed_in_changed becomes false");
+        assert_eq!(pages, 1);
+        assert!(get("playlist:test-signed-out-cancel").is_none());
     }
 }
