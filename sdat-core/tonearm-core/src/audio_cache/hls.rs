@@ -81,7 +81,7 @@ pub fn media(text: &str, base: Option<&Url>) -> CoreResult<Media> {
             if attr(l, "METHOD").as_deref() != Some("NONE") {
                 return Err(encrypted());
             }
-        } else if l.starts_with("#EXT-X-BYTERANGE") || (l.starts_with("#EXT-X-MAP") && l.contains("BYTERANGE")) {
+        } else if l.starts_with("#EXT-X-BYTERANGE") || (l.starts_with("#EXT-X-MAP") && attr(l, "BYTERANGE").is_some()) {
             return Err(unsupported("byte ranges"));
         } else if l.starts_with("#EXT-X-MAP") {
             let next = attr(l, "URI").and_then(|u| resolve(base, &u)).ok_or_else(|| unsupported("init segment URL"))?;
@@ -206,6 +206,7 @@ mod tests {
         assert_eq!(refused(quoted_comma), encrypted().to_string());
         assert_eq!(refused("#EXTM3U\n"), "Unsupported stream format (empty playlist).");
         media("#EXT-X-KEY:METHOD=NONE\n#EXT-X-MAP:URI=\"i.mp4\"\n#EXTINF:4,\ns.mp4", Some(&b)).expect("METHOD=NONE is no encryption");
+        media("#EXT-X-MAP:URI=\"BYTERANGE/i.mp4\"\n#EXTINF:4,\ns.mp4", Some(&b)).expect("BYTERANGE inside the URI is no byte range");
     }
 
     #[test]

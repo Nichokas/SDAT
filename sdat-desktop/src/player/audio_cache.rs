@@ -69,7 +69,9 @@ fn fill_planned_tracks() -> ! {
                 break;
             }
             match audio_cache::fill(&id, quality, Vec::new()) {
-                Ok(_) | Err(CoreError::Cancelled(_)) => {}
+                Ok(_) => {}
+                // A purge (Clear, sign-out) or a new plan: the rest of this one must not fill the cache again.
+                Err(CoreError::Cancelled(_)) => break,
                 Err(e) => log::warn!("failed to cache track id={id} error={e}"),
             }
         }

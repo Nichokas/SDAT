@@ -325,14 +325,16 @@ fn reconcile_cleans_up_once_and_then_changes_nothing() {
     let truncated = store.fill("2", Q, Vec::new()).unwrap();
     drop(store);
     fs::write(&truncated.mp4, b"short").unwrap();
-    fs::write(dir.0.join("3.part"), b"interrupted").unwrap();
-    fs::write(dir.0.join("4-LOSSLESS.mp4"), b"unindexed").unwrap();
+    fs::write(dir.0.join("3-9.part"), b"interrupted").unwrap();
+    fs::write(dir.0.join("4-9.mp4"), b"unindexed").unwrap();
 
     let store = open(&dir, LIMIT_DEFAULT, &fake);
-    assert_eq!(store.entries().into_iter().map(|c| c.track_id).collect::<Vec<_>>(), ["1"]);
+    let kept = store.entries();
+    assert_eq!(kept.iter().map(|c| c.track_id.as_str()).collect::<Vec<_>>(), ["1"]);
     drop(store);
     let (listing, index) = (files(&dir), fs::read(dir.0.join(INDEX)).unwrap());
-    assert_eq!(listing, ["1-LOSSLESS.m3u8", "1-LOSSLESS.mp4", INDEX]);
+    let name = |p: &PathBuf| p.file_name().unwrap().to_str().unwrap().to_owned();
+    assert_eq!(listing, [name(&kept[0].playlist), name(&kept[0].mp4), INDEX.to_owned()]);
     drop(open(&dir, LIMIT_DEFAULT, &fake));
     assert_eq!((files(&dir), fs::read(dir.0.join(INDEX)).unwrap()), (listing, index));
 }
@@ -347,6 +349,49 @@ fn a_lookup_drops_a_copy_whose_file_vanished() {
     assert_eq!(store.lookup("1", Q), None);
     assert_eq!(store.usage().tracks, 0);
     assert!(!c.playlist.exists());
+}
+
+#[test]
+fn a_fill_downloads_again_a_copy_whose_file_vanished() {
+    let dir = TempDir::new();
+    let fake = Arc::new(Fake::default());
+    let store = open(&dir, LIMIT_DEFAULT, &fake);
+    let c = store.fill("1", Q, Vec::new()).unwrap();
+    fs::remove_file(&c.mp4).unwrap();
+    let again = store.fill("1", Q, Vec::new()).unwrap();
+    assert!(again.mp4.exists() && again.playlist.exists());
+    assert_eq!(fs::metadata(&again.mp4).unwrap().len(), again.bytes);
+}
+
+#[test]
+fn a_new_fill_never_writes_over_the_playing_copy() {
+    let dir = TempDir::new();
+    let fake = Arc::new(Fake::default());
+    let store = open(&dir, LIMIT_DEFAULT, &fake);
+    let playing = store.fill("1", Q, Vec::new()).unwrap();
+    store.lookup("1", Q).unwrap();
+    let (mp4, playlist) = (fs::read(&playing.mp4).unwrap(), fs::read(&playing.playlist).unwrap());
+    store.purge();
+    let refilled = store.fill("1", Q, Vec::new()).unwrap();
+    assert_ne!(refilled.mp4, playing.mp4);
+    assert_eq!((fs::read(&playing.mp4).unwrap(), fs::read(&playing.playlist).unwrap()), (mp4, playlist));
+}
+
+#[test]
+fn a_track_that_stops_playing_leaves_a_cache_that_is_off() {
+    let dir = TempDir::new();
+    let fake = Arc::new(Fake::default());
+    let store = open(&dir, LIMIT_DEFAULT, &fake);
+    for id in ["1", "2"] {
+        store.fill(id, Q, Vec::new()).unwrap();
+        store.lookup(id, Q).unwrap();
+    }
+    store.set_limit(0);
+    assert_eq!(store.usage().tracks, 2, "both may still play");
+    store.lookup("3", Q);
+    store.lookup("4", Q);
+    assert_eq!(store.usage().tracks, 0);
+    assert_eq!(files(&dir), [INDEX]);
 }
 
 #[test]

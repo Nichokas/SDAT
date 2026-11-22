@@ -123,6 +123,8 @@ fn cancelled() -> CoreError {
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 struct Entry {
+    /// Names the files. Each fill takes a new one, so it never writes over a copy that is still playing.
+    file: u64,
     requested: TrackQuality,
     quality: TrackQuality,
     formats: Vec<String>,
@@ -153,12 +155,12 @@ mod base64_bytes {
     }
 }
 
-fn stem(id: &str, requested: TrackQuality) -> String {
-    format!("{id}-{}", requested.as_str())
+fn stem(id: &str, file: u64) -> String {
+    format!("{id}-{file}")
 }
 
 fn evictions<'a>(entries: &[(&'a str, u64, u64)], limit: u64, protect: &[&str]) -> Vec<&'a str> {
-    let mut total: u64 = entries.iter().map(|e| e.1).sum();
+    let mut total = entries.iter().fold(0u64, |t, e| t.saturating_add(e.1));
     let mut candidates: Vec<_> = entries.iter().filter(|e| !protect.contains(&e.0)).collect();
     candidates.sort_by_key(|e| e.2);
     let mut out = Vec::new();
@@ -166,7 +168,7 @@ fn evictions<'a>(entries: &[(&'a str, u64, u64)], limit: u64, protect: &[&str]) 
         if total <= limit {
             break;
         }
-        total -= bytes;
+        total = total.saturating_sub(*bytes);
         out.push(*id);
     }
     out
@@ -174,8 +176,7 @@ fn evictions<'a>(entries: &[(&'a str, u64, u64)], limit: u64, protect: &[&str]) 
 
 #[derive(Debug, Default)]
 struct Fill {
-    /// Names its `.part`, so a fill that replaced a cancelled one never shares its file.
-    serial: u64,
+    file: u64,
     cancel: AtomicBool,
     result: Mutex<Option<CoreResult<Cached>>>,
     done: Condvar,
@@ -206,7 +207,6 @@ struct State {
     /// while they are here, even by `purge` or `remove`; the next `open` removes what nothing indexes.
     recent: VecDeque<String>,
     fills: HashMap<String, Arc<Fill>>,
-    next_fill: u64,
 }
 
 impl State {
@@ -234,7 +234,7 @@ impl Store {
         fs::create_dir_all(&dir)?;
         let index = fs::read(dir.join(INDEX)).ok().and_then(|b| serde_json::from_slice(&b).ok()).unwrap_or_default();
         let index = reconcile(&dir, index)?;
-        let store = Self { dir, upstream, state: Mutex::new(State { index, limit, recent: VecDeque::new(), fills: HashMap::new(), next_fill: 0 }) };
+        let store = Self { dir, upstream, state: Mutex::new(State { index, limit, recent: VecDeque::new(), fills: HashMap::new() }) };
         let mut st = store.lock();
         store.evict(&mut st, None);
         store.save(&st);
@@ -247,7 +247,7 @@ impl Store {
     }
 
     fn cached(&self, id: &str, e: &Entry) -> Cached {
-        let stem = stem(id, e.requested);
+        let stem = stem(id, e.file);
         Cached {
             track_id: id.to_owned(),
             mp4: self.dir.join(format!("{stem}.mp4")),
@@ -273,11 +273,11 @@ impl Store {
         }
     }
 
-    fn delete_files(&self, st: &State, id: &str, requested: TrackQuality) {
+    fn delete_files(&self, st: &State, id: &str, file: u64) {
         if st.protected(id) {
             return;
         }
-        let stem = stem(id, requested);
+        let stem = stem(id, file);
         for ext in ["mp4", "m3u8"] {
             let _ = fs::remove_file(self.dir.join(format!("{stem}.{ext}")));
         }
@@ -290,9 +290,24 @@ impl Store {
         let gone: Vec<String> = evictions(&entries, st.limit, &protect).into_iter().map(str::to_owned).collect();
         for id in gone {
             if let Some(e) = st.index.entries.remove(&id) {
-                self.delete_files(st, &id, e.requested);
+                self.delete_files(st, &id, e.file);
             }
         }
+    }
+
+    /// The entry of `id` that serves `wanted`. One whose files are missing or truncated is dropped.
+    fn hit(&self, st: &mut State, id: &str, wanted: TrackQuality) -> Option<Cached> {
+        let e = st.index.entries.get(id).filter(|e| serves(e.requested, e.quality, wanted))?;
+        let c = self.cached(id, e);
+        if intact(&c) {
+            return Some(c);
+        }
+        log::warn!("cached audio of track {id} is missing or truncated; dropping it");
+        let file = e.file;
+        st.index.entries.remove(id);
+        st.recent.retain(|r| r != id);
+        self.delete_files(st, id, file);
+        None
     }
 
     /// The cached copy of `track_id` that serves `wanted`, if its files are intact. Counts as a use, and keeps the
@@ -302,24 +317,18 @@ impl Store {
         st.recent.retain(|r| r != track_id);
         st.recent.push_front(track_id.to_owned());
         st.recent.truncate(2);
-        let e = st.index.entries.get(track_id).filter(|e| serves(e.requested, e.quality, wanted))?;
-        let c = self.cached(track_id, e);
-        if !intact(&c) {
-            log::warn!("cached audio of track {track_id} is missing or truncated; dropping it");
-            let requested = e.requested;
-            st.index.entries.remove(track_id);
-            st.recent.retain(|r| r != track_id);
-            self.delete_files(&st, track_id, requested);
-            self.save(&st);
-            return None;
-        }
-        st.index.clock += 1;
-        let clock = st.index.clock;
-        if let Some(e) = st.index.entries.get_mut(track_id) {
-            e.last_used = clock;
+        // A track that just lost its protection may be over the limit.
+        self.evict(&mut st, None);
+        let c = self.hit(&mut st, track_id, wanted);
+        if c.is_some() {
+            st.index.clock += 1;
+            let clock = st.index.clock;
+            if let Some(e) = st.index.entries.get_mut(track_id) {
+                e.last_used = clock;
+            }
         }
         self.save(&st);
-        Some(c)
+        c
     }
 
     /// Downloads `track_id` at `quality` unless a cached copy already serves it. Blocking. A second call for a track
@@ -331,8 +340,9 @@ impl Store {
             if st.limit == 0 {
                 return Err(CoreError::Cancelled("audio cache is off".into()));
             }
-            if let Some(e) = st.index.entries.get(id.as_str()).filter(|e| serves(e.requested, e.quality, quality)) {
-                return Ok(self.cached(id.as_str(), e));
+            if let Some(c) = self.hit(&mut st, id.as_str(), quality) {
+                self.save(&st);
+                return Ok(c);
             }
             // A cancelled fill may take a while to notice; a new request starts its own instead of failing with it.
             if let Some(running) = st.fills.get(id.as_str()).filter(|f| !f.cancel.load(Ordering::Relaxed)).map(Arc::clone) {
@@ -340,13 +350,13 @@ impl Store {
                 running.wait()?;
                 continue;
             }
-            st.next_fill += 1;
-            let fill = Arc::new(Fill { serial: st.next_fill, ..Fill::default() });
+            st.index.clock += 1;
+            let fill = Arc::new(Fill { file: st.index.clock, ..Fill::default() });
             st.fills.insert(id.0.clone(), Arc::clone(&fill));
             break fill;
         };
-        let part = self.dir.join(format!("{}.{}.part", id.as_str(), fill.serial));
-        let result = self.download(&id, quality, label, &fill.cancel, &part);
+        let part = self.dir.join(format!("{}.part", stem(id.as_str(), fill.file)));
+        let result = self.download(&id, quality, label, &fill, &part);
         let _ = fs::remove_file(&part);
         let mut st = self.lock();
         if st.fills.get(id.as_str()).is_some_and(|f| Arc::ptr_eq(f, &fill)) {
@@ -374,8 +384,9 @@ impl Store {
         }
     }
 
-    fn download(&self, id: &TrackId, quality: TrackQuality, label: Vec<u8>, cancel: &AtomicBool, part: &Path) -> CoreResult<Cached> {
+    fn download(&self, id: &TrackId, quality: TrackQuality, label: Vec<u8>, fill: &Fill, part: &Path) -> CoreResult<Cached> {
         use std::io::Write;
+        let cancel = &fill.cancel;
         let manifest = self.upstream.manifest(id, quality)?;
         let (mut text, mut base) = if let Some(text) = hls::decode_data_url(&manifest.url)? {
             (text, None)
@@ -392,17 +403,17 @@ impl Store {
         let media = hls::media(&text, base.as_ref())?;
         // Erasing the app's data deletes this folder while the app runs.
         fs::create_dir_all(&self.dir)?;
-        let mut file = fs::File::create(part)?;
+        let mut out = fs::File::create(part)?;
         let mut sizes = Vec::with_capacity(media.segments.len() + 1);
         for url in std::iter::once(&media.map).chain(media.segments.iter().map(|s| &s.uri)) {
             let (body, _) = self.get_with_retry(url, cancel)?;
-            file.write_all(&body)?;
+            out.write_all(&body)?;
             sizes.push(body.len() as u64);
         }
-        drop(file);
-        let stem = stem(id.as_str(), quality);
+        drop(out);
+        let stem = stem(id.as_str(), fill.file);
         let mp4 = format!("{stem}.mp4");
-        let playlist_tmp = self.dir.join(format!("{stem}.m3u8.tmp"));
+        let playlist_tmp = self.dir.join(format!("{stem}.m3u8.part"));
         fs::write(&playlist_tmp, hls::local_playlist(&mp4, &media.segments, &sizes))?;
 
         let mut st = self.lock();
@@ -414,6 +425,7 @@ impl Store {
         fs::rename(&playlist_tmp, self.dir.join(format!("{stem}.m3u8")))?;
         st.index.clock += 1;
         let entry = Entry {
+            file: fill.file,
             requested: quality,
             quality: manifest.quality,
             formats: manifest.formats,
@@ -424,10 +436,8 @@ impl Store {
             label,
         };
         let cached = self.cached(id.as_str(), &entry);
-        if let Some(old) = st.index.entries.insert(id.0.clone(), entry)
-            && old.requested != quality
-        {
-            self.delete_files(&st, id.as_str(), old.requested);
+        if let Some(old) = st.index.entries.insert(id.0.clone(), entry) {
+            self.delete_files(&st, id.as_str(), old.file);
         }
         self.evict(&mut st, Some(id.as_str()));
         self.save(&st);
@@ -451,7 +461,7 @@ impl Store {
 
     pub fn usage(&self) -> Usage {
         let st = self.lock();
-        let bytes = st.index.entries.values().map(|e| e.bytes).sum();
+        let bytes = st.index.entries.values().fold(0u64, |t, e| t.saturating_add(e.bytes));
         Usage { bytes, tracks: u32::try_from(st.index.entries.len()).unwrap_or(u32::MAX), limit: st.limit }
     }
 
@@ -465,7 +475,7 @@ impl Store {
     pub fn remove(&self, track_id: &str) {
         let mut st = self.lock();
         if let Some(e) = st.index.entries.remove(track_id) {
-            self.delete_files(&st, track_id, e.requested);
+            self.delete_files(&st, track_id, e.file);
             self.save(&st);
         }
     }
@@ -478,7 +488,7 @@ impl Store {
         }
         let entries = std::mem::take(&mut st.index.entries);
         for (id, e) in entries {
-            self.delete_files(&st, &id, e.requested);
+            self.delete_files(&st, &id, e.file);
         }
         self.save(&st);
     }
@@ -491,7 +501,7 @@ fn intact(c: &Cached) -> bool {
 fn reconcile(dir: &Path, mut index: Index) -> CoreResult<Index> {
     let mut keep = vec![INDEX.to_owned()];
     index.entries.retain(|id, e| {
-        let stem = stem(id, e.requested);
+        let stem = stem(id, e.file);
         let ok = TrackId::parse(id).is_ok()
             && fs::metadata(dir.join(format!("{stem}.mp4"))).is_ok_and(|m| m.len() == e.bytes)
             && dir.join(format!("{stem}.m3u8")).is_file();

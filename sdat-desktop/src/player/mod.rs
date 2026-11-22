@@ -336,7 +336,7 @@ fn on_bus_message(msg: &gst::Message) {
         MessageView::Error(err) => {
             let e = err.error();
             if cached_copy_failed() {
-                fire(Trigger::TokenExpired);
+                fire(Trigger::Deferred(Box::new(stream_after_cached_copy_failed)));
                 return;
             }
             if e.matches(gst::ResourceError::NotAuthorized) || e.matches(gst::ResourceError::NotFound) {
@@ -352,6 +352,15 @@ fn on_bus_message(msg: &gst::Message) {
         MessageView::StreamStart(_) => fire(Trigger::StreamStart),
         MessageView::Eos(_) => fire(Trigger::Eos),
         _ => {}
+    }
+}
+
+// A track that has not started yet goes to Stopped on TokenExpired, so it is started again instead.
+fn stream_after_cached_copy_failed() {
+    if !with(|p| p.machine.preparing()).unwrap_or(false) {
+        fire(Trigger::TokenExpired);
+    } else if let Some(t) = track_changed().with(|t| t.as_ref().map(|e| e.track.clone())) {
+        fire(Trigger::PlayTrack(t, false));
     }
 }
 

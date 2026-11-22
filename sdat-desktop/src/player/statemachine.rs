@@ -541,6 +541,10 @@ impl Machine {
             || self.queue.borrow().iter().any(|t| matches!(t, Trigger::PlayTrack(..) | Trigger::PlayTrackId(..) | Trigger::Deferred(_)))
     }
 
+    pub fn preparing(&self) -> bool {
+        self.state.get() == State::Preparing
+    }
+
     /// Whether the machine is stopped and nothing is about to start playback.
     pub fn stopped_without_pending_start(&self) -> bool {
         self.state.get() == State::Stopped && !self.start_pending()
