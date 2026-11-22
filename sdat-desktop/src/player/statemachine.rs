@@ -358,8 +358,6 @@ pub enum Trigger {
     /// next URI has been enqueued (or enqueuing failed or was canceled).
     GaplessHint(Option<GaplessToken>),
     TokenExpired,
-    #[cfg_attr(not(test), expect(dead_code, reason = "kept in the transition table for parity with Go; gapless failure resets inline"))]
-    Failed,
     /// A playback error other than an expired token, with its message.
     Error(String),
     /// The stream started (`true`) or finished (`false`) buffering.
@@ -380,7 +378,6 @@ impl std::fmt::Debug for Trigger {
             Trigger::Stop => "TRIGGER_STOP",
             Trigger::GaplessHint(_) => "TRIGGER_GAPLESS_HINT",
             Trigger::TokenExpired => "TRIGGER_TOKEN_EXPIRED",
-            Trigger::Failed => "TRIGGER_FAILED",
             Trigger::Error(_) => "error",
             Trigger::Buffering(_) => "buffering",
             Trigger::StreamStart => "stream-start",
@@ -577,7 +574,6 @@ impl Machine {
             (Preparing, Trigger::TokenExpired) => Some(Stopped),
             (Preparing, Trigger::StreamStart) => Some(Playing),
             (PlayingGapless | PlayingRetrying, Trigger::StreamStart) => Some(Playing),
-            (PlayingGapless, Trigger::Failed) => Some(Playing),
             (PlayingRetrying, Trigger::TokenExpired) => Some(Stopped),
             (Paused | Preparing | Playing | PlayingGapless | PlayingRetrying, Trigger::Error(_)) => Some(Stopped),
             (_, _) if s.is_playing() => match t {
@@ -692,8 +688,6 @@ impl Machine {
         let into_sub = from == State::Playing && matches!(to, State::PlayingGapless | State::PlayingRetrying);
         if from == State::PlayingGapless && matches!(t, Trigger::StreamStart) {
             self.promote_gapless();
-        } else if from == State::PlayingGapless && matches!(t, Trigger::Failed) {
-            self.cancel_gapless();
         }
         if from == State::PlayingRetrying && matches!(t, Trigger::StreamStart)
             && let Some(pos) = self.retry_position.take()
@@ -799,6 +793,7 @@ impl Machine {
                 if let Err(e) = &r {
                     log::error!("failed to enqueue next track: {e:#}");
                 }
+                // Without a next URI the track ends in EOS, and `on_eos_stopped` starts the next queued track.
                 if !matches!(r, Ok(true)) {
                     self.cancel_gapless();
                     self.state.set(State::Playing);
@@ -1158,7 +1153,6 @@ pub mod tests {
             (Playing, Trigger::TokenExpired, Some(PlayingRetrying)),
             (Playing, Trigger::StreamStart, None),
             (PlayingGapless, Trigger::StreamStart, Some(Playing)),
-            (PlayingGapless, Trigger::Failed, Some(Playing)),
             (PlayingGapless, Trigger::Pause, Some(Paused)),
             (PlayingGapless, Trigger::GaplessHint(None), None),
             (PlayingRetrying, Trigger::GaplessHint(None), None),
