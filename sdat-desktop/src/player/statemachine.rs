@@ -794,6 +794,8 @@ impl Machine {
                     log::error!("failed to enqueue next track: {e:#}");
                 }
                 // Without a next URI the track ends in EOS, and `on_eos_stopped` starts the next queued track.
+                // PlayingGapless -> Playing runs no exit or entry action (the worker never stopped), so the
+                // state is set here rather than through a queued trigger that a queued Pause would overtake.
                 if !matches!(r, Ok(true)) {
                     self.cancel_gapless();
                     self.state.set(State::Playing);
