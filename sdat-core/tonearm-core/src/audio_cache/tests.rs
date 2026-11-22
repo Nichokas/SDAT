@@ -74,11 +74,8 @@ impl Upstream for Shared {
         let body = match file {
             "master.m3u8" => "#EXTM3U\n#EXT-X-STREAM-INF:BANDWIDTH=1,CODECS=\"flac\"\nmedia.m3u8\n".into(),
             "media.m3u8" => {
-                let mut m = "#EXTM3U\n#EXT-X-TARGETDURATION:4\n#EXT-X-MAP:URI=\"init.mp4\"\n".to_owned();
-                for i in 0..SEGMENTS {
-                    m += &format!("#EXTINF:4.0,\ns{i}.m4s\n");
-                }
-                (m + "#EXT-X-ENDLIST\n").into_bytes()
+                let segments: String = (0..SEGMENTS).map(|i| format!("#EXTINF:4.0,\ns{i}.m4s\n")).collect();
+                format!("#EXTM3U\n#EXT-X-TARGETDURATION:4\n#EXT-X-MAP:URI=\"init.mp4\"\n{segments}#EXT-X-ENDLIST\n").into_bytes()
             }
             "init.mp4" => format!("init:{id}:{q}").into_bytes(),
             "s0.m4s" => {

@@ -86,7 +86,7 @@ pub const fn serves(requested: TrackQuality, wanted: TrackQuality) -> bool {
     rank(requested) >= rank(wanted)
 }
 
-/// Where a fill gets its bytes; TIDAL in production, a fake in tests.
+/// Where a fill gets its bytes.
 pub trait Upstream: Send + Sync {
     fn manifest(&self, track: &TrackId, quality: TrackQuality) -> CoreResult<TrackManifest>;
     /// The body and the URL it came from after redirects, which relative playlist entries resolve against.
