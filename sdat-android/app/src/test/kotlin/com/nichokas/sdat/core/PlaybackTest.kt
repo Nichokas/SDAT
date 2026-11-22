@@ -65,4 +65,89 @@ class PlaybackTest {
         assertEquals(Quality.CD, stream(Quality.CD).actualQuality)
         assertEquals("Hi-Res Lossless", Quality.HI_FI.badgeText)
     }
+
+    @Test fun sessionCommandsStripUnguardedExoPlayerMutations() {
+        val blocked = setOf(
+            Player.COMMAND_SET_REPEAT_MODE,
+            Player.COMMAND_SET_SHUFFLE_MODE,
+            Player.COMMAND_SET_SPEED_AND_PITCH,
+            Player.COMMAND_SET_MEDIA_ITEM,
+            Player.COMMAND_CHANGE_MEDIA_ITEMS,
+            Player.COMMAND_RELEASE,
+        )
+        val kept = setOf(
+            Player.COMMAND_PLAY_PAUSE,
+            Player.COMMAND_PREPARE,
+            Player.COMMAND_STOP,
+            Player.COMMAND_GET_CURRENT_MEDIA_ITEM,
+        )
+        val base = kept + blocked
+
+        val loaded = sessionCommands(base, hasTrack = true, emptyTimeline = false)
+        assertTrue(loaded.containsAll(kept))
+        assertTrue(Player.COMMAND_SEEK_TO_NEXT in loaded)
+        assertTrue(Player.COMMAND_SEEK_TO_PREVIOUS in loaded)
+        assertFalse(Player.COMMAND_SEEK_IN_CURRENT_MEDIA_ITEM in loaded)
+        blocked.forEach { assertFalse(it in loaded) }
+
+        val restored = sessionCommands(base, hasTrack = true, emptyTimeline = true)
+        assertTrue(restored.containsAll(kept))
+        assertTrue(Player.COMMAND_SEEK_TO_NEXT in restored)
+        assertTrue(Player.COMMAND_SEEK_IN_CURRENT_MEDIA_ITEM in restored)
+        blocked.forEach { assertFalse(it in restored) }
+
+        val empty = sessionCommands(base, hasTrack = false, emptyTimeline = true)
+        assertEquals(kept, empty)
+        blocked.forEach { assertFalse(it in empty) }
+    }
+
+    @Test fun nonDiscoverHandoffWaitsForUpcomingUnderRepeatOffAndRepeatAll() {
+        assertEquals(
+            Advance.Wait,
+            advanceAction(auto = true, repeat = Repeat.Off, hasNext = false, hasInfinite = false, awaitingMixes = false, awaitingUpNext = true),
+        )
+        assertEquals(
+            Advance.Wait,
+            advanceAction(auto = false, repeat = Repeat.Off, hasNext = false, hasInfinite = false, awaitingMixes = false, awaitingUpNext = true),
+        )
+        assertEquals(
+            Advance.Wait,
+            advanceAction(auto = true, repeat = Repeat.All, hasNext = false, hasInfinite = false, awaitingMixes = false, awaitingUpNext = true),
+        )
+        assertEquals(
+            Advance.Wait,
+            advanceAction(auto = false, repeat = Repeat.All, hasNext = false, hasInfinite = false, awaitingMixes = false, awaitingUpNext = true),
+        )
+        assertEquals(
+            Advance.Queue,
+            advanceAction(auto = true, repeat = Repeat.One, hasNext = false, hasInfinite = false, awaitingMixes = false, awaitingUpNext = true),
+        )
+        assertEquals(
+            Advance.Wait,
+            advanceAction(auto = false, repeat = Repeat.One, hasNext = false, hasInfinite = false, awaitingMixes = false, awaitingUpNext = true),
+        )
+        assertEquals(
+            Advance.Queue,
+            advanceAction(auto = true, repeat = Repeat.All, hasNext = true, hasInfinite = false, awaitingMixes = false, awaitingUpNext = true),
+        )
+    }
+
+    @Test fun advanceStopsWrapsOrRefillsOnceUpcomingIsSettled() {
+        assertEquals(
+            Advance.Stop,
+            advanceAction(auto = true, repeat = Repeat.Off, hasNext = false, hasInfinite = false, awaitingMixes = false, awaitingUpNext = false),
+        )
+        assertEquals(
+            Advance.Queue,
+            advanceAction(auto = true, repeat = Repeat.All, hasNext = false, hasInfinite = false, awaitingMixes = false, awaitingUpNext = false),
+        )
+        assertEquals(
+            Advance.Wait,
+            advanceAction(auto = true, repeat = Repeat.Off, hasNext = false, hasInfinite = true, awaitingMixes = false, awaitingUpNext = false),
+        )
+        assertEquals(
+            Advance.Wait,
+            advanceAction(auto = false, repeat = Repeat.Off, hasNext = false, hasInfinite = false, awaitingMixes = true, awaitingUpNext = false),
+        )
+    }
 }

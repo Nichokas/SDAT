@@ -77,6 +77,7 @@ object Downloads {
 
     /** Set once the foreground service ran out of time: the queue on disk must outlive the teardown. */
     private var frozen = false
+    private var pendingLoaded = false
 
     /** [onActive] keeps the process alive while the queue runs. */
     fun init(context: Context, prefs: Preferences, onActive: () -> Unit) {
@@ -173,6 +174,8 @@ object Downloads {
      */
     fun removeAll() {
         work.coroutineContext.cancelChildren()
+        frozen = false
+        pendingLoaded = false
         queue = DownloadQueue()
         entries = emptyMap()
         albumMeta.clear()
@@ -190,14 +193,18 @@ object Downloads {
     fun pause() {
         savePending()
         frozen = true
+        pendingLoaded = false
         queue = queue.cancelAll()
         work.coroutineContext.cancelChildren()
     }
 
     /** Requeues downloads that a timeout, a kill or a crash interrupted. Call from the foreground. */
     fun resumePending() {
+        if (!shouldRestorePending(pendingLoaded, frozen, restoring?.isActive == true)) {
+            if (pendingLoaded && !frozen && queue.isActive) onActive()
+            return
+        }
         frozen = false
-        if (restoring?.isActive == true) return
         // A restore cancelled by sign-out or a timeout may have left its tombstones behind.
         dropped.clear()
         restoring = work.launch {
@@ -207,9 +214,10 @@ object Downloads {
                     List(list.length()) { TrackJson.decode(list.getJSONObject(it)) }
                 }.getOrDefault(emptyList())
             }
-            val keep = saved.filterNot { it.id in dropped }
+            val keep = pendingToRestore(saved, dropped, queue.failures.keys)
             dropped.clear()
             restoring = null
+            pendingLoaded = true
             queue = queue.enqueue(keep, ::isDownloaded)
             // Also rewrites a saved queue whose tracks were all skipped as downloaded.
             savePending()
@@ -245,6 +253,7 @@ object Downloads {
             fetching = job
             job.join()
             queue = queue.finish(t.id, error)
+            if (error != null && restoring?.isActive == true) dropped += t.id
             savePending()
         }
     }
@@ -265,6 +274,7 @@ object Downloads {
                 if (entries[t.id] !== e) return@withContext
                 entries = entries - t.id
                 queue = queue.fail(t.id, DownloadFailure.storage.message.orEmpty())
+                if (restoring?.isActive == true) dropped += t.id
                 saveIndex()
                 launch(writes) { discard(t.id) }
             }
@@ -474,3 +484,9 @@ object Downloads {
     private const val PENDING = "pending.json"
     private const val TIMEOUT_MS = 30_000
 }
+
+internal fun shouldRestorePending(pendingLoaded: Boolean, frozen: Boolean, restoring: Boolean) =
+    !restoring && (!pendingLoaded || frozen)
+
+internal fun pendingToRestore(saved: List<Track>, dropped: Set<String>, failed: Set<String>): List<Track> =
+    saved.filterNot { it.id in dropped || it.id in failed }

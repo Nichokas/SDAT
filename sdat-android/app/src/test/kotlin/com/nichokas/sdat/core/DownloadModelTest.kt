@@ -116,4 +116,27 @@ class DownloadModelTest {
         assertEquals("ALAC 16-bit/44.1 kHz", e.copy(codec = "alac", bandwidth = 900_000, bitDepth = 16, sampleRate = 44_100).qualityText)
         assertNull(e.qualityText)
     }
+
+    @Test fun restorePendingRunsOnceUnlessFrozenOrReset() {
+        assertTrue(shouldRestorePending(pendingLoaded = false, frozen = false, restoring = false))
+        assertFalse(shouldRestorePending(pendingLoaded = false, frozen = false, restoring = true))
+        assertFalse(shouldRestorePending(pendingLoaded = true, frozen = false, restoring = false))
+        assertTrue(shouldRestorePending(pendingLoaded = false, frozen = true, restoring = false))
+        assertTrue(shouldRestorePending(pendingLoaded = true, frozen = true, restoring = false))
+        assertFalse(shouldRestorePending(pendingLoaded = true, frozen = true, restoring = true))
+    }
+
+    @Test fun restorePendingSkipsCancelledAndFailedTracks() {
+        val failed = DownloadQueue()
+            .enqueue(listOf(track("1")), { false })
+            .startNext()
+            .finish("1", "Can't reach TIDAL.")
+        val saved = listOf(track("1"), track("2"), track("3"))
+        val keep = pendingToRestore(saved, dropped = setOf("2"), failed = failed.failures.keys)
+        assertEquals(listOf("3"), keep.map { it.id })
+
+        val merged = failed.enqueue(keep, { false })
+        assertEquals(listOf("3"), merged.active.map { it.id })
+        assertEquals(DownloadState.Failed("Can't reach TIDAL."), merged.state("1", false))
+    }
 }

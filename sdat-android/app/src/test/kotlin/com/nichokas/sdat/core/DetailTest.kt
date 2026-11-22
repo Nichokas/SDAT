@@ -5,7 +5,10 @@ import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertThrows
+import org.junit.Assert.assertTrue
 import org.junit.Test
+import uniffi.tonearm_ffi.Artist
+import uniffi.tonearm_ffi.ArtistOverview
 import uniffi.tonearm_ffi.FavouriteKind
 
 class DetailTest {
@@ -65,5 +68,19 @@ class DetailTest {
         runBlocking { pageThrough(got.size, 2, next) { got += it } }
         assertEquals(listOf(1, 2), got)
         assertEquals(3, calls)
+    }
+
+    @Test fun artistCacheClearEmptiesOverviewsAndHints() {
+        ArtistCache.clear()
+        try {
+            val overview = ArtistOverview(Artist("a1", "Daft Punk", "https://pic", "bio", 10L), emptyList(), emptyList())
+            ArtistCache.overviews["a1"] = overview
+            ArtistCache.hint("a1", "Daft Punk", "https://pic")
+            ArtistCache.clear()
+            assertTrue(ArtistCache.overviews.isEmpty())
+            assertTrue(ArtistCache.hints.isEmpty())
+        } finally {
+            ArtistCache.clear()
+        }
     }
 }
