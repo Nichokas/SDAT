@@ -36,6 +36,11 @@ enum Fmt {
         ByteCountFormatter.string(fromByteCount: n, countStyle: .file)
     }
 
+    /// Binary units, so the cache size presets read 512 MB, 1 GB, 2 GB.
+    static func cacheBytes(_ n: UInt64) -> String {
+        ByteCountFormatter.string(fromByteCount: Int64(clamping: n), countStyle: .memory)
+    }
+
     /// "just now", "5 min ago", "2 h ago", "3 d ago".
     static func ago(_ date: Date, now: Date = Date()) -> String {
         // A clock ahead of TIDAL's can put the date in the future.
