@@ -328,6 +328,29 @@ mod tests {
     }
 
     #[test]
+    fn play_next_lands_after_an_armed_user_entry_behind_unstreamable_rows() {
+        clear_queues();
+        set_repeat_mode(RepeatMode::None);
+        let mut unstreamable = track("U", None);
+        unstreamable.info.streamable = false;
+        user_queue().append(unstreamable);
+        user_queue().append(track("B", None));
+        let armed = peek_gapless().unwrap();
+        assert_eq!((armed.track.id(), armed.source), ("B", GaplessSource::UserQueue));
+
+        insert_tracklist_next_after(vec![track("B", None), track("C", None)], Some(armed.clone()));
+        commit_gapless(&armed);
+        // The armed B played; the requested extra B and then C come next.
+        assert_eq!(
+            user_queue().entries().with(|v| v.iter().map(|t| t.id().to_string()).collect::<Vec<_>>()),
+            vec!["B", "C"],
+        );
+
+        clear_queues();
+        track_changed().set(None);
+    }
+
+    #[test]
     fn next_track_pop_skips_unstreamable_prefixes_and_updates_pinned() {
         clear_queues();
         set_repeat_mode(RepeatMode::None);

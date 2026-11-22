@@ -483,15 +483,20 @@ pub async fn add_track_to_user_queue(track_id: &str) -> Result<()> {
 /// Queues `tracks`, in order, right after the current one (and after any
 /// earlier "play next" tracks). The caller starts playback if needed.
 fn insert_tracklist_next(tracks: Vec<Track>) {
+    insert_tracklist_next_after(tracks, with(|p| p.machine.gapless_entry()).flatten());
+}
+
+fn insert_tracklist_next_after(tracks: Vec<Track>, armed: Option<GaplessEntry>) {
     if tracks.is_empty() {
         return;
     }
     // Keep an already-chosen gapless track ahead of Play Next entries when it
     // came from the queues so the queue view matches playback order.
-    let floor = match with(|p| p.machine.gapless_entry()).flatten() {
-        Some(GaplessEntry { source: GaplessSource::UserQueue, track: armed, .. }) => {
-            usize::from(user_queue().peek().is_some_and(|head| track_matches(&head, &armed)))
-        }
+    let floor = match armed {
+        // The pick is the first streamable row, which can sit behind unstreamable ones.
+        Some(GaplessEntry { source: GaplessSource::UserQueue, track: armed, .. }) => user_queue().entries().with(|rows| {
+            next::find_streamable_index(rows, None).filter(|&i| track_matches(&rows[i], &armed)).map_or(0, |i| i + 1)
+        }),
         Some(GaplessEntry { source: GaplessSource::BaseQueue { rewound: false }, track: armed, .. }) => {
             if user_queue().is_empty()
                 && base_queue().peek().is_some_and(|head| track_matches(&head, &armed))
