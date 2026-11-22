@@ -397,6 +397,8 @@ impl Store {
             base = Some(from);
         }
         let media = hls::media(&text, base.as_ref())?;
+        // The OS may empty its cache folder while the app runs (Android, iOS).
+        fs::create_dir_all(&self.dir)?;
         let mut file = fs::File::create(part)?;
         let mut sizes = Vec::with_capacity(media.segments.len() + 1);
         for url in std::iter::once(&media.map).chain(media.segments.iter().map(|s| &s.uri)) {

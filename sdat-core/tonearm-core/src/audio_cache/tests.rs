@@ -261,6 +261,16 @@ fn a_fill_after_a_cancel_starts_its_own_instead_of_failing() {
 }
 
 #[test]
+fn a_fill_recreates_a_folder_the_os_emptied() {
+    let dir = TempDir::new();
+    let fake = Arc::new(Fake::default());
+    let store = open(&dir, LIMIT_DEFAULT, &fake);
+    std::fs::remove_dir_all(&dir.0).unwrap();
+    store.fill("1", Q, Vec::new()).expect("fills after the folder is gone");
+    assert!(store.lookup("1", Q).is_some());
+}
+
+#[test]
 fn a_failed_request_is_retried() {
     let dir = TempDir::new();
     let fake = Arc::new(Fake { flaky: AtomicUsize::new(1), ..Fake::default() });
