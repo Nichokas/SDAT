@@ -188,24 +188,18 @@ class PlaybackTest {
     }
 
     @Test fun postWaitRestartsPausedOnEmptyManualSkipAndAdvancesWhenQueuedOrRepeating() {
-        assertEquals(PostWait.RestartPaused, postWaitAction(auto = false, hasNext = false, repeat = Repeat.Off, timedOut = false))
-        assertEquals(PostWait.RestartPaused, postWaitAction(auto = false, hasNext = false, repeat = Repeat.One, timedOut = false))
-        assertEquals(PostWait.Advance, postWaitAction(auto = false, hasNext = false, repeat = Repeat.All, timedOut = false))
-        assertEquals(PostWait.Advance, postWaitAction(auto = false, hasNext = true, repeat = Repeat.Off, timedOut = false))
-        assertEquals(PostWait.Advance, postWaitAction(auto = false, hasNext = true, repeat = Repeat.One, timedOut = false))
-        assertEquals(PostWait.StopAtEnd, postWaitAction(auto = true, hasNext = false, repeat = Repeat.Off, timedOut = false))
-        assertEquals(PostWait.Advance, postWaitAction(auto = true, hasNext = false, repeat = Repeat.All, timedOut = false))
-        assertEquals(PostWait.Advance, postWaitAction(auto = true, hasNext = false, repeat = Repeat.One, timedOut = false))
-        assertEquals(PostWait.Advance, postWaitAction(auto = true, hasNext = true, repeat = Repeat.Off, timedOut = false))
-    }
-
-    @Test fun postWaitDoesNotLoopRepeatAllAfterHandoffTimeout() {
-        assertEquals(PostWait.StopAtEnd, postWaitAction(auto = true, hasNext = false, repeat = Repeat.All, timedOut = true))
-        assertEquals(PostWait.RestartPaused, postWaitAction(auto = false, hasNext = false, repeat = Repeat.All, timedOut = true))
-        assertEquals(PostWait.Advance, postWaitAction(auto = true, hasNext = true, repeat = Repeat.All, timedOut = true))
-        assertEquals(PostWait.Advance, postWaitAction(auto = false, hasNext = true, repeat = Repeat.All, timedOut = true))
-        assertEquals(PostWait.Advance, postWaitAction(auto = true, hasNext = false, repeat = Repeat.One, timedOut = true))
-        assertEquals(PostWait.RestartPaused, postWaitAction(auto = false, hasNext = false, repeat = Repeat.One, timedOut = true))
+        assertEquals(PostWait.RestartPaused, postWaitAction(auto = false, hasNext = false, repeat = Repeat.Off))
+        assertEquals(PostWait.RestartPaused, postWaitAction(auto = false, hasNext = false, repeat = Repeat.One))
+        assertEquals(PostWait.Advance, postWaitAction(auto = false, hasNext = false, repeat = Repeat.All))
+        assertEquals(PostWait.Advance, postWaitAction(auto = false, hasNext = true, repeat = Repeat.Off))
+        assertEquals(PostWait.Advance, postWaitAction(auto = false, hasNext = true, repeat = Repeat.One))
+        assertEquals(PostWait.Advance, postWaitAction(auto = false, hasNext = true, repeat = Repeat.All))
+        assertEquals(PostWait.StopAtEnd, postWaitAction(auto = true, hasNext = false, repeat = Repeat.Off))
+        assertEquals(PostWait.Advance, postWaitAction(auto = true, hasNext = false, repeat = Repeat.All))
+        assertEquals(PostWait.Advance, postWaitAction(auto = true, hasNext = false, repeat = Repeat.One))
+        assertEquals(PostWait.Advance, postWaitAction(auto = true, hasNext = true, repeat = Repeat.Off))
+        assertEquals(PostWait.Advance, postWaitAction(auto = true, hasNext = true, repeat = Repeat.One))
+        assertEquals(PostWait.Advance, postWaitAction(auto = true, hasNext = true, repeat = Repeat.All))
     }
 
     @Test fun followUpSkipKeepsActiveWaitAndUpgradesAutoToManual() = runBlocking {

@@ -552,9 +552,8 @@ class Playback(context: Context, private val prefs: Preferences, secrets: Secret
             }
             // A track picked during the wait owns playback now: its queue is not this one's to refill.
             if (track !== from || entry != entryBefore) return@launchOrJoin
-            // Once the handoff wait settles without upcoming tracks, stop waiting on later skips or repeats.
-            val timedOut = !queued() && awaitingUpNext
-            if (timedOut) resumedBase = null
+            // Once the handoff wait ends and resumedBase is cleared, Repeat.All wraps the settled queue normally instead of stopping or pausing.
+            if (!queued() && awaitingUpNext) resumedBase = null
             if (!queued()) infinite?.let { fetchMore(it) }
             // A track picked during the fetch owns playback now; a source replaced meanwhile had nothing more.
             if (track !== from || entry != entryBefore) return@launchOrJoin
@@ -566,7 +565,7 @@ class Playback(context: Context, private val prefs: Preferences, secrets: Secret
                 return@launchOrJoin
             }
             pendingWait.clear(coroutineContext.job)
-            when (postWaitAction(auto = finalAuto, hasNext = queued(), repeat = queue.repeat, timedOut = timedOut)) {
+            when (postWaitAction(auto = finalAuto, hasNext = queued(), repeat = queue.repeat)) {
                 PostWait.Advance -> advance(finalAuto, play = player.playWhenReady)
                 PostWait.StopAtEnd -> stopAtEnd()
                 // The skip found nothing; the player may hold a stale item, so the track is loaded again, paused.
@@ -994,8 +993,9 @@ internal class AdvanceWait {
 
 internal enum class PostWait { Advance, StopAtEnd, RestartPaused }
 
-internal fun postWaitAction(auto: Boolean, hasNext: Boolean, repeat: Repeat, timedOut: Boolean): PostWait = when {
-    hasNext || (!timedOut && repeat == Repeat.All) || (auto && repeat == Repeat.One) -> PostWait.Advance
+/** Once the handoff wait ends and resumedBase is cleared, Repeat.All wraps the settled queue normally instead of stopping or pausing. */
+internal fun postWaitAction(auto: Boolean, hasNext: Boolean, repeat: Repeat): PostWait = when {
+    hasNext || repeat == Repeat.All || (auto && repeat == Repeat.One) -> PostWait.Advance
     auto -> PostWait.StopAtEnd
     else -> PostWait.RestartPaused
 }
