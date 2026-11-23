@@ -364,8 +364,9 @@ fn on_bus_message(msg: &gst::Message) {
 
 // A track that has not started yet goes to Stopped on TokenExpired, so it is started again instead.
 fn stream_after_cached_copy_failed(id: &str) {
-    // A start asked for after the error replaces the failed track; recovering it first would reload the old one.
-    if with(|p| p.machine.start_pending()).unwrap_or(false) {
+    // A start asked for after the error replaces the failed track; recovering it first would reload the old one. A
+    // queued Next or Previous may find no track, so it does not count.
+    if with(|p| p.machine.has_queued_stop_or_start()).unwrap_or(false) {
         return;
     }
     let current = track_changed().with(|t| t.as_ref().map(|e| e.track.clone()));

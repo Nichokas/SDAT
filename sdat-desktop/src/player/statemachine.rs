@@ -531,7 +531,7 @@ impl Machine {
         }
     }
 
-    fn has_queued_stop_or_start(&self) -> bool {
+    pub fn has_queued_stop_or_start(&self) -> bool {
         self.queue.borrow().iter().any(|t| matches!(t, Trigger::Stop | Trigger::PlayTrack(..) | Trigger::PlayTrackId(..)))
     }
 

@@ -536,7 +536,7 @@ impl Store {
         fs::write(&playlist_tmp, hls::local_playlist(&mp4, &media.segments, &sizes))?;
 
         let mut st = self.lock();
-        if cancel.load(Ordering::Relaxed) || st.limit == 0 {
+        if cancel.load(Ordering::Relaxed) || st.limit == 0 || sizes.iter().sum::<u64>() > st.limit {
             let _ = fs::remove_file(playlist_tmp);
             return Err(cancelled());
         }

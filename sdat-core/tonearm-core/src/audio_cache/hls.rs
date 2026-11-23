@@ -96,6 +96,9 @@ pub fn media(text: &str, base: Option<&Url>) -> CoreResult<Media> {
         } else if !l.is_empty() && !l.starts_with('#') {
             let uri = resolve(base, l).ok_or_else(|| unsupported("segment URL"))?;
             let duration = duration.take().ok_or_else(|| unsupported("segment without duration"))?;
+            if !duration.parse::<f64>().is_ok_and(|d| d.is_finite() && d > 0.0) {
+                return Err(unsupported("segment duration"));
+            }
             segments.push(Segment { uri, duration, discontinuity });
             discontinuity = false;
         }
@@ -205,6 +208,9 @@ mod tests {
         let quoted_comma = "#EXT-X-MAP:URI=\"i.mp4\"\n#EXT-X-KEY:URI=\"https://cdn/key,METHOD=NONE\",METHOD=AES-128\n#EXTINF:4,\ns.mp4";
         assert_eq!(refused(quoted_comma), encrypted().to_string());
         assert_eq!(refused("#EXTM3U\n"), "Unsupported stream format (empty playlist).");
+        for bad in ["0", "-4", "NaN", "four"] {
+            assert_eq!(refused(&format!("#EXT-X-MAP:URI=\"i.mp4\"\n#EXTINF:{bad},\ns.mp4")), "Unsupported stream format (segment duration).");
+        }
         media("#EXT-X-KEY:METHOD=NONE\n#EXT-X-MAP:URI=\"i.mp4\"\n#EXTINF:4,\ns.mp4", Some(&b)).expect("METHOD=NONE is no encryption");
         media("#EXT-X-MAP:URI=\"BYTERANGE/i.mp4\"\n#EXTINF:4,\ns.mp4", Some(&b)).expect("BYTERANGE inside the URI is no byte range");
     }
