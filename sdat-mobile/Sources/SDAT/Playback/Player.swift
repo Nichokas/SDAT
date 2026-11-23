@@ -815,7 +815,8 @@ final class Player: LivePlaybackPort {
                 // A cancelled preload leaves a fill that a new one for the same track still waits on.
                 if filling == next.id, !Task.isCancelled || following()?.0.id != next.id { cancelFill() }
             }
-            guard let s = try? await Self.source(next.id),
+            // A cancelled preload looks nothing up: a lookup moves the protection of the playing track's files.
+            guard !Task.isCancelled, let s = try? await Self.source(next.id),
                   !Task.isCancelled, !liveEngine.liveFollowing, starts == started,
                   current?.id == cur.id, let url = URL(string: s.stream.url),
                   let curItem = avPlayer.currentItem, curItem === playingItem else { return }
