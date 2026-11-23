@@ -2,6 +2,7 @@
 //! playback, `ReplayGain`, stream quality and MPRIS.
 
 
+mod audio_cache;
 pub mod mpris;
 pub mod play_next;
 pub use tonearm_core::playqueue;
@@ -22,6 +23,7 @@ use crate::model::{PlaybackSource, PlaylistInfo, Track};
 use crate::signals::{Signal, State, CONTINUE};
 use crate::{api, global_signal, i18n::tr, service, settings};
 use playqueue::{DurableQueue, HistoryEntry, HistoryQueue, UserQueue};
+pub use audio_cache::{drop_plan as drop_audio_cache_plan, on_limit_changed as on_audio_cache_limit_changed};
 pub use quality::audio_stream_quality;
 use gapless_gate::GaplessGate;
 use next::{commit_gapless, next_track, peek_gapless, pop_next_streamable_from_queue};
@@ -220,6 +222,12 @@ fn fire(t: Trigger) {
     if matches!(t, Trigger::PlayTrack(..) | Trigger::Deferred(_)) {
         PLAY_REQUESTS.with(|r| r.set(r.get() + 1));
     }
+    fire_uncounted(t);
+}
+
+/// For a restart nobody asked for, such as streaming a failed cached copy: what waits on the user's start (a
+/// handoff's seek) keeps waiting for it.
+fn fire_uncounted(t: Trigger) {
     if with(|p| p.machine.fire(t)).is_none() {
         log::warn!("player not initialised, dropping trigger");
     }
@@ -294,8 +302,12 @@ pub fn init() -> Result<()> {
     if let Some(bin) = playbin.downcast_ref::<gst::Bin>() {
         for element in bin.iterate_recurse().into_iter().flatten() {
             quality::on_deep_element_added(&element);
+            audio_cache::on_element_added(&element);
         }
-        bin.connect_deep_element_added(|_, _, element| quality::on_deep_element_added(element));
+        bin.connect_deep_element_added(|_, _, element| {
+            quality::on_deep_element_added(element);
+            audio_cache::on_element_added(element);
+        });
     }
 
     replaygain::init(&playbin)?;
@@ -310,8 +322,14 @@ pub fn init() -> Result<()> {
             && !ev.skip_history {
                 history().prepend(HistoryEntry { track: ev.track.clone(), occurrence: base_queue().current_occurrence(&ev.track) });
             }
+        audio_cache::on_track_changed();
         CONTINUE
     });
+    playback_state_changed().on(|s| {
+        audio_cache::on_playback_state(s);
+        CONTINUE
+    });
+    audio_cache::init();
     source_changed().on(|_| {
         replaygain::update_album_mode();
         CONTINUE
@@ -324,6 +342,10 @@ fn on_bus_message(msg: &gst::Message) {
     match msg.view() {
         MessageView::Error(err) => {
             let e = err.error();
+            if let Some(id) = cached_copy_failed() {
+                fire_uncounted(Trigger::Deferred(Box::new(move || stream_after_cached_copy_failed(&id))));
+                return;
+            }
             if e.matches(gst::ResourceError::NotAuthorized) || e.matches(gst::ResourceError::NotFound) {
                 log::warn!("playback token expired, restarting playback session");
                 fire(Trigger::TokenExpired);
@@ -338,6 +360,47 @@ fn on_bus_message(msg: &gst::Message) {
         MessageView::Eos(_) => fire(Trigger::Eos),
         _ => {}
     }
+}
+
+// A track that has not started yet goes to Stopped on TokenExpired, so it is started again instead.
+fn stream_after_cached_copy_failed(id: &str) {
+    // A start asked for after the error replaces the failed track; recovering it first would reload the old one. A
+    // queued Next or Previous may find no track, so it does not count.
+    if with(|p| p.machine.has_queued_stop_or_start()).unwrap_or(false) {
+        return;
+    }
+    let current = track_changed().with(|t| t.as_ref().map(|e| e.track.clone()));
+    match current {
+        Some(t) if t.id() == id && with(|p| p.machine.preparing()).unwrap_or(false) => {
+            // The new start drops the pause, so it loads paused and takes the pause again, as `play_at` starts.
+            let paused = with(|p| p.machine.preparing_paused()).unwrap_or(false);
+            if paused {
+                statemachine::start_paused(id);
+            }
+            // Its start already went into the history.
+            fire_uncounted(Trigger::PlayTrack(t, true));
+            if paused {
+                fire(Trigger::Pause);
+            }
+        }
+        Some(t) if t.id() == id => {
+            // A retry that failed again would stop, but this one streams now.
+            if with(|p| p.machine.retrying()).unwrap_or(false) {
+                with(|p| p.machine.retry_once_more());
+            }
+            fire(Trigger::TokenExpired);
+        }
+        // During a gapless handoff the failed copy is the next track's: the current one restarts and hands off to its
+        // stream.
+        _ if with(|p| p.machine.gapless_entry()).flatten().is_some_and(|e| e.track.id() == id) => fire(Trigger::TokenExpired),
+        // The error of a stream that a newer start replaced.
+        _ => {}
+    }
+}
+
+fn cached_copy_failed() -> Option<String> {
+    let uri = playbin().and_then(|p| p.element.property::<Option<String>>("current-uri"))?;
+    audio_cache::drop_failed_copy(&uri)
 }
 
 fn on_volume_change(v: f64) {
@@ -712,6 +775,12 @@ pub fn set_volume(volume: f64) {
 pub fn stop() {
     source_changed().set(None);
     fire(Trigger::Stop);
+}
+
+/// Stops playback and runs `then` once the pipeline let go of its stream.
+pub fn stop_then(then: impl FnOnce() + 'static) {
+    stop();
+    fire_uncounted(Trigger::AfterStop(Box::new(then)));
 }
 
 /// Call on quit. The player lives in a thread-local, dropped while the process

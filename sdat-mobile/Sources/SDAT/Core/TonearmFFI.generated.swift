@@ -3828,7 +3828,7 @@ public protocol SpotifyImportProtocol: AnyObject, Sendable {
     func cancel() 
     
     /**
-     * Runs the import; `Cancelled` after [`Self::cancel`].
+     * Runs the import; `Cancelled` after [`Self::cancel`], which no longer stops it once it is saving.
      */
     func run(listener: ImportListener) async throws  -> ImportReport
     
@@ -3898,7 +3898,7 @@ open func cancel()  {try! rustCall() {
 }
     
     /**
-     * Runs the import; `Cancelled` after [`Self::cancel`].
+     * Runs the import; `Cancelled` after [`Self::cancel`], which no longer stops it once it is saving.
      */
 open func run(listener: ImportListener)async throws  -> ImportReport  {
     return
@@ -4867,6 +4867,151 @@ public func FfiConverterTypeArtistRef_lift(_ buf: RustBuffer) throws -> ArtistRe
 #endif
 public func FfiConverterTypeArtistRef_lower(_ value: ArtistRef) -> RustBuffer {
     return FfiConverterTypeArtistRef.lower(value)
+}
+
+
+public struct CacheUsage: Equatable, Hashable {
+    public var bytes: UInt64
+    public var tracks: UInt32
+    public var limitBytes: UInt64
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(bytes: UInt64, tracks: UInt32, limitBytes: UInt64) {
+        self.bytes = bytes
+        self.tracks = tracks
+        self.limitBytes = limitBytes
+    }
+
+    
+
+    
+}
+
+#if compiler(>=6)
+extension CacheUsage: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeCacheUsage: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> CacheUsage {
+        return
+            try CacheUsage(
+                bytes: FfiConverterUInt64.read(from: &buf), 
+                tracks: FfiConverterUInt32.read(from: &buf), 
+                limitBytes: FfiConverterUInt64.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: CacheUsage, into buf: inout [UInt8]) {
+        FfiConverterUInt64.write(value.bytes, into: &buf)
+        FfiConverterUInt32.write(value.tracks, into: &buf)
+        FfiConverterUInt64.write(value.limitBytes, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeCacheUsage_lift(_ buf: RustBuffer) throws -> CacheUsage {
+    return try FfiConverterTypeCacheUsage.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeCacheUsage_lower(_ value: CacheUsage) -> RustBuffer {
+    return FfiConverterTypeCacheUsage.lower(value)
+}
+
+
+/**
+ * A cached track. Play `playlist_path` (byte-range HLS) with `ExoPlayer`, `mp4_path` with `AVPlayer`.
+ */
+public struct CachedTrack: Equatable, Hashable {
+    public var track: Track
+    public var mp4Path: String
+    public var playlistPath: String
+    /**
+     * Tier TIDAL delivered.
+     */
+    public var quality: Quality
+    public var formats: [String]
+    public var trackGain: Gain?
+    public var albumGain: Gain?
+    public var bytes: UInt64
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(track: Track, mp4Path: String, playlistPath: String, 
+        /**
+         * Tier TIDAL delivered.
+         */quality: Quality, formats: [String], trackGain: Gain?, albumGain: Gain?, bytes: UInt64) {
+        self.track = track
+        self.mp4Path = mp4Path
+        self.playlistPath = playlistPath
+        self.quality = quality
+        self.formats = formats
+        self.trackGain = trackGain
+        self.albumGain = albumGain
+        self.bytes = bytes
+    }
+
+    
+
+    
+}
+
+#if compiler(>=6)
+extension CachedTrack: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeCachedTrack: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> CachedTrack {
+        return
+            try CachedTrack(
+                track: FfiConverterTypeTrack.read(from: &buf), 
+                mp4Path: FfiConverterString.read(from: &buf), 
+                playlistPath: FfiConverterString.read(from: &buf), 
+                quality: FfiConverterTypeQuality.read(from: &buf), 
+                formats: FfiConverterSequenceString.read(from: &buf), 
+                trackGain: FfiConverterOptionTypeGain.read(from: &buf), 
+                albumGain: FfiConverterOptionTypeGain.read(from: &buf), 
+                bytes: FfiConverterUInt64.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: CachedTrack, into buf: inout [UInt8]) {
+        FfiConverterTypeTrack.write(value.track, into: &buf)
+        FfiConverterString.write(value.mp4Path, into: &buf)
+        FfiConverterString.write(value.playlistPath, into: &buf)
+        FfiConverterTypeQuality.write(value.quality, into: &buf)
+        FfiConverterSequenceString.write(value.formats, into: &buf)
+        FfiConverterOptionTypeGain.write(value.trackGain, into: &buf)
+        FfiConverterOptionTypeGain.write(value.albumGain, into: &buf)
+        FfiConverterUInt64.write(value.bytes, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeCachedTrack_lift(_ buf: RustBuffer) throws -> CachedTrack {
+    return try FfiConverterTypeCachedTrack.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeCachedTrack_lower(_ value: CachedTrack) -> RustBuffer {
+    return FfiConverterTypeCachedTrack.lower(value)
 }
 
 
@@ -8473,6 +8618,30 @@ fileprivate struct FfiConverterOptionTypeAlbumRef: FfiConverterRustBuffer {
 #if swift(>=5.8)
 @_documentation(visibility: private)
 #endif
+fileprivate struct FfiConverterOptionTypeCachedTrack: FfiConverterRustBuffer {
+    typealias SwiftType = CachedTrack?
+
+    public static func write(_ value: SwiftType, into buf: inout [UInt8]) {
+        guard let value = value else {
+            writeInt(&buf, Int8(0))
+            return
+        }
+        writeInt(&buf, Int8(1))
+        FfiConverterTypeCachedTrack.write(value, into: &buf)
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> SwiftType {
+        switch try readInt(&buf) as Int8 {
+        case 0: return nil
+        case 1: return try FfiConverterTypeCachedTrack.read(from: &buf)
+        default: throw UniffiInternalError.unexpectedOptionalTag
+        }
+    }
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
 fileprivate struct FfiConverterOptionTypeCountry: FfiConverterRustBuffer {
     typealias SwiftType = Country?
 
@@ -8713,6 +8882,31 @@ fileprivate struct FfiConverterOptionSequenceTypeTrack: FfiConverterRustBuffer {
 #if swift(>=5.8)
 @_documentation(visibility: private)
 #endif
+fileprivate struct FfiConverterSequenceUInt64: FfiConverterRustBuffer {
+    typealias SwiftType = [UInt64]
+
+    public static func write(_ value: [UInt64], into buf: inout [UInt8]) {
+        let len = Int32(value.count)
+        writeInt(&buf, len)
+        for item in value {
+            FfiConverterUInt64.write(item, into: &buf)
+        }
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> [UInt64] {
+        let len: Int32 = try readInt(&buf)
+        var seq = [UInt64]()
+        seq.reserveCapacity(Int(len))
+        for _ in 0 ..< len {
+            seq.append(try FfiConverterUInt64.read(from: &buf))
+        }
+        return seq
+    }
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
 fileprivate struct FfiConverterSequenceString: FfiConverterRustBuffer {
     typealias SwiftType = [String]
 
@@ -8780,6 +8974,31 @@ fileprivate struct FfiConverterSequenceTypeArtistRef: FfiConverterRustBuffer {
         seq.reserveCapacity(Int(len))
         for _ in 0 ..< len {
             seq.append(try FfiConverterTypeArtistRef.read(from: &buf))
+        }
+        return seq
+    }
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+fileprivate struct FfiConverterSequenceTypeCachedTrack: FfiConverterRustBuffer {
+    typealias SwiftType = [CachedTrack]
+
+    public static func write(_ value: [CachedTrack], into buf: inout [UInt8]) {
+        let len = Int32(value.count)
+        writeInt(&buf, len)
+        for item in value {
+            FfiConverterTypeCachedTrack.write(item, into: &buf)
+        }
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> [CachedTrack] {
+        let len: Int32 = try readInt(&buf)
+        var seq = [CachedTrack]()
+        seq.reserveCapacity(Int(len))
+        for _ in 0 ..< len {
+            seq.append(try FfiConverterTypeCachedTrack.read(from: &buf))
         }
         return seq
     }
@@ -9167,6 +9386,125 @@ public func setLocale(locale: String)  {try! rustCall() {
         FfiConverterString.lower(locale),uniffiCallStatus
     )
 }
+}
+/**
+ * Stops a running fill of `track_id`; it deletes its partial file.
+ */
+public func audioCacheCancel(trackId: String)  {try! rustCall() {
+        uniffiCallStatus in
+    uniffi_tonearm_ffi_fn_func_audio_cache_cancel(
+        FfiConverterString.lower(trackId),uniffiCallStatus
+    )
+}
+}
+/**
+ * Downloads `track` into the cache unless a copy at `quality` or better is there.
+ *
+ * A fill of a track that is already being filled waits for that one. Fails with `Cancelled` after
+ * `audio_cache_cancel` or `audio_cache_purge`, and while the cache is off. A cancel reaches every fill from the
+ * moment this call starts.
+ */
+public func audioCacheFill(track: Track, quality: Quality)async throws  -> CachedTrack  {
+    return
+        try  await uniffiRustCallAsync(
+            rustFutureFunc: {
+                uniffi_tonearm_ffi_fn_func_audio_cache_fill(FfiConverterTypeTrack_lower(track),FfiConverterTypeQuality_lower(quality)
+                )
+            },
+            pollFunc: ffi_tonearm_ffi_rust_future_poll_rust_buffer,
+            completeFunc: ffi_tonearm_ffi_rust_future_complete_rust_buffer,
+            freeFunc: ffi_tonearm_ffi_rust_future_free_rust_buffer,
+            liftFunc: FfiConverterTypeCachedTrack_lift,
+            errorHandler: FfiConverterTypeFfiError_lift
+        )
+}
+public func audioCacheLimitDefault() -> UInt64  {
+    return try!  FfiConverterUInt64.lift(try! rustCall() {
+        uniffiCallStatus in
+    uniffi_tonearm_ffi_fn_func_audio_cache_limit_default(uniffiCallStatus
+    )
+})
+}
+/**
+ * Size limits to offer in Settings; 0 is Off.
+ */
+public func audioCacheLimitPresets() -> [UInt64]  {
+    return try!  FfiConverterSequenceUInt64.lift(try! rustCall() {
+        uniffiCallStatus in
+    uniffi_tonearm_ffi_fn_func_audio_cache_limit_presets(uniffiCallStatus
+    )
+})
+}
+/**
+ * The cached copy of a track at `quality` or better, without the network.
+ *
+ * Call it for what plays now and what plays next: the files of the last two tracks looked up stay on disk.
+ */
+public func audioCacheLookup(trackId: String, quality: Quality) -> CachedTrack?  {
+    return try!  FfiConverterOptionTypeCachedTrack.lift(try! rustCall() {
+        uniffiCallStatus in
+    uniffi_tonearm_ffi_fn_func_audio_cache_lookup(
+        FfiConverterString.lower(trackId),
+        FfiConverterTypeQuality_lower(quality),uniffiCallStatus
+    )
+})
+}
+/**
+ * Opens the cache in `dir`, a folder of its own inside an OS cache directory: opening deletes every file in `dir`
+ * the cache does not list. Call once at startup; a later call only applies the limit.
+ */
+public func audioCacheOpen(dir: String, limitBytes: UInt64)throws   {try rustCallWithError(FfiConverterTypeFfiError_lift) {
+        uniffiCallStatus in
+    uniffi_tonearm_ffi_fn_func_audio_cache_open(
+        FfiConverterString.lower(dir),
+        FfiConverterUInt64.lower(limitBytes),uniffiCallStatus
+    )
+}
+}
+/**
+ * Empties the cache. With `keep_playing` (Clear Cache), the files of what plays now and next go once they stop
+ * playing; without it (sign-out, after playback stopped), they go now.
+ */
+public func audioCachePurge(keepPlaying: Bool)  {try! rustCall() {
+        uniffiCallStatus in
+    uniffi_tonearm_ffi_fn_func_audio_cache_purge(
+        FfiConverterBool.lower(keepPlaying),uniffiCallStatus
+    )
+}
+}
+public func audioCacheRemove(trackId: String)  {try! rustCall() {
+        uniffiCallStatus in
+    uniffi_tonearm_ffi_fn_func_audio_cache_remove(
+        FfiConverterString.lower(trackId),uniffiCallStatus
+    )
+}
+}
+/**
+ * Applies a new limit now, evicting the least recently played tracks. 0 turns the cache off.
+ */
+public func audioCacheSetLimit(bytes: UInt64)  {try! rustCall() {
+        uniffiCallStatus in
+    uniffi_tonearm_ffi_fn_func_audio_cache_set_limit(
+        FfiConverterUInt64.lower(bytes),uniffiCallStatus
+    )
+}
+}
+/**
+ * Most recently played first.
+ */
+public func audioCacheTracks() -> [CachedTrack]  {
+    return try!  FfiConverterSequenceTypeCachedTrack.lift(try! rustCall() {
+        uniffiCallStatus in
+    uniffi_tonearm_ffi_fn_func_audio_cache_tracks(uniffiCallStatus
+    )
+})
+}
+public func audioCacheUsage() -> CacheUsage  {
+    return try!  FfiConverterTypeCacheUsage_lift(try! rustCall() {
+        uniffiCallStatus in
+    uniffi_tonearm_ffi_fn_func_audio_cache_usage(uniffiCallStatus
+    )
+})
 }
 /**
  * Installs the app's stores. Call once at launch, before any other call.
@@ -9912,6 +10250,39 @@ private let initializationResult: InitializationResult = {
     if (uniffi_tonearm_ffi_checksum_func_set_locale() != 35600) {
         return InitializationResult.apiChecksumMismatch
     }
+    if (uniffi_tonearm_ffi_checksum_func_audio_cache_cancel() != 15826) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_tonearm_ffi_checksum_func_audio_cache_fill() != 59007) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_tonearm_ffi_checksum_func_audio_cache_limit_default() != 16931) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_tonearm_ffi_checksum_func_audio_cache_limit_presets() != 9010) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_tonearm_ffi_checksum_func_audio_cache_lookup() != 39229) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_tonearm_ffi_checksum_func_audio_cache_open() != 57295) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_tonearm_ffi_checksum_func_audio_cache_purge() != 6113) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_tonearm_ffi_checksum_func_audio_cache_remove() != 43560) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_tonearm_ffi_checksum_func_audio_cache_set_limit() != 21097) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_tonearm_ffi_checksum_func_audio_cache_tracks() != 3088) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_tonearm_ffi_checksum_func_audio_cache_usage() != 60981) {
+        return InitializationResult.apiChecksumMismatch
+    }
     if (uniffi_tonearm_ffi_checksum_func_initialize() != 14287) {
         return InitializationResult.apiChecksumMismatch
     }
@@ -10137,7 +10508,7 @@ private let initializationResult: InitializationResult = {
     if (uniffi_tonearm_ffi_checksum_method_spotifyimport_cancel() != 45886) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_tonearm_ffi_checksum_method_spotifyimport_run() != 62141) {
+    if (uniffi_tonearm_ffi_checksum_method_spotifyimport_run() != 46057) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_tonearm_ffi_checksum_method_albumpager_next_page() != 49338) {

@@ -260,8 +260,15 @@ pub fn on_playing_retry_exit(playbin: &dyn Playbin, position: Duration) {
 
 async fn fetch_track_manifest(track_id: &str) -> Result<TrackManifest> {
     let id = track_id.to_string();
-    api::run(move || service::get_track_manifest(&id))
-        .await
+    let quality = settings::audio_quality();
+    api::run(move || {
+        if let Some(m) = super::audio_cache::manifest(&id, quality) {
+            return Ok(m);
+        }
+        tonearm_core::audio_cache::cancel(&id);
+        service::get_track_manifest(&id)
+    })
+    .await
         .map_err(|e| anyhow!("failed to fetch and enqueue track: {e}"))
 }
 
@@ -350,6 +357,8 @@ pub enum Trigger {
     /// Runs a queue action (next / previous) once the triggers queued before
     /// it were handled, so it sees the track their start made current.
     Deferred(Box<dyn FnOnce()>),
+    /// Runs once the triggers queued before it were handled, even when a Stop waits behind it: cleanup, not a start.
+    AfterStop(Box<dyn FnOnce()>),
     /// Reports a playback error (track id, message) once the deferred
     /// next / previous queued before it turned out to start nothing.
     ReportError(Option<String>, String),
@@ -374,6 +383,7 @@ impl std::fmt::Debug for Trigger {
             Trigger::PlayTrackId(..) => "TRIGGER_PLAY_TRACK_ID",
             Trigger::PlayTrack(..) => "TRIGGER_PLAY_TRACK",
             Trigger::Deferred(_) => "deferred",
+            Trigger::AfterStop(_) => "after-stop",
             Trigger::ReportError(..) => "report-error",
             Trigger::Pause => "TRIGGER_PAUSE",
             Trigger::Resume => "TRIGGER_RESUME",
@@ -437,6 +447,8 @@ pub struct Machine {
     /// The token expired while paused: the stream was torn down and is
     /// fetched again on resume.
     reload_on_resume: Cell<bool>,
+    /// The retry's cached copy failed and is gone: one more retry streams instead of stopping.
+    retry_streamed: Cell<bool>,
     hooks: Hooks,
 }
 
@@ -460,6 +472,7 @@ impl Machine {
             pause_on_start: Cell::new(false),
             buffering: Cell::new(false),
             reload_on_resume: Cell::new(false),
+            retry_streamed: Cell::new(false),
             hooks,
         })
     }
@@ -518,7 +531,7 @@ impl Machine {
         }
     }
 
-    fn has_queued_stop_or_start(&self) -> bool {
+    pub fn has_queued_stop_or_start(&self) -> bool {
         self.queue.borrow().iter().any(|t| matches!(t, Trigger::Stop | Trigger::PlayTrack(..) | Trigger::PlayTrackId(..)))
     }
 
@@ -532,6 +545,24 @@ impl Machine {
     pub fn start_pending(&self) -> bool {
         self.handling_start.get()
             || self.queue.borrow().iter().any(|t| matches!(t, Trigger::PlayTrack(..) | Trigger::PlayTrackId(..) | Trigger::Deferred(_)))
+    }
+
+    pub fn preparing(&self) -> bool {
+        self.state.get() == State::Preparing
+    }
+
+    /// Whether the track preparing now starts paused: paused while it prepared, or a start that seeks first.
+    pub fn preparing_paused(&self) -> bool {
+        self.pause_on_start.get()
+    }
+
+    pub fn retrying(&self) -> bool {
+        self.state.get() == State::PlayingRetrying
+    }
+
+    /// The next `TokenExpired` of this retry reloads it once more instead of stopping.
+    pub fn retry_once_more(&self) {
+        self.retry_streamed.set(true);
     }
 
     /// Whether the machine is stopped and nothing is about to start playback.
@@ -576,6 +607,7 @@ impl Machine {
             (Preparing, Trigger::TokenExpired) => Some(Stopped),
             (Preparing, Trigger::StreamStart) => Some(Playing),
             (PlayingGapless | PlayingRetrying, Trigger::StreamStart) => Some(Playing),
+            (PlayingRetrying, Trigger::TokenExpired) if self.retry_streamed.replace(false) => Some(PlayingRetrying),
             (PlayingRetrying, Trigger::TokenExpired) => Some(Stopped),
             (Paused | Preparing | Playing | PlayingGapless | PlayingRetrying, Trigger::Error(_)) => Some(Stopped),
             (_, _) if s.is_playing() => match t {
@@ -590,6 +622,10 @@ impl Machine {
     }
 
     async fn handle(self: &Rc<Self>, t: Trigger) {
+        if let Trigger::AfterStop(action) = t {
+            action();
+            return;
+        }
         if let Trigger::Deferred(action) = t {
             // A Stop pressed after it wins; don't take a track for nothing.
             if self.has_queued_stop() {
@@ -676,6 +712,7 @@ impl Machine {
         }
         if matches!(to, State::Preparing | State::Stopped) {
             self.pause_on_start.set(false);
+            self.retry_streamed.set(false);
             self.buffering.set(false);
             self.retry_position.set(None);
         }

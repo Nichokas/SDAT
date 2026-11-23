@@ -32,6 +32,8 @@ uniffi = "0.32"
 blocking = "1"
 thiserror = "2"
 log = "0.4.35"
+serde = { version = "1.0.229", features = ["derive"] }
+serde_json = "1.0.154"
 
 [lints]
 workspace = true

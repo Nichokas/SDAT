@@ -317,6 +317,24 @@ fn deferred_action_fires_ahead_of_later_triggers() {
     .unwrap();
 }
 
+/// Cleanup queued behind a Stop runs even when another Stop follows it.
+#[test]
+fn after_stop_runs_despite_a_later_stop() {
+    let ctx = glib::MainContext::new();
+    ctx.with_thread_default(|| {
+        let m = Machine::new(Rc::new(Testbin::default()), Hooks::default());
+        let ran = Rc::new(Cell::new(false));
+        let r = Rc::clone(&ran);
+        m.queue.borrow_mut().push_back(Trigger::Stop);
+        m.queue.borrow_mut().push_back(Trigger::AfterStop(Box::new(move || r.set(true))));
+        m.fire(Trigger::Stop);
+        while ctx.iteration(false) {}
+        assert!(ran.get());
+        assert_eq!(m.state.get(), State::Stopped);
+    })
+    .unwrap();
+}
+
 /// A pause while the track is still preparing (Listen Together guest
 /// loading a host track paused) holds the pipeline and makes the stream
 /// start paused instead of playing from 0:00.
@@ -882,6 +900,21 @@ fn gapless_lifecycle_hooks_coordinate_arm_promote_and_cancel() {
         assert!(!m.has_armed_gapless());
         assert_eq!(GAPLESS_EVENTS.with(|e| e.borrow().clone()), ["arm:https://example.invalid/d", "promote:d"]);
         on_playing_exit();
+    })
+    .unwrap();
+}
+
+/// A retry whose cached copy failed reloads once more, from the stream; a retry that fails again stops.
+#[test]
+fn a_retry_whose_cached_copy_failed_retries_once_more() {
+    let ctx = glib::MainContext::new();
+    ctx.with_thread_default(|| {
+        let m = Machine::new(Rc::new(Testbin::default()), Hooks::default());
+        m.state.set(State::PlayingRetrying);
+        assert_eq!(m.target(&Trigger::TokenExpired), Some(State::Stopped));
+        m.retry_once_more();
+        assert_eq!(m.target(&Trigger::TokenExpired), Some(State::PlayingRetrying));
+        assert_eq!(m.target(&Trigger::TokenExpired), Some(State::Stopped));
     })
     .unwrap();
 }

@@ -199,6 +199,21 @@ pub fn max_router_history_size() -> i32 {
     performance().int("max-router-history-size")
 }
 
+const AUDIO_CACHE_LIMIT: &str = "audio-cache-limit";
+
+fn has_audio_cache_limit() -> bool {
+    performance().settings_schema().is_some_and(|s| s.has_key(AUDIO_CACHE_LIMIT))
+}
+/// Bytes; 0 is off. The default when an older installed schema has no such key.
+pub fn audio_cache_limit() -> u64 {
+    if has_audio_cache_limit() { performance().uint64(AUDIO_CACHE_LIMIT) } else { tonearm_core::audio_cache::LIMIT_DEFAULT }
+}
+pub fn set_audio_cache_limit(bytes: u64) {
+    if has_audio_cache_limit() {
+        warn_on_err(AUDIO_CACHE_LIMIT, performance().set_uint64(AUDIO_CACHE_LIMIT, bytes));
+    }
+}
+
 // ---- playback ----
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ReplayGainMode {

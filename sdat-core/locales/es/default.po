@@ -760,6 +760,41 @@ msgstr "Región del catálogo para las peticiones a TIDAL; Automático usa el pa
 msgid "Automatic"
 msgstr "Automático"
 
+msgid "Audio Cache"
+msgstr "Caché de audio"
+
+msgid "Keep played and upcoming tracks on disk, so they start sooner and play without the network"
+msgstr "Guarda en el disco las pistas reproducidas y las siguientes, para que empiecen antes y suenen sin conexión"
+
+msgid "Cached Tracks"
+msgstr "Pistas en caché"
+
+msgid "%s of %s · %d track"
+msgid_plural "%s of %s · %d tracks"
+msgstr[0] "%s de %s · %d pista"
+msgstr[1] "%s de %s · %d pistas"
+
+msgid "Off"
+msgstr "Desactivada"
+
+msgid "Clear"
+msgstr "Vaciar"
+
+msgid "Clear the audio cache?"
+msgstr "¿Vaciar la caché de audio?"
+
+msgid "Cached tracks are deleted. They download again when you play them."
+msgstr "Se borran las pistas en caché. Se vuelven a descargar cuando las reproduzcas."
+
+msgid "Audio cache cleared"
+msgstr "Caché de audio vaciada"
+
+msgid "Cache Size"
+msgstr "Tamaño de la caché"
+
+msgid "When the cache is full, the tracks played longest ago are deleted first"
+msgstr "Cuando la caché se llena, se borran primero las pistas reproducidas hace más tiempo"
+
 #~ msgid ""
 #~ "Allow Tonearm to temporarily store images on the file system to improve "
 #~ "performance and reduce network traffic"
