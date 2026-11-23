@@ -803,6 +803,9 @@ final class Player: LivePlaybackPort {
             return
         }
         let started = starts
+        // A lookup protects the files of the last two tracks looked up: the playing one first, as it may have been the
+        // preload a moment ago, then the next.
+        _ = audioCacheLookup(trackId: cur.id, quality: Preferences.shared.streamingQuality)
         preloadTask = Task {
             if Self.caching, Self.local(next.id) == nil {
                 if duration - position > Self.fillDeadline { fill(next) }
@@ -812,10 +815,7 @@ final class Player: LivePlaybackPort {
                 // A cancelled preload leaves a fill that a new one for the same track still waits on.
                 if filling == next.id, !Task.isCancelled || following()?.0.id != next.id { cancelFill() }
             }
-            let found = try? await Self.source(next.id)
-            // A lookup protects the files of the last two tracks looked up: after a new next track, the playing one again.
-            if current?.id == cur.id { _ = audioCacheLookup(trackId: cur.id, quality: Preferences.shared.streamingQuality) }
-            guard let s = found,
+            guard let s = try? await Self.source(next.id),
                   !Task.isCancelled, !liveEngine.liveFollowing, starts == started,
                   current?.id == cur.id, let url = URL(string: s.stream.url),
                   let curItem = avPlayer.currentItem, curItem === playingItem else { return }
