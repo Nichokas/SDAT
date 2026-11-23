@@ -302,10 +302,10 @@ class Playback(context: Context, private val prefs: Preferences, secrets: Secret
                 val t = track ?: return fail(e.errorCodeName)
                 // Counts deep sleep, which uptime skips: the expiry follows a pause of hours.
                 val now = SystemClock.elapsedRealtime()
-                // A broken download spends no budget: a new play picks the same file again, and only its online
-                // stream can help.
+                // A broken download or cached copy spends no budget: only the online stream can help, and a removed
+                // cached copy is not played again.
                 if (origin == Origin.CACHED) AudioCache.remove(t.id)
-                if (origin != Origin.DOWNLOADED) {
+                if (origin == Origin.NETWORK) {
                     if (!refetchDue(refetched, t.id, now)) return fail(e.errorCodeName)
                     refetched = t.id to now
                 }
@@ -794,10 +794,10 @@ class Playback(context: Context, private val prefs: Preferences, secrets: Secret
     /** The fill replaces the stream's preload, so on a poor network the next track starts from disk without being
      * downloaded twice. */
     private suspend fun nextSource(next: Track): Source {
-        val cached = local(next)
-        // A lookup protects the files of the last two tracks looked up: after a new next track, the playing one again.
+        // A lookup protects the files of the last two tracks looked up: the playing one first, as it may have been
+        // the preload a moment ago, then the next.
         track?.let { AudioCache.lookup(it.id, prefs.streamingQuality) }
-        cached?.let { return it }
+        local(next)?.let { return it }
         if (AudioCache.on) fills.inTime(next) { fills.filling != null }?.let { return cachedSource(it) }
         return streamed(next)
     }
