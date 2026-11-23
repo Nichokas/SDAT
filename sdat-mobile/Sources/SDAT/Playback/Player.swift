@@ -807,7 +807,7 @@ final class Player: LivePlaybackPort {
         // preload a moment ago, then the next.
         _ = audioCacheLookup(trackId: cur.id, quality: Preferences.shared.streamingQuality)
         preloadTask = Task {
-            if Self.caching, Self.local(next.id) == nil {
+            if Self.caching, mayFill, Self.local(next.id) == nil {
                 if duration - position > Self.fillDeadline { fill(next) }
                 while !Task.isCancelled, filling == next.id, duration - position > Self.fillDeadline {
                     try? await Task.sleep(for: .milliseconds(500))
@@ -856,13 +856,18 @@ final class Player: LivePlaybackPort {
         filling = nil
     }
 
-    /// The streamed current track goes into the cache for its next play once the next track is local. Its bytes
-    /// come down a second time, so only on a link that costs no mobile data, unless downloads may use cellular.
-    private func fillCold(_ t: Track) {
+    /// A whole track may be downloaded now. A skipped next track or a replay of a streamed one costs data a stream
+    /// would not, so only on a link that costs no mobile data, unless downloads may use cellular.
+    private var mayFill: Bool {
         let path = network.currentPath
         let unmetered = path.status == .satisfied && !path.isExpensive && !path.isConstrained
-        guard Self.caching, filling == nil, origin == .network,
-              unmetered || Preferences.shared.downloadOverCellular else { return }
+        return unmetered || Preferences.shared.downloadOverCellular
+    }
+
+    /// The streamed current track goes into the cache for its next play once the next track is local. Its bytes
+    /// come down a second time.
+    private func fillCold(_ t: Track) {
+        guard Self.caching, filling == nil, origin == .network, mayFill else { return }
         fill(t)
     }
 
