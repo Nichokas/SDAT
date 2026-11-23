@@ -3,6 +3,7 @@ package com.nichokas.sdat.core
 import android.content.Context
 import android.net.Uri
 import android.os.SystemClock
+import android.util.Log
 import androidx.annotation.OptIn
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
@@ -305,6 +306,7 @@ class Playback(context: Context, private val prefs: Preferences, secrets: Secret
                 // A broken download or cached copy spends no budget: only the online stream can help, and a removed
                 // cached copy is not played again.
                 if (origin == Origin.CACHED) {
+                    Log.w("SDAT/audio-cache", "cached track ${t.id} failed to play (${e.errorCodeName}); streaming it instead")
                     AudioCache.remove(t.id)
                     // The online stream that replaces it gets a refetch of its own.
                     refetched = null
