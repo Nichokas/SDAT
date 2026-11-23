@@ -31,12 +31,13 @@ internal class CacheFills(
 
     /** Whether a whole track may be downloaded now: a skipped next track or a replay of a streamed one costs data a
      * stream would not, so only on an unmetered network or with downloads over cellular allowed. */
-    fun mayFill() = prefs.downloadOverCellular ||
+    private fun mayFill() = prefs.downloadOverCellular ||
         connectivity.getNetworkCapabilities(connectivity.activeNetwork)?.hasCapability(NetworkCapabilities.NET_CAPABILITY_NOT_METERED) == true
 
-    /** Fills [t] at the streaming quality as [fillStep] allows; null when it gives up or fails. */
+    /** Fills [t] at the streaming quality as [fillStep] and [mayFill] allow; null when it gives up or fails. */
     suspend fun inTime(t: Track, blocked: () -> Boolean): CachedTrack? {
         while (true) {
+            if (!mayFill()) return null
             val headroom = hasHeadroom(player.playbackState == Player.STATE_READY, player.currentPosition, player.bufferedPosition, durationMs())
             when (fillStep(remainingMs(), headroom, blocked())) {
                 FillStep.Start -> break
@@ -51,7 +52,7 @@ internal class CacheFills(
         try {
             while (fill.isActive) {
                 // A stalled stream needs the bandwidth more than the fill.
-                if (player.playbackState == Player.STATE_BUFFERING) return null
+                if (player.playbackState == Player.STATE_BUFFERING || !mayFill()) return null
                 if (fillStep(remainingMs(), headroom = true, blocked = false) == FillStep.GiveUp) return null
                 delay(FILL_POLL_MS)
             }

@@ -804,7 +804,7 @@ class Playback(context: Context, private val prefs: Preferences, secrets: Secret
         // the preload a moment ago, then the next.
         track?.let { AudioCache.lookup(it.id, prefs.streamingQuality) }
         local(next)?.let { return it }
-        if (AudioCache.on && fills.mayFill()) fills.inTime(next) { fills.filling != null }?.let { return cachedSource(it) }
+        if (AudioCache.on) fills.inTime(next) { fills.filling != null }?.let { return cachedSource(it) }
         return streamed(next)
     }
 
@@ -814,7 +814,6 @@ class Playback(context: Context, private val prefs: Preferences, secrets: Secret
         val nextPending = { preloading != null && preloaded == null }
         if (replay?.isActive == true || nextPending() || origin != Origin.NETWORK || !AudioCache.on || liveEngine.liveFollowing) return
         if (busy || player.currentMediaItem?.mediaId != t.id) return
-        if (!fills.mayFill()) return
         replay = scope.launch { fills.inTime(t) { fills.filling != null || nextPending() } }
     }
 
