@@ -498,16 +498,19 @@ impl Store {
             return Err(cancelled());
         }
         let manifest = self.upstream.manifest(id, quality)?;
+        if cancel.load(Ordering::Relaxed) {
+            return Err(cancelled());
+        }
         let (mut text, mut base) = if let Some(text) = hls::decode_data_url(&manifest.url)? {
             (text, None)
         } else {
             let (body, from) = self.get_with_retry(&Url::parse(&manifest.url)?, cancel)?;
-            (String::from_utf8_lossy(&body).into_owned(), Some(from))
+            (playlist_text(body)?, Some(from))
         };
         if hls::is_master(&text) {
             let variant = hls::best_variant(&text, base.as_ref()).ok_or_else(|| hls::unsupported("master playlist"))?;
             let (body, from) = self.get_with_retry(&variant.uri, cancel)?;
-            text = String::from_utf8_lossy(&body).into_owned();
+            text = playlist_text(body)?;
             base = Some(from);
         }
         let media = hls::media(&text, base.as_ref())?;
@@ -618,6 +621,18 @@ impl Store {
     }
 }
 
+/// Whether the cache could have written `name`: a track's files, a fill's partial ones, or the index's.
+fn ours(name: &str) -> bool {
+    let digits = |s: &str| !s.is_empty() && s.bytes().all(|b| b.is_ascii_digit());
+    let (stem, ext) = name.split_once('.').unwrap_or((name, ""));
+    let track = stem.split_once('-').is_some_and(|(id, file)| digits(id) && digits(file));
+    (track && matches!(ext, "mp4" | "m3u8" | "part" | "m3u8.part")) || name == INDEX || name == format!("{INDEX}.tmp")
+}
+
+fn playlist_text(body: Vec<u8>) -> CoreResult<String> {
+    String::from_utf8(body).map_err(|_e| hls::unsupported("playlist that is not UTF-8"))
+}
+
 fn intact(c: &Cached) -> bool {
     fs::metadata(&c.mp4).is_ok_and(|m| m.len() == c.bytes) && c.playlist.is_file()
 }
@@ -636,7 +651,8 @@ fn reconcile(dir: &Path, mut index: Index) -> CoreResult<Index> {
         ok
     });
     for f in fs::read_dir(dir)?.flatten() {
-        if !keep.iter().any(|k| f.file_name() == k.as_str()) {
+        let name = f.file_name();
+        if name.to_str().is_some_and(ours) && !keep.iter().any(|k| name == k.as_str()) {
             let _ = fs::remove_file(f.path());
         }
     }

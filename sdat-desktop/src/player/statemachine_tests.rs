@@ -885,3 +885,18 @@ fn gapless_lifecycle_hooks_coordinate_arm_promote_and_cancel() {
     })
     .unwrap();
 }
+
+/// A retry whose cached copy failed reloads once more, from the stream; a retry that fails again stops.
+#[test]
+fn a_retry_whose_cached_copy_failed_retries_once_more() {
+    let ctx = glib::MainContext::new();
+    ctx.with_thread_default(|| {
+        let m = Machine::new(Rc::new(Testbin::default()), Hooks::default());
+        m.state.set(State::PlayingRetrying);
+        assert_eq!(m.target(&Trigger::TokenExpired), Some(State::Stopped));
+        m.retry_once_more();
+        assert_eq!(m.target(&Trigger::TokenExpired), Some(State::PlayingRetrying));
+        assert_eq!(m.target(&Trigger::TokenExpired), Some(State::Stopped));
+    })
+    .unwrap();
+}

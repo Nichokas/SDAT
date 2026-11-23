@@ -386,6 +386,7 @@ fn reconcile_cleans_up_once_and_then_changes_nothing() {
     fs::write(&truncated.mp4, b"short").unwrap();
     fs::write(dir.0.join("3-9.part"), b"interrupted").unwrap();
     fs::write(dir.0.join("4-9.mp4"), b"unindexed").unwrap();
+    fs::write(dir.0.join("notes.txt"), b"not the cache's").unwrap();
 
     let store = open(&dir, LIMIT_DEFAULT, &fake);
     let kept = store.entries();
@@ -393,7 +394,7 @@ fn reconcile_cleans_up_once_and_then_changes_nothing() {
     drop(store);
     let (listing, index) = (files(&dir), fs::read(dir.0.join(INDEX)).unwrap());
     let name = |p: &PathBuf| p.file_name().unwrap().to_str().unwrap().to_owned();
-    assert_eq!(listing, [name(&kept[0].playlist), name(&kept[0].mp4), INDEX.to_owned()]);
+    assert_eq!(listing, [name(&kept[0].playlist), name(&kept[0].mp4), INDEX.to_owned(), "notes.txt".to_owned()]);
     drop(open(&dir, LIMIT_DEFAULT, &fake));
     assert_eq!((files(&dir), fs::read(dir.0.join(INDEX)).unwrap()), (listing, index));
 }

@@ -372,7 +372,13 @@ fn stream_after_cached_copy_failed(id: &str) {
                 fire(Trigger::Pause);
             }
         }
-        Some(t) if t.id() == id => fire(Trigger::TokenExpired),
+        Some(t) if t.id() == id => {
+            // A retry that failed again would stop, but this one streams now.
+            if with(|p| p.machine.retrying()).unwrap_or(false) {
+                with(|p| p.machine.retry_once_more());
+            }
+            fire(Trigger::TokenExpired);
+        }
         // During a gapless handoff the failed copy is the next track's: the current one restarts and hands off to its
         // stream.
         _ if peek_gapless().is_some_and(|e| e.track.id() == id) => fire(Trigger::TokenExpired),

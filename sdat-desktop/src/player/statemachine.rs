@@ -444,6 +444,8 @@ pub struct Machine {
     /// The token expired while paused: the stream was torn down and is
     /// fetched again on resume.
     reload_on_resume: Cell<bool>,
+    /// The retry's cached copy failed and is gone: one more retry streams instead of stopping.
+    retry_streamed: Cell<bool>,
     hooks: Hooks,
 }
 
@@ -467,6 +469,7 @@ impl Machine {
             pause_on_start: Cell::new(false),
             buffering: Cell::new(false),
             reload_on_resume: Cell::new(false),
+            retry_streamed: Cell::new(false),
             hooks,
         })
     }
@@ -550,6 +553,15 @@ impl Machine {
         self.pause_on_start.get()
     }
 
+    pub fn retrying(&self) -> bool {
+        self.state.get() == State::PlayingRetrying
+    }
+
+    /// The next `TokenExpired` of this retry reloads it once more instead of stopping.
+    pub fn retry_once_more(&self) {
+        self.retry_streamed.set(true);
+    }
+
     /// Whether the machine is stopped and nothing is about to start playback.
     pub fn stopped_without_pending_start(&self) -> bool {
         self.state.get() == State::Stopped && !self.start_pending()
@@ -592,6 +604,7 @@ impl Machine {
             (Preparing, Trigger::TokenExpired) => Some(Stopped),
             (Preparing, Trigger::StreamStart) => Some(Playing),
             (PlayingGapless | PlayingRetrying, Trigger::StreamStart) => Some(Playing),
+            (PlayingRetrying, Trigger::TokenExpired) if self.retry_streamed.replace(false) => Some(PlayingRetrying),
             (PlayingRetrying, Trigger::TokenExpired) => Some(Stopped),
             (Paused | Preparing | Playing | PlayingGapless | PlayingRetrying, Trigger::Error(_)) => Some(Stopped),
             (_, _) if s.is_playing() => match t {
@@ -692,6 +705,7 @@ impl Machine {
         }
         if matches!(to, State::Preparing | State::Stopped) {
             self.pause_on_start.set(false);
+            self.retry_streamed.set(false);
             self.buffering.set(false);
             self.retry_position.set(None);
         }

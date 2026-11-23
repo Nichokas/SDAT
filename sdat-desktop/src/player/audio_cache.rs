@@ -37,6 +37,8 @@ static DEMUXER: Mutex<Option<glib::WeakRef<gst::Element>>> = Mutex::new(None);
 thread_local! {
     static PENDING: Cell<bool> = const { Cell::new(false) };
     static PLANNED: RefCell<Vec<String>> = const { RefCell::new(Vec::new()) };
+    /// The next track when the fills were last planned: a queue edit that changes it plans again.
+    static PLANNED_NEXT: RefCell<Option<String>> = const { RefCell::new(None) };
 }
 
 pub fn init() {
@@ -170,15 +172,19 @@ pub fn on_playback_state(s: &PlaybackState) {
             PENDING.set(true);
         }
     }
-    if !PENDING.get() || !has_headroom(s) {
+    if !has_headroom(s) {
+        return;
+    }
+    let next = peek_gapless().map(|e| e.track.id().to_owned());
+    if !PENDING.get() && PLANNED_NEXT.with(|n| *n.borrow() == next) {
         return;
     }
     PENDING.set(false);
+    PLANNED_NEXT.set(next.clone());
     if settings::audio_cache_limit() == 0 {
         return;
     }
     let current = track_changed().with(|t| t.as_ref().map(|e| e.track.id().to_owned()));
-    let next = peek_gapless().map(|e| e.track.id().to_owned());
     let mut tracks: Vec<String> = next.into_iter().chain(current).collect();
     tracks.dedup();
     // The new plan first, so the worker begins no fill of the old one after the cancels below.
