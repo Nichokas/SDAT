@@ -29,8 +29,9 @@ internal class CacheFills(
     var filling: String? = null
         private set
 
-    /** Whether a track that streamed may be downloaded a second time now. */
-    fun mayDownloadAgain() = prefs.downloadOverCellular ||
+    /** Whether a whole track may be downloaded now: a skipped next track or a replay of a streamed one costs data a
+     * stream would not, so only on an unmetered network or with downloads over cellular allowed. */
+    fun mayFill() = prefs.downloadOverCellular ||
         connectivity.getNetworkCapabilities(connectivity.activeNetwork)?.hasCapability(NetworkCapabilities.NET_CAPABILITY_NOT_METERED) == true
 
     /** Fills [t] at the streaming quality as [fillStep] allows; null when it gives up or fails. */

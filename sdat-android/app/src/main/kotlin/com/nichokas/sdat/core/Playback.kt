@@ -802,18 +802,17 @@ class Playback(context: Context, private val prefs: Preferences, secrets: Secret
         // the preload a moment ago, then the next.
         track?.let { AudioCache.lookup(it.id, prefs.streamingQuality) }
         local(next)?.let { return it }
-        if (AudioCache.on) fills.inTime(next) { fills.filling != null }?.let { return cachedSource(it) }
+        if (AudioCache.on && fills.mayFill()) fills.inTime(next) { fills.filling != null }?.let { return cachedSource(it) }
         return streamed(next)
     }
 
-    /** Fills a current track that streams cold, once the next one is settled. That downloads it a second time, so only
-     * on an unmetered network or with downloads over cellular allowed. */
+    /** Fills a current track that streams cold, once the next one is settled. That downloads it a second time. */
     private fun syncReplay() {
         val t = track ?: return
         val nextPending = { preloading != null && preloaded == null }
         if (replay?.isActive == true || nextPending() || origin != Origin.NETWORK || !AudioCache.on || liveEngine.liveFollowing) return
         if (busy || player.currentMediaItem?.mediaId != t.id) return
-        if (!fills.mayDownloadAgain()) return
+        if (!fills.mayFill()) return
         replay = scope.launch { fills.inTime(t) { fills.filling != null || nextPending() } }
     }
 
