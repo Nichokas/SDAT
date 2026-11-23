@@ -19,6 +19,7 @@ final class Session {
             withIntermediateDirectories: true
         )
         initialize(tokens: tokens, config: DefaultsAppConfig())
+        AudioCache.open()
         signedIn = tokens.refreshToken() != nil
     }
 
@@ -79,6 +80,7 @@ final class Session {
         HandoffHub.shared.signOut()
         Live.shared.signOut()
         Player.shared.stopAndClear()
+        AudioCache.shared.purge(keepPlaying: false)
         tokens.clear()
         sessionChanged()
         clearAccountState()

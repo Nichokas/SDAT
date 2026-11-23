@@ -1,6 +1,7 @@
 import AVFoundation
 import Combine
 import MediaPlayer
+import Network
 import Observation
 import UIKit
 
@@ -10,6 +11,8 @@ final class Player: LivePlaybackPort {
     static let shared = Player()
 
     enum Repeat { case off, all, one }
+    enum Origin { case network, cached, downloaded }
+    struct Source { var stream: Stream; var origin: Origin }
 
     /// Base queue (album, playlist, mix...) and position in it.
     private(set) var queue: [Track] = [] { didSet { queueVersion &+= 1 } }
@@ -29,11 +32,10 @@ final class Player: LivePlaybackPort {
     private(set) var loading = false
     private(set) var position: Double = 0
     private(set) var duration: Double = 0
-    private(set) var stream: Stream? {
-        didSet { if let q = stream?.actualQuality, q != shownQuality { shownQuality = q } }
+    private(set) var loaded: Source? {
+        didSet { if let q = loaded?.stream.actualQuality, q != shownQuality { shownQuality = q } }
     }
-    /// True when the current item plays the downloaded file, not the online stream.
-    var isOffline: Bool { stream.flatMap { URL(string: $0.url) }?.isFileURL ?? false }
+    var origin: Origin { loaded?.origin ?? .network }
     /// Badge quality: keeps the previous value until the new stream's real quality is known.
     private(set) var shownQuality: Quality?
     private(set) var sourceTitle: String?
@@ -62,7 +64,10 @@ final class Player: LivePlaybackPort {
     private var loadTask: Task<Void, Never>?
     private var preloadTask: Task<Void, Never>?
     @ObservationIgnored private var advanceTask: Task<Void, Never>?
-    private var preloaded: (trackId: String, item: AVPlayerItem, stream: Stream)?
+    private var preloaded: (trackId: String, item: AVPlayerItem, source: Source)?
+    @ObservationIgnored private var filling: String?
+    @ObservationIgnored private var fillGen = 0
+    private let network = NWPathMonitor()
     /// The engine item of `current`: ends of other items are stale.
     @ObservationIgnored private var playingItem: AVPlayerItem? {
         didSet { if playingItem !== oldValue { watchFailure(playingItem) } }
@@ -79,6 +84,7 @@ final class Player: LivePlaybackPort {
         avPlayer.actionAtItemEnd = .advance
         configureSession()
         configureRemote()
+        network.start(queue: .main)
         Task { await restore() }
         timeObserver = avPlayer.addPeriodicTimeObserver(
             forInterval: CMTime(seconds: 0.25, preferredTimescale: 600), queue: .main
@@ -404,6 +410,7 @@ final class Player: LivePlaybackPort {
         advanceTask?.cancel(); advanceTask = nil
         cancelRefill()
         clearPreload()
+        cancelFill()
         infinite = nil
         restoredInfinite = false
         discoverWait &+= 1
@@ -420,7 +427,7 @@ final class Player: LivePlaybackPort {
         savedQueueVersion = -1; savedQueueRange = 0..<0
         queue = []; original = []; userQueue = []; index = nil; current = nil
         loading = false; liveEngine.loadResumeAt = nil
-        position = 0; duration = 0; stream = nil; artwork = nil; sourceTitle = nil; error = nil
+        position = 0; duration = 0; loaded = nil; artwork = nil; sourceTitle = nil; error = nil
         needsStart = false
         reportPlaying(false)
     }
@@ -492,7 +499,7 @@ final class Player: LivePlaybackPort {
 
     /// A track not loaded yet (restored, or a failed start) fetches the new quality on its first play.
     func reloadQuality() {
-        guard let t = current, !needsStart, !isOffline else { return }
+        guard let t = current, !needsStart, origin != .downloaded else { return }
         start(t, resumeAt: position, autoplay: isPlaying || (loading && !pausedByUser))
     }
 
@@ -555,7 +562,7 @@ final class Player: LivePlaybackPort {
             preloaded = nil
             let play = autoplayAfterEnd()
             playingItem = p.item
-            adopt(t, stream: p.stream)
+            adopt(t, loaded: p.source)
             if play { avPlayer.play() } else { avPlayer.pause() }
             isPlaying = play
             afterStart(t)
@@ -601,9 +608,9 @@ final class Player: LivePlaybackPort {
         start(queue[i], resumeAt: resumeAt, autoplay: autoplay)
     }
 
-    private func adopt(_ track: Track, stream s: Stream?) {
+    private func adopt(_ track: Track, loaded s: Source?) {
         current = track
-        stream = s
+        loaded = s
         position = 0
         duration = Double(track.durationSecs)
         listened = 0
@@ -625,7 +632,7 @@ final class Player: LivePlaybackPort {
         let mine = starts
         let exact = exactResume
         exactResume = false
-        adopt(track, stream: nil)
+        adopt(track, loaded: nil)
         loading = true
         position = resumeAt
         liveEngine.loadResumeAt = resumeAt
@@ -633,12 +640,13 @@ final class Player: LivePlaybackPort {
         playingItem = nil
         advanceTask?.cancel(); advanceTask = nil
         clearPreload()
+        if filling == track.id { cancelFill() }
         loadTask?.cancel()
         loadTask = Task {
             do {
                 let s = try await online ? Self.online(track.id) : Self.source(track.id)
-                guard !Task.isCancelled, starts == mine, current?.id == track.id, let url = URL(string: s.url) else { return }
-                stream = s
+                guard !Task.isCancelled, starts == mine, current?.id == track.id, let url = URL(string: s.stream.url) else { return }
+                loaded = s
                 let shouldAlign = liveEngine.shouldAlign(autoplay: autoplay && !holdAutoplay)
                 if shouldAlign || resumeAt > 0 || !autoplay || holdAutoplay { avPlayer.pause() }
                 avPlayer.removeAllItems()
@@ -699,13 +707,19 @@ final class Player: LivePlaybackPort {
     private func streamFailed(_ item: AVPlayerItem) {
         guard item === playingItem, let t = current else { return }
         let now = Date()
-        // A broken download spends no budget: a new play picks the same file again, and only its online stream can help.
-        if !isOffline {
+        // A broken local copy spends no budget: only the online stream can help.
+        switch origin {
+        case .network:
             guard Self.refetchDue(refetched, t.id, now: now) else {
                 fail(item.error.map { friendlyMessage($0) } ?? "This track can't be played right now.")
                 return
             }
             refetched = (t.id, now)
+        case .cached:
+            AudioCache.log.warning("cached track \(t.id, privacy: .public) failed to play: \(String(describing: item.error), privacy: .public); streaming it instead")
+            AudioCache.shared.remove(t.id)
+        case .downloaded:
+            break
         }
         // While a start loads, `position` follows the engine, not where the start was meant to begin.
         restart(t, at: liveEngine.loadResumeAt ?? position)
@@ -748,47 +762,121 @@ final class Player: LivePlaybackPort {
         schedulePreload()
     }
 
-    /// Every item gets a real forward buffer. The rate is always 1.0
-    /// (Listen Together never changes the speed); the cheap time-domain pitch
+    /// Every item gets a real forward buffer, a long one from the network so a poor link's drops do not stall it.
+    /// The rate is always 1.0 (Listen Together never changes the speed); the cheap time-domain pitch
     /// algorithm is kept so a stray rate change could never cost much CPU.
     private static func makeItem(_ url: URL) -> AVPlayerItem {
         let item = AVPlayerItem(url: url)
-        item.preferredForwardBufferDuration = 10
+        item.preferredForwardBufferDuration = url.isFileURL ? 10 : 60
         item.audioTimePitchAlgorithm = .timeDomain
         return item
     }
 
-    /// Downloaded file when available (works offline), else a fresh HLS stream.
-    private static func source(_ id: String) async throws -> Stream {
-        if let s = Downloads.shared.localStream(id) { return s }
+    private static func source(_ id: String) async throws -> Source {
+        if let s = local(id) { return s }
         return try await online(id)
+    }
+
+    private static func local(_ id: String) -> Source? {
+        if let s = Downloads.shared.localStream(id) { return Source(stream: s, origin: .downloaded) }
+        guard let c = audioCacheLookup(trackId: id, quality: Preferences.shared.streamingQuality) else { return nil }
+        let s = Stream(url: URL(fileURLWithPath: c.mp4Path).absoluteString, quality: c.quality, formats: c.formats,
+                       trackGain: c.trackGain, albumGain: c.albumGain)
+        return Source(stream: s, origin: .cached)
     }
 
     /// The stream's best variant only: given the master playlist, AVPlayer starts a queued item on a
     /// lower variant and switches up while it plays, and a switch that changes the sample rate
     /// (Hi-Res next to 44.1 kHz) replays the track from 0.
-    private static func online(_ id: String) async throws -> Stream {
+    private static func online(_ id: String) async throws -> Source {
         var s = try await SDAT.stream(trackId: id, quality: Preferences.shared.streamingQuality)
         if let u = await Downloads.bestVariantURL(of: s.url) { s.url = u.absoluteString }
-        return s
+        return Source(stream: s, origin: .network)
     }
 
     /// Prepares the next track's AVPlayerItem behind the current one (gapless-ish start).
     private func schedulePreload() {
         preloadTask?.cancel(); preloadTask = nil
         guard !liveEngine.liveFollowing, Preferences.shared.preloadNext, repeatMode != .one,
-              let (next, _, _) = following(), let cur = current else { return }
+              let (next, _, _) = following(), let cur = current else {
+            // No preload takes over the cancelled one's fill of the next track.
+            if let f = filling, f != current?.id { cancelFill() }
+            return
+        }
         let started = starts
+        // A lookup protects the files of the last two tracks looked up: the playing one first, as it may have been the
+        // preload a moment ago, then the next.
+        _ = audioCacheLookup(trackId: cur.id, quality: Preferences.shared.streamingQuality)
         preloadTask = Task {
-            guard let s = try? await Self.source(next.id),
+            if Self.caching, Self.local(next.id) == nil {
+                if duration - position > Self.fillDeadline { fill(next) }
+                while !Task.isCancelled, filling == next.id, duration - position > Self.fillDeadline {
+                    try? await Task.sleep(for: .milliseconds(500))
+                }
+                // A cancelled preload leaves a fill that a new one for the same track still waits on.
+                if filling == next.id, !Task.isCancelled || following()?.0.id != next.id { cancelFill() }
+            }
+            // A cancelled preload looks nothing up: a lookup moves the protection of the playing track's files.
+            guard !Task.isCancelled, let s = try? await Self.source(next.id),
                   !Task.isCancelled, !liveEngine.liveFollowing, starts == started,
-                  current?.id == cur.id, let url = URL(string: s.url),
+                  current?.id == cur.id, let url = URL(string: s.stream.url),
                   let curItem = avPlayer.currentItem, curItem === playingItem else { return }
             let item = Self.makeItem(url)
             guard avPlayer.canInsert(item, after: curItem) else { return }
             avPlayer.insert(item, after: curItem)
             preloaded = (next.id, item, s)
+            if s.origin != .network { fillCold(cur) }
         }
+    }
+
+    private static var caching: Bool { Preferences.shared.audioCacheLimit > 0 }
+    private static let fillDeadline: Double = 20
+
+    private func fill(_ t: Track) {
+        guard filling != t.id, mayFill else { return }
+        cancelFill()
+        filling = t.id
+        fillGen += 1
+        let gen = fillGen
+        let quality = Preferences.shared.streamingQuality
+        Task {
+            guard fillGen == gen else { return }
+            do {
+                _ = try await audioCacheFill(track: t, quality: quality)
+            } catch FfiError.Cancelled {
+            } catch {
+                AudioCache.log.warning("failed to cache track \(t.id, privacy: .public): \(String(describing: error), privacy: .public)")
+            }
+            if fillGen == gen { filling = nil }
+            AudioCache.shared.refresh()
+        }
+        // The link or the cellular setting may change while it runs.
+        Task {
+            while fillGen == gen, filling == t.id {
+                if !mayFill { cancelFill(); return }
+                try? await Task.sleep(for: .milliseconds(500))
+            }
+        }
+    }
+
+    private func cancelFill() {
+        if let id = filling { audioCacheCancel(trackId: id) }
+        filling = nil
+    }
+
+    /// A whole track may be downloaded now. A skipped next track or a replay of a streamed one costs data a stream
+    /// would not, so only on a link that costs no mobile data, unless downloads may use cellular.
+    private var mayFill: Bool {
+        let path = network.currentPath
+        let unmetered = path.status == .satisfied && !path.isExpensive && !path.isConstrained
+        return unmetered || Preferences.shared.downloadOverCellular
+    }
+
+    /// The streamed current track goes into the cache for its next play once the next track is local. Its bytes
+    /// come down a second time.
+    private func fillCold(_ t: Track) {
+        guard Self.caching, filling == nil, origin == .network else { return }
+        fill(t)
     }
 
     private func clearPreload() {
@@ -799,7 +887,7 @@ final class Player: LivePlaybackPort {
 
     private func invalidatePreload() {
         clearPreload()
-        if !liveEngine.liveFollowing, current != nil, stream != nil { schedulePreload() }
+        if !liveEngine.liveFollowing, current != nil, loaded != nil { schedulePreload() }
     }
 
     private func tick(_ t: Double) {
@@ -982,7 +1070,7 @@ final class Player: LivePlaybackPort {
         repeatMode = switch s.repeatMode { case "all": .all; case "one": .one; default: .off }
         shuffle = s.shuffle
         queueID = s.queueID
-        adopt(cur, stream: nil)
+        adopt(cur, loaded: nil)
         position = max(0, min(s.position, duration > 0 ? duration - 1 : s.position))
         isPlaying = false
         needsStart = true

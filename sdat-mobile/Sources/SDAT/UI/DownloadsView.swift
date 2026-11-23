@@ -1,6 +1,5 @@
 import SwiftUI
 
-/// Offline tracks: in-progress, failed (retry), saved (swipe to delete), total size.
 struct DownloadsView: View {
     @Environment(Player.self) private var player
     @State private var confirmAll = false
@@ -10,6 +9,7 @@ struct DownloadsView: View {
         let saved = dl.tracks
         let active = dl.inProgress
         let failed = dl.failures.keys.sorted()
+        let cached = AudioCache.shared.tracks.filter { !dl.isDownloaded($0.track.id) }
         List {
             if !active.isEmpty {
                 Section {
@@ -57,11 +57,40 @@ struct DownloadsView: View {
                 if !saved.isEmpty { Text("\(saved.count) tracks · \(Fmt.bytes(dl.totalSize))") }
             }
             .listRowBackground(Color.clear)
+            if !cached.isEmpty {
+                Section {
+                    ForEach(Array(cached.enumerated()), id: \.element.track.id) { i, c in
+                        Button { player.play(cached.map(\.track), startAt: i, from: "Downloads") } label: {
+                            HStack {
+                                TrackRow(track: c.track)
+                                VStack(alignment: .trailing, spacing: 2) {
+                                    Text(Fmt.cacheBytes(c.bytes)).font(.caption.monospacedDigit()).foregroundStyle(.secondary)
+                                    Text(c.quality.badgeText).font(.caption2.weight(.semibold)).foregroundStyle(.secondary).lineLimit(1)
+                                }
+                            }
+                        }
+                        .buttonStyle(.plain)
+                        .trackMenu(c.track)
+                        .swipeActions {
+                            Button("Remove", role: .destructive) { AudioCache.shared.remove(c.track.id) }
+                        }
+                        .swipeActions(edge: .leading) {
+                            Button("Download") { dl.download([c.track]); Chrome.shared.flash("Downloading") }.tint(.blue)
+                        }
+                    }
+                } header: {
+                    Text("Cached · \(cached.count) tracks")
+                } footer: {
+                    Text("Songs you played recently. The oldest go when the cache is full.")
+                }
+                .listRowBackground(Color.clear)
+            }
         }
         .listStyle(.plain)
         .scrollContentBackground(.hidden)
         .background(Color(.systemBackground))
         .navigationTitle("Downloads")
+        .onAppear { AudioCache.shared.refresh() }
         .toolbar {
             if !saved.isEmpty {
                 Menu {
