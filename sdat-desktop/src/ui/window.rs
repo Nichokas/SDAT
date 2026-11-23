@@ -826,6 +826,7 @@ fn audio_cache_group(d: &adw::PreferencesDialog) -> adw::PreferencesGroup {
                 anyhow::Ok(())
             };
             if api::run(apply).await.is_ok() {
+                crate::player::on_audio_cache_limit_changed();
                 r();
             }
         });

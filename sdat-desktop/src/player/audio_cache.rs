@@ -156,6 +156,11 @@ pub fn on_track_changed() {
     PENDING.set(true);
 }
 
+/// Call once a new limit is applied: turning the cache off emptied it, and turning it back on fills what plays.
+pub fn on_limit_changed() {
+    PENDING.set(true);
+}
+
 pub fn on_playback_state(s: &PlaybackState) {
     if s.buffering {
         // A stalled stream needs the bandwidth more than the fills; they plan again once it has headroom.
@@ -173,8 +178,6 @@ pub fn on_playback_state(s: &PlaybackState) {
         }
     }
     if settings::audio_cache_limit() == 0 {
-        // Turning the cache off stopped the fills; turning it on fills what plays.
-        PENDING.set(true);
         return;
     }
     if !has_headroom(s) {

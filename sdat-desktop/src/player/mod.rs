@@ -23,7 +23,7 @@ use crate::model::{PlaybackSource, PlaylistInfo, Track};
 use crate::signals::{Signal, State, CONTINUE};
 use crate::{api, global_signal, i18n::tr, service, settings};
 use playqueue::{DurableQueue, HistoryEntry, HistoryQueue, UserQueue};
-pub use audio_cache::drop_plan as drop_audio_cache_plan;
+pub use audio_cache::{drop_plan as drop_audio_cache_plan, on_limit_changed as on_audio_cache_limit_changed};
 pub use quality::audio_stream_quality;
 use gapless_gate::GaplessGate;
 use next::{commit_gapless, next_track, peek_gapless, pop_next_streamable_from_queue};
@@ -364,6 +364,10 @@ fn on_bus_message(msg: &gst::Message) {
 
 // A track that has not started yet goes to Stopped on TokenExpired, so it is started again instead.
 fn stream_after_cached_copy_failed(id: &str) {
+    // A start asked for after the error replaces the failed track; recovering it first would reload the old one.
+    if with(|p| p.machine.start_pending()).unwrap_or(false) {
+        return;
+    }
     let current = track_changed().with(|t| t.as_ref().map(|e| e.track.clone()));
     match current {
         Some(t) if t.id() == id && with(|p| p.machine.preparing()).unwrap_or(false) => {
