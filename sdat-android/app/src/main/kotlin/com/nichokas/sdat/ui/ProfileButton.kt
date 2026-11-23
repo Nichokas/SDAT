@@ -13,12 +13,8 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.Offset
-import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.Path
-import androidx.compose.ui.graphics.StrokeCap
-import androidx.compose.ui.graphics.StrokeJoin
-import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.unit.dp
@@ -27,7 +23,7 @@ import com.nichokas.sdat.core.Session
 import io.github.neoruaa.glasmio.glass.GlassSurface
 import uniffi.tonearm_ffi.profilePictureUrl
 
-/** iOS ProfileButton: the circular TIDAL profile photo (generic glyph as a fallback) that opens Settings. */
+/** iOS ProfileButton: the circular TIDAL profile photo (generic silhouette as a fallback) that opens Settings. */
 @Composable
 fun ProfileButton(session: Session, onClick: () -> Unit, modifier: Modifier = Modifier) {
     LaunchedEffect(Unit) { runCatching { profilePictureUrl() }.onSuccess { session.profilePicture = it } }
@@ -45,26 +41,12 @@ private fun Avatar(url: String?) {
         AsyncImage(url, contentDescription = "Settings", modifier = circle, contentScale = ContentScale.Crop)
         return
     }
-    Canvas(circle.background(Color(0xFF1A1A1A))) {
-        val inset = size.width * 0.24f
-        val w = size.width - 2 * inset
-        val h = size.height - 2 * inset
-        fun p(x: Float, y: Float) = Offset(inset + w * x, inset + h * y)
-        // Two crossing loops, as iOS AvatarGlyph.
-        val path = Path().apply {
-            p(0.15f, 0.95f).let { moveTo(it.x, it.y) }
-            curve(p(0.45f, 0.75f), p(0.62f, 0.2f), p(0.42f, 0.15f))
-            curve(p(0.25f, 0.1f), p(0.05f, 0.3f), p(0.2f, 0.45f))
-            curve(p(0.4f, 0.65f), p(0.95f, 0.6f), p(0.8f, 0.4f))
-            curve(p(0.7f, 0.18f), p(0.62f, 0.12f), p(0.58f, 0.15f))
-            curve(p(0.5f, 0.55f), p(0.65f, 0.8f), p(0.88f, 0.95f))
-        }
-        drawPath(
-            path,
-            Brush.linearGradient(listOf(Color(0.55f, 0.7f, 1f), Color.White), start = Offset.Zero, end = Offset(size.width, size.height)),
-            style = Stroke(width = maxOf(1.5.dp.toPx(), size.width * 0.06f), cap = StrokeCap.Round, join = StrokeJoin.Round),
-        )
+    // Head and shoulders, as iOS AvatarSilhouette; the circle clip cuts the shoulders off.
+    Canvas(circle.background(Color(0xFF383838))) {
+        val w = size.width
+        val h = size.height
+        val figure = Color(0xFF9E9E9E)
+        drawOval(figure, topLeft = Offset(w * 0.32f, h * 0.18f), size = Size(w * 0.36f, h * 0.36f))
+        drawOval(figure, topLeft = Offset(w * 0.14f, h * 0.62f), size = Size(w * 0.72f, h * 0.64f))
     }
 }
-
-private fun Path.curve(c1: Offset, c2: Offset, to: Offset) = cubicTo(c1.x, c1.y, c2.x, c2.y, to.x, to.y)

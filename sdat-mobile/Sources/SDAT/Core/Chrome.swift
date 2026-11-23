@@ -93,7 +93,7 @@ final class Profile {
     }
 }
 
-/// Circular profile photo button (generic icon only as a fallback). Opens Settings.
+/// Circular profile photo button (generic silhouette as a fallback). Opens Settings.
 struct ProfileButton: View {
     var size: CGFloat = 44
     @State private var profile = Profile.shared
@@ -212,43 +212,27 @@ final class ImageStore: @unchecked Sendable {
     }
 }
 
-/// Profile photo, or a default avatar in the TIDAL style (a looped squiggle on a dark circle).
+/// Profile photo, or a generic person silhouette when the account has none.
 struct Avatar: View {
     let url: String?
     var body: some View {
         if let url {
             CachedImage(url: url, kind: .profile).clipShape(.circle)
         } else {
-            Circle().fill(Color(white: 0.1))
-                .overlay {
-                    GeometryReader { g in
-                        let w = g.size.width
-                        AvatarGlyph()
-                            .stroke(LinearGradient(colors: [Color(red: 0.55, green: 0.7, blue: 1), .white], startPoint: .topLeading, endPoint: .bottomTrailing),
-                                    style: StrokeStyle(lineWidth: max(1.5, w * 0.06), lineCap: .round, lineJoin: .round))
-                            .padding(w * 0.24)
-                    }
-                }
+            Circle().fill(Color(white: 0.22))
+                .overlay { AvatarSilhouette().fill(Color(white: 0.62)) }
+                .clipShape(.circle)
         }
     }
 }
 
-/// Two crossing loops, like a pretzel/infinity squiggle.
-struct AvatarGlyph: Shape {
+/// Head and shoulders; the avatar circle cuts the shoulders off.
+struct AvatarSilhouette: Shape {
     func path(in r: CGRect) -> Path {
-        let w = r.width, h = r.height, x = r.minX, y = r.minY
+        let w = r.width, h = r.height
         var p = Path()
-        p.move(to: CGPoint(x: x + w * 0.15, y: y + h * 0.95))
-        p.addCurve(to: CGPoint(x: x + w * 0.42, y: y + h * 0.15),
-                   control1: CGPoint(x: x + w * 0.45, y: y + h * 0.75), control2: CGPoint(x: x + w * 0.62, y: y + h * 0.2))
-        p.addCurve(to: CGPoint(x: x + w * 0.2, y: y + h * 0.45),
-                   control1: CGPoint(x: x + w * 0.25, y: y + h * 0.1), control2: CGPoint(x: x + w * 0.05, y: y + h * 0.3))
-        p.addCurve(to: CGPoint(x: x + w * 0.8, y: y + h * 0.4),
-                   control1: CGPoint(x: x + w * 0.4, y: y + h * 0.65), control2: CGPoint(x: x + w * 0.95, y: y + h * 0.6))
-        p.addCurve(to: CGPoint(x: x + w * 0.58, y: y + h * 0.15),
-                   control1: CGPoint(x: x + w * 0.7, y: y + h * 0.18), control2: CGPoint(x: x + w * 0.62, y: y + h * 0.12))
-        p.addCurve(to: CGPoint(x: x + w * 0.88, y: y + h * 0.95),
-                   control1: CGPoint(x: x + w * 0.5, y: y + h * 0.55), control2: CGPoint(x: x + w * 0.65, y: y + h * 0.8))
+        p.addEllipse(in: CGRect(x: r.minX + w * 0.32, y: r.minY + h * 0.18, width: w * 0.36, height: h * 0.36))
+        p.addEllipse(in: CGRect(x: r.minX + w * 0.14, y: r.minY + h * 0.62, width: w * 0.72, height: h * 0.64))
         return p
     }
 }
