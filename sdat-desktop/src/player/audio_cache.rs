@@ -37,7 +37,6 @@ static DEMUXER: Mutex<Option<glib::WeakRef<gst::Element>>> = Mutex::new(None);
 
 thread_local! {
     static PENDING: Cell<bool> = const { Cell::new(false) };
-    static PLANNED: RefCell<Vec<String>> = const { RefCell::new(Vec::new()) };
     /// The next track when the fills were last planned: a queue edit that changes it plans again.
     static PLANNED_NEXT: RefCell<Option<String>> = const { RefCell::new(None) };
 }
@@ -148,7 +147,6 @@ fn has_headroom(s: &PlaybackState) -> bool {
 
 /// Call before a purge: what is left of the plan must not fill the cache again.
 pub fn drop_plan() {
-    PLANNED.with(RefCell::take);
     let mut p = PLAN.lock().unwrap_or_else(PoisonError::into_inner);
     p.generation += 1;
     p.tracks.clear();
@@ -161,16 +159,17 @@ pub fn on_track_changed() {
 pub fn on_playback_state(s: &PlaybackState) {
     if s.buffering {
         // A stalled stream needs the bandwidth more than the fills; they plan again once it has headroom.
-        let planned = PLANNED.with(RefCell::take);
-        if !planned.is_empty() {
+        let planned = {
             let mut p = PLAN.lock().unwrap_or_else(PoisonError::into_inner);
-            p.generation += 1;
-            p.tracks.clear();
-            drop(p);
-            for id in &planned {
-                audio_cache::cancel(id);
+            let planned = std::mem::take(&mut p.tracks);
+            if !planned.is_empty() {
+                p.generation += 1;
+                PENDING.set(true);
             }
-            PENDING.set(true);
+            planned
+        };
+        for id in &planned {
+            audio_cache::cancel(id);
         }
     }
     if settings::audio_cache_limit() == 0 {
@@ -195,11 +194,10 @@ pub fn on_playback_state(s: &PlaybackState) {
     // The new plan first, so the worker begins no fill of the old one after the cancels below.
     let mut p = PLAN.lock().unwrap_or_else(PoisonError::into_inner);
     p.generation += 1;
-    p.tracks.clone_from(&tracks);
+    let old = std::mem::replace(&mut p.tracks, tracks.clone());
     p.quality = settings::audio_quality();
     PLAN_CHANGED.notify_one();
     drop(p);
-    let old = PLANNED.with(|p| p.replace(tracks.clone()));
     for id in old.iter().filter(|id| !tracks.contains(id)) {
         audio_cache::cancel(id);
     }
