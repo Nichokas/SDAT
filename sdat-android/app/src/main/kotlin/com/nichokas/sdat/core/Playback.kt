@@ -3,6 +3,7 @@ package com.nichokas.sdat.core
 import android.content.Context
 import android.net.Uri
 import android.os.SystemClock
+import android.util.Log
 import androidx.annotation.OptIn
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
@@ -17,10 +18,12 @@ import androidx.media3.common.MimeTypes
 import androidx.media3.common.PlaybackException
 import androidx.media3.common.Player
 import androidx.media3.common.util.UnstableApi
+import androidx.media3.exoplayer.DefaultLoadControl
 import androidx.media3.exoplayer.ExoPlayer
 import com.google.common.util.concurrent.Futures
 import com.google.common.util.concurrent.ListenableFuture
 import com.nichokas.sdat.ui.TrackPlayer
+import java.io.File
 import kotlin.coroutines.cancellation.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.CoroutineStart
@@ -34,6 +37,7 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.MainScope
 import kotlinx.coroutines.launch
+import uniffi.tonearm_ffi.CachedTrack
 import uniffi.tonearm_ffi.Mix
 import uniffi.tonearm_ffi.Quality
 import uniffi.tonearm_ffi.Shuffle
@@ -54,6 +58,17 @@ class Playback(context: Context, private val prefs: Preferences, secrets: Secret
             true,
         )
         .setHandleAudioBecomingNoisy(true)
+        .setLoadControl(
+            DefaultLoadControl.Builder()
+                // A long buffer rides out a poor network; playback starts at 1.5 s buffered and resumes at 3 s, so a
+                // stall does not repeat at once.
+                .setBufferDurationsMs(60_000, 180_000, 1_500, 3_000)
+                // Hi-res FLAC runs near 1 MB/s, so the default 13 MB would cap the buffer near 15 s. The byte target
+                // also caps the minimum, so a hi-res buffer never holds more than 64 MiB of heap.
+                .setTargetBufferBytes(64 shl 20)
+                .setPrioritizeTimeOverSizeThresholds(false)
+                .build(),
+        )
         .build()
     internal val liveEngine: LiveEngine = LiveEngine(object : LivePlaybackPort {
         override val currentId get() = track?.id
@@ -96,6 +111,10 @@ class Playback(context: Context, private val prefs: Preferences, secrets: Secret
     private var preloading: Track? = null
     private var preloaded: Preloaded? = null
     private var preload: Job? = null
+    /** The cold current track going into the cache after the next one, so playing it again starts from disk; one try
+     * per entry. */
+    private var replay: Job? = null
+    private val fills = CacheFills(context, player, scope, prefs) { (duration * 1000).toLong() }
     private val saver = QueueSaver(context.filesDir, scope)
     private var restoring = true
     /** A Discover queue without its endless source, restored or played before the home mixes loaded, until
@@ -135,8 +154,7 @@ class Playback(context: Context, private val prefs: Preferences, secrets: Secret
     val loading: Boolean get() = busy || buffering || liveEngine.aligning
     var error by mutableStateOf<String?>(null)
         private set
-    /** The current track plays its downloaded copy. */
-    var offline by mutableStateOf(false)
+    var origin by mutableStateOf(Origin.NETWORK)
         private set
     var position by mutableStateOf(0.0)
         private set
@@ -215,6 +233,8 @@ class Playback(context: Context, private val prefs: Preferences, secrets: Secret
         override fun handleStop(): ListenableFuture<*> {
             request?.cancel()
             pendingWait.cancel()
+            dropPreload()
+            dropReplay()
             fetching = false
             // A guest's start may still be aligning; left set, it reads as loading and the follower never reloads.
             liveEngine.cancelLive()
@@ -283,9 +303,15 @@ class Playback(context: Context, private val prefs: Preferences, secrets: Secret
                 val t = track ?: return fail(e.errorCodeName)
                 // Counts deep sleep, which uptime skips: the expiry follows a pause of hours.
                 val now = SystemClock.elapsedRealtime()
-                // A broken download spends no budget: a new play picks the same file again, and only its online stream
-                // can help.
-                if (!offline) {
+                // A broken download or cached copy spends no budget: only the online stream can help, and a removed
+                // cached copy is not played again.
+                if (origin == Origin.CACHED) {
+                    Log.w("SDAT/audio-cache", "cached track ${t.id} failed to play (${e.errorCodeName}); streaming it instead")
+                    AudioCache.remove(t.id)
+                    // The online stream that replaces it gets a refetch of its own.
+                    refetched = null
+                }
+                if (origin == Origin.NETWORK) {
                     if (!refetchDue(refetched, t.id, now)) return fail(e.errorCodeName)
                     refetched = t.id to now
                 }
@@ -410,8 +436,8 @@ class Playback(context: Context, private val prefs: Preferences, secrets: Secret
         if (q == prefs.streamingQuality) return
         prefs.streamingQuality = q
         val t = track ?: return
-        if (offline && Downloads.localStream(t.id) != null) {
-            if (preloaded?.source?.offline != true) {
+        if (origin == Origin.DOWNLOADED && Downloads.localStream(t.id) != null) {
+            if (preloaded?.source?.origin != Origin.DOWNLOADED) {
                 dropPreload()
                 syncPreload()
             }
@@ -652,6 +678,7 @@ class Playback(context: Context, private val prefs: Preferences, secrets: Secret
         pendingWait.cancel()
         liveEngine.cancelLive()
         dropPreload()
+        dropReplay()
         // Following a playing host: start only with a healthy buffer and on time, so nothing needs correcting after.
         val align = liveEngine.shouldAlign(play)
         position = resumeAt
@@ -664,7 +691,7 @@ class Playback(context: Context, private val prefs: Preferences, secrets: Secret
         player.stop()
         player.currentMediaItem?.let { player.replaceMediaItem(player.currentMediaItemIndex, it.buildUpon().setMediaMetadata(metadata(t)).build()) }
         error = null
-        offline = false
+        origin = Origin.NETWORK
         // Requested before the fetch so a pause tapped while the URL loads still holds after prepare().
         player.playWhenReady = play && !align
         liveEngine.prepareAlignment(align)
@@ -673,7 +700,7 @@ class Playback(context: Context, private val prefs: Preferences, secrets: Secret
             try {
                 val src = source(t, online)
                 shownQuality = src.quality
-                offline = src.offline
+                origin = src.origin
                 player.setMediaItem(mediaItem(t, src), (resumeAt * 1000).toLong())
                 player.prepare()
                 fetching = false
@@ -710,11 +737,12 @@ class Playback(context: Context, private val prefs: Preferences, secrets: Secret
     /** The preloaded item became the current one. */
     private fun began(t: Track, src: Source) {
         pendingWait.cancel()
+        dropReplay()
         entry++
         position = 0.0
         duration = t.durationSecs.toDouble()
         shownQuality = src.quality
-        offline = src.offline
+        origin = src.origin
         listen = newListen(t)
         persist()
         started(t)
@@ -743,16 +771,21 @@ class Playback(context: Context, private val prefs: Preferences, secrets: Secret
         val next = queue.preloadable?.takeIf { prefs.preloadNext && !liveEngine.liveFollowing && !busy && !waiting && player.currentMediaItem?.mediaId == track?.id }
         if (next != null && next.id == preloading?.id) return
         dropPreload()
-        if (next == null) return
+        if (next == null) return syncReplay()
+        // The next track's fill comes first: the replay waits for it and starts again once it is settled.
+        dropReplay()
         preloading = next
         preload = scope.launch {
             val src = try {
-                source(next)
+                nextSource(next)
             } catch (e: CancellationException) {
                 throw e
             } catch (_: Exception) {
                 // The next sync tries this track again.
-                if (isActive) preloading = null
+                if (isActive) {
+                    preloading = null
+                    syncReplay()
+                }
                 return@launch
             }
             // Dropped while the stream call returned: the player no longer expects this item.
@@ -760,14 +793,45 @@ class Playback(context: Context, private val prefs: Preferences, secrets: Secret
             val item = mediaItem(next, src)
             player.addMediaItem(item)
             preloaded = Preloaded(item, src)
+            syncReplay()
         }
     }
 
-    private suspend fun source(t: Track, online: Boolean = false): Source {
-        val local = if (online) null else Downloads.localStream(t.id)
-        if (local != null) return Source(Uri.fromFile(local.playlist).toString(), local.quality, offline = true)
+    /** The fill replaces the stream's preload, so on a poor network the next track starts from disk without being
+     * downloaded twice. */
+    private suspend fun nextSource(next: Track): Source {
+        // A lookup protects the files of the last two tracks looked up: the playing one first, as it may have been
+        // the preload a moment ago, then the next.
+        track?.let { AudioCache.lookup(it.id, prefs.streamingQuality) }
+        local(next)?.let { return it }
+        if (AudioCache.on) fills.inTime(next) { fills.filling != null }?.let { return cachedSource(it) }
+        return streamed(next)
+    }
+
+    /** Fills a current track that streams cold, once the next one is settled. That downloads it a second time. */
+    private fun syncReplay() {
+        val t = track ?: return
+        val nextPending = { preloading != null && preloaded == null }
+        if (replay?.isActive == true || nextPending() || origin != Origin.NETWORK || !AudioCache.on || liveEngine.liveFollowing) return
+        if (busy || player.currentMediaItem?.mediaId != t.id) return
+        replay = scope.launch { fills.inTime(t) { fills.filling != null || nextPending() } }
+    }
+
+    private fun dropReplay() {
+        replay?.cancel()
+        replay = null
+    }
+
+    private suspend fun source(t: Track, online: Boolean = false): Source = (if (online) null else local(t)) ?: streamed(t)
+
+    private suspend fun local(t: Track): Source? {
+        Downloads.localStream(t.id)?.let { return Source(Uri.fromFile(it.playlist).toString(), it.quality, Origin.DOWNLOADED) }
+        return AudioCache.lookup(t.id, prefs.streamingQuality)?.let(::cachedSource)
+    }
+
+    private suspend fun streamed(t: Track): Source {
         val s = stream(t.id, prefs.streamingQuality)
-        return Source(s.url, s.actualQuality, offline = false)
+        return Source(s.url, s.actualQuality, Origin.NETWORK)
     }
 
     private fun dropPreload() {
@@ -860,6 +924,7 @@ class Playback(context: Context, private val prefs: Preferences, secrets: Secret
         mixesJob?.cancel()
         liveEngine.cancelLive()
         dropPreload()
+        dropReplay()
         player.pause()
         player.stop()
         player.clearMediaItems()
@@ -868,7 +933,7 @@ class Playback(context: Context, private val prefs: Preferences, secrets: Secret
         queue.clear()
         replaceInfinite(null)
         error = null
-        offline = false
+        origin = Origin.NETWORK
         fetching = false
         listen = null
         persist()
@@ -893,8 +958,11 @@ private val systemPauses = setOf(Player.PLAY_WHEN_READY_CHANGE_REASON_AUDIO_BECO
 /** How long a queue that ran dry waits for the tracks a handoff still owes it. */
 private const val HANDOFF_WAIT_MS = 20_000L
 
-/** Where a track plays from; [offline] for its downloaded copy. */
-private class Source(val uri: String, val quality: Quality, val offline: Boolean)
+enum class Origin { NETWORK, CACHED, DOWNLOADED }
+
+private class Source(val uri: String, val quality: Quality, val origin: Origin)
+
+private fun cachedSource(c: CachedTrack) = Source(Uri.fromFile(File(c.playlistPath)).toString(), c.quality, Origin.CACHED)
 
 private class Preloaded(val item: MediaItem, val source: Source)
 

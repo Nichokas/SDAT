@@ -42,6 +42,25 @@ class PlaybackTest {
         assertTrue(refetchDue("a" to 5_000L, "a", now = 5_000 + RETRY_WINDOW_MS))
     }
 
+    @Test fun fillsTheNextTrackOnceTheStreamHasHeadroomAndNoOtherFillRuns() {
+        assertEquals(FillStep.Start, fillStep(remainingMs = 120_000, headroom = true, blocked = false))
+        assertEquals(FillStep.Wait, fillStep(remainingMs = 120_000, headroom = false, blocked = false))
+        assertEquals(FillStep.Wait, fillStep(remainingMs = 120_000, headroom = true, blocked = true))
+    }
+
+    @Test fun streamsTheNextTrackWhenItsFillMissesTheDeadline() {
+        assertEquals(FillStep.GiveUp, fillStep(remainingMs = FILL_DEADLINE_MS, headroom = true, blocked = false))
+        assertEquals(FillStep.GiveUp, fillStep(remainingMs = 5_000, headroom = false, blocked = true))
+        assertEquals(FillStep.Start, fillStep(remainingMs = FILL_DEADLINE_MS + 1, headroom = true, blocked = false))
+    }
+
+    @Test fun headroomIsHalfAMinuteBufferedOrTheRestOfTheTrack() {
+        assertTrue(hasHeadroom(ready = true, positionMs = 10_000, bufferedMs = 10_000 + HEADROOM_MS, durationMs = 240_000))
+        assertFalse(hasHeadroom(ready = true, positionMs = 10_000, bufferedMs = 30_000, durationMs = 240_000))
+        assertTrue(hasHeadroom(ready = true, positionMs = 220_000, bufferedMs = 239_500, durationMs = 240_000))
+        assertFalse(hasHeadroom(ready = false, positionMs = 10_000, bufferedMs = 240_000, durationMs = 240_000))
+    }
+
     @Test fun progressIsPositionOverDurationCappedAtOne() {
         assertEquals(0.25, progress(30.0, 120.0), 1e-9)
         assertEquals(1.0, progress(130.0, 120.0), 1e-9)

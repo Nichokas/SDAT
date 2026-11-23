@@ -2,6 +2,7 @@ package com.nichokas.sdat
 
 import android.app.Application
 import android.os.Build
+import com.nichokas.sdat.core.AudioCache
 import com.nichokas.sdat.core.CrashReporting
 import com.nichokas.sdat.core.DiagLog
 import com.nichokas.sdat.core.Downloads
@@ -37,6 +38,7 @@ class SdatApp : Application() {
         prefs = Preferences(this)
         crashReporting = CrashReporting(BuildConfig.SENTRY_DSN, prefs.crashReports, { prefs.crashReports = it }, SentryReporter(this))
         Downloads.init(this, prefs) { DownloadService.start(this) }
+        AudioCache.open(this, prefs)
         secrets = Secrets(this)
         Recents.open(File(filesDir, "recents"))
         val settings = Settings(filesDir.path, prefs)

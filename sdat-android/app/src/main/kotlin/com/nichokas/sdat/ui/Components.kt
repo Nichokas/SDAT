@@ -216,6 +216,7 @@ fun trackMenuItems(
     track: Track,
     ownPlaylistId: String? = null,
     onRemoved: ((String) -> Unit)? = null,
+    extra: List<GlasmioCascadingMenuItem> = emptyList(),
 ): List<GlasmioCascadingMenuItem> {
     val player = LocalTrackPlayer.current
     val fav = Favs.known(track.id) ?: false
@@ -229,6 +230,7 @@ fun trackMenuItems(
         }))
         add(GlasmioCascadingMenuItem("Add to Playlist…", "text.badge.plus", onClick = { Chrome.playlistPickerTrack = track }))
         addAll(downloadMenuItems(listOf(track)))
+        addAll(extra)
         val itemId = track.playlistItemId
         if (ownPlaylistId != null && itemId != null) {
             add(GlasmioCascadingMenuItem("Remove from Playlist", "minus.circle", destructive = true, onClick = {
@@ -276,6 +278,7 @@ fun TrackMenuRow(
     modifier: Modifier = Modifier,
     ownPlaylistId: String? = null,
     onRemoved: ((String) -> Unit)? = null,
+    extraItems: List<GlasmioCascadingMenuItem> = emptyList(),
     content: @Composable () -> Unit,
 ) {
     var bounds by remember { mutableStateOf<Rect?>(null) }
@@ -292,7 +295,7 @@ fun TrackMenuRow(
     if (open) {
         GlasmioCascadingMenu(
             anchorBounds = bounds,
-            items = trackMenuItems(track, ownPlaylistId, onRemoved),
+            items = trackMenuItems(track, ownPlaylistId, onRemoved, extraItems),
             title = track.displayTitle,
             expandedDescription = "Expanded",
             collapsedDescription = "Collapsed",

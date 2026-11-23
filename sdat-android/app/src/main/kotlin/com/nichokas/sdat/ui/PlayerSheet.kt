@@ -72,6 +72,7 @@ import com.nichokas.sdat.core.Chrome
 import com.nichokas.sdat.core.Favs
 import com.nichokas.sdat.core.Fmt
 import com.nichokas.sdat.core.Live
+import com.nichokas.sdat.core.Origin
 import com.nichokas.sdat.core.Playback
 import com.nichokas.sdat.core.Repeat
 import com.nichokas.sdat.core.artistLine
@@ -292,7 +293,7 @@ private fun TitleRow(playback: Playback, track: Track, slide: () -> ContentTrans
             Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                 Text(t.displayTitle, style = IosTypography.title3, fontWeight = FontWeight.Bold, color = Color.White, maxLines = 1, overflow = TextOverflow.Ellipsis)
                 Row(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically) {
-                    if (playback.offline && playback.track?.id == t.id) SdatIcon("arrow.down.circle.fill", "Playing downloaded copy", size = 15.dp, tint = dimmed)
+                    if (playback.origin == Origin.DOWNLOADED && playback.track?.id == t.id) SdatIcon("arrow.down.circle.fill", "Playing downloaded copy", size = 15.dp, tint = dimmed)
                     Text(t.artistLine, style = IosTypography.body, color = dimmed, maxLines = 1, overflow = TextOverflow.Ellipsis)
                 }
             }

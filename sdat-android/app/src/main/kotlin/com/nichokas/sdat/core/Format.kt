@@ -44,6 +44,17 @@ object Fmt {
         }
     }
 
+    /** Binary units, as the audio cache's limits are: "Zero KB", "640 KB", "512 MB", "1.4 GB", "2 GB". */
+    fun cacheBytes(n: Long): String {
+        if (n == 0L) return "Zero KB"
+        fun scaled(shift: Int, decimals: Int) = BigDecimal(n).divide(BigDecimal(1L shl shift), decimals, RoundingMode.HALF_EVEN)
+        val kb = scaled(10, 0).max(BigDecimal.ONE)
+        if (kb < BigDecimal(1024)) return "${kb.toPlainString()} KB"
+        val mb = scaled(20, 0)
+        if (mb < BigDecimal(1024)) return "${mb.toPlainString()} MB"
+        return "${scaled(30, 1).stripTrailingZeros().toPlainString()} GB"
+    }
+
     /** "just now", "5 min ago", "2 h ago", "3 d ago". */
     fun ago(thenMs: Long, nowMs: Long): String {
         val mins = (nowMs - thenMs) / 60_000

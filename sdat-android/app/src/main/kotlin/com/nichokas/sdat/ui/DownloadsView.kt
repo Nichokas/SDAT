@@ -17,6 +17,7 @@ import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -36,12 +37,14 @@ import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
+import com.nichokas.sdat.core.AudioCache
 import com.nichokas.sdat.core.Chrome
 import com.nichokas.sdat.core.DownloadState
 import com.nichokas.sdat.core.Downloads
 import com.nichokas.sdat.core.Fmt
 import com.nichokas.sdat.core.Route
 import com.nichokas.sdat.core.artistLine
+import com.nichokas.sdat.core.badgeText
 import com.nichokas.sdat.core.displayTitle
 import io.github.neoruaa.glasmio.core.GlasmioTheme
 import io.github.neoruaa.glasmio.core.IosTypography
@@ -133,16 +136,18 @@ fun DownloadStatusButton(modifier: Modifier = Modifier) {
     }
 }
 
-/** Offline tracks: in progress (cancel), failed, and saved (play, remove), with their total size. */
 @Composable
 fun DownloadsView() {
     val player = LocalTrackPlayer.current
     val saved = Downloads.tracks
+    val cached = AudioCache.tracks.filter { !Downloads.isDownloaded(it.track.id) }
+    val cachedTracks = cached.map { it.track }
     val queue = Downloads.queue
     val active = queue.active
     val failed = queue.failures.entries.sortedBy { it.key }
     var confirmAll by remember { mutableStateOf(false) }
     val secondary = GlasmioTheme.colors.secondaryContent
+    LaunchedEffect(Unit) { AudioCache.refresh() }
     SdatPage("Downloads", onBack = Chrome::pop, actions = {
         if (saved.isNotEmpty()) {
             DetailMenu("Downloads", listOf(
@@ -199,6 +204,23 @@ fun DownloadsView() {
                     Column(Modifier.padding(start = 8.dp), horizontalAlignment = Alignment.End, verticalArrangement = Arrangement.spacedBy(2.dp)) {
                         Text(Fmt.bytes(entry?.size ?: 0), style = IosTypography.caption1.copy(fontFeatureSettings = "tnum"), color = secondary)
                         entry?.qualityText?.let { Text(it, style = IosTypography.caption2, fontWeight = FontWeight.SemiBold, color = secondary, maxLines = 1) }
+                    }
+                }
+            }
+        }
+        if (cached.isNotEmpty()) {
+            item(key = "cached-header") {
+                SectionHeader("Cached · ${cached.size} tracks · ${Fmt.cacheBytes(cached.sumOf { it.bytes.toLong() })}", Modifier.padding(top = 12.dp), style = IosTypography.footnote)
+            }
+            itemsIndexed(cached, key = { i, c -> "cached:${c.track.id}#$i" }) { i, c ->
+                val remove = GlasmioCascadingMenuItem(title = "Remove from Cache", systemName = "trash", destructive = true, onClick = { AudioCache.remove(c.track.id) })
+                TrackMenuRow(c.track, onClick = { player.play(cachedTracks, i, "Cached") }, extraItems = listOf(remove)) {
+                    Row(Modifier.fillMaxWidth().padding(horizontal = ListGutter, vertical = 6.dp), verticalAlignment = Alignment.CenterVertically) {
+                        TrackRow(c.track, Modifier.weight(1f))
+                        Column(Modifier.padding(start = 8.dp), horizontalAlignment = Alignment.End, verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                            Text(Fmt.cacheBytes(c.bytes.toLong()), style = IosTypography.caption1.copy(fontFeatureSettings = "tnum"), color = secondary)
+                            Text(c.quality.badgeText, style = IosTypography.caption2, fontWeight = FontWeight.SemiBold, color = secondary, maxLines = 1)
+                        }
                     }
                 }
             }

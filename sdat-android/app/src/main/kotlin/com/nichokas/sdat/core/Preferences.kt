@@ -2,6 +2,7 @@ package com.nichokas.sdat.core
 
 import android.content.Context
 import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.core.content.edit
 import java.io.File
@@ -9,6 +10,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.MainScope
 import kotlinx.coroutines.launch
 import uniffi.tonearm_ffi.Quality
+import uniffi.tonearm_ffi.audioCacheLimitDefault
 import uniffi.tonearm_ffi.diagClear
 import uniffi.tonearm_ffi.handoffNewInstallationKey
 
@@ -45,6 +47,7 @@ class Preferences(context: Context) {
     private val quality = mutableStateOf(Quality.HI_FI)
     private val cellular = mutableStateOf(false)
     private val preload = mutableStateOf(true)
+    private val cacheLimit = mutableLongStateOf(0)
     private val lastFm = mutableStateOf(false)
     private val listenBrainz = mutableStateOf(false)
     private val liveDelay = mutableIntStateOf(0)
@@ -59,6 +62,10 @@ class Preferences(context: Context) {
     var preloadNext: Boolean
         get() = preload.value
         set(on) { preload.value = on; d.edit { putBoolean("preloadNext", on) } }
+    /** Bytes of tracks the audio cache keeps; 0 turns it off. Set through [AudioCache.setLimit]. */
+    var audioCacheLimit: Long
+        get() = cacheLimit.longValue
+        set(bytes) { cacheLimit.longValue = bytes; d.edit { putLong("audioCacheLimit", bytes) } }
     var scrobbleLastFm: Boolean
         get() = lastFm.value
         set(on) { lastFm.value = on; d.edit { putBoolean("scrobbleLastFm", on) } }
@@ -86,6 +93,7 @@ class Preferences(context: Context) {
         quality.value = qualityOf(d.getString("streamingQuality", null)) ?: Quality.HI_FI
         cellular.value = d.getBoolean("downloadOverCellular", false)
         preload.value = d.getBoolean("preloadNext", true)
+        cacheLimit.longValue = d.getLong("audioCacheLimit", audioCacheLimitDefault().toLong())
         lastFm.value = d.getBoolean("scrobbleLastFm", false)
         listenBrainz.value = d.getBoolean("scrobbleListenBrainz", false)
         liveDelay.intValue = d.getInt("liveExtraLatencyMsV2", 0)
@@ -123,6 +131,7 @@ fun eraseAll(context: Context, session: Session, prefs: Preferences, secrets: Se
     session.signOut()
     secrets.clear()
     prefs.clear()
+    AudioCache.setLimit(prefs.audioCacheLimit)
     crashReporting.reset()
     diagClear()
     Vault.forget()

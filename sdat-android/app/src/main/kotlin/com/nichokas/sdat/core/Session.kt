@@ -40,7 +40,10 @@ class Session(context: Context) : TokenStore {
 
     fun signIn(tokens: LoginTokens) {
         val replacing = signedIn
-        if (replacing) Handoff.accountChanging()
+        if (replacing) {
+            Handoff.accountChanging()
+            AudioCache.purge(keepPlaying = true)
+        }
         picture.value = null
         // Before the new session is saved, so a process killed in between can't pair it with the old history.
         Recents.clear()
@@ -61,7 +64,7 @@ class Session(context: Context) : TokenStore {
         if (replacing) Handoff.accountChanged()
     }
 
-    /** Also the way out of a session TIDAL no longer accepts. Downloads never outlive the account, as on iOS. */
+    /** Also the way out of a session TIDAL no longer accepts. Downloads and cached tracks never outlive the account, as on iOS. */
     fun signOut() {
         Live.signOut()
         Handoff.stop()
