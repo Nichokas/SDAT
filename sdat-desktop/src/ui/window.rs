@@ -775,6 +775,15 @@ fn audio_cache_group(d: &adw::PreferencesDialog) -> adw::PreferencesGroup {
         })
     };
     refresh();
+    // Fills finish in the background while the dialog is open.
+    let (alive, r) = (usage.downgrade(), Rc::clone(&refresh));
+    glib::timeout_add_seconds_local(2, move || {
+        if alive.upgrade().is_none() {
+            return glib::ControlFlow::Break;
+        }
+        r();
+        glib::ControlFlow::Continue
+    });
 
     let clear = gtk::Button::builder().label(tr("Clear")).valign(gtk::Align::Center).css_classes(["destructive-action"]).build();
     usage.add_suffix(&clear);
