@@ -794,7 +794,10 @@ class Playback(context: Context, private val prefs: Preferences, secrets: Secret
     /** The fill replaces the stream's preload, so on a poor network the next track starts from disk without being
      * downloaded twice. */
     private suspend fun nextSource(next: Track): Source {
-        local(next)?.let { return it }
+        val cached = local(next)
+        // A lookup protects the files of the last two tracks looked up: after a new next track, the playing one again.
+        track?.let { AudioCache.lookup(it.id, prefs.streamingQuality) }
+        cached?.let { return it }
         if (AudioCache.on) fills.inTime(next) { fills.filling != null }?.let { return cachedSource(it) }
         return streamed(next)
     }
