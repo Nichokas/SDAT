@@ -808,7 +808,7 @@ final class Player: LivePlaybackPort {
         // preload a moment ago, then the next.
         _ = audioCacheLookup(trackId: cur.id, quality: Preferences.shared.streamingQuality)
         preloadTask = Task {
-            if Self.caching, mayFill, Self.local(next.id) == nil {
+            if Self.caching, Self.local(next.id) == nil {
                 if duration - position > Self.fillDeadline { fill(next) }
                 while !Task.isCancelled, filling == next.id, duration - position > Self.fillDeadline {
                     try? await Task.sleep(for: .milliseconds(500))
@@ -833,7 +833,7 @@ final class Player: LivePlaybackPort {
     private static let fillDeadline: Double = 20
 
     private func fill(_ t: Track) {
-        guard filling != t.id else { return }
+        guard filling != t.id, mayFill else { return }
         cancelFill()
         filling = t.id
         fillGen += 1
@@ -849,6 +849,13 @@ final class Player: LivePlaybackPort {
             }
             if fillGen == gen { filling = nil }
             AudioCache.shared.refresh()
+        }
+        // The link or the cellular setting may change while it runs.
+        Task {
+            while fillGen == gen, filling == t.id {
+                if !mayFill { cancelFill(); return }
+                try? await Task.sleep(for: .milliseconds(500))
+            }
         }
     }
 
@@ -868,7 +875,7 @@ final class Player: LivePlaybackPort {
     /// The streamed current track goes into the cache for its next play once the next track is local. Its bytes
     /// come down a second time.
     private func fillCold(_ t: Track) {
-        guard Self.caching, filling == nil, origin == .network, mayFill else { return }
+        guard Self.caching, filling == nil, origin == .network else { return }
         fill(t)
     }
 
