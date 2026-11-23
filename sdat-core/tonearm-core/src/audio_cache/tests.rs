@@ -337,6 +337,32 @@ fn a_failed_request_is_retried() {
 }
 
 #[test]
+fn a_cancel_stops_a_fill_waiting_to_retry() {
+    let dir = TempDir::new();
+    let fake = Arc::new(Fake { flaky: AtomicUsize::new(1), ..Fake::default() });
+    let store = Arc::new(open(&dir, LIMIT_DEFAULT, &fake));
+    let s = Arc::clone(&store);
+    let fill = std::thread::spawn(move || s.fill("1", Q, Vec::new()));
+    while fake.flaky.load(Ordering::SeqCst) > 0 {
+        std::thread::yield_now();
+    }
+    let cancelled = Instant::now();
+    store.cancel("1");
+    assert!(matches!(fill.join().unwrap(), Err(CoreError::Cancelled(_))));
+    assert!(cancelled.elapsed() < Duration::from_millis(500), "stopped after {:?}", cancelled.elapsed());
+}
+
+#[test]
+fn a_track_larger_than_the_cache_is_not_kept() {
+    let dir = TempDir::new();
+    let fake = Arc::new(Fake::default());
+    let store = open(&dir, track_bytes() - 1, &fake);
+    assert!(matches!(store.fill("1", Q, Vec::new()), Err(CoreError::Cancelled(_))));
+    assert_eq!(store.usage().tracks, 0);
+    assert_eq!(files(&dir), [INDEX]);
+}
+
+#[test]
 fn eviction_keeps_what_plays_and_drops_the_oldest() {
     let dir = TempDir::new();
     let fake = Arc::new(Fake::default());

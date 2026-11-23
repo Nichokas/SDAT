@@ -8,7 +8,7 @@ use std::io::Read;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Condvar, Mutex, MutexGuard, OnceLock, PoisonError};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use url::Url;
 
@@ -487,7 +487,10 @@ impl Store {
                 Err(e) => log::debug!("audio cache request failed, retrying error={e}"),
             }
             attempt += 1;
-            std::thread::sleep(Duration::from_secs(u64::from(attempt)));
+            let until = Instant::now() + Duration::from_secs(u64::from(attempt));
+            while Instant::now() < until && !cancel.load(Ordering::Relaxed) {
+                std::thread::sleep(Duration::from_millis(50));
+            }
         }
     }
 
@@ -522,6 +525,9 @@ impl Store {
             let (body, _) = self.get_with_retry(url, cancel)?;
             out.write_all(&body)?;
             sizes.push(body.len() as u64);
+            if sizes.iter().sum::<u64>() > self.lock().limit {
+                return Err(CoreError::Cancelled(format!("track {} is larger than the audio cache", id.as_str())));
+            }
         }
         drop(out);
         let stem = stem(id.as_str(), fill.file);

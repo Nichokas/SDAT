@@ -387,7 +387,7 @@ fn stream_after_cached_copy_failed(id: &str) {
         }
         // During a gapless handoff the failed copy is the next track's: the current one restarts and hands off to its
         // stream.
-        _ if peek_gapless().is_some_and(|e| e.track.id() == id) => fire(Trigger::TokenExpired),
+        _ if with(|p| p.machine.gapless_entry()).flatten().is_some_and(|e| e.track.id() == id) => fire(Trigger::TokenExpired),
         // The error of a stream that a newer start replaced.
         _ => {}
     }
