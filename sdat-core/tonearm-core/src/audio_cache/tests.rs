@@ -512,10 +512,24 @@ fn a_request_for_a_higher_tier_supersedes_a_lower_fill() {
     let fake = Arc::new(Fake::default());
     let store = open(&dir, LIMIT_DEFAULT, &fake);
     let low = store.begin("1", TrackQuality::High, Vec::new()).unwrap();
+    let joined = store.begin("1", TrackQuality::High, Vec::new()).unwrap();
     let high = store.begin("1", TrackQuality::Lossless, Vec::new()).unwrap();
     let lower = store.begin("1", TrackQuality::High, Vec::new()).unwrap();
-    assert!(matches!(low.finish(), Err(CoreError::Cancelled(_))));
     assert_eq!(high.finish().unwrap().quality, TrackQuality::Lossless);
-    assert_eq!(lower.finish().unwrap().quality, TrackQuality::Lossless, "a lower request joins the higher fill");
+    for job in [low, joined, lower] {
+        assert_eq!(job.finish().unwrap().quality, TrackQuality::Lossless, "the higher copy serves the lower requests");
+    }
     assert_eq!(store.usage().tracks, 1);
+    assert_eq!(fake.manifests.load(Ordering::SeqCst), 1, "the superseded fill never started");
+}
+
+#[test]
+fn a_hit_that_a_purge_dropped_before_finish_is_cancelled() {
+    let dir = TempDir::new();
+    let fake = Arc::new(Fake::default());
+    let store = open(&dir, LIMIT_DEFAULT, &fake);
+    store.fill("1", Q, Vec::new()).unwrap();
+    let job = store.begin("1", Q, Vec::new()).unwrap();
+    store.purge(false);
+    assert!(matches!(job.finish(), Err(CoreError::Cancelled(_))));
 }

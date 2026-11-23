@@ -638,6 +638,7 @@ fn install_actions(app: &adw::Application, window: &adw::ApplicationWindow) {
             match update_session(None).await {
                 Ok(AccountChangeStatus::Completed) => {
                     toast(&tr("Signed out"));
+                    crate::player::drop_audio_cache_plan();
                     let purge = || {
                         tonearm_core::audio_cache::purge(false);
                         anyhow::Ok(())
@@ -781,6 +782,7 @@ fn audio_cache_group(d: &adw::PreferencesDialog) -> adw::PreferencesGroup {
         let (dw, r) = (dw.clone(), Rc::clone(&r));
         ad.connect_response(Some("clear"), move |_, _| {
             let (dw, r) = (dw.clone(), Rc::clone(&r));
+            crate::player::drop_audio_cache_plan();
             glib::spawn_future_local(async move {
                 let purge = || {
                     audio_cache::purge(true);

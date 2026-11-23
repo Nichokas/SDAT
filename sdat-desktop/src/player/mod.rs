@@ -23,6 +23,7 @@ use crate::model::{PlaybackSource, PlaylistInfo, Track};
 use crate::signals::{Signal, State, CONTINUE};
 use crate::{api, global_signal, i18n::tr, service, settings};
 use playqueue::{DurableQueue, HistoryEntry, HistoryQueue, UserQueue};
+pub use audio_cache::drop_plan as drop_audio_cache_plan;
 pub use quality::audio_stream_quality;
 use gapless_gate::GaplessGate;
 use next::{commit_gapless, next_track, peek_gapless, pop_next_streamable_from_queue};

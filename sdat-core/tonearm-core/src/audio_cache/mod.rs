@@ -195,15 +195,25 @@ impl Job<'_> {
     /// The blocking rest of [`Store::fill`].
     pub fn finish(mut self) -> CoreResult<Cached> {
         let fill = match &self.step {
-            Step::Hit(c) => return Ok(c.clone()),
-            Step::Join(running) => return running.wait(),
+            Step::Hit(c) => return self.store.still_cached(c.clone()),
+            Step::Join(running) => return self.store.still_cached(running.outcome()?),
             Step::Own(fill) => Arc::clone(fill),
         };
         let store = self.store;
-        let part = store.dir.join(format!("{}.part", stem(self.id.as_str(), fill.file)));
+        let stem = stem(self.id.as_str(), fill.file);
+        let part = store.dir.join(format!("{stem}.part"));
         let result = store.download(&self.id, self.quality, std::mem::take(&mut self.label), &fill, &part);
         let _ = fs::remove_file(&part);
+        if result.is_err() {
+            // No entry names a failed fill's files.
+            for ext in ["m3u8.part", "mp4", "m3u8"] {
+                let _ = fs::remove_file(store.dir.join(format!("{stem}.{ext}")));
+            }
+        }
         store.release(&self.id, &fill, result.clone());
+        if result.is_err() && fill.next.get().is_some() {
+            return store.still_cached(fill.outcome()?);
+        }
         result
     }
 }
@@ -228,6 +238,8 @@ struct Fill {
     file: u64,
     requested: TrackQuality,
     cancel: AtomicBool,
+    /// The fill for a higher tier that superseded this one; its copy serves this one's requests too.
+    next: OnceLock<Arc<Fill>>,
     result: Mutex<Option<CoreResult<Cached>>>,
     done: Condvar,
 }
@@ -240,6 +252,15 @@ impl Fill {
                 return r.clone();
             }
             r = self.done.wait(r).unwrap_or_else(PoisonError::into_inner);
+        }
+    }
+
+    /// The result of this fill, or of the fills that superseded it.
+    fn outcome(&self) -> CoreResult<Cached> {
+        let r = self.wait();
+        match (&r, self.next.get()) {
+            (Err(_), Some(next)) => next.outcome(),
+            _ => r,
         }
     }
 
@@ -425,15 +446,23 @@ impl Store {
             Step::Join(Arc::clone(running))
         } else {
             // A fill for a lower tier gives way: its copy would not serve this request.
-            if let Some(lower) = st.fills.get(id.as_str()) {
-                lower.cancel.store(true, Ordering::Relaxed);
-            }
             st.index.clock += 1;
             let fill = Arc::new(Fill { file: st.index.clock, requested: quality, ..Fill::default() });
+            if let Some(lower) = st.fills.get(id.as_str()).filter(|f| !f.cancel.load(Ordering::Relaxed)) {
+                let _ = lower.next.set(Arc::clone(&fill));
+                lower.cancel.store(true, Ordering::Relaxed);
+            }
             st.fills.insert(id.0.clone(), Arc::clone(&fill));
             Step::Own(fill)
         };
         Ok(Job { store: self, id, quality, label, step })
+    }
+
+    /// `c`, unless a purge or removal dropped it since it was found.
+    fn still_cached(&self, c: Cached) -> CoreResult<Cached> {
+        let st = self.lock();
+        let indexed = st.index.entries.get(&c.track_id).is_some_and(|e| self.cached(&c.track_id, e).mp4 == c.mp4);
+        if indexed { Ok(c) } else { Err(cancelled()) }
     }
 
     fn release(&self, id: &TrackId, fill: &Arc<Fill>, result: CoreResult<Cached>) {
@@ -626,10 +655,10 @@ pub fn install(dir: PathBuf, limit: u64) -> CoreResult<()> {
         s.set_limit(limit);
         return Ok(());
     }
-    let limit = early.take().unwrap_or(limit);
+    let limit = early.unwrap_or(limit);
     let client = crate::http::client_builder().connect_timeout(Duration::from_secs(15)).timeout(Duration::from_secs(20)).build()?;
-    let store = Store::open(dir, limit, Box::new(Tidal(client))).inspect_err(|_| *early = Some(limit))?;
-    let _ = STORE.set(store);
+    let _ = STORE.set(Store::open(dir, limit, Box::new(Tidal(client)))?);
+    *early = None;
     Ok(())
 }
 

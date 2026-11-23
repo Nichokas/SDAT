@@ -143,6 +143,14 @@ fn has_headroom(s: &PlaybackState) -> bool {
     ahead >= HEADROOM.min(rest)
 }
 
+/// Call before a purge: what is left of the plan must not fill the cache again.
+pub fn drop_plan() {
+    PLANNED.with(RefCell::take);
+    let mut p = PLAN.lock().unwrap_or_else(PoisonError::into_inner);
+    p.generation += 1;
+    p.tracks.clear();
+}
+
 pub fn on_track_changed() {
     PENDING.set(true);
 }
@@ -173,15 +181,15 @@ pub fn on_playback_state(s: &PlaybackState) {
     let next = peek_gapless().map(|e| e.track.id().to_owned());
     let mut tracks: Vec<String> = next.into_iter().chain(current).collect();
     tracks.dedup();
-    PLANNED.with(|p| {
-        for old in p.borrow().iter().filter(|old| !tracks.contains(old)) {
-            audio_cache::cancel(old);
-        }
-        p.replace(tracks.clone());
-    });
+    // The new plan first, so the worker begins no fill of the old one after the cancels below.
     let mut p = PLAN.lock().unwrap_or_else(PoisonError::into_inner);
     p.generation += 1;
-    p.tracks = tracks;
+    p.tracks.clone_from(&tracks);
     p.quality = settings::audio_quality();
     PLAN_CHANGED.notify_one();
+    drop(p);
+    let old = PLANNED.with(|p| p.replace(tracks.clone()));
+    for id in old.iter().filter(|id| !tracks.contains(id)) {
+        audio_cache::cancel(id);
+    }
 }
