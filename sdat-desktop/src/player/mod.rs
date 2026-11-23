@@ -772,6 +772,12 @@ pub fn stop() {
     fire(Trigger::Stop);
 }
 
+/// Stops playback and runs `then` once the pipeline let go of its stream.
+pub fn stop_then(then: impl FnOnce() + 'static) {
+    stop();
+    fire_uncounted(Trigger::Deferred(Box::new(then)));
+}
+
 /// Call on quit. The player lives in a thread-local, dropped while the process
 /// exits; disposing a playbin that is not in NULL there can hang forever.
 pub fn shutdown() {
