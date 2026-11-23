@@ -76,9 +76,9 @@ fn fill_planned_tracks() -> ! {
                 audio_cache::begin(&id, quality, Vec::new())
             };
             match job.and_then(audio_cache::Job::finish) {
-                Ok(_) => {}
-                // A purge (Clear, sign-out) or a new plan: the rest of this one must not fill the cache again.
-                Err(CoreError::Cancelled(_)) => break,
+                // A purge (Clear, sign-out) or a new plan also changes the generation, which ends this plan at its next
+                // track; a cancel of this track alone (it starts streaming) leaves the rest to fill.
+                Ok(_) | Err(CoreError::Cancelled(_)) => {}
                 Err(e) => log::warn!("failed to cache track id={id} error={e}"),
             }
         }

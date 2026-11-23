@@ -214,7 +214,7 @@ impl Job<'_> {
         if result.is_err() && fill.next.get().is_some() {
             return store.still_cached(fill.outcome()?);
         }
-        result
+        store.still_cached(result?)
     }
 }
 
