@@ -222,6 +222,12 @@ fn fire(t: Trigger) {
     if matches!(t, Trigger::PlayTrack(..) | Trigger::Deferred(_)) {
         PLAY_REQUESTS.with(|r| r.set(r.get() + 1));
     }
+    fire_uncounted(t);
+}
+
+/// For a restart nobody asked for, such as streaming a failed cached copy: what waits on the user's start (a
+/// handoff's seek) keeps waiting for it.
+fn fire_uncounted(t: Trigger) {
     if with(|p| p.machine.fire(t)).is_none() {
         log::warn!("player not initialised, dropping trigger");
     }
@@ -337,7 +343,7 @@ fn on_bus_message(msg: &gst::Message) {
         MessageView::Error(err) => {
             let e = err.error();
             if let Some(id) = cached_copy_failed() {
-                fire(Trigger::Deferred(Box::new(move || stream_after_cached_copy_failed(&id))));
+                fire_uncounted(Trigger::Deferred(Box::new(move || stream_after_cached_copy_failed(&id))));
                 return;
             }
             if e.matches(gst::ResourceError::NotAuthorized) || e.matches(gst::ResourceError::NotFound) {
@@ -367,7 +373,7 @@ fn stream_after_cached_copy_failed(id: &str) {
                 statemachine::start_paused(id);
             }
             // Its start already went into the history.
-            fire(Trigger::PlayTrack(t, true));
+            fire_uncounted(Trigger::PlayTrack(t, true));
             if paused {
                 fire(Trigger::Pause);
             }

@@ -172,6 +172,11 @@ pub fn on_playback_state(s: &PlaybackState) {
             PENDING.set(true);
         }
     }
+    if settings::audio_cache_limit() == 0 {
+        // Turning the cache off stopped the fills; turning it on fills what plays.
+        PENDING.set(true);
+        return;
+    }
     if !has_headroom(s) {
         return;
     }
@@ -181,9 +186,6 @@ pub fn on_playback_state(s: &PlaybackState) {
     }
     PENDING.set(false);
     PLANNED_NEXT.set(next.clone());
-    if settings::audio_cache_limit() == 0 {
-        return;
-    }
     let current = track_changed().with(|t| t.as_ref().map(|e| e.track.id().to_owned()));
     let mut tracks: Vec<String> = next.into_iter().chain(current).collect();
     tracks.dedup();
