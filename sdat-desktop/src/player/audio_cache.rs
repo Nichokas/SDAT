@@ -11,7 +11,8 @@ use tonearm_core::audio_cache;
 use tonearm_core::CoreError;
 
 use super::next::peek_gapless;
-use super::{track_changed, PlaybackState, PlaybackStatus};
+use super::statemachine::GaplessSource;
+use super::{shuffle_state_changed, track_changed, PlaybackState, PlaybackStatus};
 use crate::model::{TrackManifest, TrackQuality};
 use crate::settings;
 
@@ -107,7 +108,7 @@ pub fn manifest(track_id: &str, quality: TrackQuality) -> Option<TrackManifest> 
 /// handoff `uri` already belongs to the next track.
 pub fn drop_failed_copy(uri: &str) -> Option<String> {
     let (path, _) = glib::filename_from_uri(uri).ok()?;
-    if !path.starts_with(dir()) {
+    if path.parent() != Some(dir().as_path()) {
         return None;
     }
     let id = path.file_stem()?.to_str()?.split('-').next()?.to_owned();
@@ -180,7 +181,9 @@ pub fn on_playback_state(s: &PlaybackState) {
     if !has_headroom(s) {
         return;
     }
-    let next = peek_gapless().map(|e| e.track.id().to_owned());
+    // With shuffle, each peek past the end of the queue draws a new track: there is no next one to fill.
+    let wraps_shuffled = |s: GaplessSource| matches!(s, GaplessSource::BaseQueue { rewound: true }) && shuffle_state_changed().get();
+    let next = peek_gapless().filter(|e| !wraps_shuffled(e.source)).map(|e| e.track.id().to_owned());
     if !PENDING.get() && PLANNED_NEXT.with(|n| *n.borrow() == next) {
         return;
     }
@@ -199,5 +202,18 @@ pub fn on_playback_state(s: &PlaybackState) {
     let old = PLANNED.with(|p| p.replace(tracks.clone()));
     for id in old.iter().filter(|id| !tracks.contains(id)) {
         audio_cache::cancel(id);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_failed_copy_counts_only_inside_the_cache_folder() {
+        let uri = |p: PathBuf| glib::filename_to_uri(p, None).unwrap().to_string();
+        assert_eq!(drop_failed_copy(&uri(dir().join("123-4.m3u8"))).as_deref(), Some("123"));
+        assert_eq!(drop_failed_copy(&uri(dir().join("..").join("other").join("123-4.m3u8"))), None);
+        assert_eq!(drop_failed_copy(&uri(dir().join("sub").join("123-4.m3u8"))), None);
     }
 }
