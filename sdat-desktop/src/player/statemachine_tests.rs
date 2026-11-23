@@ -317,6 +317,24 @@ fn deferred_action_fires_ahead_of_later_triggers() {
     .unwrap();
 }
 
+/// Cleanup queued behind a Stop runs even when another Stop follows it.
+#[test]
+fn after_stop_runs_despite_a_later_stop() {
+    let ctx = glib::MainContext::new();
+    ctx.with_thread_default(|| {
+        let m = Machine::new(Rc::new(Testbin::default()), Hooks::default());
+        let ran = Rc::new(Cell::new(false));
+        let r = Rc::clone(&ran);
+        m.queue.borrow_mut().push_back(Trigger::Stop);
+        m.queue.borrow_mut().push_back(Trigger::AfterStop(Box::new(move || r.set(true))));
+        m.fire(Trigger::Stop);
+        while ctx.iteration(false) {}
+        assert!(ran.get());
+        assert_eq!(m.state.get(), State::Stopped);
+    })
+    .unwrap();
+}
+
 /// A pause while the track is still preparing (Listen Together guest
 /// loading a host track paused) holds the pipeline and makes the stream
 /// start paused instead of playing from 0:00.

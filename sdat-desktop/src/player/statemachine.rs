@@ -357,6 +357,8 @@ pub enum Trigger {
     /// Runs a queue action (next / previous) once the triggers queued before
     /// it were handled, so it sees the track their start made current.
     Deferred(Box<dyn FnOnce()>),
+    /// Runs once the triggers queued before it were handled, even when a Stop waits behind it: cleanup, not a start.
+    AfterStop(Box<dyn FnOnce()>),
     /// Reports a playback error (track id, message) once the deferred
     /// next / previous queued before it turned out to start nothing.
     ReportError(Option<String>, String),
@@ -381,6 +383,7 @@ impl std::fmt::Debug for Trigger {
             Trigger::PlayTrackId(..) => "TRIGGER_PLAY_TRACK_ID",
             Trigger::PlayTrack(..) => "TRIGGER_PLAY_TRACK",
             Trigger::Deferred(_) => "deferred",
+            Trigger::AfterStop(_) => "after-stop",
             Trigger::ReportError(..) => "report-error",
             Trigger::Pause => "TRIGGER_PAUSE",
             Trigger::Resume => "TRIGGER_RESUME",
@@ -619,6 +622,10 @@ impl Machine {
     }
 
     async fn handle(self: &Rc<Self>, t: Trigger) {
+        if let Trigger::AfterStop(action) = t {
+            action();
+            return;
+        }
         if let Trigger::Deferred(action) = t {
             // A Stop pressed after it wins; don't take a track for nothing.
             if self.has_queued_stop() {

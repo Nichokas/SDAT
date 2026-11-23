@@ -650,8 +650,7 @@ fn install_actions(app: &adw::Application, window: &adw::ApplicationWindow) {
                             }
                         });
                     };
-                    // Everything now but the files of what plays; those once it stopped. A newer Stop may drop that
-                    // second step, and the files then go when their track is released or the cache opens again.
+                    // Everything now but the files of what plays; those once it stopped.
                     purge(true);
                     crate::player::stop_then(move || purge(false));
                 }
