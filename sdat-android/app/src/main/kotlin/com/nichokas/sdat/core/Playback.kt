@@ -304,7 +304,11 @@ class Playback(context: Context, private val prefs: Preferences, secrets: Secret
                 val now = SystemClock.elapsedRealtime()
                 // A broken download or cached copy spends no budget: only the online stream can help, and a removed
                 // cached copy is not played again.
-                if (origin == Origin.CACHED) AudioCache.remove(t.id)
+                if (origin == Origin.CACHED) {
+                    AudioCache.remove(t.id)
+                    // The online stream that replaces it gets a refetch of its own.
+                    refetched = null
+                }
                 if (origin == Origin.NETWORK) {
                     if (!refetchDue(refetched, t.id, now)) return fail(e.errorCodeName)
                     refetched = t.id to now
