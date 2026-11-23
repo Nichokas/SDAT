@@ -660,21 +660,33 @@ fn reconcile(dir: &Path, mut index: Index) -> CoreResult<Index> {
 }
 
 static STORE: OnceLock<Store> = OnceLock::new();
-/// A limit set while the store was still opening; it is newer than the one `install` was given.
-static EARLY_LIMIT: Mutex<Option<u64>> = Mutex::new(None);
+/// Calls made while the store was still opening, applied once it is open.
+static EARLY: Mutex<Early> = Mutex::new(Early { limit: None, purge: false });
+
+#[derive(Debug)]
+struct Early {
+    /// Newer than the limit `install` was given.
+    limit: Option<u64>,
+    purge: bool,
+}
 
 /// Opens the process-wide cache in `dir`, which only the cache may use: see [`Store::open`]. A second call only
 /// applies `limit`.
 pub fn install(dir: PathBuf, limit: u64) -> CoreResult<()> {
-    let mut early = EARLY_LIMIT.lock().unwrap_or_else(PoisonError::into_inner);
+    let mut early = EARLY.lock().unwrap_or_else(PoisonError::into_inner);
     if let Some(s) = STORE.get() {
         s.set_limit(limit);
         return Ok(());
     }
-    let limit = early.unwrap_or(limit);
+    let limit = early.limit.unwrap_or(limit);
     let client = crate::http::client_builder().connect_timeout(Duration::from_secs(15)).timeout(Duration::from_secs(20)).build()?;
-    let _ = STORE.set(Store::open(dir, limit, Box::new(Tidal(client)))?);
-    *early = None;
+    let store = Store::open(dir, limit, Box::new(Tidal(client)))?;
+    // Nothing played from the cache before it was open.
+    if early.purge {
+        store.purge(false);
+    }
+    let _ = STORE.set(store);
+    *early = Early { limit: None, purge: false };
     Ok(())
 }
 
@@ -709,10 +721,10 @@ pub fn usage() -> Usage {
 }
 
 pub fn set_limit(bytes: u64) {
-    let mut early = EARLY_LIMIT.lock().unwrap_or_else(PoisonError::into_inner);
+    let mut early = EARLY.lock().unwrap_or_else(PoisonError::into_inner);
     match STORE.get() {
         Some(s) => s.set_limit(bytes),
-        None => *early = Some(bytes),
+        None => early.limit = Some(bytes),
     }
 }
 
@@ -722,9 +734,12 @@ pub fn remove(track_id: &str) {
     }
 }
 
+/// Before the cache is open, the purge runs as soon as it is.
 pub fn purge(keep_playing: bool) {
-    if let Some(s) = STORE.get() {
-        s.purge(keep_playing);
+    let mut early = EARLY.lock().unwrap_or_else(PoisonError::into_inner);
+    match STORE.get() {
+        Some(s) => s.purge(keep_playing),
+        None => early.purge = true,
     }
 }
 

@@ -639,18 +639,21 @@ fn install_actions(app: &adw::Application, window: &adw::ApplicationWindow) {
                 Ok(AccountChangeStatus::Completed) => {
                     toast(&tr("Signed out"));
                     crate::player::drop_audio_cache_plan();
-                    // The purge deletes the files of what plays, so it waits for the stop.
-                    crate::player::stop_then(|| {
-                        glib::spawn_future_local(async {
-                            let purge = || {
-                                tonearm_core::audio_cache::purge(false);
+                    let purge = |keep_playing| {
+                        glib::spawn_future_local(async move {
+                            let purge = move || {
+                                tonearm_core::audio_cache::purge(keep_playing);
                                 anyhow::Ok(())
                             };
                             if let Err(e) = api::run(purge).await {
                                 log::warn!("failed to clear the audio cache on sign-out error={e:#}");
                             }
                         });
-                    });
+                    };
+                    // Everything now but the files of what plays; those once it stopped. A newer Stop may drop that
+                    // second step, and the files then go when their track is released or the cache opens again.
+                    purge(true);
+                    crate::player::stop_then(move || purge(false));
                 }
                 Ok(AccountChangeStatus::InProgress) => {}
                 Err(e) => {
