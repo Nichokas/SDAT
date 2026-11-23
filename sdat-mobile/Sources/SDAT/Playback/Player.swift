@@ -716,6 +716,7 @@ final class Player: LivePlaybackPort {
             }
             refetched = (t.id, now)
         case .cached:
+            AudioCache.log.warning("cached track \(t.id, privacy: .public) failed to play: \(String(describing: item.error), privacy: .public); streaming it instead")
             AudioCache.shared.remove(t.id)
         case .downloaded:
             break
