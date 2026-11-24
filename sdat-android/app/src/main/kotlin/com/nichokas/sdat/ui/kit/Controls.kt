@@ -157,10 +157,12 @@ fun Slider(
 @Composable
 fun Stepper(value: Int, onValueChange: (Int) -> Unit, modifier: Modifier = Modifier, range: IntRange = Int.MIN_VALUE..Int.MAX_VALUE) {
     val colors = SdatTheme.colors
+    // A stored value outside the range steps from its nearest end, so the first tap brings it back in.
+    val current = value.coerceIn(range)
     Row(modifier.size(94.dp, 32.dp).clip(capsule).background(colors.fill), verticalAlignment = Alignment.CenterVertically) {
-        StepperHalf("minus", "Decrease", value > range.first) { onValueChange(value - 1) }
+        StepperHalf("minus", "Decrease", current > range.first) { onValueChange(current - 1) }
         Box(Modifier.width(1.dp).height(18.dp).background(colors.separator))
-        StepperHalf("plus", "Increase", value < range.last) { onValueChange(value + 1) }
+        StepperHalf("plus", "Increase", current < range.last) { onValueChange(current + 1) }
     }
 }
 
