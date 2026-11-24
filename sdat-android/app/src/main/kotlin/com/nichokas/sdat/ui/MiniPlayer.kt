@@ -69,7 +69,6 @@ import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.customActions
 import androidx.compose.ui.semantics.disabled
 import androidx.compose.ui.semantics.onClick
-import androidx.compose.ui.semantics.onLongClick
 import androidx.compose.ui.semantics.role
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
@@ -233,8 +232,9 @@ private fun CircleContent(playback: Playback, onOpen: () -> Unit, modifier: Modi
                 contentDescription = track?.let { "$label ${it.title}" } ?: label
                 if (track == null) disabled()
                 onClick("Open player") { onOpen(); true }
-                onLongClick(label) { Live.userToggle(); true }
+                // The fan's controls, as actions: the fan itself is a drag, which assistive technology can't do.
                 customActions = listOf(
+                    CustomAccessibilityAction(label) { runFanItem(MiniFan.Item.Toggle, playback); true },
                     CustomAccessibilityAction("Previous") { runFanItem(MiniFan.Item.Previous, playback); true },
                     CustomAccessibilityAction("Next") { runFanItem(MiniFan.Item.Next, playback); true },
                 )
