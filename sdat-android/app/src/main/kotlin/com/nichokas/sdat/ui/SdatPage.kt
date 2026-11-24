@@ -1,6 +1,5 @@
 package com.nichokas.sdat.ui
 
-import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.lazy.LazyListScope
@@ -12,6 +11,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import com.nichokas.sdat.core.Chrome
 import com.nichokas.sdat.core.ListScroll
@@ -33,7 +33,7 @@ fun SdatPage(
     onBack: (() -> Unit)? = null,
     collapsesChrome: Boolean = false,
     showsLargeTitle: Boolean = true,
-    bottomPaddingValues: PaddingValues? = PaddingValues(bottom = BottomChromeSpace),
+    bottomPadding: Dp = BottomChromeSpace,
     actions: @Composable RowScope.() -> Unit = {},
     content: LazyListScope.() -> Unit,
 ) {
@@ -50,7 +50,7 @@ fun SdatPage(
         showsLargeTitle = showsLargeTitle,
         onNavigateBack = onBack,
         actions = actions,
-        bottomPaddingValues = bottomPaddingValues,
+        bottomPadding = bottomPadding,
         modifier = modifier,
         content = content,
     )

@@ -119,7 +119,7 @@ fun SettingsView(session: Session, prefs: Preferences, secrets: Secrets, crashRe
         onPauseOrDispose { if (lastFmPending != null) browserOpened = true }
     }
 
-    SdatPage(title = "Settings", onBack = onBack, showsLargeTitle = false, bottomPaddingValues = null) {
+    SdatPage(title = "Settings", onBack = onBack, showsLargeTitle = false, bottomPadding = 0.dp) {
         item {
             Section("Account") {
                 ListRow("Sessions and devices", showTopSeparator = false, onClick = { context.open("https://account.tidal.com/") }, showDisclosure = false)

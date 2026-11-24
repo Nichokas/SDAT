@@ -32,6 +32,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import com.nichokas.sdat.ui.SdatIcon
 
@@ -95,7 +96,7 @@ fun PinnedListPage(
     showsLargeTitle: Boolean,
     onNavigateBack: (() -> Unit)?,
     actions: @Composable RowScope.() -> Unit,
-    bottomPaddingValues: PaddingValues?,
+    bottomPadding: Dp,
     modifier: Modifier = Modifier,
     content: LazyListScope.() -> Unit,
 ) {
@@ -121,7 +122,7 @@ fun PinnedListPage(
             modifier = Modifier.fillMaxSize(),
             contentPadding = PaddingValues(
                 top = padding.calculateTopPadding(),
-                bottom = padding.calculateBottomPadding() + (bottomPaddingValues?.calculateBottomPadding() ?: 0.dp),
+                bottom = padding.calculateBottomPadding() + bottomPadding,
             ),
         ) {
             if (showsLargeTitle) {
