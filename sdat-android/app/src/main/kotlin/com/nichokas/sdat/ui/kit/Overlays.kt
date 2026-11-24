@@ -45,6 +45,7 @@ import androidx.compose.ui.platform.LocalWindowInfo
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.paneTitle
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
@@ -185,6 +186,9 @@ data class MenuAction(
     val onClick: () -> Unit = {},
     val subtitle: String? = null,
 )
+
+/** Tells screen readers whether the menu this control opens is showing. */
+fun Modifier.menuAnchor(open: Boolean) = semantics { stateDescription = if (open) "Expanded" else "Collapsed" }
 
 /** A menu that opens from [anchor]; [anchor] gets the toggle to call on tap. */
 @Composable

@@ -106,7 +106,8 @@ fun <T> TabBar(
                         scaleX = Morph.inScale(p)
                         scaleY = scaleX
                     }
-                    .clickable(enabled = compact, role = Role.Button, onClickLabel = "Show tabs", onClick = onExpand),
+                    // Absent rather than disabled: a disabled clickable still takes the taps meant for the tabs below.
+                    .then(if (compact) Modifier.clickable(role = Role.Button, onClickLabel = "Show tabs", onClick = onExpand) else Modifier),
                 contentAlignment = Alignment.Center,
             ) {
                 SdatIcon(selected.symbol, selected.label, size = 26.dp, tint = colors.accent)

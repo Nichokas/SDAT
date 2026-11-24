@@ -28,6 +28,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
@@ -86,6 +87,7 @@ import com.nichokas.sdat.ui.kit.PopupMenu
 import com.nichokas.sdat.ui.kit.SdatTheme
 import com.nichokas.sdat.ui.kit.SdatType
 import com.nichokas.sdat.ui.kit.Slider
+import com.nichokas.sdat.ui.kit.menuAnchor
 import kotlinx.coroutines.launch
 import uniffi.tonearm_ffi.Track
 
@@ -107,7 +109,7 @@ fun PlayerSheet(playback: Playback, onDismiss: () -> Unit) {
                 modifier = Modifier.fillMaxSize(),
                 content = { CoverBackdrop(track.coverUrlLarge) },
                 overlay = {
-                    HorizontalPager(pager, Modifier.fillMaxSize()) { page ->
+                    HorizontalPager(pager, Modifier.fillMaxSize().navigationBarsPadding()) { page ->
                         if (page == 0) {
                             NowPlayingPage(playback, track, showQueue = { scope.launch { pager.animateScrollToPage(1) } })
                         } else {
@@ -298,7 +300,7 @@ private fun TitleRow(playback: Playback, track: Track, slide: () -> ContentTrans
             }
         }
         IconTap(if (fav) "star.fill" else "star", if (fav) "Unfavourite" else "Favourite", 22.dp) { Favs.set(track.id, !fav) }
-        IconTap("ellipsis", "More", 22.dp, Modifier.onGloballyPositioned { menuBounds = it.boundsInRoot() }) { menuOpen = true }
+        IconTap("ellipsis", "More", 22.dp, Modifier.onGloballyPositioned { menuBounds = it.boundsInRoot() }.menuAnchor(menuOpen)) { menuOpen = true }
     }
     if (menuOpen) {
         val share = MenuAction("Share", "square.and.arrow.up", onClick = {

@@ -61,6 +61,7 @@ import com.nichokas.sdat.ui.kit.PinnedPage
 import com.nichokas.sdat.ui.kit.PopupMenu
 import com.nichokas.sdat.ui.kit.SdatTheme
 import com.nichokas.sdat.ui.kit.SdatType
+import com.nichokas.sdat.ui.kit.menuAnchor
 import uniffi.tonearm_ffi.FavouriteKind
 import uniffi.tonearm_ffi.Track
 
@@ -78,24 +79,27 @@ fun DetailScaffold(
     val pastHeader by remember { derivedStateOf { listState.firstVisibleItemIndex > 0 } }
     val collapse by animateFloatAsState(if (pastHeader) 1f else 0f, label = "title")
     val scrolled by remember { derivedStateOf { listState.canScrollBackward } }
-    PinnedPage(
-        title = title,
-        onNavigateBack = Chrome::pop,
-        actions = actions,
-        collapseProgress = collapse,
-        scrolled = scrolled,
-        backgroundColor = Color.Black,
-        background = { CoverBackdrop(backdropUrl, Modifier.matchParentSize()) },
-    ) { padding ->
-        LazyColumn(
-            state = listState,
-            modifier = Modifier.fillMaxSize(),
-            contentPadding = PaddingValues(
-                top = padding.calculateTopPadding(),
-                bottom = padding.calculateBottomPadding() + BottomChromeSpace,
-            ),
-            content = content,
-        )
+    // The cover backdrop is always dark, so the page is too, whatever the system theme.
+    SdatTheme(isDark = true) {
+        PinnedPage(
+            title = title,
+            onNavigateBack = Chrome::pop,
+            actions = actions,
+            collapseProgress = collapse,
+            scrolled = scrolled,
+            backgroundColor = Color.Black,
+            background = { CoverBackdrop(backdropUrl, Modifier.matchParentSize()) },
+        ) { padding ->
+            LazyColumn(
+                state = listState,
+                modifier = Modifier.fillMaxSize(),
+                contentPadding = PaddingValues(
+                    top = padding.calculateTopPadding(),
+                    bottom = padding.calculateBottomPadding() + BottomChromeSpace,
+                ),
+                content = content,
+            )
+        }
     }
 }
 
@@ -257,7 +261,7 @@ private fun Artwork(cover: String?, mosaic: List<String>) {
 fun DetailMenu(title: String, items: List<MenuAction>) {
     var bounds by remember { mutableStateOf<Rect?>(null) }
     var open by remember { mutableStateOf(false) }
-    IconButton({ open = true }, Modifier.onGloballyPositioned { bounds = it.boundsInRoot() }) {
+    IconButton({ open = true }, Modifier.onGloballyPositioned { bounds = it.boundsInRoot() }.menuAnchor(open)) {
         SdatIcon("ellipsis", "More", size = 20.dp)
     }
     if (open) {

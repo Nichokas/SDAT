@@ -67,6 +67,7 @@ import com.nichokas.sdat.ui.kit.MenuAction
 import com.nichokas.sdat.ui.kit.PopupMenu
 import com.nichokas.sdat.ui.kit.SdatTheme
 import com.nichokas.sdat.ui.kit.SdatType
+import com.nichokas.sdat.ui.kit.menuAnchor
 import kotlin.coroutines.cancellation.CancellationException
 import kotlin.math.abs
 import kotlin.math.sin
@@ -290,6 +291,7 @@ fun TrackMenuRow(
     Box(
         modifier
             .onGloballyPositioned { bounds = it.boundsInRoot() }
+            .menuAnchor(open)
             .combinedClickable(onLongClick = { open = true }, onClick = onClick),
     ) { content() }
     if (open) {

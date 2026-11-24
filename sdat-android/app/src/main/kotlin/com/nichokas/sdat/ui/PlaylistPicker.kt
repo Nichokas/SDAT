@@ -3,7 +3,10 @@ package com.nichokas.sdat.ui
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.asPaddingValues
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -43,7 +46,7 @@ fun PlaylistPicker(track: Track, onDismiss: () -> Unit) {
     BottomSheet(onDismissRequest = onDismiss, title = "Add to Playlist") {
         val list = OwnPlaylists.list
         when {
-            list.isNotEmpty() -> LazyColumn(Modifier.fillMaxWidth()) {
+            list.isNotEmpty() -> LazyColumn(Modifier.fillMaxWidth(), contentPadding = WindowInsets.navigationBars.asPaddingValues()) {
                 items(list, key = { it.id }) { p ->
                     Row(
                         Modifier.fillMaxWidth()
