@@ -98,12 +98,12 @@ private val removeRed = Color(0xFFFF453A)
 /** The full player, dark like iOS's; swipe left, or tap the queue button, for the queue. */
 @Composable
 fun PlayerSheet(playback: Playback, onDismiss: () -> Unit) {
-    GlasmioTheme(isDark = true, typography = glasmioTypography(inter)) {
+    GlasmioTheme(isDark = true, typography = glasmioTypography(inter), appearance = sdatGlass) {
         GlasmioBottomSheet(onDismissRequest = onDismiss, title = "Now Playing") {
             val track = playback.track ?: return@GlasmioBottomSheet
             val pager = rememberPagerState { 2 }
             val scope = rememberCoroutineScope()
-            // The sheet is its own window: its glass samples the cover backdrop, not the screen under it.
+            // The sheet is its own window, and glass controls throw outside a backdrop host.
             GlasmioBackdropHost(
                 modifier = Modifier.fillMaxSize(),
                 sampledContent = { CoverBackdrop(track.coverUrlLarge) },

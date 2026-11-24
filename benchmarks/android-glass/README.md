@@ -15,7 +15,7 @@ Each scene animates itself while the app records every frame with `FrameMetrics`
 | Player | The player's 80 dp blurred backdrop, with the pager swiping between Now Playing and the queue and the slider moving. |
 | Worst case | The fast fling with live glass and two busy cores, standing in for playback, a download and the core's network work. |
 
-The Discover and Collection scenes run three times. The first run uses live glass, as SDAT ships. The second uses `GlassAppearance(reduceTransparency = true)`, which draws the same components as solid fills and samples nothing. The third drops Glasmio's chrome entirely. The album and player scenes have no glass-free form in SDAT, so they run only live and reduced.
+The Discover and Collection scenes run three times. The first run uses live glass. The second uses `GlassAppearance(reduceTransparency = true)`, as SDAT ships, which draws the same components as solid fills and samples nothing. The third drops Glasmio's chrome entirely. The album and player scenes have no glass-free form in SDAT, so they run only live and reduced.
 
 The player runs inside the activity window, without `GlasmioBottomSheet`'s own window, because `FrameMetrics` sees only one window.
 

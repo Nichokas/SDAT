@@ -126,7 +126,7 @@ fun DownloadStatusButton(modifier: Modifier = Modifier) {
                 .semantics { contentDescription = "Downloads"; stateDescription = "${(p * 100).toInt()} percent" },
             contentAlignment = Alignment.Center,
         ) {
-            SdatIcon("arrow.down", null, size = 20.dp, tint = Color.White)
+            SdatIcon("arrow.down", null, size = 20.dp, tint = GlasmioTheme.colors.content)
             Canvas(Modifier.fillMaxSize().padding(1.5.dp)) {
                 val w = 3.dp.toPx()
                 drawArc(iosBlue, -90f, 360f * maxOf(0.001f, p), false, topLeft = Offset(w / 2, w / 2),

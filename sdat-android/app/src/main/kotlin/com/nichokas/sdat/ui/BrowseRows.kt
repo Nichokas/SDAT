@@ -127,8 +127,8 @@ fun PlayShuffleButtons(play: () -> Unit, shuffle: () -> Unit, modifier: Modifier
             Text("Play", style = style, color = Color.White, modifier = Modifier.padding(start = 6.dp))
         }
         GlasmioButton(shuffle, Modifier.weight(1f), enabled = enabled, size = size) {
-            SdatIcon("shuffle", null, size = if (compact) 16.dp else 20.dp, tint = Color.White)
-            Text("Shuffle", style = style, color = Color.White, modifier = Modifier.padding(start = 6.dp))
+            SdatIcon("shuffle", null, size = if (compact) 16.dp else 20.dp, tint = GlasmioTheme.colors.content)
+            Text("Shuffle", style = style, color = GlasmioTheme.colors.content, modifier = Modifier.padding(start = 6.dp))
         }
     }
 }

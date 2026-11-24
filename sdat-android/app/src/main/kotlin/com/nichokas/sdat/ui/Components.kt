@@ -415,7 +415,7 @@ fun Chip(title: String, selected: Boolean = false, onClick: () -> Unit) {
                 .clickable(role = Role.Button, onClick = onClick)
                 .padding(horizontal = 16.dp, vertical = 8.dp),
         ) {
-            Text(title, style = IosTypography.subheadline, fontWeight = FontWeight.Medium, color = Color.White)
+            Text(title, style = IosTypography.subheadline, fontWeight = FontWeight.Medium, color = GlasmioTheme.colors.content)
         }
     }
 }
