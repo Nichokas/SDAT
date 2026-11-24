@@ -18,6 +18,15 @@
       "category": "entertainment",
       "versions": [
         {
+          "version": "2.6.0",
+          "buildVersion": "20",
+          "date": "2026-11-24T16:39:44Z",
+          "localizedDescription": "## What's Changed\n* Fix Git ownership checks in Arch release builds by @Nichokas in https://github.com/Nichokas/SDAT/pull/240\n* Use the SDAT iOS icon for the Arch launcher by @Nichokas in https://github.com/Nichokas/SDAT/pull/241\n* Publish sdat-bin to the AUR on desktop releases by @Nichokas in https://github.com/Nichokas/SDAT/pull/242\n* Add the SDAT launcher icon on Android by @Nichokas in https://github.com/Nichokas/SDAT/pull/243\n* Show a generic silhouette when the account has no profile photo by @Nichokas in https://github.com/Nichokas/SDAT/pull/247\n* Add a shared audio cache and longer buffers (core, desktop) by @Nichokas in https://github.com/Nichokas/SDAT/pull/244\n* iOS: play from the audio cache, buffer longer, show the cache by @Nichokas in https://github.com/Nichokas/SDAT/pull/246\n* Android: play from the audio cache, buffer longer, show the cache by @Nichokas in https://github.com/Nichokas/SDAT/pull/245\n\n\n**Full Changelog**: https://github.com/Nichokas/SDAT/compare/v2.5.0...v2.6.0",
+          "downloadURL": "https://github.com/Nichokas/SDAT/releases/download/v2.6.0/SDAT-v2.6.0-unsigned.ipa",
+          "size": 12082303,
+          "minOSVersion": "26.0"
+        },
+        {
           "version": "2.5.0",
           "buildVersion": "19",
           "date": "2026-11-22T15:27:33Z",
@@ -162,11 +171,11 @@
           "minOSVersion": "26.0"
         }
       ],
-      "version": "2.5.0",
-      "versionDate": "2026-11-22T15:27:33Z",
-      "versionDescription": "## What's Changed\n* Package SDAT desktop for Arch Linux by @Nichokas in https://github.com/Nichokas/SDAT/pull/228\n* fix(android): isolate page backdrops to fix profile crash by @Nichokas in https://github.com/Nichokas/SDAT/pull/231\n* fix(benchmark): keep Player queue scene rendering during dwell by @Nichokas in https://github.com/Nichokas/SDAT/pull/232\n* fix(ci): fix review-bot timeouts and cache bloat, closed-PR gate, and setup-dev-vm SIGPIPE by @Nichokas in https://github.com/Nichokas/SDAT/pull/229\n* fix(android): fix scrubber freeze, QR scanner races, and UI pager leaks by @Nichokas in https://github.com/Nichokas/SDAT/pull/236\n* fix(core): unblock favourite cache reset and fix search, artwork, handoff, i18n, and scrobbling by @Nichokas in https://github.com/Nichokas/SDAT/pull/230\n* fix(android): guard SessionPlayer commands, handoff wait, and core caches by @Nichokas in https://github.com/Nichokas/SDAT/pull/233\n* fix(android): keep a retried download across a restore and allow idle volume commands by @Nichokas in https://github.com/Nichokas/SDAT/pull/239\n* Smooth animations on iOS, Android and desktop by @Nichokas in https://github.com/Nichokas/SDAT/pull/238\n* fix(ios): fix background downloads, audio interruptions, pagers, handoff, and live sync by @Nichokas in https://github.com/Nichokas/SDAT/pull/235\n* fix(desktop): break GTK4 tracklist leak and fix queue DnD, cache, and UI races by @Nichokas in https://github.com/Nichokas/SDAT/pull/237\n* fix(desktop): prevent gapless deadlock and fix playback, queue, and live sync by @Nichokas in https://github.com/Nichokas/SDAT/pull/234\n\n\n**Full Changelog**: https://github.com/Nichokas/SDAT/compare/v2.4.0...v2.5.0",
-      "downloadURL": "https://github.com/Nichokas/SDAT/releases/download/v2.5.0/SDAT-v2.5.0-unsigned.ipa",
-      "size": 11929836
+      "version": "2.6.0",
+      "versionDate": "2026-11-24T16:39:44Z",
+      "versionDescription": "## What's Changed\n* Fix Git ownership checks in Arch release builds by @Nichokas in https://github.com/Nichokas/SDAT/pull/240\n* Use the SDAT iOS icon for the Arch launcher by @Nichokas in https://github.com/Nichokas/SDAT/pull/241\n* Publish sdat-bin to the AUR on desktop releases by @Nichokas in https://github.com/Nichokas/SDAT/pull/242\n* Add the SDAT launcher icon on Android by @Nichokas in https://github.com/Nichokas/SDAT/pull/243\n* Show a generic silhouette when the account has no profile photo by @Nichokas in https://github.com/Nichokas/SDAT/pull/247\n* Add a shared audio cache and longer buffers (core, desktop) by @Nichokas in https://github.com/Nichokas/SDAT/pull/244\n* iOS: play from the audio cache, buffer longer, show the cache by @Nichokas in https://github.com/Nichokas/SDAT/pull/246\n* Android: play from the audio cache, buffer longer, show the cache by @Nichokas in https://github.com/Nichokas/SDAT/pull/245\n\n\n**Full Changelog**: https://github.com/Nichokas/SDAT/compare/v2.5.0...v2.6.0",
+      "downloadURL": "https://github.com/Nichokas/SDAT/releases/download/v2.6.0/SDAT-v2.6.0-unsigned.ipa",
+      "size": 12082303
     }
   ],
   "news": []
