@@ -259,11 +259,13 @@ private fun CircleContent(playback: Playback, onOpen: () -> Unit, modifier: Modi
                     try {
                         while (true) {
                             val change = awaitPointerEvent().changes.firstOrNull { it.id == down.id } ?: break
-                            change.consume()
                             if (!change.pressed) {
-                                MiniFan.release()?.let { runFanItem(it, playback) }
+                                // Compose delivers a cancelled gesture as an up that is already consumed: it must not run the
+                                // control under the finger.
+                                if (!change.isConsumed) MiniFan.release()?.let { runFanItem(it, playback) }
                                 break
                             }
+                            change.consume()
                             val d = change.position - down.position
                             if (MiniFan.move(d.x.toDp().value, d.y.toDp().value)) view.performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK)
                         }
