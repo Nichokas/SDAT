@@ -31,6 +31,7 @@ struct RootView: View {
             }
         }
         .overlay(alignment: .bottom) { BottomChrome().ignoresSafeArea(.keyboard) }
+        .overlay { MiniFanOverlay() }
         .toastOverlay(chrome.showPlayer ? nil : chrome.toast)
         .onChange(of: chrome.tab) { chrome.setCollapsed(false) }
         .sheet(isPresented: $chrome.showPlayer) { PlayerSheet() }

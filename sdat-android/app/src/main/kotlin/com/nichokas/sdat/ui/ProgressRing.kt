@@ -23,7 +23,7 @@ import kotlin.math.PI
 import kotlin.math.roundToInt
 
 /** iOS dark-mode system blue, SwiftUI's `.blue`. */
-private val iosBlue = Color(0xFF0A84FF)
+internal val iosBlue = Color(0xFF0A84FF)
 
 /**
  * iOS ProgressRing: [color] (blue) arc from 12 o'clock clockwise over a static dashed white ring; spins once a second

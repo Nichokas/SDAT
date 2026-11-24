@@ -57,7 +57,6 @@ import io.github.neoruaa.glasmio.ui.GlasmioCascadingMenuItem
 import uniffi.tonearm_ffi.Track
 
 private val orange = Color(0xFFFF9500)
-private val iosBlue = Color(0xFF0A84FF)
 
 /** Download, cancel or remove for one or more tracks (iOS DownloadButton): the track menu and album and playlist menus. */
 fun downloadMenuItems(tracks: List<Track>): List<GlasmioCascadingMenuItem> {

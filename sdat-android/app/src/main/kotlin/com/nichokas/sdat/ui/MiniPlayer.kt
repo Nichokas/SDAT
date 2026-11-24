@@ -1,16 +1,23 @@
 package com.nichokas.sdat.ui
 
-import androidx.compose.animation.core.LinearEasing
+import android.view.HapticFeedbackConstants
+import androidx.activity.compose.BackHandler
 import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.LinearEasing
+import androidx.compose.animation.core.Spring
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
+import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.focusable
-import androidx.compose.foundation.interaction.collectIsFocusedAsState
-import androidx.compose.foundation.interaction.MutableInteractionSource
-import androidx.compose.foundation.border
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
+import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.gestures.waitForUpOrCancellation
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.interaction.collectIsFocusedAsState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
@@ -21,43 +28,58 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.navigationBarsPadding
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
+import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.TransformOrigin
 import androidx.compose.ui.graphics.graphicsLayer
-import androidx.compose.ui.input.pointer.PointerInputChange
-import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.input.key.Key
 import androidx.compose.ui.input.key.KeyEventType
 import androidx.compose.ui.input.key.key
 import androidx.compose.ui.input.key.onKeyEvent
 import androidx.compose.ui.input.key.type
+import androidx.compose.ui.input.pointer.PointerInputChange
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.layout.boundsInRoot
 import androidx.compose.ui.layout.layout
+import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.layout.positionInRoot
+import androidx.compose.ui.platform.LocalView
+import androidx.compose.ui.semantics.CustomAccessibilityAction
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.customActions
 import androidx.compose.ui.semantics.disabled
 import androidx.compose.ui.semantics.onClick
-import androidx.compose.ui.semantics.onLongClick
 import androidx.compose.ui.semantics.role
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Constraints
 import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import com.nichokas.sdat.core.Chrome
 import com.nichokas.sdat.core.Live
+import com.nichokas.sdat.core.MiniFan
 import com.nichokas.sdat.core.Morph
 import com.nichokas.sdat.core.NavState
 import com.nichokas.sdat.core.Playback
@@ -68,6 +90,7 @@ import io.github.neoruaa.glasmio.core.GlasmioTheme
 import io.github.neoruaa.glasmio.core.IosTypography
 import io.github.neoruaa.glasmio.glass.GlassSurface
 import io.github.neoruaa.glasmio.ui.GlasmioNavigationBar
+import kotlin.math.roundToInt
 import kotlinx.coroutines.withTimeoutOrNull
 import uniffi.tonearm_ffi.Track
 
@@ -143,7 +166,7 @@ internal fun BottomChrome(playback: Playback, nav: NavState, modifier: Modifier)
 }
 
 /**
- * The iOS mini-player. Circle: a tap opens the player and a short hold toggles play. Capsule and wide: a tap opens the
+ * The iOS mini-player. Circle: a tap opens the player and a hold opens [MiniFan]. Capsule and wide: a tap opens the
  * player and the ring toggles play; wide adds next. [fraction] runs the crossfade from circle (0) to capsule (1).
  */
 @Composable
@@ -197,6 +220,9 @@ private fun CircleContent(playback: Playback, onOpen: () -> Unit, modifier: Modi
     val active = enabled && track != null
     val focus = remember { MutableInteractionSource() }
     val focused by focus.collectIsFocusedAsState()
+    val view = LocalView.current
+    // Whatever hides the circle (end of the queue, a pushed page) also takes the fan with it.
+    if (active) DisposableEffect(Unit) { onDispose { MiniFan.close() } }
     Box(
         modifier.width(Morph.CIRCLE.dp).fillMaxHeight()
             .then(if (active && focused) Modifier.border(2.dp, GlasmioTheme.colors.content, capsule) else Modifier)
@@ -206,21 +232,48 @@ private fun CircleContent(playback: Playback, onOpen: () -> Unit, modifier: Modi
                 contentDescription = track?.let { "$label ${it.title}" } ?: label
                 if (track == null) disabled()
                 onClick("Open player") { onOpen(); true }
-                onLongClick(label) { Live.userToggle(); true }
+                // The fan's controls, as actions: the fan itself is a drag, which assistive technology can't do.
+                customActions = listOf(
+                    CustomAccessibilityAction(label) { runFanItem(MiniFan.Item.Toggle, playback); true },
+                    CustomAccessibilityAction("Previous") { runFanItem(MiniFan.Item.Previous, playback); true },
+                    CustomAccessibilityAction("Next") { runFanItem(MiniFan.Item.Next, playback); true },
+                )
             }
             // Only while active: the faded circle sits over the capsule's ring and next, and would take their touches.
             .then(if (!active) Modifier else Modifier.onKeyEvent { e ->
                 val activate = e.key == Key.Enter || e.key == Key.NumPadEnter || e.key == Key.Spacebar
                 if (activate && e.type == KeyEventType.KeyUp) onOpen()
                 activate
-            }.focusable(interactionSource = focus).pointerInput(Unit) {
+            }.focusable(interactionSource = focus).onGloballyPositioned { MiniFan.anchor = it.boundsInRoot().center }.pointerInput(Unit) {
                 awaitEachGesture {
-                    awaitFirstDown()
-                    // iOS PressRecognizer.miniHold: released within 0.12 s is a tap, otherwise a hold.
+                    val down = awaitFirstDown()
                     var up: PointerInputChange? = null
-                    val released = withTimeoutOrNull(120) { up = waitForUpOrCancellation(); true }
+                    val released = withTimeoutOrNull(MiniFan.HOLD_MS) { up = waitForUpOrCancellation(); true }
                     // A cancelled gesture (finger slid off, or consumed by another gesture) does nothing.
-                    if (released == null) Live.userToggle() else if (up != null) onOpen()
+                    if (released != null) {
+                        if (up != null) onOpen()
+                        return@awaitEachGesture
+                    }
+                    view.performHapticFeedback(HapticFeedbackConstants.LONG_PRESS)
+                    MiniFan.hold()
+                    try {
+                        while (true) {
+                            val change = awaitPointerEvent().changes.firstOrNull { it.id == down.id } ?: break
+                            // Compose delivers a cancelled gesture as an up that is already consumed: it must not run the
+                            // control under the finger.
+                            if (change.isConsumed) break
+                            change.consume()
+                            val d = change.position - down.position
+                            val moved = MiniFan.move(d.x.toDp().value, d.y.toDp().value)
+                            if (!change.pressed) {
+                                MiniFan.release()?.let { runFanItem(it, playback) }
+                                break
+                            }
+                            if (moved) view.performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK)
+                        }
+                    } finally {
+                        if (MiniFan.state is MiniFan.State.Held) MiniFan.close()
+                    }
                 }
             }),
         contentAlignment = Alignment.Center,
@@ -279,5 +332,86 @@ private fun RingIcon(playback: Playback, size: Dp, active: Boolean) {
         SdatIcon(symbol, contentDescription = null, size = size * 0.32f, tint = tint, modifier = Modifier.alpha(if (playback.loading) 0f else 1f))
         // Only the visible style spins so the hidden alpha=0 ring doesn't run a second infinite transition.
         ProgressRing({ if (playback.loading) 0.0 else playback.progress }, playback.loading && active, Modifier.fillMaxSize().padding(size * 0.14f))
+    }
+}
+
+private fun runFanItem(item: MiniFan.Item, playback: Playback) {
+    when (item) {
+        MiniFan.Item.Close -> MiniFan.close()
+        MiniFan.Item.Toggle -> Live.userToggle()
+        MiniFan.Item.Previous -> if (!Live.guestRefuses()) playback.previous()
+        MiniFan.Item.Next -> Live.userNext()
+    }
+}
+
+/** Draws [MiniFan] over the whole screen, so the controls can leave the circle and a tap beside them closes it. */
+@Composable
+internal fun MiniFanOverlay(playback: Playback) {
+    val state = MiniFan.state
+    val shown = state != MiniFan.State.Closed
+    val t = remember { Animatable(0f) }
+    LaunchedEffect(shown) { t.animateTo(if (shown) 1f else 0f, spring(dampingRatio = 0.72f, stiffness = Spring.StiffnessMediumLow)) }
+    BackHandler(enabled = shown) { MiniFan.close() }
+    if (!shown && t.value == 0f) return
+    val hover = (state as? MiniFan.State.Held)?.hover
+    var origin by remember { mutableStateOf(Offset.Zero) }
+    Box(
+        Modifier.fillMaxSize()
+            .onGloballyPositioned { origin = it.positionInRoot() }
+            .drawBehind { drawRect(Color.Black, alpha = 0.25f * t.value.coerceIn(0f, 1f)) }
+            // Only once lifted: while held the finger still belongs to the circle, and a closing fan must not swallow taps.
+            .then(if (state == MiniFan.State.Open) Modifier.pointerInput(Unit) { detectTapGestures { MiniFan.close() } } else Modifier),
+    ) {
+        for (item in MiniFan.Item.entries) {
+            FanButton(item, playback, hovered = item == hover, tappable = state == MiniFan.State.Open, t = { t.value }) {
+                MiniFan.anchor - origin
+            }
+        }
+    }
+}
+
+@Composable
+private fun FanButton(item: MiniFan.Item, playback: Playback, hovered: Boolean, tappable: Boolean, t: () -> Float, center: () -> Offset) {
+    val (symbol, label) = when (item) {
+        MiniFan.Item.Close -> "xmark" to "Close"
+        MiniFan.Item.Toggle -> (if (playback.playing) "pause.fill" else "play.fill") to playLabel(playback)
+        MiniFan.Item.Previous -> "backward.fill" to "Previous"
+        MiniFan.Item.Next -> "forward.fill" to "Next"
+    }
+    val locked = when (item) {
+        MiniFan.Item.Close -> false
+        MiniFan.Item.Previous -> Live.isGuest
+        else -> Live.playbackLocked
+    }
+    val lift by animateFloatAsState(if (hovered) 1.15f else 1f, spring(dampingRatio = 0.6f), label = "lift")
+    val size = item.size.dp
+    GlassSurface(
+        Modifier
+            .offset {
+                val c = center()
+                val half = size.toPx() / 2
+                val p = t()
+                IntOffset((c.x + item.x.dp.toPx() * p - half).roundToInt(), (c.y + item.y.dp.toPx() * p - half).roundToInt())
+            }
+            .size(size)
+            .graphicsLayer {
+                val p = t()
+                // The close button replaces the circle in place; the controls grow out of it.
+                val s = (if (item == MiniFan.Item.Close) 1f else 0.4f + 0.6f * p) * lift
+                scaleX = s
+                scaleY = s
+                alpha = p.coerceIn(0f, 1f)
+            },
+        shape = CircleShape,
+    ) {
+        Box(
+            Modifier.fillMaxSize()
+                .then(if (hovered) Modifier.background(iosBlue.copy(alpha = 0.3f), CircleShape) else Modifier)
+                // Absent, not disabled, while closing: a disabled clickable still takes the touch from the circle beneath.
+                .then(if (tappable) Modifier.clickable(role = Role.Button, onClickLabel = label) { runFanItem(item, playback) } else Modifier),
+            contentAlignment = Alignment.Center,
+        ) {
+            SdatIcon(symbol, label, size = size * 0.42f, tint = GlasmioTheme.colors.content.copy(alpha = if (locked) 0.4f else 1f))
+        }
     }
 }

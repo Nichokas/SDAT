@@ -137,6 +137,7 @@ fun RootView(session: Session, playback: Playback, prefs: Preferences, secrets: 
             if (!nav.inSettings) {
                 HandoffBanner(Modifier.align(Alignment.BottomCenter).navigationBarsPadding().padding(start = 16.dp, end = 16.dp, bottom = (Morph.CIRCLE + 22).dp))
                 BottomChrome(playback, nav, Modifier.align(Alignment.BottomCenter))
+                MiniFanOverlay(playback)
             }
             // After the bottom chrome, so the picker opens over the player sheet too.
             Chrome.playlistPickerTrack?.let { PlaylistPicker(it) { Chrome.playlistPickerTrack = null } }
