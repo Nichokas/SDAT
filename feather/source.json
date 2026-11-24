@@ -18,6 +18,15 @@
       "category": "entertainment",
       "versions": [
         {
+          "version": "2.7.0",
+          "buildVersion": "21",
+          "date": "2026-11-24T17:59:09Z",
+          "localizedDescription": "## What's Changed\n* Android: draw Glasmio with reduced transparency by @Nichokas in https://github.com/Nichokas/SDAT/pull/248\n* Hold the mini-player circle for a fan of playback controls (iOS, Android) by @Nichokas in https://github.com/Nichokas/SDAT/pull/249\n\n\n**Full Changelog**: https://github.com/Nichokas/SDAT/compare/v2.6.0...v2.7.0",
+          "downloadURL": "https://github.com/Nichokas/SDAT/releases/download/v2.7.0/SDAT-v2.7.0-unsigned.ipa",
+          "size": 12102008,
+          "minOSVersion": "26.0"
+        },
+        {
           "version": "2.6.0",
           "buildVersion": "20",
           "date": "2026-11-24T16:39:44Z",
@@ -171,11 +180,11 @@
           "minOSVersion": "26.0"
         }
       ],
-      "version": "2.6.0",
-      "versionDate": "2026-11-24T16:39:44Z",
-      "versionDescription": "## What's Changed\n* Fix Git ownership checks in Arch release builds by @Nichokas in https://github.com/Nichokas/SDAT/pull/240\n* Use the SDAT iOS icon for the Arch launcher by @Nichokas in https://github.com/Nichokas/SDAT/pull/241\n* Publish sdat-bin to the AUR on desktop releases by @Nichokas in https://github.com/Nichokas/SDAT/pull/242\n* Add the SDAT launcher icon on Android by @Nichokas in https://github.com/Nichokas/SDAT/pull/243\n* Show a generic silhouette when the account has no profile photo by @Nichokas in https://github.com/Nichokas/SDAT/pull/247\n* Add a shared audio cache and longer buffers (core, desktop) by @Nichokas in https://github.com/Nichokas/SDAT/pull/244\n* iOS: play from the audio cache, buffer longer, show the cache by @Nichokas in https://github.com/Nichokas/SDAT/pull/246\n* Android: play from the audio cache, buffer longer, show the cache by @Nichokas in https://github.com/Nichokas/SDAT/pull/245\n\n\n**Full Changelog**: https://github.com/Nichokas/SDAT/compare/v2.5.0...v2.6.0",
-      "downloadURL": "https://github.com/Nichokas/SDAT/releases/download/v2.6.0/SDAT-v2.6.0-unsigned.ipa",
-      "size": 12082303
+      "version": "2.7.0",
+      "versionDate": "2026-11-24T17:59:09Z",
+      "versionDescription": "## What's Changed\n* Android: draw Glasmio with reduced transparency by @Nichokas in https://github.com/Nichokas/SDAT/pull/248\n* Hold the mini-player circle for a fan of playback controls (iOS, Android) by @Nichokas in https://github.com/Nichokas/SDAT/pull/249\n\n\n**Full Changelog**: https://github.com/Nichokas/SDAT/compare/v2.6.0...v2.7.0",
+      "downloadURL": "https://github.com/Nichokas/SDAT/releases/download/v2.7.0/SDAT-v2.7.0-unsigned.ipa",
+      "size": 12102008
     }
   ],
   "news": []
