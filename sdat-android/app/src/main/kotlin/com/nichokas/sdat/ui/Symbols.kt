@@ -46,5 +46,6 @@ val symbols: Map<String, String> = mapOf(
     "trash" to "delete",
     "tray" to "inbox",
     "wifi.exclamationmark" to "wifi_off",
+    "xmark" to "close",
     "xmark.circle" to "cancel",
 )
