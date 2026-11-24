@@ -12,6 +12,7 @@ struct MiniPlayer: View {
 
     private func resetPress() {
         if chrome.miniPressed { chrome.miniPressed = false }
+        MiniFan.shared.close()
     }
 
     var body: some View {
@@ -42,7 +43,7 @@ struct MiniPlayer: View {
     }
 
     private var circleContent: some View {
-                // Tap: open the full player. Long-press (PressRecognizer.miniHold): play/pause.
+                // Tap: open the full player. Hold (MiniFan.hold): the fan of playback controls.
                 PlayRing(size: 62, active: style != .wide && Morph.outAlpha(p) > 0)
                     .frame(width: 62)
                     .frame(maxHeight: .infinity)
@@ -51,19 +52,37 @@ struct MiniPlayer: View {
                     // UIKit press recognizer instead of a SwiftUI DragGesture: it receives the
                     // touch directly (no SwiftUI gesture arbitration with the interactive glass /
                     // parent gestures) and times the hold with a run-loop timer, not a Task.
-                    // One press is either a tap (released before miniHold) or a hold, never both.
+                    // One press is either a tap (released before MiniFan.hold) or a hold, never both.
+                    .onGeometryChange(for: CGPoint.self) { g in
+                        let f = g.frame(in: .global)
+                        return CGPoint(x: f.midX, y: f.midY)
+                    } action: { MiniFan.shared.anchor = $0 }
                     .gesture(PressRecognizer(
-                        hold: PressRecognizer.miniHold, slop: 40,
+                        hold: MiniFan.hold, slop: 40,
                         onDown: { chrome.miniPressed = true; gestureLog.notice("mini press began") },
                         onHold: {
                             UIImpactFeedbackGenerator(style: .medium).impactOccurred()
-                            Live.shared.userToggle()
+                            MiniFan.shared.hold()
+                        },
+                        onMove: { d in
+                            if MiniFan.shared.move(d) { UISelectionFeedbackGenerator().selectionChanged() }
                         },
                         onEnd: { kind in
                             gestureLog.notice("mini press ended \(String(describing: kind))")
                             chrome.miniPressed = false
-                            if kind == .tap { chrome.showPlayer = true }
+                            switch kind {
+                            case .tap: chrome.showPlayer = true
+                            case .hold: if let item = MiniFan.shared.release() { runFanItem(item, player: player) }
+                            case .cancel: MiniFan.shared.close()
+                            }
                         }))
+                    .accessibilityElement()
+                    .accessibilityLabel(player.current?.displayTitle ?? "Player")
+                    .accessibilityAddTraits(.isButton)
+                    .accessibilityAction { chrome.showPlayer = true }
+                    .accessibilityAction(named: player.isPlaying ? "Pause" : "Play") { runFanItem(.toggle, player: player) }
+                    .accessibilityAction(named: "Previous") { runFanItem(.previous, player: player) }
+                    .accessibilityAction(named: "Next") { runFanItem(.next, player: player) }
                     .sensoryFeedback(.selection, trigger: player.isPlaying)
                     .onDisappear { resetPress() }
     }
@@ -93,6 +112,89 @@ struct MiniPlayer: View {
         Button { Live.shared.userToggle() } label: { PlayRing(size: size, active: active) }
             .buttonStyle(.plain)
             .opacity(Live.shared.playbackLocked ? 0.4 : 1)
+    }
+}
+
+@MainActor private func runFanItem(_ item: MiniFan.Item, player: Player) {
+    switch item {
+    case .close: MiniFan.shared.close()
+    case .toggle: Live.shared.userToggle()
+    case .previous: if !Live.shared.guestRefuses() { player.previous() }
+    case .next: Live.shared.userNext()
+    }
+}
+
+/// Draws `MiniFan` over the whole screen, so the controls can leave the circle and a tap beside
+/// them closes it.
+struct MiniFanOverlay: View {
+    @Environment(Player.self) private var player
+    private let fan = MiniFan.shared
+
+    var body: some View {
+        let shown = fan.state != .closed
+        GeometryReader { g in
+            let o = g.frame(in: .global).origin
+            ZStack {
+                if shown {
+                    Color.black.opacity(0.25)
+                        .contentShape(.rect)
+                        .onTapGesture { fan.close() }
+                        .transition(.opacity)
+                    ForEach(MiniFan.Item.allCases, id: \.self) { item in
+                        bubble(item)
+                            .position(x: fan.anchor.x - o.x, y: fan.anchor.y - o.y)
+                            .transition(.modifier(active: FanOut(item: item, out: false), identity: FanOut(item: item, out: true)))
+                    }
+                }
+            }
+        }
+        .ignoresSafeArea()
+        // Only once lifted: while held the finger still belongs to the circle, and a closing fan
+        // must not swallow taps.
+        .allowsHitTesting(fan.state == .open)
+        .animation(.spring(response: 0.32, dampingFraction: 0.72), value: shown)
+        .animation(.spring(response: 0.25, dampingFraction: 0.6), value: fan.hover)
+    }
+
+    private func bubble(_ item: MiniFan.Item) -> some View {
+        let hovered = fan.hover == item
+        let live = Live.shared
+        let locked = switch item {
+        case .close: false
+        case .previous: live.isGuest
+        case .toggle, .next: live.playbackLocked
+        }
+        let (symbol, label): (String, String) = switch item {
+        case .close: ("xmark", "Close")
+        case .toggle: player.isPlaying ? ("pause.fill", "Pause") : ("play.fill", "Play")
+        case .previous: ("backward.fill", "Previous")
+        case .next: ("forward.fill", "Next")
+        }
+        return Button { runFanItem(item, player: player) } label: {
+            Image(systemName: symbol)
+                .font(.system(size: item.size * 0.36, weight: .semibold))
+                .foregroundStyle(hovered ? Color.white : Color.primary)
+                .opacity(locked ? 0.4 : 1)
+                .frame(width: item.size, height: item.size)
+                .contentShape(.circle)
+        }
+        .buttonStyle(.plain)
+        .glassEffect(hovered ? .regular.tint(.blue).interactive() : .regular.interactive(), in: .circle)
+        .scaleEffect(hovered ? 1.15 : 1)
+        .accessibilityLabel(label)
+    }
+}
+
+/// The close button replaces the circle in place; the controls grow out of it to their spot.
+private struct FanOut: ViewModifier {
+    let item: MiniFan.Item
+    let out: Bool
+
+    func body(content: Content) -> some View {
+        content
+            .scaleEffect(out || item == .close ? 1 : 0.4)
+            .offset(out ? item.offset : .zero)
+            .opacity(out ? 1 : 0)
     }
 }
 
@@ -173,15 +275,15 @@ private struct Spin: ViewModifier {
 }
 
 /// Touch-down press recognizer: `onDown` immediately, `onHold` once after `hold` seconds
-/// unless the finger moved more than `slop` or lifted; `onEnd` always (tap / hold / cancel).
+/// unless the finger moved more than `slop` or lifted, then `onMove` with the finger's offset from
+/// where it pressed; `onEnd` always (tap / hold / cancel).
 struct PressRecognizer: UIGestureRecognizerRepresentable {
     enum End: Equatable { case tap, hold, cancel }
-    /// Miniplayer circle: a press held this long is a hold (play/pause); shorter is a tap.
-    static let miniHold: TimeInterval = 0.12
     let hold: TimeInterval
     let slop: CGFloat
     let onDown: () -> Void
     let onHold: () -> Void
+    let onMove: (CGSize) -> Void
     let onEnd: (End) -> Void
 
     final class Coordinator { var timer: Timer?; var fired = false; var cancelled = false; var start: CGPoint = .zero }
@@ -212,12 +314,16 @@ struct PressRecognizer: UIGestureRecognizerRepresentable {
             c.timer = t
         case .changed:
             let p = g.location(in: g.view)
-            if !c.cancelled, hypot(p.x - c.start.x, p.y - c.start.y) > slop {
+            let d = CGSize(width: p.x - c.start.x, height: p.y - c.start.y)
+            if c.fired {
+                onMove(d)
+            } else if !c.cancelled, hypot(d.width, d.height) > slop {
                 c.cancelled = true; c.timer?.invalidate()
             }
         case .ended, .cancelled, .failed:
             c.timer?.invalidate(); c.timer = nil
-            let kind: End = c.fired ? .hold : (c.cancelled || g.state != .ended ? .cancel : .tap)
+            // A system cancel after the hold must not run the control under the finger.
+            let kind: End = g.state != .ended || c.cancelled ? .cancel : (c.fired ? .hold : .tap)
             onEnd(kind)
         default: break
         }
