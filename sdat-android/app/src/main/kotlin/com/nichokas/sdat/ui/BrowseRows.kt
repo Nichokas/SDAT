@@ -32,11 +32,11 @@ import com.nichokas.sdat.core.PagedLoader
 import com.nichokas.sdat.core.Route
 import com.nichokas.sdat.core.artistLine
 import com.nichokas.sdat.core.year
-import io.github.neoruaa.glasmio.core.GlasmioTheme
-import io.github.neoruaa.glasmio.core.IosTypography
-import io.github.neoruaa.glasmio.glass.GlassEmphasis
-import io.github.neoruaa.glasmio.ui.GlasmioButton
-import io.github.neoruaa.glasmio.ui.GlasmioButtonSize
+import com.nichokas.sdat.ui.kit.Button
+import com.nichokas.sdat.ui.kit.ButtonSize
+import com.nichokas.sdat.ui.kit.Emphasis
+import com.nichokas.sdat.ui.kit.SdatTheme
+import com.nichokas.sdat.ui.kit.SdatType
 import uniffi.tonearm_ffi.Album
 import uniffi.tonearm_ffi.ArtistRef
 import uniffi.tonearm_ffi.Playlist
@@ -71,7 +71,7 @@ fun PlaylistRow(playlist: Playlist) =
 fun SectionHeader(
     title: String,
     modifier: Modifier = Modifier,
-    style: TextStyle = IosTypography.title3,
+    style: TextStyle = SdatType.title3,
     trailing: @Composable () -> Unit = {},
 ) {
     Row(modifier.fillMaxWidth().padding(horizontal = ListGutter), verticalAlignment = Alignment.CenterVertically) {
@@ -102,9 +102,9 @@ fun MediaShelf(items: List<ShelfItem>, modifier: Modifier = Modifier) {
                 verticalArrangement = Arrangement.spacedBy(4.dp),
             ) {
                 Cover(item.cover, 140.dp, radius = 10.dp, circle = item.round)
-                Text(item.title, style = IosTypography.subheadline, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                Text(item.title, style = SdatType.subheadline, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
                 if (item.subtitle.isNotEmpty()) {
-                    Text(item.subtitle, style = IosTypography.caption1, color = GlasmioTheme.colors.secondaryContent, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    Text(item.subtitle, style = SdatType.caption1, color = SdatTheme.colors.secondaryContent, maxLines = 1, overflow = TextOverflow.Ellipsis)
                 }
             }
         }
@@ -119,16 +119,16 @@ fun AlbumShelf(albums: List<Album>, modifier: Modifier = Modifier) =
 /** Play and Shuffle side by side; [compact] is the small pair under an artist's Top Tracks. */
 @Composable
 fun PlayShuffleButtons(play: () -> Unit, shuffle: () -> Unit, modifier: Modifier = Modifier, enabled: Boolean = true, compact: Boolean = false) {
-    val size = if (compact) GlasmioButtonSize.Small else GlasmioButtonSize.Large
-    val style = if (compact) IosTypography.subheadline.copy(fontWeight = FontWeight.SemiBold) else IosTypography.headline
+    val size = if (compact) ButtonSize.Small else ButtonSize.Large
+    val style = if (compact) SdatType.subheadline.copy(fontWeight = FontWeight.SemiBold) else SdatType.headline
     Row(modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-        GlasmioButton(play, Modifier.weight(1f), enabled = enabled, emphasis = GlassEmphasis.Prominent, size = size) {
+        Button(play, Modifier.weight(1f), enabled = enabled, emphasis = Emphasis.Prominent, size = size) {
             SdatIcon("play.fill", null, size = if (compact) 16.dp else 20.dp, tint = Color.White)
             Text("Play", style = style, color = Color.White, modifier = Modifier.padding(start = 6.dp))
         }
-        GlasmioButton(shuffle, Modifier.weight(1f), enabled = enabled, size = size) {
-            SdatIcon("shuffle", null, size = if (compact) 16.dp else 20.dp, tint = GlasmioTheme.colors.content)
-            Text("Shuffle", style = style, color = GlasmioTheme.colors.content, modifier = Modifier.padding(start = 6.dp))
+        Button(shuffle, Modifier.weight(1f), enabled = enabled, size = size) {
+            SdatIcon("shuffle", null, size = if (compact) 16.dp else 20.dp, tint = SdatTheme.colors.content)
+            Text("Shuffle", style = style, color = SdatTheme.colors.content, modifier = Modifier.padding(start = 6.dp))
         }
     }
 }
@@ -141,9 +141,9 @@ fun Unavailable(symbol: String, title: String, message: String? = null) {
         verticalArrangement = Arrangement.spacedBy(8.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {
-        SdatIcon(symbol, null, size = 44.dp, tint = GlasmioTheme.colors.secondaryContent)
-        Text(title, style = IosTypography.title2, fontWeight = FontWeight.Bold, textAlign = TextAlign.Center)
-        if (message != null) Text(message, style = IosTypography.body, color = GlasmioTheme.colors.secondaryContent, textAlign = TextAlign.Center)
+        SdatIcon(symbol, null, size = 44.dp, tint = SdatTheme.colors.secondaryContent)
+        Text(title, style = SdatType.title2, fontWeight = FontWeight.Bold, textAlign = TextAlign.Center)
+        if (message != null) Text(message, style = SdatType.body, color = SdatTheme.colors.secondaryContent, textAlign = TextAlign.Center)
     }
 }
 
@@ -209,7 +209,7 @@ fun <T> LazyListScope.paged(loader: PagedLoader<T>, key: (T) -> Any, row: @Compo
             // A new search replaces the loader while this row stays composed.
             LaunchedEffect(loader) { loader.more() }
             Box(Modifier.fillMaxWidth().padding(16.dp), contentAlignment = Alignment.Center) {
-                CircularProgressIndicator(Modifier.width(24.dp), color = GlasmioTheme.colors.secondaryContent, strokeWidth = 2.dp)
+                CircularProgressIndicator(Modifier.width(24.dp), color = SdatTheme.colors.secondaryContent, strokeWidth = 2.dp)
             }
         }
         list.isEmpty -> item(key = "paged-empty") { Unavailable("tray", "Nothing here yet") }

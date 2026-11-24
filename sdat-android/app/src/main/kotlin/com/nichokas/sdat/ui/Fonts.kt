@@ -15,10 +15,6 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import com.nichokas.sdat.R
-import io.github.neoruaa.glasmio.core.GlassAppearance
-
-// Live glass blurs and refracts its backdrop every frame, which drops frames on mid-range devices such as the Galaxy Tab S6 Lite.
-val sdatGlass = GlassAppearance(reduceTransparency = true)
 
 val inter = FontFamily(
     listOf(400, 500, 600, 700).map { w ->

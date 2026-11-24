@@ -14,7 +14,7 @@ data class Run(
     val imagesFailed: Int,
 )
 
-data class Device(val name: String, val soc: String, val android: String, val ramGb: Double, val lowRam: Boolean, val refreshHz: Float, val screen: String, val glasmio: String)
+data class Device(val name: String, val soc: String, val android: String, val ramGb: Double, val lowRam: Boolean, val refreshHz: Float, val screen: String, val haze: String)
 
 private fun Double.f(digits: Int = 1) = String.format(Locale.US, "%.${digits}f", this)
 
@@ -58,7 +58,7 @@ fun report(device: Device, runs: List<Run>, rounds: Int, reruns: Int = 0): Strin
     appendLine("SDAT glass benchmark")
     appendLine("${device.name} · ${device.soc} · Android ${device.android}")
     appendLine("RAM ${device.ramGb.f()} GB${if (device.lowRam) " (low-RAM device)" else ""} · ${device.screen} · ${device.refreshHz.toDouble().f(0)} Hz")
-    appendLine("Glasmio ${device.glasmio} · $rounds round(s), medians with (min-max) across rounds")
+    appendLine("Haze ${device.haze} · $rounds round(s), medians with (min-max) across rounds")
     if (device.refreshHz < MIN_60_HZ) appendLine("This display runs below 60 Hz, so no scene can reach 60 fps on it.")
     if (reruns > 0) appendLine("$reruns scene(s) were measured again after the app left the foreground.")
     appendLine()

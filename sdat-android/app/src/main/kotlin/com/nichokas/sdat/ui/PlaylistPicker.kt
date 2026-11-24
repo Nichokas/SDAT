@@ -3,7 +3,10 @@ package com.nichokas.sdat.ui
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.asPaddingValues
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -24,9 +27,9 @@ import androidx.compose.ui.unit.dp
 import com.nichokas.sdat.core.Chrome
 import com.nichokas.sdat.core.OwnPlaylists
 import com.nichokas.sdat.core.friendlyMessage
-import io.github.neoruaa.glasmio.core.GlasmioTheme
-import io.github.neoruaa.glasmio.core.IosTypography
-import io.github.neoruaa.glasmio.ui.GlasmioBottomSheet
+import com.nichokas.sdat.ui.kit.BottomSheet
+import com.nichokas.sdat.ui.kit.SdatTheme
+import com.nichokas.sdat.ui.kit.SdatType
 import kotlin.coroutines.cancellation.CancellationException
 import kotlinx.coroutines.launch
 import uniffi.tonearm_ffi.Track
@@ -40,10 +43,10 @@ fun PlaylistPicker(track: Track, onDismiss: () -> Unit) {
         OwnPlaylists.load(force = true)
         loaded = true
     }
-    GlasmioBottomSheet(onDismissRequest = onDismiss, title = "Add to Playlist") {
+    BottomSheet(onDismissRequest = onDismiss, title = "Add to Playlist") {
         val list = OwnPlaylists.list
         when {
-            list.isNotEmpty() -> LazyColumn(Modifier.fillMaxWidth()) {
+            list.isNotEmpty() -> LazyColumn(Modifier.fillMaxWidth(), contentPadding = WindowInsets.navigationBars.asPaddingValues()) {
                 items(list, key = { it.id }) { p ->
                     Row(
                         Modifier.fillMaxWidth()
@@ -63,15 +66,15 @@ fun PlaylistPicker(track: Track, onDismiss: () -> Unit) {
                             .padding(horizontal = 20.dp, vertical = 14.dp),
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
-                        Text(p.name, style = IosTypography.body, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
-                        Text("${p.trackCount}", style = IosTypography.body, color = GlasmioTheme.colors.secondaryContent, modifier = Modifier.padding(start = 12.dp))
+                        Text(p.name, style = SdatType.body, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
+                        Text("${p.trackCount}", style = SdatType.body, color = SdatTheme.colors.secondaryContent, modifier = Modifier.padding(start = 12.dp))
                     }
-                    HorizontalDivider(Modifier.padding(start = 20.dp), color = GlasmioTheme.colors.separator)
+                    HorizontalDivider(Modifier.padding(start = 20.dp), color = SdatTheme.colors.separator)
                 }
             }
             loaded -> Unavailable("music.note.list", "No playlists")
             else -> Box(Modifier.fillMaxWidth().padding(32.dp), contentAlignment = Alignment.Center) {
-                CircularProgressIndicator(color = GlasmioTheme.colors.secondaryContent)
+                CircularProgressIndicator(color = SdatTheme.colors.secondaryContent)
             }
         }
     }

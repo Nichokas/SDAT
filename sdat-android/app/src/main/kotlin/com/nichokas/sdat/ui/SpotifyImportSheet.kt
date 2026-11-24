@@ -23,13 +23,13 @@ import com.nichokas.sdat.core.Chrome
 import com.nichokas.sdat.core.Route
 import com.nichokas.sdat.core.SpotifyImporter
 import com.nichokas.sdat.core.SpotifyImporter.State
-import io.github.neoruaa.glasmio.core.GlasmioTheme
-import io.github.neoruaa.glasmio.ui.GlasmioBottomSheet
-import io.github.neoruaa.glasmio.ui.GlasmioGroupedList
-import io.github.neoruaa.glasmio.ui.GlasmioGroupedTableFooter
-import io.github.neoruaa.glasmio.ui.GlasmioListRow
-import io.github.neoruaa.glasmio.ui.GlasmioSectionTitle
-import io.github.neoruaa.glasmio.ui.GlasmioTextField
+import com.nichokas.sdat.ui.kit.BottomSheet
+import com.nichokas.sdat.ui.kit.GroupedFooter
+import com.nichokas.sdat.ui.kit.GroupedList
+import com.nichokas.sdat.ui.kit.ListRow
+import com.nichokas.sdat.ui.kit.SdatTheme
+import com.nichokas.sdat.ui.kit.SectionTitle
+import com.nichokas.sdat.ui.kit.TextField
 import uniffi.tonearm_ffi.ImportProgress
 import uniffi.tonearm_ffi.ImportStage
 import uniffi.tonearm_ffi.isSpotifyPlaylistLink
@@ -37,51 +37,51 @@ import uniffi.tonearm_ffi.isSpotifyPlaylistLink
 /** iOS SpotifyImportSheet: copies a public Spotify playlist into a new TIDAL playlist. */
 @Composable
 fun SpotifyImportSheet(onDismiss: () -> Unit) {
-    val colors = GlasmioTheme.colors
+    val colors = SdatTheme.colors
     var link by rememberSaveable { mutableStateOf("") }
     val start = { if (isSpotifyPlaylistLink(link)) SpotifyImporter.start(link) }
-    GlasmioBottomSheet(onDismissRequest = onDismiss, title = "Import from Spotify") {
+    BottomSheet(onDismissRequest = onDismiss, title = "Import from Spotify") {
         Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(horizontal = 16.dp).navigationBarsPadding()) {
             when (val state = SpotifyImporter.state) {
                 State.Idle, is State.Failed -> {
-                    GlasmioGroupedList {
-                        GlasmioTextField(
+                    GroupedList {
+                        TextField(
                             value = link,
                             onValueChange = { link = it },
                             placeholder = "Spotify playlist link",
                             keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Uri, imeAction = ImeAction.Go),
                             keyboardActions = KeyboardActions(onGo = { start() }),
                         )
-                        GlasmioListRow("Import", titleColor = colors.accent, enabled = isSpotifyPlaylistLink(link), showDisclosure = false, onClick = start)
-                        if (state is State.Failed) GlasmioListRow(state.message, titleColor = colors.destructive)
+                        ListRow("Import", titleColor = colors.accent, enabled = isSpotifyPlaylistLink(link), showDisclosure = false, onClick = start)
+                        if (state is State.Failed) ListRow(state.message, titleColor = colors.destructive)
                     }
-                    GlasmioGroupedTableFooter("The playlist must be public. In Spotify, use Share, then Copy link to playlist. SDAT creates a TIDAL playlist with the tracks TIDAL has.")
+                    GroupedFooter("The playlist must be public. In Spotify, use Share, then Copy link to playlist. SDAT creates a TIDAL playlist with the tracks TIDAL has.")
                 }
-                is State.Running -> GlasmioGroupedList {
-                    GlasmioListRow(
+                is State.Running -> GroupedList {
+                    ListRow(
                         state.progress.label(),
                         showTopSeparator = false,
                         trailing = { CircularProgressIndicator(Modifier.size(20.dp), strokeWidth = 2.dp) },
                     )
                     // Saving always finishes, so that a cancel never leaves half a playlist.
-                    GlasmioListRow("Cancel", titleColor = colors.destructive, enabled = state.progress?.stage != ImportStage.SAVING, showDisclosure = false, onClick = SpotifyImporter::cancel)
+                    ListRow("Cancel", titleColor = colors.destructive, enabled = state.progress?.stage != ImportStage.SAVING, showDisclosure = false, onClick = SpotifyImporter::cancel)
                 }
                 is State.Done -> {
                     val report = state.report
-                    GlasmioGroupedList {
-                        GlasmioListRow(report.name, detail = "${report.imported} tracks", showTopSeparator = false)
-                        GlasmioListRow("Open playlist", titleColor = colors.accent, showDisclosure = false, onClick = {
+                    GroupedList {
+                        ListRow(report.name, detail = "${report.imported} tracks", showTopSeparator = false)
+                        ListRow("Open playlist", titleColor = colors.accent, showDisclosure = false, onClick = {
                             onDismiss()
                             SpotifyImporter.reset()
                             Chrome.push(Route.Playlist(report.playlistId))
                         })
-                        GlasmioListRow("Import another", titleColor = colors.accent, showDisclosure = false, onClick = { link = ""; SpotifyImporter.reset() })
+                        ListRow("Import another", titleColor = colors.accent, showDisclosure = false, onClick = { link = ""; SpotifyImporter.reset() })
                     }
-                    if (report.skipped > 0u) GlasmioGroupedTableFooter("${report.skipped} entries were skipped: local files, podcast episodes or tracks Spotify no longer has.")
+                    if (report.skipped > 0u) GroupedFooter("${report.skipped} entries were skipped: local files, podcast episodes or tracks Spotify no longer has.")
                     if (report.missing.isNotEmpty()) {
-                        GlasmioSectionTitle("Not on TIDAL (${report.missing.size})")
-                        GlasmioGroupedList {
-                            report.missing.forEachIndexed { i, track -> GlasmioListRow(track, showTopSeparator = i > 0) }
+                        SectionTitle("Not on TIDAL (${report.missing.size})")
+                        GroupedList {
+                            report.missing.forEachIndexed { i, track -> ListRow(track, showTopSeparator = i > 0) }
                         }
                     }
                 }

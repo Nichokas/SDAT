@@ -20,14 +20,14 @@ import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.unit.dp
 import coil3.compose.AsyncImage
 import com.nichokas.sdat.core.Session
-import io.github.neoruaa.glasmio.glass.GlassSurface
+import com.nichokas.sdat.ui.kit.Glass
 import uniffi.tonearm_ffi.profilePictureUrl
 
 /** iOS ProfileButton: the circular TIDAL profile photo (generic silhouette as a fallback) that opens Settings. */
 @Composable
 fun ProfileButton(session: Session, onClick: () -> Unit, modifier: Modifier = Modifier) {
     LaunchedEffect(Unit) { runCatching { profilePictureUrl() }.onSuccess { session.profilePicture = it } }
-    GlassSurface(modifier.size(44.dp), shape = CircleShape) {
+    Glass(modifier.size(44.dp), shape = CircleShape) {
         Box(Modifier.fillMaxSize().clickable(role = Role.Button, onClickLabel = "Settings", onClick = onClick).padding(4.dp)) {
             Avatar(session.profilePicture)
         }

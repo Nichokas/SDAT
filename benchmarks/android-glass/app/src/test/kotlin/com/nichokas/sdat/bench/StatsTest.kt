@@ -67,7 +67,7 @@ class StatsTest {
     @Test fun scoreTakesTheSlowestSceneAndCapsTheOnePercentLowAtTheDisplayRate() {
         fun run(scene: Scene, frameMs: Double) = Run(scene, 1, stats(List(60) { frame(frameMs, interval = frameMs) }, seconds = 1.0), 0.0, 0, 0, 0, 0)
         val fast = Scene(Page.Collection, Glass.None)
-        val slow = Scene(Page.DiscoverFling, Glass.Live, busyCores = 2)
+        val slow = Scene(Page.DiscoverFling, Glass.Blur, busyCores = 2)
         val score = score(listOf(run(fast, 5.0), run(slow, 25.0)), refreshHz = 60f)
         assertEquals(slow.label, score.worstLow.label)
         assertEquals(40.0, score.worstLow.low1, 1e-9)
@@ -78,7 +78,7 @@ class StatsTest {
     @Test fun fastFramesWithSkippedVsyncsStillShowALowOnePercent() {
         // 5 ms to render, but only every other 60 Hz vsync: the user sees 30 fps.
         val stats = stats(List(30) { frame(5.0, interval = 33.3) }, seconds = 1.0)
-        val score = score(listOf(Run(Scene(Page.Player, Glass.Live), 1, stats, 0.0, 0, 0, 0, 0)), refreshHz = 60f)
+        val score = score(listOf(Run(Scene(Page.Player, Glass.Blur), 1, stats, 0.0, 0, 0, 0, 0)), refreshHz = 60f)
         assertEquals(30.0, score.worstLow.low1, 0.1)
     }
 
@@ -150,8 +150,8 @@ class StatsTest {
 
     @Test fun reportedLimiterFollowsTheStageMedians() {
         // Voting per run would say GPU (2 of 3 runs); the medians shown are UI 3 ms and GPU 2 ms, so the UI thread.
-        fun run(ui: Double, gpu: Double) = Run(Scene(Page.Collection, Glass.Live), 1, stats(List(10) { frame(20.0, ui = ui, gpu = gpu) }, seconds = 1.0), 0.0, 0, 0, 0, 0)
-        val device = Device("phone", "soc", "16", 4.0, false, 60f, "1080x2400", "0.1.3")
+        fun run(ui: Double, gpu: Double) = Run(Scene(Page.Collection, Glass.Blur), 1, stats(List(10) { frame(20.0, ui = ui, gpu = gpu) }, seconds = 1.0), 0.0, 0, 0, 0, 0)
+        val device = Device("phone", "soc", "16", 4.0, false, 60f, "1080x2400", "2.1.0")
         val text = report(device, listOf(run(100.0, 101.0), run(1.0, 2.0), run(3.0, 2.0)), rounds = 3)
         assertTrue(text, text.contains("limiter UiThread"))
     }
@@ -162,8 +162,8 @@ class StatsTest {
     }
 
     @Test fun aSceneThatDrewNothingHasTheWorstOnePercentLow() {
-        val drawn = Run(Scene(Page.Collection, Glass.Live), 1, stats(List(60) { frame(5.0) }, seconds = 1.0), 0.0, 0, 0, 0, 0)
-        val stalled = Run(Scene(Page.Player, Glass.Live), 1, stats(emptyList(), seconds = 1.0), 0.0, 0, 0, 0, 0)
+        val drawn = Run(Scene(Page.Collection, Glass.Blur), 1, stats(List(60) { frame(5.0) }, seconds = 1.0), 0.0, 0, 0, 0, 0)
+        val stalled = Run(Scene(Page.Player, Glass.Blur), 1, stats(emptyList(), seconds = 1.0), 0.0, 0, 0, 0, 0)
         val score = score(listOf(drawn, stalled), refreshHz = 60f)
         assertEquals(stalled.scene.label, score.worstLow.label)
         assertEquals(0.0, score.worstLow.low1, 0.0)
@@ -176,7 +176,7 @@ class StatsTest {
     }
 
     @Test fun aSub60HzDisplayPassesNoScene() {
-        val run = Run(Scene(Page.Collection, Glass.Live), 1, stats(List(58) { frame(5.0, interval = 17.2) }, seconds = 1.0), 0.0, 0, 0, 0, 0)
+        val run = Run(Scene(Page.Collection, Glass.Blur), 1, stats(List(58) { frame(5.0, interval = 17.2) }, seconds = 1.0), 0.0, 0, 0, 0, 0)
         assertEquals(0, score(listOf(run), refreshHz = 58f).passing)
     }
 }

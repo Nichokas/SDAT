@@ -3,10 +3,12 @@ agp = "9.4.1"
 kotlin = "2.4.21"
 composeBom = "2026.09.00"
 activityCompose = "1.13.0"
-glasmio = "0.1.3"
+haze = "2.1.0"
+navigation3 = "1.2.2"
 jna = "5.19.1"
 coroutines = "1.11.0"
 junit = "4.13.2"
+robolectric = "4.18.1"
 orgJson = "20260814"
 coil = "3.6.3"
 media3 = "1.11.1"
@@ -17,7 +19,9 @@ sentry = "8.64.0"
 compose-bom = { module = "androidx.compose:compose-bom", version.ref = "composeBom" }
 compose-material3 = { module = "androidx.compose.material3:material3" }
 activity-compose = { module = "androidx.activity:activity-compose", version.ref = "activityCompose" }
-glasmio-scaffold = { module = "io.github.neoruaa.glasmio:glasmio-scaffold", version.ref = "glasmio" }
+haze = { module = "dev.chrisbanes.haze:haze", version.ref = "haze" }
+haze-blur = { module = "dev.chrisbanes.haze:haze-blur", version.ref = "haze" }
+navigation3-ui = { module = "androidx.navigation3:navigation3-ui", version.ref = "navigation3" }
 jna = { module = "net.java.dev.jna:jna", version.ref = "jna" }
 coroutines-android = { module = "org.jetbrains.kotlinx:kotlinx-coroutines-android", version.ref = "coroutines" }
 coil-compose = { module = "io.coil-kt.coil3:coil-compose", version.ref = "coil" }
@@ -29,6 +33,9 @@ zxing-core = { module = "com.google.zxing:core", version.ref = "zxing" }
 # Core only: no NDK, replay or integration modules, so the APK gains no native library.
 sentry-android-core = { module = "io.sentry:sentry-android-core", version.ref = "sentry" }
 junit = { module = "junit:junit", version.ref = "junit" }
+robolectric = { module = "org.robolectric:robolectric", version.ref = "robolectric" }
+compose-ui-test-junit4 = { module = "androidx.compose.ui:ui-test-junit4" }
+compose-ui-test-manifest = { module = "androidx.compose.ui:ui-test-manifest" }
 org-json = { module = "org.json:json", version.ref = "orgJson" }
 
 [plugins]

@@ -20,16 +20,15 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
-import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
@@ -38,7 +37,9 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.rememberPagerState
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -79,14 +80,14 @@ import com.nichokas.sdat.core.artistLine
 import com.nichokas.sdat.core.badgeText
 import com.nichokas.sdat.core.coverUrlLarge
 import com.nichokas.sdat.core.displayTitle
-import io.github.neoruaa.glasmio.core.GlasmioTheme
-import io.github.neoruaa.glasmio.core.IosTypography
-import io.github.neoruaa.glasmio.core.glasmioTypography
-import io.github.neoruaa.glasmio.glass.GlasmioBackdropHost
-import io.github.neoruaa.glasmio.ui.GlasmioBottomSheet
-import io.github.neoruaa.glasmio.ui.GlasmioCascadingMenu
-import io.github.neoruaa.glasmio.ui.GlasmioCascadingMenuItem
-import io.github.neoruaa.glasmio.ui.GlasmioSlider
+import com.nichokas.sdat.ui.kit.BottomSheet
+import com.nichokas.sdat.ui.kit.GlassHost
+import com.nichokas.sdat.ui.kit.MenuAction
+import com.nichokas.sdat.ui.kit.PopupMenu
+import com.nichokas.sdat.ui.kit.SdatTheme
+import com.nichokas.sdat.ui.kit.SdatType
+import com.nichokas.sdat.ui.kit.Slider
+import com.nichokas.sdat.ui.kit.menuAnchor
 import kotlinx.coroutines.launch
 import uniffi.tonearm_ffi.Track
 
@@ -98,17 +99,17 @@ private val removeRed = Color(0xFFFF453A)
 /** The full player, dark like iOS's; swipe left, or tap the queue button, for the queue. */
 @Composable
 fun PlayerSheet(playback: Playback, onDismiss: () -> Unit) {
-    GlasmioTheme(isDark = true, typography = glasmioTypography(inter), appearance = sdatGlass) {
-        GlasmioBottomSheet(onDismissRequest = onDismiss, title = "Now Playing") {
-            val track = playback.track ?: return@GlasmioBottomSheet
+    SdatTheme(isDark = true) {
+        BottomSheet(onDismissRequest = onDismiss, title = "Now Playing") {
+            val track = playback.track ?: return@BottomSheet
             val pager = rememberPagerState { 2 }
             val scope = rememberCoroutineScope()
-            // The sheet is its own window, and glass controls throw outside a backdrop host.
-            GlasmioBackdropHost(
+            // The sheet is its own window, so its glass blurs the cover behind it rather than the app.
+            GlassHost(
                 modifier = Modifier.fillMaxSize(),
-                sampledContent = { CoverBackdrop(track.coverUrlLarge) },
-                overlayContent = {
-                    HorizontalPager(pager, Modifier.fillMaxSize()) { page ->
+                content = { CoverBackdrop(track.coverUrlLarge) },
+                overlay = {
+                    HorizontalPager(pager, Modifier.fillMaxSize().navigationBarsPadding()) { page ->
                         if (page == 0) {
                             NowPlayingPage(playback, track, showQueue = { scope.launch { pager.animateScrollToPage(1) } })
                         } else {
@@ -224,7 +225,7 @@ private fun Scrubber(playback: Playback, modifier: Modifier = Modifier) {
         var scrub by remember { mutableStateOf<Double?>(null) }
         var dragEnd by remember { mutableStateOf<Double?>(null) }
         val locked = Live.playbackLocked
-        // GlasmioSlider keys pointerInput on enabled and valueRange: clear scrub if a lock or track change cancels the drag, and freeze the range while dragging.
+        // Slider keys pointerInput on enabled and valueRange: clear scrub if a lock or track change cancels the drag, and freeze the range while dragging.
         LaunchedEffect(locked) {
             if (locked) {
                 scrub = null
@@ -251,7 +252,7 @@ private fun Scrubber(playback: Playback, modifier: Modifier = Modifier) {
         val end = dragEnd ?: maxOf(playback.duration, 1.0)
         val displayed = if (locked) shown else scrub ?: shown
         Column(modifier, verticalArrangement = Arrangement.spacedBy(4.dp)) {
-            GlasmioSlider(
+            Slider(
                 value = displayed.coerceIn(0.0, end).toFloat(),
                 onValueChange = {
                     if (!Live.playbackLocked) {
@@ -273,7 +274,7 @@ private fun Scrubber(playback: Playback, modifier: Modifier = Modifier) {
                 },
             )
             Row(Modifier.fillMaxWidth()) {
-                val digits = IosTypography.caption1.copy(fontFeatureSettings = "tnum")
+                val digits = SdatType.caption1.copy(fontFeatureSettings = "tnum")
                 Text(Fmt.time(displayed), style = digits, color = Color.White.copy(alpha = 0.6f))
                 Spacer(Modifier.weight(1f))
                 Text("-" + Fmt.time(maxOf(0.0, playback.duration - displayed)), style = digits, color = Color.White.copy(alpha = 0.6f))
@@ -291,28 +292,26 @@ private fun TitleRow(playback: Playback, track: Track, slide: () -> ContentTrans
     Row(modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
         AnimatedContent(track, Modifier.weight(1f), transitionSpec = { slide() }, contentKey = { it.id }, label = "title") { t ->
             Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                Text(t.displayTitle, style = IosTypography.title3, fontWeight = FontWeight.Bold, color = Color.White, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                Text(t.displayTitle, style = SdatType.title3, fontWeight = FontWeight.Bold, color = Color.White, maxLines = 1, overflow = TextOverflow.Ellipsis)
                 Row(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically) {
                     if (playback.origin == Origin.DOWNLOADED && playback.track?.id == t.id) SdatIcon("arrow.down.circle.fill", "Playing downloaded copy", size = 15.dp, tint = dimmed)
-                    Text(t.artistLine, style = IosTypography.body, color = dimmed, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    Text(t.artistLine, style = SdatType.body, color = dimmed, maxLines = 1, overflow = TextOverflow.Ellipsis)
                 }
             }
         }
         IconTap(if (fav) "star.fill" else "star", if (fav) "Unfavourite" else "Favourite", 22.dp) { Favs.set(track.id, !fav) }
-        IconTap("ellipsis", "More", 22.dp, Modifier.onGloballyPositioned { menuBounds = it.boundsInRoot() }) { menuOpen = true }
+        IconTap("ellipsis", "More", 22.dp, Modifier.onGloballyPositioned { menuBounds = it.boundsInRoot() }.menuAnchor(menuOpen)) { menuOpen = true }
     }
     if (menuOpen) {
-        val share = GlasmioCascadingMenuItem("Share", "square.and.arrow.up", onClick = {
+        val share = MenuAction("Share", "square.and.arrow.up", onClick = {
             val send = Intent(Intent.ACTION_SEND).setType("text/plain").putExtra(Intent.EXTRA_TEXT, "https://tidal.com/track/${track.id}")
             context.startActivity(Intent.createChooser(send, null))
         })
         val items = trackMenuItems(track)
-        GlasmioCascadingMenu(
+        PopupMenu(
             anchorBounds = menuBounds,
-            items = listOf(share) + items.mapIndexed { i, item -> if (i == 0) item.copy(separatorBefore = true) else item } + sendToMenuItems(),
+            actions = listOf(share) + items.mapIndexed { i, item -> if (i == 0) item.copy(separatorBefore = true) else item } + sendToMenuItems(),
             title = track.displayTitle,
-            expandedDescription = "Expanded",
-            collapsedDescription = "Collapsed",
             onDismiss = { menuOpen = false },
         )
     }
@@ -340,7 +339,7 @@ private fun QualityBadge(playback: Playback, modifier: Modifier = Modifier) {
             verticalAlignment = Alignment.CenterVertically,
         ) {
             QualityLogo(q, 16.dp)
-            Text(q.badgeText, style = IosTypography.caption1, fontWeight = FontWeight.SemiBold, color = Color.White.copy(alpha = 0.7f), maxLines = 1)
+            Text(q.badgeText, style = SdatType.caption1, fontWeight = FontWeight.SemiBold, color = Color.White.copy(alpha = 0.7f), maxLines = 1)
             SdatIcon("chevron.up.chevron.down", null, size = 11.dp, tint = Color.White.copy(alpha = 0.5f))
         }
     }
@@ -348,14 +347,14 @@ private fun QualityBadge(playback: Playback, modifier: Modifier = Modifier) {
 
 @Composable
 private fun QueuePage(playback: Playback) {
-    val colors = GlasmioTheme.colors
+    val colors = SdatTheme.colors
     LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(start = 20.dp, end = 12.dp, bottom = 24.dp)) {
         item(key = "title") {
             Box(Modifier.fillMaxWidth().heightIn(min = 44.dp), contentAlignment = Alignment.Center) {
                 IconTap("dot.radiowaves.left.and.right", "Listen Together", 20.dp, Modifier.align(Alignment.CenterStart), tint = if (Live.active) Color.White else inactive) {
                     Live.showSheet = true
                 }
-                Text("Queue", style = IosTypography.headline, color = colors.content)
+                Text("Queue", style = SdatType.headline, color = colors.content)
                 Row(Modifier.align(Alignment.CenterEnd)) {
                     IconTap("shuffle", if (playback.shuffle) "Shuffle: On" else "Shuffle: Off", 20.dp, tint = if (playback.shuffle) Color.White else inactive) {
                         playback.setShuffle(!playback.shuffle)
@@ -380,7 +379,7 @@ private fun QueuePage(playback: Playback) {
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
                     SdatIcon("dot.radiowaves.left.and.right", null, size = 18.dp, tint = Color.White)
-                    Text("Playing from Listen Together", style = IosTypography.headline, color = Color.White)
+                    Text("Playing from Listen Together", style = SdatType.headline, color = Color.White)
                 }
             }
 
@@ -400,7 +399,7 @@ private fun QueuePage(playback: Playback) {
 
 private fun LazyListScope.header(title: String) {
     item(key = "header $title") {
-        Text(title, style = IosTypography.headline, color = GlasmioTheme.colors.content, modifier = Modifier.padding(top = 20.dp, bottom = 4.dp))
+        Text(title, style = SdatType.headline, color = SdatTheme.colors.content, modifier = Modifier.padding(top = 20.dp, bottom = 4.dp))
     }
 }
 

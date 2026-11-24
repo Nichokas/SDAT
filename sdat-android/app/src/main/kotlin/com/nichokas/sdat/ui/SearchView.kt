@@ -32,9 +32,9 @@ import com.nichokas.sdat.core.Route
 import com.nichokas.sdat.core.SearchModel
 import com.nichokas.sdat.core.SearchState
 import com.nichokas.sdat.core.isTopArtist
-import io.github.neoruaa.glasmio.core.GlasmioTheme
-import io.github.neoruaa.glasmio.core.IosTypography
-import io.github.neoruaa.glasmio.ui.GlasmioSearchBar
+import com.nichokas.sdat.ui.kit.SdatTheme
+import com.nichokas.sdat.ui.kit.SdatType
+import com.nichokas.sdat.ui.kit.SearchBar
 import kotlin.coroutines.cancellation.CancellationException
 import uniffi.tonearm_ffi.Album
 import uniffi.tonearm_ffi.ArtistOverview
@@ -92,7 +92,7 @@ fun SearchView() {
 
     SdatPage("Search", collapsesChrome = true) {
         item(key = "search-field") {
-            GlasmioSearchBar(
+            SearchBar(
                 query = field,
                 onQueryChange = { field = it; model.edit(it.text) },
                 active = active,
@@ -201,9 +201,9 @@ private fun TopArtist(o: ArtistOverview) {
     ) {
         Cover(o.artist.pictureUrl, 72.dp, circle = true)
         Column(Modifier.weight(1f)) {
-            Text(o.artist.name, style = IosTypography.title3, fontWeight = FontWeight.Bold)
-            Text("Artist", style = IosTypography.subheadline, color = GlasmioTheme.colors.secondaryContent)
+            Text(o.artist.name, style = SdatType.title3, fontWeight = FontWeight.Bold)
+            Text("Artist", style = SdatType.subheadline, color = SdatTheme.colors.secondaryContent)
         }
-        SdatIcon("chevron.right", null, size = 14.dp, tint = GlasmioTheme.colors.tertiaryContent)
+        SdatIcon("chevron.right", null, size = 14.dp, tint = SdatTheme.colors.tertiaryContent)
     }
 }

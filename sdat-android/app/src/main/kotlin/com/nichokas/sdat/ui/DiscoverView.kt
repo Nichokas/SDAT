@@ -30,9 +30,9 @@ import androidx.compose.ui.unit.sp
 import com.nichokas.sdat.core.Discover
 import com.nichokas.sdat.core.DiscoverCache
 import com.nichokas.sdat.core.Session
-import io.github.neoruaa.glasmio.core.GlasmioTheme
-import io.github.neoruaa.glasmio.core.IosTypography
-import io.github.neoruaa.glasmio.glass.GlassSurface
+import com.nichokas.sdat.ui.kit.Glass
+import com.nichokas.sdat.ui.kit.SdatTheme
+import com.nichokas.sdat.ui.kit.SdatType
 import uniffi.tonearm_ffi.Mix
 import uniffi.tonearm_ffi.Track
 
@@ -42,7 +42,7 @@ fun DiscoverView(session: Session, onPlay: (Track, List<Track>, List<Mix>) -> Un
     val context = LocalContext.current
     LaunchedEffect(Unit) { Discover.load(DiscoverCache.of(context)) }
     val tracks = Discover.tracks
-    val colors = GlasmioTheme.colors
+    val colors = SdatTheme.colors
     val background = colors.groupedBackground
     Box(Modifier.fillMaxSize().background(background)) {
         CoverPlane(tracks, background, colors.content.copy(alpha = 0.07f), onTap = { onPlay(it, tracks, Discover.mixes) })
@@ -71,8 +71,8 @@ fun DiscoverView(session: Session, onPlay: (Track, List<Track>, List<Mix>) -> Un
                     CircularProgressIndicator(color = colors.content)
                 } else {
                     Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                        Text("Couldn't load Discover", style = IosTypography.headline, color = colors.content)
-                        Text(message, style = IosTypography.footnote, color = colors.secondaryContent)
+                        Text("Couldn't load Discover", style = SdatType.headline, color = colors.content)
+                        Text(message, style = SdatType.footnote, color = colors.secondaryContent)
                         // Plain buttons: this is the backdrop's sampled layer, where glass would sample itself.
                         TextButton(onClick = { Discover.load(DiscoverCache.of(context)) }) { Text("Retry", color = colors.content) }
                         TextButton(onClick = session::signOut) { Text("Sign out", color = colors.content) }
@@ -86,12 +86,12 @@ fun DiscoverView(session: Session, onPlay: (Track, List<Track>, List<Mix>) -> Un
 /** iOS Discover header's shuffle: the endless Discover queue, once the home mixes are in. */
 @Composable
 fun ShuffleButton(enabled: Boolean, onClick: () -> Unit, modifier: Modifier = Modifier) {
-    GlassSurface(modifier.size(44.dp), shape = CircleShape) {
+    Glass(modifier.size(44.dp), shape = CircleShape) {
         Box(
             Modifier.fillMaxSize().clickable(enabled = enabled, role = Role.Button, onClickLabel = "Shuffle Discover", onClick = onClick),
             contentAlignment = Alignment.Center,
         ) {
-            SdatIcon("shuffle", "Shuffle", size = 20.dp, tint = GlasmioTheme.colors.content.copy(alpha = if (enabled) 1f else 0.4f))
+            SdatIcon("shuffle", "Shuffle", size = 20.dp, tint = SdatTheme.colors.content.copy(alpha = if (enabled) 1f else 0.4f))
         }
     }
 }

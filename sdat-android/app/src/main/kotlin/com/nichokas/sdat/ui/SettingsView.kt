@@ -1,7 +1,7 @@
 package com.nichokas.sdat.ui
 
-import android.content.Context
 import android.content.ActivityNotFoundException
+import android.content.Context
 import android.content.Intent
 import android.widget.Toast
 import androidx.compose.foundation.Image
@@ -48,20 +48,20 @@ import com.nichokas.sdat.core.detail
 import com.nichokas.sdat.core.eraseAll
 import com.nichokas.sdat.core.label
 import com.nichokas.sdat.core.qualities
-import io.github.neoruaa.glasmio.core.GlasmioTheme
-import io.github.neoruaa.glasmio.core.IosTypography
-import io.github.neoruaa.glasmio.ui.GlasmioAlertButtonLayout
-import io.github.neoruaa.glasmio.ui.GlasmioAlertButtonRole
-import io.github.neoruaa.glasmio.ui.GlasmioAlertButtonSpec
-import io.github.neoruaa.glasmio.ui.GlasmioAlertDialog
-import io.github.neoruaa.glasmio.ui.GlasmioGroupedList
-import io.github.neoruaa.glasmio.ui.GlasmioGroupedTableFooter
-import io.github.neoruaa.glasmio.ui.GlasmioListRow
-import io.github.neoruaa.glasmio.ui.GlasmioMenu
-import io.github.neoruaa.glasmio.ui.GlasmioMenuItem
-import io.github.neoruaa.glasmio.ui.GlasmioSectionTitle
-import io.github.neoruaa.glasmio.ui.GlasmioSwitch
-import io.github.neoruaa.glasmio.ui.GlasmioTextField
+import com.nichokas.sdat.ui.kit.AlertButton
+import com.nichokas.sdat.ui.kit.AlertButtonLayout
+import com.nichokas.sdat.ui.kit.AlertButtonRole
+import com.nichokas.sdat.ui.kit.AlertDialog
+import com.nichokas.sdat.ui.kit.GroupedFooter
+import com.nichokas.sdat.ui.kit.GroupedList
+import com.nichokas.sdat.ui.kit.ListRow
+import com.nichokas.sdat.ui.kit.Menu
+import com.nichokas.sdat.ui.kit.MenuAction
+import com.nichokas.sdat.ui.kit.SdatTheme
+import com.nichokas.sdat.ui.kit.SdatType
+import com.nichokas.sdat.ui.kit.SectionTitle
+import com.nichokas.sdat.ui.kit.Switch
+import com.nichokas.sdat.ui.kit.TextField
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.launch
 import uniffi.tonearm_ffi.Quality
@@ -85,7 +85,7 @@ fun SettingsView(session: Session, prefs: Preferences, secrets: Secrets, crashRe
     var listenBrainzToken by remember { mutableStateOf("") }
     var hasListenBrainz by remember { mutableStateOf(secrets.get(Secrets.LISTENBRAINZ_TOKEN) != null) }
     var browserOpened by rememberSaveable { mutableStateOf(false) }
-    val destructive = GlasmioTheme.colors.destructive
+    val destructive = SdatTheme.colors.destructive
     LaunchedEffect(Unit) { Region.loadAutomatic() }
     LaunchedEffect(Unit) { AudioCache.refresh() }
 
@@ -119,11 +119,11 @@ fun SettingsView(session: Session, prefs: Preferences, secrets: Secrets, crashRe
         onPauseOrDispose { if (lastFmPending != null) browserOpened = true }
     }
 
-    SdatPage(title = "Settings", onBack = onBack, showsLargeTitle = false, bottomPaddingValues = null) {
+    SdatPage(title = "Settings", onBack = onBack, showsLargeTitle = false, bottomPadding = 0.dp) {
         item {
             Section("Account") {
-                GlasmioListRow("Sessions and devices", showTopSeparator = false, onClick = { context.open("https://account.tidal.com/") }, showDisclosure = false)
-                GlasmioListRow("Log out", titleColor = destructive, onClick = { confirmLogout = true }, showDisclosure = false)
+                ListRow("Sessions and devices", showTopSeparator = false, onClick = { context.open("https://account.tidal.com/") }, showDisclosure = false)
+                ListRow("Log out", titleColor = destructive, onClick = { confirmLogout = true }, showDisclosure = false)
             }
         }
         item {
@@ -134,23 +134,23 @@ fun SettingsView(session: Session, prefs: Preferences, secrets: Secrets, crashRe
         }
         item {
             Section("Downloads") {
-                GlasmioListRow("Download quality", detail = "Highest available", showTopSeparator = false)
+                ListRow("Download quality", detail = "Highest available", showTopSeparator = false)
                 ToggleRow("Download over cellular", prefs.downloadOverCellular, { prefs.downloadOverCellular = it })
-                GlasmioListRow("Manage downloads", detail = Fmt.bytes(Downloads.totalSize), onClick = { Chrome.push(Route.Downloads) })
+                ListRow("Manage downloads", detail = Fmt.bytes(Downloads.totalSize), onClick = { Chrome.push(Route.Downloads) })
             }
         }
         item {
             val usage = AudioCache.usage
             Section("Cache") {
-                GlasmioListRow(
+                ListRow(
                     "Used",
                     detail = if (AudioCache.on) "${Fmt.cacheBytes(usage.bytes.toLong())} of ${Fmt.cacheBytes(AudioCache.limit)} · ${usage.tracks} tracks" else "Off",
                     showTopSeparator = false,
                 )
-                GlasmioListRow("Size limit", trailing = { CacheLimitMenu(AudioCache.limit, AudioCache::setLimit) })
-                GlasmioListRow("Clear Cache", titleColor = destructive, enabled = usage.tracks > 0u, showDisclosure = false, onClick = { confirmClearCache = true })
+                ListRow("Size limit", trailing = { CacheLimitMenu(AudioCache.limit, AudioCache::setLimit) })
+                ListRow("Clear Cache", titleColor = destructive, enabled = usage.tracks > 0u, showDisclosure = false, onClick = { confirmClearCache = true })
             }
-            GlasmioGroupedTableFooter("Played and upcoming tracks stay on disk, so they start sooner and play without a connection. When the cache is full, the tracks played longest ago go first.")
+            GroupedFooter("Played and upcoming tracks stay on disk, so they start sooner and play without a connection. When the cache is full, the tracks played longest ago go first.")
         }
         item {
             Section("Scrobbling") {
@@ -158,16 +158,16 @@ fun SettingsView(session: Session, prefs: Preferences, secrets: Secrets, crashRe
                 if (prefs.scrobbleLastFm) {
                     val user = lastFmUser
                     if (user != null) {
-                        GlasmioListRow("Connected as", detail = user)
-                        GlasmioListRow("Disconnect Last.fm", titleColor = destructive, showDisclosure = false, onClick = {
+                        ListRow("Connected as", detail = user)
+                        ListRow("Disconnect Last.fm", titleColor = destructive, showDisclosure = false, onClick = {
                             secrets.set(Secrets.LASTFM_SESSION, null)
                             secrets.set(Secrets.LASTFM_USER, null)
                             lastFmUser = null
                         })
                     } else {
-                        GlasmioListRow(
+                        ListRow(
                             if (lastFmPending == null) "Connect Last.fm" else "Connecting…",
-                            titleColor = GlasmioTheme.colors.accent,
+                            titleColor = SdatTheme.colors.accent,
                             enabled = lastFmPending == null,
                             showDisclosure = false,
                             onClick = {
@@ -186,18 +186,18 @@ fun SettingsView(session: Session, prefs: Preferences, secrets: Secrets, crashRe
                                 }
                             },
                         )
-                        lastFmError?.let { GlasmioListRow(it, titleColor = destructive) }
+                        lastFmError?.let { ListRow(it, titleColor = destructive) }
                     }
                 }
                 ToggleRow("ListenBrainz", prefs.scrobbleListenBrainz, { prefs.scrobbleListenBrainz = it })
                 if (prefs.scrobbleListenBrainz) {
                     if (hasListenBrainz) {
-                        GlasmioListRow("Remove ListenBrainz token", titleColor = destructive, showDisclosure = false, onClick = {
+                        ListRow("Remove ListenBrainz token", titleColor = destructive, showDisclosure = false, onClick = {
                             secrets.set(Secrets.LISTENBRAINZ_TOKEN, null)
                             hasListenBrainz = false
                         })
                     } else {
-                        GlasmioTextField(
+                        TextField(
                             value = listenBrainzToken,
                             onValueChange = { listenBrainzToken = it },
                             placeholder = "ListenBrainz user token",
@@ -222,26 +222,26 @@ fun SettingsView(session: Session, prefs: Preferences, secrets: Secrets, crashRe
         }
         item {
             Section("Library") {
-                GlasmioListRow("Import Spotify playlist", showTopSeparator = false, onClick = { showSpotifyImport = true })
+                ListRow("Import Spotify playlist", showTopSeparator = false, onClick = { showSpotifyImport = true })
             }
         }
         item {
             Section("TIDAL") {
-                GlasmioListRow("Country / Region", detail = Region.label, showTopSeparator = false, onClick = { Chrome.push(Route.Country) })
+                ListRow("Country / Region", detail = Region.label, showTopSeparator = false, onClick = { Chrome.push(Route.Country) })
             }
-            GlasmioGroupedTableFooter("Catalogue region for TIDAL requests. Applies to pages you open next.")
+            GroupedFooter("Catalogue region for TIDAL requests. Applies to pages you open next.")
         }
         item {
             Section("Developer") {
-                GlasmioListRow("Diagnostics", showTopSeparator = false, onClick = { Chrome.push(Route.Diagnostics) })
-                GlasmioListRow("Erase all app data", titleColor = destructive, showDisclosure = false, onClick = { confirmErase = true })
+                ListRow("Diagnostics", showTopSeparator = false, onClick = { Chrome.push(Route.Diagnostics) })
+                ListRow("Erase all app data", titleColor = destructive, showDisclosure = false, onClick = { confirmErase = true })
             }
-            GlasmioGroupedTableFooter("Signs out and deletes the TIDAL session, Last.fm and ListenBrainz tokens, settings, caches and stored files.")
+            GroupedFooter("Signs out and deletes the TIDAL session, Last.fm and ListenBrainz tokens, settings, caches and stored files.")
         }
         item {
             Section("About") {
-                GlasmioListRow("Version", detail = context.versionName(), showTopSeparator = false)
-                GlasmioListRow("Source code", titleColor = GlasmioTheme.colors.accent, showDisclosure = false, onClick = { context.open("https://github.com/nichokas/Tonearm") })
+                ListRow("Version", detail = context.versionName(), showTopSeparator = false)
+                ListRow("Source code", titleColor = SdatTheme.colors.accent, showDisclosure = false, onClick = { context.open("https://github.com/nichokas/Tonearm") })
             }
         }
         // Room for the floating tab bar, which stays over Settings as on iOS.
@@ -264,18 +264,18 @@ fun SettingsView(session: Session, prefs: Preferences, secrets: Secrets, crashRe
 
 @Composable
 internal fun Section(title: String, content: @Composable () -> Unit) {
-    GlasmioSectionTitle(title)
-    GlasmioGroupedList { content() }
+    SectionTitle(title)
+    GroupedList { content() }
 }
 
 @Composable
 internal fun ToggleRow(title: String, checked: Boolean, onChange: (Boolean) -> Unit, first: Boolean = false) {
-    GlasmioListRow(title, showTopSeparator = !first, trailing = { GlasmioSwitch(checked, onChange) })
+    ListRow(title, showTopSeparator = !first, trailing = { Switch(checked, onChange) })
 }
 
 @Composable
 private fun QualityRow(title: String, selection: Quality, onSelect: (Quality) -> Unit) {
-    GlasmioListRow(title, showTopSeparator = false, trailing = {
+    ListRow(title, showTopSeparator = false, trailing = {
         QualityMenu(selection, onSelect) { toggle ->
             Row(
                 Modifier.clickable(role = Role.Button, onClickLabel = "Maximum quality", onClick = toggle),
@@ -283,7 +283,7 @@ private fun QualityRow(title: String, selection: Quality, onSelect: (Quality) ->
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 QualityLogo(selection, 15.dp)
-                SdatIcon("chevron.up.chevron.down", contentDescription = null, size = 12.dp, tint = GlasmioTheme.colors.secondaryContent)
+                SdatIcon("chevron.up.chevron.down", contentDescription = null, size = 12.dp, tint = SdatTheme.colors.secondaryContent)
             }
         }
     })
@@ -293,17 +293,14 @@ private fun QualityRow(title: String, selection: Quality, onSelect: (Quality) ->
 @Composable
 fun QualityMenu(selection: Quality, onSelect: (Quality) -> Unit, label: @Composable (toggle: () -> Unit) -> Unit) {
     var open by remember { mutableStateOf(false) }
-    GlasmioMenu(expanded = open, onExpandedChange = { open = it }, itemCount = qualities.size, anchor = label) { backdrop, close ->
-        qualities.forEach { q ->
-            GlasmioMenuItem(
-                title = q.label,
-                subtitle = q.detail,
-                onClick = { onSelect(q); close() },
-                systemName = if (q == selection) "checkmark" else null,
-                backdrop = backdrop,
-            )
-        }
-    }
+    Menu(
+        expanded = open,
+        onExpandedChange = { open = it },
+        actions = qualities.map { q ->
+            MenuAction(q.label, systemName = if (q == selection) "checkmark" else null, onClick = { onSelect(q) }, subtitle = q.detail)
+        },
+        anchor = label,
+    )
 }
 
 @Composable
@@ -311,25 +308,18 @@ private fun CacheLimitMenu(selection: Long, onSelect: (Long) -> Unit) {
     var open by remember { mutableStateOf(false) }
     val presets = remember { audioCacheLimitPresets().map { it.toLong() } }
     val label = { bytes: Long -> if (bytes == 0L) "Off" else Fmt.cacheBytes(bytes) }
-    GlasmioMenu(expanded = open, onExpandedChange = { open = it }, itemCount = presets.size, anchor = { toggle ->
+    Menu(expanded = open, onExpandedChange = { open = it }, actions = presets.map { bytes ->
+        MenuAction(label(bytes), systemName = if (bytes == selection) "checkmark" else null, onClick = { onSelect(bytes) })
+    }, anchor = { toggle ->
         Row(
             Modifier.clickable(role = Role.Button, onClickLabel = "Size limit", onClick = toggle),
             horizontalArrangement = Arrangement.spacedBy(4.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            Text(label(selection), style = IosTypography.body, color = GlasmioTheme.colors.secondaryContent)
-            SdatIcon("chevron.up.chevron.down", contentDescription = null, size = 12.dp, tint = GlasmioTheme.colors.secondaryContent)
+            Text(label(selection), style = SdatType.body, color = SdatTheme.colors.secondaryContent)
+            SdatIcon("chevron.up.chevron.down", contentDescription = null, size = 12.dp, tint = SdatTheme.colors.secondaryContent)
         }
-    }) { backdrop, close ->
-        presets.forEach { bytes ->
-            GlasmioMenuItem(
-                title = label(bytes),
-                onClick = { onSelect(bytes); close() },
-                systemName = if (bytes == selection) "checkmark" else null,
-                backdrop = backdrop,
-            )
-        }
-    }
+    })
 }
 
 /** The iOS quality badge images; scale matches iOS QualityLogo. */
@@ -345,14 +335,14 @@ fun QualityLogo(quality: Quality, height: Dp) {
 
 @Composable
 private fun Confirm(title: String, message: String?, action: String, onDismiss: () -> Unit, onConfirm: () -> Unit) {
-    GlasmioAlertDialog(
+    AlertDialog(
         onDismissRequest = onDismiss,
         title = title,
         message = message,
-        buttonLayout = GlasmioAlertButtonLayout.Stacked,
+        buttonLayout = AlertButtonLayout.Stacked,
         buttons = listOf(
-            GlasmioAlertButtonSpec(action, { onDismiss(); onConfirm() }, GlasmioAlertButtonRole.Destructive),
-            GlasmioAlertButtonSpec("Cancel", onDismiss, GlasmioAlertButtonRole.Cancel),
+            AlertButton(action, { onDismiss(); onConfirm() }, AlertButtonRole.Destructive),
+            AlertButton("Cancel", onDismiss, AlertButtonRole.Cancel),
         ),
     )
 }

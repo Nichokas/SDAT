@@ -40,16 +40,16 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
-import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.geometry.Rect
+import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.layout.boundsInRoot
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
-import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import coil3.compose.AsyncImage
@@ -62,11 +62,12 @@ import com.nichokas.sdat.core.Route
 import com.nichokas.sdat.core.artistLine
 import com.nichokas.sdat.core.displayTitle
 import com.nichokas.sdat.core.friendlyMessage
-import io.github.neoruaa.glasmio.core.GlasmioTheme
-import io.github.neoruaa.glasmio.core.IosTypography
-import io.github.neoruaa.glasmio.glass.GlassSurface
-import io.github.neoruaa.glasmio.ui.GlasmioCascadingMenu
-import io.github.neoruaa.glasmio.ui.GlasmioCascadingMenuItem
+import com.nichokas.sdat.ui.kit.Glass
+import com.nichokas.sdat.ui.kit.MenuAction
+import com.nichokas.sdat.ui.kit.PopupMenu
+import com.nichokas.sdat.ui.kit.SdatTheme
+import com.nichokas.sdat.ui.kit.SdatType
+import com.nichokas.sdat.ui.kit.menuAnchor
 import kotlin.coroutines.cancellation.CancellationException
 import kotlin.math.abs
 import kotlin.math.sin
@@ -126,7 +127,7 @@ fun Cover(url: String?, size: Dp, modifier: Modifier = Modifier, radius: Dp = 8.
         contentAlignment = Alignment.Center,
     ) {
         if (url == null) {
-            SdatIcon("music.note", null, size = size / 3, tint = GlasmioTheme.colors.secondaryContent)
+            SdatIcon("music.note", null, size = size / 3, tint = SdatTheme.colors.secondaryContent)
         } else {
             AsyncImage(
                 model = Downloads.coverFile(url) ?: CoverUrl.sized(url, px, kind),
@@ -145,7 +146,7 @@ fun Equalizer(playing: Boolean, modifier: Modifier = Modifier) {
     LaunchedEffect(playing) {
         while (playing) withFrameMillis { t = it / 1000.0 }
     }
-    val color = GlasmioTheme.colors.accent
+    val color = SdatTheme.colors.accent
     // Drawn, not laid out: the bars change every frame, and reading the clock in the draw
     // phase skips recomposition and layout.
     Canvas(modifier.size(15.dp, 14.dp)) {
@@ -160,7 +161,7 @@ fun Equalizer(playing: Boolean, modifier: Modifier = Modifier) {
 @Composable
 fun TrackRow(track: Track, modifier: Modifier = Modifier, showCover: Boolean = true, number: Int? = null, coverSize: Dp = 44.dp) {
     val player = LocalTrackPlayer.current
-    val colors = GlasmioTheme.colors
+    val colors = SdatTheme.colors
     val isCurrent = player.current?.id == track.id
     Row(
         modifier.fillMaxWidth().alpha(if (track.streamable) 1f else 0.4f),
@@ -172,7 +173,7 @@ fun TrackRow(track: Track, modifier: Modifier = Modifier, showCover: Boolean = t
                 if (isCurrent) {
                     Equalizer(player.isPlaying)
                 } else {
-                    Text("$number", style = IosTypography.subheadline.copy(fontFeatureSettings = "tnum"), color = colors.secondaryContent)
+                    Text("$number", style = SdatType.subheadline.copy(fontFeatureSettings = "tnum"), color = colors.secondaryContent)
                 }
             }
         }
@@ -189,7 +190,7 @@ fun TrackRow(track: Track, modifier: Modifier = Modifier, showCover: Boolean = t
         Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
             Text(
                 track.displayTitle,
-                style = IosTypography.body,
+                style = SdatType.body,
                 color = if (isCurrent) colors.accent else colors.content,
                 fontWeight = if (isCurrent) FontWeight.SemiBold else FontWeight.Normal,
                 maxLines = 1,
@@ -198,13 +199,13 @@ fun TrackRow(track: Track, modifier: Modifier = Modifier, showCover: Boolean = t
             val secondary = if (isCurrent) colors.accent.copy(alpha = 0.8f) else colors.secondaryContent
             Row(horizontalArrangement = Arrangement.spacedBy(4.dp), verticalAlignment = Alignment.CenterVertically) {
                 if (track.explicit) SdatIcon("e.square.fill", "Explicit", size = 12.dp, tint = secondary)
-                Text(track.artistLine, style = IosTypography.subheadline, color = secondary, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                Text(track.artistLine, style = SdatType.subheadline, color = secondary, maxLines = 1, overflow = TextOverflow.Ellipsis)
             }
         }
         DownloadBadge(track.id)
         Text(
             Fmt.time(track.durationSecs.toDouble()),
-            style = IosTypography.subheadline.copy(fontFeatureSettings = "tnum"),
+            style = SdatType.subheadline.copy(fontFeatureSettings = "tnum"),
             color = colors.secondaryContent,
         )
     }
@@ -216,24 +217,24 @@ fun trackMenuItems(
     track: Track,
     ownPlaylistId: String? = null,
     onRemoved: ((String) -> Unit)? = null,
-    extra: List<GlasmioCascadingMenuItem> = emptyList(),
-): List<GlasmioCascadingMenuItem> {
+    extra: List<MenuAction> = emptyList(),
+): List<MenuAction> {
     val player = LocalTrackPlayer.current
     val fav = Favs.known(track.id) ?: false
     return buildList {
-        add(GlasmioCascadingMenuItem(if (fav) "Remove from Favourites" else "Add to Favourites", if (fav) "star.slash" else "star", onClick = { Favs.set(track.id, !fav) }))
-        add(GlasmioCascadingMenuItem("Play Next", "text.line.first.and.arrowtriangle.forward", separatorBefore = true, onClick = {
+        add(MenuAction(if (fav) "Remove from Favourites" else "Add to Favourites", if (fav) "star.slash" else "star", onClick = { Favs.set(track.id, !fav) }))
+        add(MenuAction("Play Next", "text.line.first.and.arrowtriangle.forward", separatorBefore = true, onClick = {
             if (!Live.userPlayNext(listOf(track))) { player.playNext(listOf(track)); Chrome.flash("Playing next") }
         }))
-        add(GlasmioCascadingMenuItem("Add to Queue", "text.line.last.and.arrowtriangle.forward", onClick = {
+        add(MenuAction("Add to Queue", "text.line.last.and.arrowtriangle.forward", onClick = {
             if (!Live.userEnqueue(listOf(track))) { player.addToQueue(listOf(track)); Chrome.flash("Added to queue") }
         }))
-        add(GlasmioCascadingMenuItem("Add to Playlist…", "text.badge.plus", onClick = { Chrome.playlistPickerTrack = track }))
+        add(MenuAction("Add to Playlist…", "text.badge.plus", onClick = { Chrome.playlistPickerTrack = track }))
         addAll(downloadMenuItems(listOf(track)))
         addAll(extra)
         val itemId = track.playlistItemId
         if (ownPlaylistId != null && itemId != null) {
-            add(GlasmioCascadingMenuItem("Remove from Playlist", "minus.circle", destructive = true, onClick = {
+            add(MenuAction("Remove from Playlist", "minus.circle", destructive = true, onClick = {
                 Chrome.actionScope.launch {
                     try {
                         removeFromPlaylist(ownPlaylistId, track.id, itemId)
@@ -247,7 +248,7 @@ fun trackMenuItems(
                 }
             }))
         }
-        add(GlasmioCascadingMenuItem("Start Radio", "dot.radiowaves.left.and.right", separatorBefore = true, onClick = {
+        add(MenuAction("Start Radio", "dot.radiowaves.left.and.right", separatorBefore = true, onClick = {
             Chrome.actionScope.launch {
                 try {
                     val list = trackRadio(track.id)?.use { it.nextPage() }
@@ -261,10 +262,10 @@ fun trackMenuItems(
             }
         }))
         track.album?.let { a ->
-            add(GlasmioCascadingMenuItem("Go to Album", "square.stack", onClick = { Chrome.showPlayer = false; Chrome.push(Route.Album(a.id)) }))
+            add(MenuAction("Go to Album", "square.stack", onClick = { Chrome.showPlayer = false; Chrome.push(Route.Album(a.id)) }))
         }
         track.artists.firstOrNull()?.let { ar ->
-            add(GlasmioCascadingMenuItem("Go to Artist", "music.microphone", onClick = { Chrome.showPlayer = false; Chrome.push(Route.Artist(ar.id)) }))
+            add(MenuAction("Go to Artist", "music.microphone", onClick = { Chrome.showPlayer = false; Chrome.push(Route.Artist(ar.id)) }))
         }
     }
 }
@@ -278,7 +279,7 @@ fun TrackMenuRow(
     modifier: Modifier = Modifier,
     ownPlaylistId: String? = null,
     onRemoved: ((String) -> Unit)? = null,
-    extraItems: List<GlasmioCascadingMenuItem> = emptyList(),
+    extraItems: List<MenuAction> = emptyList(),
     content: @Composable () -> Unit,
 ) {
     var bounds by remember { mutableStateOf<Rect?>(null) }
@@ -290,15 +291,14 @@ fun TrackMenuRow(
     Box(
         modifier
             .onGloballyPositioned { bounds = it.boundsInRoot() }
+            .menuAnchor(open)
             .combinedClickable(onLongClick = { open = true }, onClick = onClick),
     ) { content() }
     if (open) {
-        GlasmioCascadingMenu(
+        PopupMenu(
             anchorBounds = bounds,
-            items = trackMenuItems(track, ownPlaylistId, onRemoved, extraItems),
+            actions = trackMenuItems(track, ownPlaylistId, onRemoved, extraItems),
             title = track.displayTitle,
-            expandedDescription = "Expanded",
-            collapsedDescription = "Collapsed",
             onDismiss = { open = false },
         )
     }
@@ -374,9 +374,9 @@ fun <T : Any> Loader(load: suspend () -> T, content: @Composable (T) -> Unit) {
             verticalArrangement = Arrangement.spacedBy(8.dp, Alignment.CenterVertically),
             horizontalAlignment = Alignment.CenterHorizontally,
         ) {
-            SdatIcon("wifi.exclamationmark", null, size = 40.dp, tint = GlasmioTheme.colors.secondaryContent)
-            Text("Couldn't load", style = IosTypography.title2, fontWeight = FontWeight.Bold)
-            Text(err, style = IosTypography.body, color = GlasmioTheme.colors.secondaryContent)
+            SdatIcon("wifi.exclamationmark", null, size = 40.dp, tint = SdatTheme.colors.secondaryContent)
+            Text("Couldn't load", style = SdatType.title2, fontWeight = FontWeight.Bold)
+            Text(err, style = SdatType.body, color = SdatTheme.colors.secondaryContent)
             Chip("Retry") { error = null; attempt++ }
         }
         else -> DetailSkeleton()
@@ -388,9 +388,9 @@ fun MediaRow(title: String, subtitle: String, cover: String?, modifier: Modifier
     Row(modifier, horizontalArrangement = Arrangement.spacedBy(12.dp), verticalAlignment = Alignment.CenterVertically) {
         Cover(cover, 52.dp, radius = 6.dp, circle = round)
         Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
-            Text(title, style = IosTypography.body, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            Text(title, style = SdatType.body, maxLines = 1, overflow = TextOverflow.Ellipsis)
             if (subtitle.isNotEmpty()) {
-                Text(subtitle, style = IosTypography.subheadline, color = GlasmioTheme.colors.secondaryContent, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                Text(subtitle, style = SdatType.subheadline, color = SdatTheme.colors.secondaryContent, maxLines = 1, overflow = TextOverflow.Ellipsis)
             }
         }
     }
@@ -401,21 +401,21 @@ fun ErrorBanner(text: String, modifier: Modifier = Modifier) {
     val orange = Color(0xFFFF9500)
     Row(modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically) {
         SdatIcon("exclamationmark.triangle.fill", null, size = 14.dp, tint = orange)
-        Text(text, style = IosTypography.footnote, color = orange)
+        Text(text, style = SdatType.footnote, color = orange)
     }
 }
 
 /** Liquid Glass chip, tinted with the accent when selected. */
 @Composable
 fun Chip(title: String, selected: Boolean = false, onClick: () -> Unit) {
-    GlassSurface(shape = CircleShape) {
+    Glass(shape = CircleShape) {
         Box(
             Modifier
-                .then(if (selected) Modifier.background(GlasmioTheme.colors.accent.copy(alpha = 0.5f)) else Modifier)
+                .then(if (selected) Modifier.background(SdatTheme.colors.accent.copy(alpha = 0.5f)) else Modifier)
                 .clickable(role = Role.Button, onClick = onClick)
                 .padding(horizontal = 16.dp, vertical = 8.dp),
         ) {
-            Text(title, style = IosTypography.subheadline, fontWeight = FontWeight.Medium, color = GlasmioTheme.colors.content)
+            Text(title, style = SdatType.subheadline, fontWeight = FontWeight.Medium, color = SdatTheme.colors.content)
         }
     }
 }

@@ -40,19 +40,19 @@ import com.nichokas.sdat.core.CrashReports
 import com.nichokas.sdat.core.DiagFmt
 import com.nichokas.sdat.core.LogFilter
 import com.nichokas.sdat.core.label
-import io.github.neoruaa.glasmio.core.GlasmioTheme
-import io.github.neoruaa.glasmio.core.IosTypography
-import io.github.neoruaa.glasmio.ui.GlasmioAlertButtonRole
-import io.github.neoruaa.glasmio.ui.GlasmioAlertButtonSpec
-import io.github.neoruaa.glasmio.ui.GlasmioAlertDialog
-import io.github.neoruaa.glasmio.ui.GlasmioAlertFieldGroup
-import io.github.neoruaa.glasmio.ui.GlasmioAlertTextField
-import io.github.neoruaa.glasmio.ui.GlasmioBottomSheet
-import io.github.neoruaa.glasmio.ui.GlasmioGroupedTableFooter
-import io.github.neoruaa.glasmio.ui.GlasmioListRow
-import io.github.neoruaa.glasmio.ui.GlasmioMenu
-import io.github.neoruaa.glasmio.ui.GlasmioMenuItem
-import io.github.neoruaa.glasmio.ui.GlasmioSwitch
+import com.nichokas.sdat.ui.kit.AlertButton
+import com.nichokas.sdat.ui.kit.AlertButtonRole
+import com.nichokas.sdat.ui.kit.AlertDialog
+import com.nichokas.sdat.ui.kit.AlertFieldGroup
+import com.nichokas.sdat.ui.kit.AlertTextField
+import com.nichokas.sdat.ui.kit.BottomSheet
+import com.nichokas.sdat.ui.kit.GroupedFooter
+import com.nichokas.sdat.ui.kit.ListRow
+import com.nichokas.sdat.ui.kit.Menu
+import com.nichokas.sdat.ui.kit.MenuAction
+import com.nichokas.sdat.ui.kit.SdatTheme
+import com.nichokas.sdat.ui.kit.SdatType
+import com.nichokas.sdat.ui.kit.Switch
 import java.io.File
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
@@ -108,17 +108,17 @@ fun DiagnosticsView(crashReporting: CrashReporting, onBack: () -> Unit) {
         }
     }
 
-    SdatPage(title = "Diagnostics", onBack = onBack, showsLargeTitle = false, bottomPaddingValues = null) {
+    SdatPage(title = "Diagnostics", onBack = onBack, showsLargeTitle = false, bottomPadding = 0.dp) {
         item {
             Section("Overview") {
-                GlasmioListRow("App version", detail = BuildConfig.VERSION_NAME, showTopSeparator = false)
-                GlasmioListRow("Android", detail = androidVersion())
-                GlasmioListRow("Device", detail = deviceName())
+                ListRow("App version", detail = BuildConfig.VERSION_NAME, showTopSeparator = false)
+                ListRow("Android", detail = androidVersion())
+                ListRow("Device", detail = deviceName())
                 stats?.let {
-                    GlasmioListRow("Uptime", detail = DiagFmt.duration(it.uptimeMs.toLong()))
-                    GlasmioListRow("CPU time, user", detail = DiagFmt.cpu(it.cpuUserMs.toLong()))
-                    GlasmioListRow("CPU time, system", detail = DiagFmt.cpu(it.cpuSystemMs.toLong()))
-                    GlasmioListRow("Peak memory", detail = DiagFmt.memory(it.maxRssKb.toLong()))
+                    ListRow("Uptime", detail = DiagFmt.duration(it.uptimeMs.toLong()))
+                    ListRow("CPU time, user", detail = DiagFmt.cpu(it.cpuUserMs.toLong()))
+                    ListRow("CPU time, system", detail = DiagFmt.cpu(it.cpuSystemMs.toLong()))
+                    ListRow("Peak memory", detail = DiagFmt.memory(it.maxRssKb.toLong()))
                 }
             }
         }
@@ -127,7 +127,7 @@ fun DiagnosticsView(crashReporting: CrashReporting, onBack: () -> Unit) {
                 val net = stats?.net.orEmpty()
                 net.forEachIndexed { i, stat ->
                     val line = DiagFmt.network(stat)
-                    GlasmioListRow(
+                    ListRow(
                         stat.category.label,
                         detail = if (line == null) "No requests" else "${stat.requests} requests",
                         showTopSeparator = i > 0,
@@ -135,8 +135,8 @@ fun DiagnosticsView(crashReporting: CrashReporting, onBack: () -> Unit) {
                     if (line != null) {
                         Text(
                             line,
-                            style = IosTypography.footnote,
-                            color = GlasmioTheme.colors.secondaryContent,
+                            style = SdatType.footnote,
+                            color = SdatTheme.colors.secondaryContent,
                             modifier = Modifier.padding(start = 16.dp, end = 16.dp, bottom = 10.dp),
                         )
                     }
@@ -146,44 +146,44 @@ fun DiagnosticsView(crashReporting: CrashReporting, onBack: () -> Unit) {
         item {
             val shown = events.filter { filter.accepts(it.level) }.take(SHOWN_EVENTS)
             Section("Log") {
-                GlasmioListRow("Show", showTopSeparator = false, trailing = { FilterMenu(filter) { filter = it } })
-                if (shown.isEmpty()) GlasmioListRow("No events", titleColor = GlasmioTheme.colors.secondaryContent)
+                ListRow("Show", showTopSeparator = false, trailing = { FilterMenu(filter) { filter = it } })
+                if (shown.isEmpty()) ListRow("No events", titleColor = SdatTheme.colors.secondaryContent)
                 shown.forEach { e ->
-                    GlasmioListRow(
+                    ListRow(
                         e.message,
                         subtitle = "${DiagFmt.clock(e.atMs)} · ${e.level.label} · ${e.target}",
-                        titleColor = if (e.level == DiagLevel.ERROR) GlasmioTheme.colors.destructive else Color.Unspecified,
+                        titleColor = if (e.level == DiagLevel.ERROR) SdatTheme.colors.destructive else Color.Unspecified,
                         onClick = { detail = Detail(e.level.label, eventText(e)) },
                     )
                 }
             }
-            GlasmioGroupedTableFooter("Newest first. Tap an event for the full message and stack trace.")
+            GroupedFooter("Newest first. Tap an event for the full message and stack trace.")
         }
         item {
             Section("Bug hunting") {
-                GlasmioListRow("Verbose logging", showTopSeparator = false, trailing = {
-                    GlasmioSwitch(verbose, { verbose = it; diagSetVerbose(it) })
+                ListRow("Verbose logging", showTopSeparator = false, trailing = {
+                    Switch(verbose, { verbose = it; diagSetVerbose(it) })
                 })
-                GlasmioListRow("Add marker", showDisclosure = false, onClick = { askMarker = true })
+                ListRow("Add marker", showDisclosure = false, onClick = { askMarker = true })
                 if (previous.isNotEmpty()) {
-                    GlasmioListRow("Previous session", onClick = { detail = Detail("Previous session", previous) })
+                    ListRow("Previous session", onClick = { detail = Detail("Previous session", previous) })
                 }
-                GlasmioListRow("Share report", showDisclosure = false, onClick = { scope.launch { shareReport(context) } })
+                ListRow("Share report", showDisclosure = false, onClick = { scope.launch { shareReport(context) } })
                 if (crashReporting.running) {
-                    GlasmioListRow("Send test error", showDisclosure = false, onClick = {
+                    ListRow("Send test error", showDisclosure = false, onClick = {
                         diagRecord(DiagLevel.ERROR, "diagnostics", "Test error from Diagnostics", Throwable().stackTraceToString())
                         Chrome.flash("Test error sent")
                     })
                 }
             }
-            GlasmioGroupedTableFooter("Markers show up in the log and in reports, to find where something went wrong.")
+            GroupedFooter("Markers show up in the log and in reports, to find where something went wrong.")
         }
         if (crashReporting.available) {
             item {
                 Section("Crash reports") {
                     ToggleRow("Send crash reports", crashReporting.consent == CrashReports.Allowed, crashReporting::allow, first = true)
                 }
-                GlasmioGroupedTableFooter("Sends the error, a stack trace, the app version, and the device model and Android version to the developer when SDAT crashes or hits an error. No account details.")
+                GroupedFooter("Sends the error, a stack trace, the app version, and the device model and Android version to the developer when SDAT crashes or hits an error. No account details.")
             }
         }
     }
@@ -195,39 +195,32 @@ fun DiagnosticsView(crashReporting: CrashReporting, onBack: () -> Unit) {
 @Composable
 private fun FilterMenu(selection: LogFilter, onSelect: (LogFilter) -> Unit) {
     var open by remember { mutableStateOf(false) }
-    GlasmioMenu(
+    Menu(
         expanded = open,
         onExpandedChange = { open = it },
-        itemCount = LogFilter.entries.size,
+        actions = LogFilter.entries.map { f ->
+            MenuAction(f.label, systemName = if (f == selection) "checkmark" else null, onClick = { onSelect(f) })
+        },
         anchor = { toggle ->
             Row(
                 Modifier.clickable(role = Role.Button, onClickLabel = "Filter the log", onClick = toggle),
                 horizontalArrangement = Arrangement.spacedBy(4.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                Text(selection.label, style = IosTypography.body, color = GlasmioTheme.colors.secondaryContent)
-                SdatIcon("chevron.up.chevron.down", contentDescription = null, size = 12.dp, tint = GlasmioTheme.colors.secondaryContent)
+                Text(selection.label, style = SdatType.body, color = SdatTheme.colors.secondaryContent)
+                SdatIcon("chevron.up.chevron.down", contentDescription = null, size = 12.dp, tint = SdatTheme.colors.secondaryContent)
             }
         },
-    ) { backdrop, close ->
-        LogFilter.entries.forEach { f ->
-            GlasmioMenuItem(
-                title = f.label,
-                onClick = { onSelect(f); close() },
-                systemName = if (f == selection) "checkmark" else null,
-                backdrop = backdrop,
-            )
-        }
-    }
+    )
 }
 
 /** A long text to read and copy from: a stack trace or the previous run's log. */
 @Composable
 private fun TextSheet(title: String, body: String, onDismiss: () -> Unit) {
-    GlasmioBottomSheet(onDismissRequest = onDismiss, title = title) {
+    BottomSheet(onDismissRequest = onDismiss, title = title) {
         Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(horizontal = 16.dp).navigationBarsPadding()) {
             SelectionContainer {
-                Text(body, style = IosTypography.footnote, fontFamily = FontFamily.Monospace, color = GlasmioTheme.colors.content)
+                Text(body, style = SdatType.footnote, fontFamily = FontFamily.Monospace, color = SdatTheme.colors.content)
             }
         }
     }
@@ -244,17 +237,17 @@ private fun MarkerDialog(onDismiss: () -> Unit) {
         }
         onDismiss()
     }
-    GlasmioAlertDialog(
+    AlertDialog(
         onDismissRequest = onDismiss,
         title = "Add marker",
         message = "A short note in the log, such as what you are about to try.",
         buttons = listOf(
-            GlasmioAlertButtonSpec("Cancel", onDismiss, GlasmioAlertButtonRole.Cancel),
-            GlasmioAlertButtonSpec("Add", add),
+            AlertButton("Cancel", onDismiss, AlertButtonRole.Cancel),
+            AlertButton("Add", add),
         ),
     ) {
-        GlasmioAlertFieldGroup {
-            GlasmioAlertTextField(note, { note = it }, placeholder = "Note")
+        AlertFieldGroup {
+            AlertTextField(note, { note = it }, placeholder = "Note")
         }
     }
 }

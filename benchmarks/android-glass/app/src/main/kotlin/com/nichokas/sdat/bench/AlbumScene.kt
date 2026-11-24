@@ -13,13 +13,12 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.State
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
@@ -41,63 +40,54 @@ import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import coil3.compose.AsyncImage
-import io.github.neoruaa.glasmio.core.IosTypography
-import io.github.neoruaa.glasmio.glass.GlassEmphasis
-import io.github.neoruaa.glasmio.glass.GlassSurface
-import io.github.neoruaa.glasmio.glass.GlasmioBackdropHost
-import io.github.neoruaa.glasmio.glass.LocalGlassBackdrop
-import io.github.neoruaa.glasmio.glass.glassBackdropSource
-import io.github.neoruaa.glasmio.glass.render.backdrops.rememberLayerBackdrop
-import io.github.neoruaa.glasmio.glass.trackBackdropPosition
-import io.github.neoruaa.glasmio.scaffold.GlasmioPinnedPage
-import io.github.neoruaa.glasmio.scaffold.rememberGlasmioHeaderScrollEdge
-import io.github.neoruaa.glasmio.ui.GlasmioButton
-import io.github.neoruaa.glasmio.ui.GlasmioButtonSize
 import kotlin.math.roundToInt
 
-// Album: SDAT's DetailPage with its blurred cover backdrop, glass Play and Shuffle in the scrolled header, and the wide mini player.
+// Album: SDAT's DetailPage with its blurred cover backdrop, Play and Shuffle, the header's glass buttons, and the wide mini player.
 
 @Composable
-internal fun Album(covers: List<Cover>, images: ImageCounter, seconds: State<Float>) {
+internal fun Album(glass: Glass, covers: List<Cover>, images: ImageCounter, seconds: State<Float>) {
     val list = rememberLazyListState()
     AutoScroll(list, speedDp = 1600f)
-    val pastHeader by remember { derivedStateOf { list.firstVisibleItemIndex > 0 } }
-    val backdrop = rememberLayerBackdrop()
+    val scrolled by remember { derivedStateOf { list.canScrollBackward } }
     val art = covers.first()
-    GlasmioBackdropHost(
-        Modifier.fillMaxSize(),
-        sampledContent = {
-            GlasmioPinnedPage(
-                title = "Album",
-                collapseProgress = if (pastHeader) 1f else 0f,
-                topBarBlurProgress = rememberGlasmioHeaderScrollEdge(list),
-                backgroundColor = Color.Black,
-                background = { CoverBackdrop(art, images, Modifier.matchParentSize().glassBackdropSource(backdrop).trackBackdropPosition(backdrop)) },
-            ) { padding ->
-                CompositionLocalProvider(LocalGlassBackdrop provides backdrop) {
-                    LazyColumn(state = list, modifier = Modifier.fillMaxSize(), contentPadding = PaddingValues(top = padding.calculateTopPadding(), bottom = 120.dp)) {
-                        item {
-                            Column(Modifier.fillMaxWidth().padding(horizontal = 24.dp), horizontalAlignment = Alignment.CenterHorizontally) {
-                                val px = (260 * LocalDensity.current.density).roundToInt()
-                                AsyncImage(cover(art, px, false, images), null, Modifier.size(260.dp).shadow(20.dp, RoundedCornerShape(12.dp)).clip(RoundedCornerShape(12.dp)), contentScale = ContentScale.Crop)
-                                Text("Album title", style = IosTypography.title2, color = Color.White, modifier = Modifier.padding(top = 16.dp))
-                                Row(Modifier.fillMaxWidth().padding(top = 16.dp), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                                    GlasmioButton({}, Modifier.weight(1f), emphasis = GlassEmphasis.Prominent, size = GlasmioButtonSize.Large) { Text("Play", color = Color.White) }
-                                    GlasmioButton({}, Modifier.weight(1f), size = GlasmioButtonSize.Large) { Text("Shuffle", color = Color.White) }
-                                }
+    Host(
+        glass,
+        page = {
+            Box(Modifier.fillMaxSize().background(Color.Black)) {
+                CoverBackdrop(art, images, Modifier.matchParentSize())
+                LazyColumn(state = list, modifier = Modifier.fillMaxSize().statusBarsPadding(), contentPadding = PaddingValues(top = 52.dp, bottom = 120.dp)) {
+                    item {
+                        Column(Modifier.fillMaxWidth().padding(horizontal = 24.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+                            val px = (260 * LocalDensity.current.density).roundToInt()
+                            AsyncImage(cover(art, px, false, images), null, Modifier.size(260.dp).shadow(20.dp, RoundedCornerShape(12.dp)).clip(RoundedCornerShape(12.dp)), contentScale = ContentScale.Crop)
+                            Text("Album title", style = Type.title2, color = Color.White, modifier = Modifier.padding(top = 16.dp))
+                            Row(Modifier.fillMaxWidth().padding(top = 16.dp), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                                PillButton("Play", colors.accent, Modifier.weight(1f))
+                                PillButton("Shuffle", colors.fill, Modifier.weight(1f))
                             }
                         }
-                        items(60) { i -> CoverRow(covers[(i + 1) % covers.size], "${i + 1}. Track", "Artist", images) }
                     }
+                    items(60) { i -> CoverRow(covers[(i + 1) % covers.size], "${i + 1}. Track", "Artist", images) }
                 }
+                // SDAT's PinnedPage scrim, shown once the page scrolls.
+                Box(
+                    Modifier.fillMaxWidth().statusBarsPadding().height(68.dp).graphicsLayer { alpha = if (scrolled) 1f else 0f }
+                        .background(Brush.verticalGradient(0.7f to Color.Black, 1f to Color.Transparent)),
+                )
+                HeaderButtons()
             }
         },
-        overlayContent = {
-            GlassSurface(Modifier.align(Alignment.BottomCenter).fillMaxWidth().navigationBarsPadding().padding(start = 24.dp, end = 24.dp, bottom = 12.dp).height(62.dp), shape = RoundedCornerShape(percent = 50)) {
+        chrome = {
+            Box(Modifier.align(Alignment.BottomCenter).fillMaxWidth().navigationBarsPadding().padding(start = 24.dp, end = 24.dp, bottom = 12.dp).height(62.dp).glass(capsule)) {
                 WideMini(art, images, seconds)
             }
         },
     )
+}
+
+@Composable
+private fun PillButton(label: String, fill: Color, modifier: Modifier) {
+    Box(modifier.height(50.dp).clip(capsule).background(fill), contentAlignment = Alignment.Center) { Text(label, color = Color.White) }
 }
 
 /** SDAT's wide mini player content: cover, title and artist, the play ring, and next. */
@@ -107,8 +97,8 @@ private fun WideMini(art: Cover, images: ImageCounter, seconds: State<Float>) {
         val px = (38 * LocalDensity.current.density).roundToInt()
         AsyncImage(cover(art, px, false, images), null, Modifier.size(38.dp).clip(RoundedCornerShape(6.dp)), contentScale = ContentScale.Crop)
         Column(Modifier.weight(1f)) {
-            Text("Track title", style = IosTypography.subheadline, fontWeight = FontWeight.SemiBold, color = Color.White, maxLines = 1)
-            Text("Artist", style = IosTypography.caption1, color = Color.White.copy(alpha = 0.6f), maxLines = 1)
+            Text("Track title", style = Type.subheadline, fontWeight = FontWeight.SemiBold, color = Color.White, maxLines = 1)
+            Text("Artist", style = Type.caption1, color = Color.White.copy(alpha = 0.6f), maxLines = 1)
         }
         Box(Modifier.size(40.dp)) { ProgressRing(seconds) }
         Canvas(Modifier.size(36.dp, 40.dp).padding(horizontal = 9.dp, vertical = 13.dp)) {

@@ -46,20 +46,20 @@ import com.nichokas.sdat.core.Route
 import com.nichokas.sdat.core.artistLine
 import com.nichokas.sdat.core.badgeText
 import com.nichokas.sdat.core.displayTitle
-import io.github.neoruaa.glasmio.core.GlasmioTheme
-import io.github.neoruaa.glasmio.core.IosTypography
-import io.github.neoruaa.glasmio.glass.GlassSurface
-import io.github.neoruaa.glasmio.ui.GlasmioAlertButtonLayout
-import io.github.neoruaa.glasmio.ui.GlasmioAlertButtonRole
-import io.github.neoruaa.glasmio.ui.GlasmioAlertButtonSpec
-import io.github.neoruaa.glasmio.ui.GlasmioAlertDialog
-import io.github.neoruaa.glasmio.ui.GlasmioCascadingMenuItem
+import com.nichokas.sdat.ui.kit.AlertButton
+import com.nichokas.sdat.ui.kit.AlertButtonLayout
+import com.nichokas.sdat.ui.kit.AlertButtonRole
+import com.nichokas.sdat.ui.kit.AlertDialog
+import com.nichokas.sdat.ui.kit.Glass
+import com.nichokas.sdat.ui.kit.MenuAction
+import com.nichokas.sdat.ui.kit.SdatTheme
+import com.nichokas.sdat.ui.kit.SdatType
 import uniffi.tonearm_ffi.Track
 
 private val orange = Color(0xFFFF9500)
 
 /** Download, cancel or remove for one or more tracks (iOS DownloadButton): the track menu and album and playlist menus. */
-fun downloadMenuItems(tracks: List<Track>): List<GlasmioCascadingMenuItem> {
+fun downloadMenuItems(tracks: List<Track>): List<MenuAction> {
     val ids = tracks.map { it.id }
     val states = ids.map(Downloads::state)
     val many = tracks.size > 1
@@ -69,13 +69,13 @@ fun downloadMenuItems(tracks: List<Track>): List<GlasmioCascadingMenuItem> {
             states.any { it is DownloadState.Downloading || it == DownloadState.Queued } -> {
                 val one = states.singleOrNull() as? DownloadState.Downloading
                 val title = if (one != null) "Downloading… ${(one.fraction * 100).toInt()}%" else "Downloading…"
-                add(GlasmioCascadingMenuItem(title = title, systemName = "arrow.down.circle", enabled = false, onClick = {}))
-                add(GlasmioCascadingMenuItem(title = "Cancel Download", systemName = "xmark.circle", onClick = { ids.forEach(Downloads::cancel) }))
+                add(MenuAction(title = title, systemName = "arrow.down.circle", enabled = false, onClick = {}))
+                add(MenuAction(title = "Cancel Download", systemName = "xmark.circle", onClick = { ids.forEach(Downloads::cancel) }))
             }
             ids.isNotEmpty() && ids.all(Downloads::isDownloaded) ->
-                add(GlasmioCascadingMenuItem(title = if (many) "All Downloaded" else "Downloaded", systemName = "arrow.down.circle.fill", enabled = false, onClick = {}))
+                add(MenuAction(title = if (many) "All Downloaded" else "Downloaded", systemName = "arrow.down.circle.fill", enabled = false, onClick = {}))
             else -> add(
-                GlasmioCascadingMenuItem(
+                MenuAction(
                     title = if (failed != null) "Retry Download" else if (many) "Download All" else "Download",
                     systemName = if (failed != null) "arrow.clockwise" else "arrow.down.circle",
                     subtitle = failed?.let { "Download failed: $it" },
@@ -84,7 +84,7 @@ fun downloadMenuItems(tracks: List<Track>): List<GlasmioCascadingMenuItem> {
             )
         }
         if (ids.any(Downloads::isDownloaded)) {
-            add(GlasmioCascadingMenuItem(title = if (many) "Remove Downloads" else "Remove Download", systemName = "trash", destructive = true, onClick = { Downloads.remove(tracks) }))
+            add(MenuAction(title = if (many) "Remove Downloads" else "Remove Download", systemName = "trash", destructive = true, onClick = { Downloads.remove(tracks) }))
         }
     }
 }
@@ -95,7 +95,7 @@ fun DownloadBadge(id: String) {
     // Every fragment updates the queue; only the row whose state changed redraws.
     val state by remember(id) { derivedStateOf { Downloads.state(id) } }
     when (val s = state) {
-        DownloadState.Done -> SdatIcon("arrow.down.circle.fill", "Downloaded", size = 14.dp, tint = GlasmioTheme.colors.secondaryContent)
+        DownloadState.Done -> SdatIcon("arrow.down.circle.fill", "Downloaded", size = 14.dp, tint = SdatTheme.colors.secondaryContent)
         is DownloadState.Downloading -> DownloadRing(s.fraction)
         DownloadState.Queued -> DownloadRing(0.0)
         is DownloadState.Failed -> SdatIcon("exclamationmark.circle", "Download failed", size = 14.dp, tint = orange)
@@ -118,14 +118,14 @@ private fun DownloadRing(value: Double, size: Dp = 13.dp) {
 @Composable
 fun DownloadStatusButton(modifier: Modifier = Modifier) {
     val p by animateFloatAsState(Downloads.queue.batchProgress.toFloat(), tween(350), label = "batch")
-    GlassSurface(modifier.size(44.dp), shape = CircleShape) {
+    Glass(modifier.size(44.dp), shape = CircleShape) {
         Box(
             Modifier.fillMaxSize()
                 .clickable(role = Role.Button, onClickLabel = "Downloads") { Chrome.push(Route.Downloads) }
                 .semantics { contentDescription = "Downloads"; stateDescription = "${(p * 100).toInt()} percent" },
             contentAlignment = Alignment.Center,
         ) {
-            SdatIcon("arrow.down", null, size = 20.dp, tint = GlasmioTheme.colors.content)
+            SdatIcon("arrow.down", null, size = 20.dp, tint = SdatTheme.colors.content)
             Canvas(Modifier.fillMaxSize().padding(1.5.dp)) {
                 val w = 3.dp.toPx()
                 drawArc(iosBlue, -90f, 360f * maxOf(0.001f, p), false, topLeft = Offset(w / 2, w / 2),
@@ -145,24 +145,24 @@ fun DownloadsView() {
     val active = queue.active
     val failed = queue.failures.entries.sortedBy { it.key }
     var confirmAll by remember { mutableStateOf(false) }
-    val secondary = GlasmioTheme.colors.secondaryContent
+    val secondary = SdatTheme.colors.secondaryContent
     LaunchedEffect(Unit) { AudioCache.refresh() }
     SdatPage("Downloads", onBack = Chrome::pop, actions = {
         if (saved.isNotEmpty()) {
             DetailMenu("Downloads", listOf(
-                GlasmioCascadingMenuItem(title = "Play", systemName = "play.fill", onClick = { player.playInOrder(saved, "Downloads") }),
-                GlasmioCascadingMenuItem(title = "Shuffle", systemName = "shuffle", onClick = { player.playShuffled(saved, "Downloads") }),
-                GlasmioCascadingMenuItem(title = "Delete All Downloads", systemName = "trash", destructive = true, onClick = { confirmAll = true }),
+                MenuAction(title = "Play", systemName = "play.fill", onClick = { player.playInOrder(saved, "Downloads") }),
+                MenuAction(title = "Shuffle", systemName = "shuffle", onClick = { player.playShuffled(saved, "Downloads") }),
+                MenuAction(title = "Delete All Downloads", systemName = "trash", destructive = true, onClick = { confirmAll = true }),
             ))
         }
     }) {
         if (active.isNotEmpty()) {
             item(key = "active-header") {
-                SectionHeader("Downloading", style = IosTypography.footnote) {
+                SectionHeader("Downloading", style = SdatType.footnote) {
                     Text(
                         "Cancel all",
-                        style = IosTypography.footnote,
-                        color = GlasmioTheme.colors.accent,
+                        style = SdatType.footnote,
+                        color = SdatTheme.colors.accent,
                         modifier = Modifier.clickable(role = Role.Button) { Downloads.cancelAll() }.padding(vertical = 4.dp),
                     )
                 }
@@ -178,7 +178,7 @@ fun DownloadsView() {
             }
         }
         if (failed.isNotEmpty()) {
-            item(key = "failed-header") { SectionHeader("Failed", Modifier.padding(top = 12.dp), style = IosTypography.footnote) }
+            item(key = "failed-header") { SectionHeader("Failed", Modifier.padding(top = 12.dp), style = SdatType.footnote) }
             items(failed, key = { "failed:${it.key}" }) { (_, message) ->
                 ErrorBanner(message, Modifier.padding(horizontal = ListGutter, vertical = 4.dp))
             }
@@ -187,12 +187,12 @@ fun DownloadsView() {
             if (saved.isEmpty()) {
                 Text(
                     "Downloaded tracks play without a connection. Use “Download” in a track, album or playlist menu.",
-                    style = IosTypography.footnote,
+                    style = SdatType.footnote,
                     color = secondary,
                     modifier = Modifier.padding(horizontal = ListGutter, vertical = 12.dp),
                 )
             } else {
-                SectionHeader("${saved.size} tracks · ${Fmt.bytes(Downloads.totalSize)}", Modifier.padding(top = 12.dp), style = IosTypography.footnote)
+                SectionHeader("${saved.size} tracks · ${Fmt.bytes(Downloads.totalSize)}", Modifier.padding(top = 12.dp), style = SdatType.footnote)
             }
         }
         itemsIndexed(saved, key = { i, t -> "saved:${t.id}#$i" }) { i, t ->
@@ -201,24 +201,24 @@ fun DownloadsView() {
                 Row(Modifier.fillMaxWidth().padding(horizontal = ListGutter, vertical = 6.dp), verticalAlignment = Alignment.CenterVertically) {
                     TrackRow(t, Modifier.weight(1f))
                     Column(Modifier.padding(start = 8.dp), horizontalAlignment = Alignment.End, verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                        Text(Fmt.bytes(entry?.size ?: 0), style = IosTypography.caption1.copy(fontFeatureSettings = "tnum"), color = secondary)
-                        entry?.qualityText?.let { Text(it, style = IosTypography.caption2, fontWeight = FontWeight.SemiBold, color = secondary, maxLines = 1) }
+                        Text(Fmt.bytes(entry?.size ?: 0), style = SdatType.caption1.copy(fontFeatureSettings = "tnum"), color = secondary)
+                        entry?.qualityText?.let { Text(it, style = SdatType.caption2, fontWeight = FontWeight.SemiBold, color = secondary, maxLines = 1) }
                     }
                 }
             }
         }
         if (cached.isNotEmpty()) {
             item(key = "cached-header") {
-                SectionHeader("Cached · ${cached.size} tracks · ${Fmt.cacheBytes(cached.sumOf { it.bytes.toLong() })}", Modifier.padding(top = 12.dp), style = IosTypography.footnote)
+                SectionHeader("Cached · ${cached.size} tracks · ${Fmt.cacheBytes(cached.sumOf { it.bytes.toLong() })}", Modifier.padding(top = 12.dp), style = SdatType.footnote)
             }
             itemsIndexed(cached, key = { i, c -> "cached:${c.track.id}#$i" }) { i, c ->
-                val remove = GlasmioCascadingMenuItem(title = "Remove from Cache", systemName = "trash", destructive = true, onClick = { AudioCache.remove(c.track.id) })
+                val remove = MenuAction(title = "Remove from Cache", systemName = "trash", destructive = true, onClick = { AudioCache.remove(c.track.id) })
                 TrackMenuRow(c.track, onClick = { player.play(cachedTracks, i, "Cached") }, extraItems = listOf(remove)) {
                     Row(Modifier.fillMaxWidth().padding(horizontal = ListGutter, vertical = 6.dp), verticalAlignment = Alignment.CenterVertically) {
                         TrackRow(c.track, Modifier.weight(1f))
                         Column(Modifier.padding(start = 8.dp), horizontalAlignment = Alignment.End, verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                            Text(Fmt.cacheBytes(c.bytes.toLong()), style = IosTypography.caption1.copy(fontFeatureSettings = "tnum"), color = secondary)
-                            Text(c.quality.badgeText, style = IosTypography.caption2, fontWeight = FontWeight.SemiBold, color = secondary, maxLines = 1)
+                            Text(Fmt.cacheBytes(c.bytes.toLong()), style = SdatType.caption1.copy(fontFeatureSettings = "tnum"), color = secondary)
+                            Text(c.quality.badgeText, style = SdatType.caption2, fontWeight = FontWeight.SemiBold, color = secondary, maxLines = 1)
                         }
                     }
                 }
@@ -226,14 +226,14 @@ fun DownloadsView() {
         }
     }
     if (confirmAll) {
-        GlasmioAlertDialog(
+        AlertDialog(
             onDismissRequest = { confirmAll = false },
             title = "Delete all downloads?",
             message = null,
-            buttonLayout = GlasmioAlertButtonLayout.Stacked,
+            buttonLayout = AlertButtonLayout.Stacked,
             buttons = listOf(
-                GlasmioAlertButtonSpec("Delete ${Fmt.bytes(Downloads.totalSize)}", { confirmAll = false; Downloads.removeAll() }, GlasmioAlertButtonRole.Destructive),
-                GlasmioAlertButtonSpec("Cancel", { confirmAll = false }, GlasmioAlertButtonRole.Cancel),
+                AlertButton("Delete ${Fmt.bytes(Downloads.totalSize)}", { confirmAll = false; Downloads.removeAll() }, AlertButtonRole.Destructive),
+                AlertButton("Cancel", { confirmAll = false }, AlertButtonRole.Cancel),
             ),
         )
     }

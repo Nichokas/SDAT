@@ -12,7 +12,7 @@ android {
         targetSdk = 37
         versionCode = 1
         versionName = "1"
-        buildConfigField("String", "GLASMIO", "\"${libs.versions.glasmio.get()}\"")
+        buildConfigField("String", "HAZE", "\"${libs.versions.haze.get()}\"")
     }
     buildTypes {
         // Measured as a user runs SDAT: R8 and no debuggable runtime. The debug key only makes the APK installable.
@@ -44,7 +44,8 @@ dependencies {
     implementation(platform(libs.compose.bom))
     implementation(libs.compose.material3)
     implementation(libs.activity.compose)
-    implementation(libs.glasmio.scaffold)
+    implementation(libs.haze)
+    implementation(libs.haze.blur)
     implementation(libs.coil.compose)
     testImplementation(libs.junit)
 }

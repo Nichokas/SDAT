@@ -1,6 +1,6 @@
 # Glass benchmark (Android)
 
-A standalone app that answers one question: can SDAT run at 60 fps on a given phone with Glasmio's glass, and if not, what limits it? It needs no TIDAL account and no network. It draws its own album-like covers and recreates SDAT's heaviest screens with the same Glasmio, Compose and Coil versions, which it reads from `sdat-android/gradle/libs.versions.toml`.
+A standalone app that answers one question: can SDAT run at 60 fps on a given phone with its frosted glass, and if not, what limits it? It needs no TIDAL account and no network. It draws its own album-like covers and recreates SDAT's heaviest screens with the same Haze, Compose and Coil versions, which it reads from `sdat-android/gradle/libs.versions.toml`. Its `Glass.kt` copies the glass recipe of SDAT's `ui/kit/Glass.kt`; change both together.
 
 ## Scenes
 
@@ -13,11 +13,11 @@ Each scene animates itself while the app records every frame with `FrameMetrics`
 | Collection list scroll | A 400-row cover list at 2,200 dp/s under the large-title header, with the tab bar morphing every 2 s. |
 | Album page scroll | `DetailPage`'s blurred, zoomed cover backdrop, with glass Play and Shuffle buttons scrolling over it. |
 | Player | The player's 80 dp blurred backdrop, with the pager swiping between Now Playing and the queue and the slider moving. |
-| Worst case | The fast fling with live glass and two busy cores, standing in for playback, a download and the core's network work. |
+| Worst case | The fast fling with frosted glass and two busy cores, standing in for playback, a download and the core's network work. |
 
-The Discover and Collection scenes run three times. The first run uses live glass. The second uses `GlassAppearance(reduceTransparency = true)`, as SDAT ships, which draws the same components as solid fills and samples nothing. The third drops Glasmio's chrome entirely. The album and player scenes have no glass-free form in SDAT, so they run only live and reduced.
+The Discover and Collection scenes run three times. The first run uses SDAT's frosted glass: Haze blurs the page under the tab bar, the mini player and the player controls. The second draws the same glass as its tint alone and blurs nothing. The third drops the glass chrome entirely. The album and player scenes have no glass-free form in SDAT, so they run only frosted and tinted.
 
-The player runs inside the activity window, without `GlasmioBottomSheet`'s own window, because `FrameMetrics` sees only one window.
+The player runs inside the activity window, without the bottom sheet's own window, because `FrameMetrics` sees only one window.
 
 ## Run it
 
@@ -40,6 +40,6 @@ The results screen opens with the score: the worst case, the median fps of the s
 
 What the result decides:
 
-- Live glass misses 60 fps but reduced transparency meets it: glass is the cost. A low-end mode with reduced transparency keeps Glasmio.
-- Reduced transparency and no glass also miss it: the limit is not the glass. Replacing Glasmio would not help, and the stage breakdown names what does.
-- Live glass meets it, worst case included: Glasmio is not the problem on that phone.
+- Frosted glass misses 60 fps but the tint meets it: the blur is the cost. A low-end mode that draws glass as its tint keeps 60 fps.
+- The tint and no glass also miss it: the limit is not the glass, and the stage breakdown names what is.
+- Frosted glass meets it, worst case included: glass is not the problem on that phone.
