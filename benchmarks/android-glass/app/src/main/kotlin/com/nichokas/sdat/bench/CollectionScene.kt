@@ -10,7 +10,6 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.LazyListScope
 import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -28,9 +27,6 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.dp
 import coil3.compose.AsyncImage
-import io.github.neoruaa.glasmio.core.GlasmioTheme
-import io.github.neoruaa.glasmio.core.IosTypography
-import io.github.neoruaa.glasmio.scaffold.GlasmioPinnedListPage
 import kotlin.math.abs
 import kotlin.math.roundToInt
 
@@ -52,17 +48,15 @@ internal fun Collection(glass: Glass, covers: List<Cover>, images: ImageCounter,
             }
         }
     }
-    val rows: LazyListScope.() -> Unit = {
-        items(400) { i -> CoverRow(covers[i % covers.size], "Track ${i + 1}", "Artist ${i % 37} · Album ${i % 53}", images) }
-    }
     Host(
         glass,
         page = {
-            if (glass == Glass.None) {
-                LazyColumn(Modifier.fillMaxSize().background(GlasmioTheme.colors.groupedBackground).statusBarsPadding(), state = list, content = rows)
-            } else {
-                GlasmioPinnedListPage(title = "My Collection", listState = list, bottomPaddingValues = PaddingValues(bottom = 96.dp), content = rows)
+            // SDAT's PinnedListPage: a large title under the header's glass buttons, which sit in the recorded page and so draw their tint.
+            LazyColumn(Modifier.fillMaxSize().background(colors.groupedBackground).statusBarsPadding(), state = list, contentPadding = PaddingValues(top = 52.dp, bottom = 96.dp)) {
+                item { Text("My Collection", Modifier.padding(horizontal = 16.dp), style = Type.largeTitle, color = colors.content) }
+                items(400) { i -> CoverRow(covers[i % covers.size], "Track ${i + 1}", "Artist ${i % 37} · Album ${i % 53}", images) }
             }
+            if (glass != Glass.None) HeaderButtons()
         },
         chrome = { BottomChrome(Tab.Collection, compact, null) },
     )
@@ -74,8 +68,8 @@ internal fun CoverRow(file: Cover, title: String, subtitle: String, images: Imag
         val px = (56 * LocalDensity.current.density).roundToInt()
         AsyncImage(cover(file, px, false, images), null, Modifier.size(56.dp).clip(RoundedCornerShape(8.dp)), contentScale = ContentScale.Crop)
         Column(Modifier.padding(start = 12.dp)) {
-            Text(title, style = IosTypography.body, color = GlasmioTheme.colors.content)
-            Text(subtitle, style = IosTypography.subheadline, color = GlasmioTheme.colors.secondaryContent)
+            Text(title, style = Type.body, color = colors.content)
+            Text(subtitle, style = Type.subheadline, color = colors.secondaryContent)
         }
     }
 }

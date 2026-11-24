@@ -113,7 +113,7 @@ fun device(activity: Activity): Device {
         lowRam = activity.getSystemService(ActivityManager::class.java).isLowRamDevice,
         refreshHz = activity.display.refreshRate,
         screen = "${metrics.widthPixels}x${metrics.heightPixels} @${metrics.densityDpi} dpi",
-        glasmio = BuildConfig.GLASMIO,
+        haze = BuildConfig.HAZE,
     )
 }
 

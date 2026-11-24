@@ -16,17 +16,13 @@ import androidx.media3.session.MediaController
 import androidx.media3.session.SessionToken
 import com.google.common.util.concurrent.ListenableFuture
 import com.nichokas.sdat.core.Chrome
-import com.nichokas.sdat.core.NavState
 import com.nichokas.sdat.core.Downloads
 import com.nichokas.sdat.core.Handoff
 import com.nichokas.sdat.core.Live
+import com.nichokas.sdat.core.NavState
 import com.nichokas.sdat.ui.LocalTrackPlayer
 import com.nichokas.sdat.ui.RootView
-import com.nichokas.sdat.ui.inter
-import com.nichokas.sdat.ui.sdatGlass
-import io.github.neoruaa.glasmio.core.GlasmioTheme
-import io.github.neoruaa.glasmio.core.glasmioTypography
-import io.github.neoruaa.glasmio.icons.GlasmioIconProvider
+import com.nichokas.sdat.ui.kit.SdatTheme
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 
@@ -50,11 +46,9 @@ class MainActivity : ComponentActivity() {
         if (savedInstanceState == null) openLink(intent)
         controller = MediaController.Builder(this, SessionToken(this, ComponentName(this, PlaybackService::class.java))).buildAsync()
         setContent {
-            GlasmioTheme(typography = glasmioTypography(inter), appearance = sdatGlass) {
-                GlasmioIconProvider {
-                    val app = application as SdatApp
-                    CompositionLocalProvider(LocalTrackPlayer provides app.playback) { RootView(app.session, app.playback, app.prefs, app.secrets, app.crashReporting) }
-                }
+            SdatTheme {
+                val app = application as SdatApp
+                CompositionLocalProvider(LocalTrackPlayer provides app.playback) { RootView(app.session, app.playback, app.prefs, app.secrets, app.crashReporting) }
             }
         }
     }

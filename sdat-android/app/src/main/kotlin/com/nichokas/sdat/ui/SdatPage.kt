@@ -15,10 +15,7 @@ import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.dp
 import com.nichokas.sdat.core.Chrome
 import com.nichokas.sdat.core.ListScroll
-import io.github.neoruaa.glasmio.core.GlasmioTheme
-import io.github.neoruaa.glasmio.glass.GlasmioBackdropHost
-import io.github.neoruaa.glasmio.glass.LocalBlurBackdrop
-import io.github.neoruaa.glasmio.scaffold.GlasmioPinnedListPage
+import com.nichokas.sdat.ui.kit.PinnedListPage
 
 /** Room below a list for the floating bottom chrome, as on iOS. */
 val BottomChromeSpace = 78.dp
@@ -47,24 +44,16 @@ fun SdatPage(
                 .collect { Chrome.rootScrolled(it.dp(density)) }
         }
     }
-    // RootView records every page into its backdrop: isolate glass controls on a solid layer to avoid a RenderNode cycle, while keeping the root blur backdrop for popups and dialogs.
-    val blurBackdrop = LocalBlurBackdrop.current
-    GlasmioBackdropHost(
-        sampledColor = GlasmioTheme.colors.groupedBackground,
-        modifier = modifier.fillMaxSize(),
-    ) {
-        CompositionLocalProvider(LocalBlurBackdrop provides blurBackdrop) {
-            GlasmioPinnedListPage(
-                title = title,
-                listState = listState,
-                showsLargeTitle = showsLargeTitle,
-                onNavigateBack = onBack,
-                actions = actions,
-                bottomPaddingValues = bottomPaddingValues,
-                content = content,
-            )
-        }
-    }
+    PinnedListPage(
+        title = title,
+        listState = listState,
+        showsLargeTitle = showsLargeTitle,
+        onNavigateBack = onBack,
+        actions = actions,
+        bottomPaddingValues = bottomPaddingValues,
+        modifier = modifier,
+        content = content,
+    )
 }
 
 /** Stand-in for a destination whose screen is not ported yet. */

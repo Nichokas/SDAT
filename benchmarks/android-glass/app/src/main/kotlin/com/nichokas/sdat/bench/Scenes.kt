@@ -31,27 +31,20 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import coil3.request.CachePolicy
 import coil3.request.ImageRequest
-import io.github.neoruaa.glasmio.core.GlassAppearance
-import io.github.neoruaa.glasmio.core.GlasmioTheme
-import io.github.neoruaa.glasmio.glass.GlassSurface
-import io.github.neoruaa.glasmio.glass.GlasmioBackdropHost
-import io.github.neoruaa.glasmio.icons.SfSymbol
-import io.github.neoruaa.glasmio.ui.GlasmioNavigationBar
-import io.github.neoruaa.glasmio.ui.GlasmioTabItem
 
-/** Live is full liquid glass; Reduced, as SDAT ships, is Glasmio's reduceTransparency (glass drawn as solid fills, nothing sampled); None drops Glasmio's chrome. */
-enum class Glass(val label: String) { Live("live glass"), Reduced("reduced transparency"), None("no glass") }
+/** Blur is SDAT's frosted glass; Tint draws the same glass as its tint alone, nothing blurred; None drops the chrome. */
+enum class Glass(val label: String) { Blur("frosted glass"), Tint("tint only"), None("no glass") }
 
 /**
  * The SDAT screens the benchmark recreates, each with the glass modes it runs in; each animates itself the way a user
- * drives it. Album and Player have no glass-free form in SDAT, so they run only live and reduced.
+ * drives it. Album and Player have no glass-free form in SDAT, so they run only frosted and tinted.
  */
 enum class Page(val label: String, val glass: List<Glass>) {
     DiscoverPan("Discover, steady pan", Glass.entries),
     DiscoverFling("Discover, fast fling, covers decoded on entry", Glass.entries),
     Collection("Collection list scroll, tab bar morphing", Glass.entries),
-    Album("Album page scroll over the blurred cover", listOf(Glass.Live, Glass.Reduced)),
-    Player("Player, pager swipes over the blurred cover", listOf(Glass.Live, Glass.Reduced)),
+    Album("Album page scroll over the blurred cover", listOf(Glass.Blur, Glass.Tint)),
+    Player("Player, pager swipes over the blurred cover", listOf(Glass.Blur, Glass.Tint)),
 }
 
 data class Scene(val page: Page, val glass: Glass, val busyCores: Int = 0) {
@@ -65,7 +58,7 @@ data class Scene(val page: Page, val glass: Glass, val busyCores: Int = 0) {
 /** Light to worst case: every page in each of its glass modes, then the fling with busy cores. */
 val scenes = Page.entries.flatMap { page -> page.glass.map { Scene(page, it) } } +
     // Playback decoding, a download and the core's network work all run beside the UI on a real phone.
-    Scene(Page.DiscoverFling, Glass.Live, busyCores = 2)
+    Scene(Page.DiscoverFling, Glass.Blur, busyCores = 2)
 
 /** Counts every cover request so the report shows the images really loaded. */
 class ImageCounter {
@@ -75,17 +68,16 @@ class ImageCounter {
 
 @Composable
 fun SceneView(scene: Scene, covers: List<Cover>, images: ImageCounter) {
-    val appearance = GlassAppearance(reduceTransparency = scene.glass == Glass.Reduced)
     // Album and Player are dark in SDAT whatever the system says; the tabs follow it.
     val dark = scene.page == Page.Album || scene.page == Page.Player || isSystemInDarkTheme()
-    GlasmioTheme(isDark = dark, appearance = appearance) {
+    Theme(dark) {
         val seconds = rememberSeconds()
         when (scene.page) {
             Page.DiscoverPan -> Discover(scene.glass, covers, images, seconds, speedDp = 900f, cold = false)
             Page.DiscoverFling -> Discover(scene.glass, covers, images, seconds, speedDp = 3500f, cold = true)
             Page.Collection -> Collection(scene.glass, covers, images, seconds)
-            Page.Album -> Album(covers, images, seconds)
-            Page.Player -> Player(covers, images, seconds)
+            Page.Album -> Album(scene.glass, covers, images, seconds)
+            Page.Player -> Player(scene.glass, covers, images, seconds)
         }
     }
 }
@@ -112,39 +104,17 @@ internal fun cover(file: Cover, px: Int, cold: Boolean, images: ImageCounter): I
     }
 }
 
-/** Glasmio's host when there is glass to sample for, a plain box otherwise. */
-@Composable
-internal fun Host(glass: Glass, page: @Composable BoxScope.() -> Unit, chrome: @Composable BoxScope.() -> Unit) {
-    if (glass == Glass.None) {
-        Box(Modifier.fillMaxSize()) { page() }
-    } else {
-        GlasmioBackdropHost(Modifier.fillMaxSize(), sampledContent = { page() }, overlayContent = { chrome() })
-    }
-}
-
 internal enum class Tab { Discover, Search, Collection }
 
-private val tabs = listOf(
-    GlasmioTabItem(Tab.Discover, "Discover", SfSymbol.SafariFilled),
-    GlasmioTabItem(Tab.Search, "Search", SfSymbol.Search),
-    GlasmioTabItem(Tab.Collection, "My Collection", SfSymbol.MusicNoteSquareStackFilled),
-)
+private val tabs = listOf("Discover", "Search", "My Collection")
 
 /** SDAT's bottom chrome: the tab bar (collapsing by [compact]) beside the mini player's circle with its progress ring. */
 @Composable
 internal fun BoxScope.BottomChrome(selected: Tab, compact: State<Float>, seconds: State<Float>?) {
     BoxWithConstraints(Modifier.align(Alignment.BottomCenter).fillMaxWidth().navigationBarsPadding().padding(start = 24.dp, end = 24.dp, bottom = 12.dp)) {
         val barWidth = (maxWidth - 72.dp)
-        GlasmioNavigationBar(
-            items = tabs,
-            selectedKey = selected,
-            onSelected = {},
-            onExpand = {},
-            compactProgress = compact,
-            compactSize = 54.dp,
-            modifier = Modifier.align(Alignment.CenterStart).width(barWidth),
-        )
-        GlassSurface(Modifier.align(Alignment.CenterEnd).size(62.dp), shape = CircleShape) {
+        TabBar(tabs, selected.ordinal, compact, compactSize = 54.dp, modifier = Modifier.align(Alignment.CenterStart).width(barWidth))
+        Box(Modifier.align(Alignment.CenterEnd).size(62.dp).glass(CircleShape)) {
             ProgressRing(seconds)
         }
     }
@@ -162,6 +132,6 @@ internal fun ProgressRing(seconds: State<Float>?) {
 @Composable
 internal fun BoxScope.HeaderButtons() {
     Row(Modifier.align(Alignment.TopEnd).statusBarsPadding().padding(end = 16.dp, top = 4.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-        repeat(2) { GlassSurface(Modifier.size(44.dp), shape = CircleShape) {} }
+        repeat(2) { Box(Modifier.size(44.dp).glass(CircleShape)) }
     }
 }

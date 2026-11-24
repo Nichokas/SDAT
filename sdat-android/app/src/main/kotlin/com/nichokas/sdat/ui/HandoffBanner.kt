@@ -30,13 +30,13 @@ import com.nichokas.sdat.core.coverUrl
 import com.nichokas.sdat.core.displayTitle
 import com.nichokas.sdat.core.elsewhereLine
 import com.nichokas.sdat.core.label
-import io.github.neoruaa.glasmio.core.GlasmioTheme
-import io.github.neoruaa.glasmio.core.IosTypography
-import io.github.neoruaa.glasmio.glass.GlassEmphasis
-import io.github.neoruaa.glasmio.glass.GlassSurface
-import io.github.neoruaa.glasmio.ui.GlasmioButton
-import io.github.neoruaa.glasmio.ui.GlasmioButtonSize
-import io.github.neoruaa.glasmio.ui.GlasmioCascadingMenuItem
+import com.nichokas.sdat.ui.kit.Button
+import com.nichokas.sdat.ui.kit.ButtonSize
+import com.nichokas.sdat.ui.kit.Emphasis
+import com.nichokas.sdat.ui.kit.Glass
+import com.nichokas.sdat.ui.kit.MenuAction
+import com.nichokas.sdat.ui.kit.SdatTheme
+import com.nichokas.sdat.ui.kit.SdatType
 import kotlinx.coroutines.delay
 
 /** What another device plays or last played, with Continue here. */
@@ -61,7 +61,7 @@ internal fun HandoffBanner(modifier: Modifier) {
                 value = System.currentTimeMillis()
             }
         }
-        GlassSurface(Modifier.fillMaxWidth(), shape = RoundedCornerShape(22.dp)) {
+        Glass(Modifier.fillMaxWidth(), shape = RoundedCornerShape(22.dp)) {
             Row(
                 Modifier.padding(10.dp),
                 horizontalArrangement = Arrangement.spacedBy(10.dp),
@@ -69,12 +69,12 @@ internal fun HandoffBanner(modifier: Modifier) {
             ) {
                 Cover(e.track.coverUrl, 44.dp)
                 Column(Modifier.weight(1f)) {
-                    Text(e.track.displayTitle, style = IosTypography.subheadline, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                    Text(e.track.artistLine, style = IosTypography.caption1, color = GlasmioTheme.colors.secondaryContent, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                    Text(elsewhereLine(e, now), style = IosTypography.caption1, color = GlasmioTheme.colors.accent, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    Text(e.track.displayTitle, style = SdatType.subheadline, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    Text(e.track.artistLine, style = SdatType.caption1, color = SdatTheme.colors.secondaryContent, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    Text(elsewhereLine(e, now), style = SdatType.caption1, color = SdatTheme.colors.accent, maxLines = 1, overflow = TextOverflow.Ellipsis)
                 }
-                GlasmioButton(Handoff::continueHere, emphasis = GlassEmphasis.Prominent, size = GlasmioButtonSize.Small) {
-                    Text("Continue here", style = IosTypography.subheadline, fontWeight = FontWeight.SemiBold, color = Color.White, maxLines = 1)
+                Button(Handoff::continueHere, emphasis = Emphasis.Prominent, size = ButtonSize.Small) {
+                    Text("Continue here", style = SdatType.subheadline, fontWeight = FontWeight.SemiBold, color = Color.White, maxLines = 1)
                 }
             }
         }
@@ -82,8 +82,8 @@ internal fun HandoffBanner(modifier: Modifier) {
 }
 
 /** "Send to" entries for the player menu; a guest's playback is the host's. */
-internal fun sendToMenuItems(): List<GlasmioCascadingMenuItem> =
+internal fun sendToMenuItems(): List<MenuAction> =
     if (Live.isGuest) emptyList()
     else Handoff.devices.mapIndexed { i, d ->
-        GlasmioCascadingMenuItem("Send to ${d.label}", "speaker.wave.2", separatorBefore = i == 0, onClick = { Handoff.sendTo(d) })
+        MenuAction("Send to ${d.label}", "speaker.wave.2", separatorBefore = i == 0, onClick = { Handoff.sendTo(d) })
     }

@@ -43,18 +43,17 @@ import com.nichokas.sdat.core.Preferences
 import com.nichokas.sdat.core.Route
 import com.nichokas.sdat.core.Secrets
 import com.nichokas.sdat.core.Session
-import io.github.neoruaa.glasmio.core.GlasmioTheme
-import io.github.neoruaa.glasmio.core.IosTypography
-import io.github.neoruaa.glasmio.glass.GlasmioBackdropHost
-import io.github.neoruaa.glasmio.glass.GlassSurface
-import io.github.neoruaa.glasmio.icons.SfSymbol
-import io.github.neoruaa.glasmio.scaffold.navigation.GlasmioNavDisplay
-import io.github.neoruaa.glasmio.scaffold.navigation.GlasmioNavHeaderMotion
-import io.github.neoruaa.glasmio.ui.GlasmioAlertButtonLayout
-import io.github.neoruaa.glasmio.ui.GlasmioAlertButtonRole
-import io.github.neoruaa.glasmio.ui.GlasmioAlertButtonSpec
-import io.github.neoruaa.glasmio.ui.GlasmioAlertDialog
-import io.github.neoruaa.glasmio.ui.GlasmioTabItem
+import com.nichokas.sdat.ui.kit.AlertButton
+import com.nichokas.sdat.ui.kit.AlertButtonLayout
+import com.nichokas.sdat.ui.kit.AlertButtonRole
+import com.nichokas.sdat.ui.kit.AlertDialog
+import com.nichokas.sdat.ui.kit.Glass
+import com.nichokas.sdat.ui.kit.GlassHost
+import com.nichokas.sdat.ui.kit.SdatTheme
+import com.nichokas.sdat.ui.kit.SdatType
+import com.nichokas.sdat.ui.kit.Stack
+import com.nichokas.sdat.ui.kit.TabItem
+import com.nichokas.sdat.ui.kit.capsule
 
 private val AppTab.label get() = when (this) {
     AppTab.Discover -> "Discover"
@@ -62,14 +61,13 @@ private val AppTab.label get() = when (this) {
     AppTab.Collection -> "My Collection"
 }
 
-// Glasmio's tab bar takes its own symbol set, which has no signpost or music.note.house, so these are the closest.
 private val AppTab.symbol get() = when (this) {
-    AppTab.Discover -> SfSymbol.SafariFilled
-    AppTab.Search -> SfSymbol.Search
-    AppTab.Collection -> SfSymbol.MusicNoteSquareStackFilled
+    AppTab.Discover -> "signpost.right.and.left.fill"
+    AppTab.Search -> "magnifyingglass"
+    AppTab.Collection -> "music.note.house.fill"
 }
 
-internal val tabItems = AppTab.entries.map { GlasmioTabItem(it, it.label, it.symbol) }
+internal val tabItems = AppTab.entries.map { TabItem(it, it.label, it.symbol) }
 
 /** Login until signed in, then one back stack per tab under the bottom chrome and the toast. */
 @Composable
@@ -82,13 +80,12 @@ fun RootView(session: Session, playback: Playback, prefs: Preferences, secrets: 
             Chrome.reset()
         }
     }
-    val colors = GlasmioTheme.colors
+    val colors = SdatTheme.colors
     if (!session.signedIn) {
-        // Glass controls throw outside a backdrop host.
-        return GlasmioBackdropHost(
+        return GlassHost(
             modifier = Modifier.fillMaxSize(),
-            sampledContent = { Box(Modifier.fillMaxSize().background(colors.groupedBackground)) },
-            overlayContent = {
+            content = { Box(Modifier.fillMaxSize().background(colors.groupedBackground)) },
+            overlay = {
                 LoginView(session)
                 // Here too, so a fresh install is asked before sign-in.
                 if (crashReporting.shouldAsk) CrashReportsPrompt(crashReporting)
@@ -101,9 +98,9 @@ fun RootView(session: Session, playback: Playback, prefs: Preferences, secrets: 
     val stacks = rememberSaveableStateHolder()
     val mixes = Discover.mixes
     LaunchedEffect(mixes) { playback.resumeInfinite(mixes) }
-    GlasmioBackdropHost(
+    GlassHost(
         modifier = Modifier.fillMaxSize(),
-        sampledContent = {
+        content = {
             // Each tab keeps its pages' saved state (scroll positions) while another tab is shown.
             stacks.SaveableStateProvider(nav.tab.name) {
                 TabStack(nav.tab, nav.stack) { route ->
@@ -125,7 +122,7 @@ fun RootView(session: Session, playback: Playback, prefs: Preferences, secrets: 
                 }
             }
         },
-        overlayContent = {
+        overlay = {
             if (!nav.inDetail) {
                 // As on iOS, Discover's header has Shuffle where the other tabs show download progress.
                 Row(Modifier.align(Alignment.TopEnd).statusBarsPadding().padding(end = 16.dp, top = 4.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -150,14 +147,12 @@ fun RootView(session: Session, playback: Playback, prefs: Preferences, secrets: 
     )
 }
 
-/** iOS push and pop transitions, swipe back and predictive back for one tab; [page] gets null for the tab root. */
+/** iOS push and pop transitions and predictive back for one tab; [page] gets null for the tab root. */
 @Composable
 private fun TabStack(tab: AppTab, stack: List<Destination>, page: @Composable (Route?) -> Unit) {
     val backStack: List<Any> = listOf(tab) + stack
-    val motion = remember { GlasmioNavHeaderMotion(contentKey(backStack.last())) }
-    GlasmioNavDisplay(
+    Stack(
         backStack = backStack,
-        motion = motion,
         onBack = Chrome::pop,
         entryProvider = { key ->
             NavEntry(key, contentKey(key)) {
@@ -189,8 +184,8 @@ private fun Toast(text: String?, modifier: Modifier) {
         label = "toast",
     ) { shown ->
         if (shown != null) {
-            GlassSurface(shape = capsule) {
-                Text(shown, style = IosTypography.subheadline, fontWeight = FontWeight.SemiBold, modifier = Modifier.padding(horizontal = 16.dp, vertical = 10.dp))
+            Glass(shape = capsule) {
+                Text(shown, style = SdatType.subheadline, fontWeight = FontWeight.SemiBold, modifier = Modifier.padding(horizontal = 16.dp, vertical = 10.dp))
             }
         }
     }
@@ -199,15 +194,15 @@ private fun Toast(text: String?, modifier: Modifier) {
 /** Asked once, on the first launch; only an answer closes it. */
 @Composable
 private fun CrashReportsPrompt(crashReporting: CrashReporting) {
-    GlasmioAlertDialog(
+    AlertDialog(
         onDismissRequest = {},
         title = "Send crash reports?",
         message = "If SDAT crashes or hits an error, send a report to the developer so it can be fixed. Reports include the error, a stack trace, recent log entries, the app version, and the device model and Android version, but no account details. You can change this in Settings > Diagnostics.",
-        buttonLayout = GlasmioAlertButtonLayout.Stacked,
+        buttonLayout = AlertButtonLayout.Stacked,
         properties = DialogProperties(dismissOnBackPress = false, dismissOnClickOutside = false, usePlatformDefaultWidth = false),
         buttons = listOf(
-            GlasmioAlertButtonSpec("Send reports", { crashReporting.allow(true) }),
-            GlasmioAlertButtonSpec("Don't send", { crashReporting.allow(false) }, GlasmioAlertButtonRole.Cancel),
+            AlertButton("Send reports", { crashReporting.allow(true) }),
+            AlertButton("Don't send", { crashReporting.allow(false) }, AlertButtonRole.Cancel),
         ),
     )
 }

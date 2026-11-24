@@ -25,8 +25,8 @@ import androidx.compose.ui.unit.dp
 import com.nichokas.sdat.core.Chrome
 import com.nichokas.sdat.core.Route
 import com.nichokas.sdat.core.friendlyMessage
-import io.github.neoruaa.glasmio.core.GlasmioTheme
-import io.github.neoruaa.glasmio.core.IosTypography
+import com.nichokas.sdat.ui.kit.SdatTheme
+import com.nichokas.sdat.ui.kit.SdatType
 import kotlin.coroutines.cancellation.CancellationException
 import uniffi.tonearm_ffi.ExplorePage
 import uniffi.tonearm_ffi.ExploreSection
@@ -107,8 +107,8 @@ private fun LazyListScope.section(state: ExploreState, s: ExploreSection, key: S
                 if (s.links.isNotEmpty()) {
                     Text(
                         if (list) "View as chips" else "View as list",
-                        style = IosTypography.subheadline,
-                        color = GlasmioTheme.colors.accent,
+                        style = SdatType.subheadline,
+                        color = SdatTheme.colors.accent,
                         modifier = Modifier.clickable(role = Role.Button) { state.toggleList(s.title) },
                     )
                 }
@@ -138,9 +138,9 @@ private fun LazyListScope.section(state: ExploreState, s: ExploreSection, key: S
 private fun LinkRow(link: PageLink) {
     Column(Modifier.fillMaxWidth().clickable(role = Role.Button) { Chrome.push(Route.Explore(link.path, link.title)) }.padding(horizontal = ListGutter)) {
         Row(Modifier.fillMaxWidth().height(44.dp), verticalAlignment = Alignment.CenterVertically) {
-            Text(link.title, style = IosTypography.body, modifier = Modifier.weight(1f))
-            SdatIcon("chevron.right", null, size = 14.dp, tint = GlasmioTheme.colors.tertiaryContent)
+            Text(link.title, style = SdatType.body, modifier = Modifier.weight(1f))
+            SdatIcon("chevron.right", null, size = 14.dp, tint = SdatTheme.colors.tertiaryContent)
         }
-        HorizontalDivider(color = GlasmioTheme.colors.tertiaryContent.copy(alpha = 0.3f))
+        HorizontalDivider(color = SdatTheme.colors.tertiaryContent.copy(alpha = 0.3f))
     }
 }

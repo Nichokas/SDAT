@@ -33,9 +33,9 @@ import com.nichokas.sdat.core.PagedLoader
 import com.nichokas.sdat.core.Recents
 import com.nichokas.sdat.core.Route
 import com.nichokas.sdat.core.friendlyMessage
-import io.github.neoruaa.glasmio.core.GlasmioTheme
-import io.github.neoruaa.glasmio.core.IosTypography
-import io.github.neoruaa.glasmio.ui.GlasmioIconButton
+import com.nichokas.sdat.ui.kit.IconButton
+import com.nichokas.sdat.ui.kit.SdatTheme
+import com.nichokas.sdat.ui.kit.SdatType
 import kotlin.coroutines.cancellation.CancellationException
 import uniffi.tonearm_ffi.RecentItem
 import uniffi.tonearm_ffi.RecentKind
@@ -98,7 +98,7 @@ fun CollectionView() {
         "My Collection",
         collapsesChrome = true,
         actions = {
-            GlasmioIconButton({ Live.showScanner = true }) { SdatIcon("qrcode.viewfinder", "Scan Listen Together invitation", size = 20.dp) }
+            IconButton({ Live.showScanner = true }) { SdatIcon("qrcode.viewfinder", "Scan Listen Together invitation", size = 20.dp) }
             // Clear of the floating buttons over the top bar's trailing edge (profile, plus download status while downloading).
             Spacer(Modifier.width(if (Downloads.queue.isActive) 104.dp else 52.dp))
         },
@@ -106,7 +106,7 @@ fun CollectionView() {
         item(key = "sections") {
             Column(Modifier.padding(horizontal = ListGutter)) {
                 sections.forEachIndexed { i, (title, symbol, route) ->
-                    if (i > 0) HorizontalDivider(Modifier.padding(start = 52.dp), color = GlasmioTheme.colors.separator)
+                    if (i > 0) HorizontalDivider(Modifier.padding(start = 52.dp), color = SdatTheme.colors.separator)
                     SectionRow(title, symbol) { Chrome.push(route) }
                 }
             }
@@ -114,7 +114,7 @@ fun CollectionView() {
         item(key = "recents-title") {
             Text(
                 "Recent activity",
-                style = IosTypography.title2,
+                style = SdatType.title2,
                 fontWeight = FontWeight.Bold,
                 modifier = Modifier.padding(start = ListGutter, end = ListGutter, top = 28.dp, bottom = 12.dp),
             )
@@ -141,10 +141,10 @@ private fun SectionRow(title: String, symbol: String, onClick: () -> Unit) {
         horizontalArrangement = Arrangement.spacedBy(16.dp),
     ) {
         Column(Modifier.width(36.dp), horizontalAlignment = Alignment.CenterHorizontally) {
-            SdatIcon(symbol, null, size = 24.dp, tint = GlasmioTheme.colors.accent)
+            SdatIcon(symbol, null, size = 24.dp, tint = SdatTheme.colors.accent)
         }
-        Text(title, style = IosTypography.title3, modifier = Modifier.weight(1f))
-        SdatIcon("chevron.right", null, size = 16.dp, tint = GlasmioTheme.colors.tertiaryContent)
+        Text(title, style = SdatType.title3, modifier = Modifier.weight(1f))
+        SdatIcon("chevron.right", null, size = 16.dp, tint = SdatTheme.colors.tertiaryContent)
     }
 }
 
@@ -152,9 +152,9 @@ private fun SectionRow(title: String, symbol: String, onClick: () -> Unit) {
 private fun RecentTile(item: ShelfItem, modifier: Modifier) {
     Column(modifier.clickable(role = Role.Button) { Chrome.push(item.route) }, verticalArrangement = Arrangement.spacedBy(6.dp)) {
         BoxWithConstraints(Modifier.fillMaxWidth()) { Cover(item.cover, maxWidth, radius = 10.dp, circle = item.round) }
-        Text(item.title, style = IosTypography.subheadline, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+        Text(item.title, style = SdatType.subheadline, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
         if (item.subtitle.isNotEmpty()) {
-            Text(item.subtitle, style = IosTypography.caption1, color = GlasmioTheme.colors.secondaryContent, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            Text(item.subtitle, style = SdatType.caption1, color = SdatTheme.colors.secondaryContent, maxLines = 1, overflow = TextOverflow.Ellipsis)
         }
     }
 }

@@ -31,17 +31,17 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import com.nichokas.sdat.core.Fav
-import com.nichokas.sdat.core.Favs
 import com.nichokas.sdat.core.ArtistCache
 import com.nichokas.sdat.core.Chrome
+import com.nichokas.sdat.core.Fav
+import com.nichokas.sdat.core.Favs
 import com.nichokas.sdat.core.PageLoad
 import com.nichokas.sdat.core.friendlyMessage
-import io.github.neoruaa.glasmio.core.GlasmioTheme
-import io.github.neoruaa.glasmio.core.IosTypography
-import io.github.neoruaa.glasmio.glass.GlassEmphasis
-import io.github.neoruaa.glasmio.ui.GlasmioButton
-import io.github.neoruaa.glasmio.ui.GlasmioButtonSize
+import com.nichokas.sdat.ui.kit.Button
+import com.nichokas.sdat.ui.kit.ButtonSize
+import com.nichokas.sdat.ui.kit.Emphasis
+import com.nichokas.sdat.ui.kit.SdatTheme
+import com.nichokas.sdat.ui.kit.SdatType
 import kotlin.coroutines.cancellation.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
@@ -93,7 +93,7 @@ fun ArtistView(id: String) {
                 if (name.isEmpty()) {
                     Skeleton(width = 160.dp, height = 28.dp)
                 } else {
-                    Text(name, style = IosTypography.title1, fontWeight = FontWeight.Bold, textAlign = TextAlign.Center)
+                    Text(name, style = SdatType.title1, fontWeight = FontWeight.Bold, textAlign = TextAlign.Center)
                 }
                 FollowButton(id)
             }
@@ -103,7 +103,7 @@ fun ArtistView(id: String) {
             is PageLoad.Failed -> item(key = "error") {
                 Column(Modifier.fillMaxWidth().padding(horizontal = ListGutter, vertical = 16.dp), horizontalAlignment = Alignment.CenterHorizontally) {
                     ErrorBanner(s.message)
-                    GlasmioButton({ state = PageLoad.Loading; attempt++ }, Modifier.padding(top = 12.dp), size = GlasmioButtonSize.Medium) { Text("Retry") }
+                    Button({ state = PageLoad.Loading; attempt++ }, Modifier.padding(top = 12.dp), size = ButtonSize.Medium) { Text("Retry") }
                 }
             }
             PageLoad.Loading -> items(6) { Box(Modifier.padding(horizontal = ListGutter)) { RowSkeleton() } }
@@ -225,7 +225,7 @@ private fun LazyListScope.sections(o: ArtistOverview, more: MoreTopTracks) {
         if (more.canLoad) {
             item(key = "top-more") {
                 Box(Modifier.fillMaxWidth().padding(top = 8.dp), contentAlignment = Alignment.Center) {
-                    GlasmioButton({ more.load(top) }, enabled = !more.loading, size = GlasmioButtonSize.Medium) { Text("Show More") }
+                    Button({ more.load(top) }, enabled = !more.loading, size = ButtonSize.Medium) { Text("Show More") }
                 }
             }
         }
@@ -241,7 +241,7 @@ private fun LazyListScope.sections(o: ArtistOverview, more: MoreTopTracks) {
 }
 
 @Composable
-private fun SectionTitle(text: String) = SectionHeader(text, Modifier.padding(top = 24.dp, bottom = 10.dp), style = IosTypography.title2)
+private fun SectionTitle(text: String) = SectionHeader(text, Modifier.padding(top = 24.dp, bottom = 10.dp), style = SdatType.title2)
 
 /** Follow / Following: optimistic, saved as an artist favourite, reverted on error. */
 @Composable
@@ -252,16 +252,16 @@ fun FollowButton(artistId: String) {
     LaunchedEffect(fav) { Favs.check(fav); checked = true }
     val following = Favs.known(fav)
     val on = following == true
-    GlasmioButton(
+    Button(
         onClick = { Favs.set(fav, !on) },
         enabled = following != null || checked,
-        emphasis = if (on) GlassEmphasis.Prominent else GlassEmphasis.Regular,
-        size = GlasmioButtonSize.Medium,
+        emphasis = if (on) Emphasis.Prominent else Emphasis.Regular,
+        size = ButtonSize.Medium,
     ) {
         SdatIcon(if (on) "checkmark" else "plus", null, size = 16.dp)
         Text(
             if (on) "Following" else "Follow",
-            style = IosTypography.subheadline,
+            style = SdatType.subheadline,
             fontWeight = FontWeight.SemiBold,
             modifier = Modifier.padding(start = 6.dp, end = 6.dp),
         )
@@ -276,8 +276,8 @@ private fun BioText(text: String, modifier: Modifier = Modifier) {
     Column(modifier, verticalArrangement = Arrangement.spacedBy(6.dp)) {
         Text(
             text,
-            style = IosTypography.subheadline,
-            color = GlasmioTheme.colors.secondaryContent,
+            style = SdatType.subheadline,
+            color = SdatTheme.colors.secondaryContent,
             maxLines = if (expanded) Int.MAX_VALUE else 6,
             overflow = TextOverflow.Ellipsis,
             onTextLayout = { if (!expanded) overflows = it.hasVisualOverflow },
@@ -285,9 +285,9 @@ private fun BioText(text: String, modifier: Modifier = Modifier) {
         if (overflows || expanded) {
             Text(
                 if (expanded) "Less" else "More",
-                style = IosTypography.subheadline,
+                style = SdatType.subheadline,
                 fontWeight = FontWeight.SemiBold,
-                color = GlasmioTheme.colors.accent,
+                color = SdatTheme.colors.accent,
                 modifier = Modifier.clickable(role = Role.Button) { expanded = !expanded },
             )
         }

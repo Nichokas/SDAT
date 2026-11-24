@@ -24,9 +24,9 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.nichokas.sdat.core.Session
-import io.github.neoruaa.glasmio.core.GlasmioTheme
-import io.github.neoruaa.glasmio.core.IosTypography
-import io.github.neoruaa.glasmio.ui.GlasmioButton
+import com.nichokas.sdat.ui.kit.Button
+import com.nichokas.sdat.ui.kit.SdatTheme
+import com.nichokas.sdat.ui.kit.SdatType
 import kotlin.coroutines.cancellation.CancellationException
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.ensureActive
@@ -44,7 +44,7 @@ fun LoginView(session: Session) {
     var error by remember { mutableStateOf<String?>(null) }
     var busy by remember { mutableStateOf(false) }
     var attempt by remember { mutableStateOf<Job?>(null) }
-    val colors = GlasmioTheme.colors
+    val colors = SdatTheme.colors
     // Centered when it fits, scrollable in short (landscape, split-screen) windows.
     BoxWithConstraints(Modifier.fillMaxSize().safeDrawingPadding()) {
         Column(
@@ -52,12 +52,12 @@ fun LoginView(session: Session) {
             horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.spacedBy(16.dp, Alignment.CenterVertically),
         ) {
-            Text("SDAT", style = IosTypography.largeTitle)
+            Text("SDAT", style = SdatType.largeTitle)
             val pending = login
             if (pending == null) {
-                Text("Sign in with your TIDAL account.", style = IosTypography.body, color = colors.secondaryContent)
-                GlasmioButton(onClick = {
-                    if (busy) return@GlasmioButton
+                Text("Sign in with your TIDAL account.", style = SdatType.body, color = colors.secondaryContent)
+                Button(onClick = {
+                    if (busy) return@Button
                     busy = true
                     error = null
                     attempt = scope.launch {
@@ -89,12 +89,12 @@ fun LoginView(session: Session) {
                     }
                 }) { Text("Sign in with TIDAL") }
             } else {
-                Text("Approve this code on link.tidal.com", style = IosTypography.body, color = colors.secondaryContent)
+                Text("Approve this code on link.tidal.com", style = SdatType.body, color = colors.secondaryContent)
                 Text(pending.userCode(), fontSize = 34.sp, fontWeight = FontWeight.Bold, letterSpacing = 4.sp)
-                GlasmioButton(onClick = { runCatching { uri.openUri(pending.verificationUrl()) } }) { Text("Open link.tidal.com") }
-                GlasmioButton(onClick = { pending.cancel(); attempt?.cancel() }) { Text("Cancel") }
+                Button(onClick = { runCatching { uri.openUri(pending.verificationUrl()) } }) { Text("Open link.tidal.com") }
+                Button(onClick = { pending.cancel(); attempt?.cancel() }) { Text("Cancel") }
             }
-            error?.let { Text(it, style = IosTypography.footnote, color = colors.secondaryContent) }
+            error?.let { Text(it, style = SdatType.footnote, color = colors.secondaryContent) }
         }
     }
 }

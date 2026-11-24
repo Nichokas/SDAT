@@ -54,6 +54,8 @@ android {
         compose = true
         buildConfig = true
     }
+    // Robolectric renders Compose screenshots on the JVM and needs the app's fonts and drawables.
+    testOptions.unitTests.isIncludeAndroidResources = true
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_21
         targetCompatibility = JavaVersion.VERSION_21
@@ -117,7 +119,9 @@ dependencies {
     implementation(platform(libs.compose.bom))
     implementation(libs.compose.material3)
     implementation(libs.activity.compose)
-    implementation(libs.glasmio.scaffold)
+    implementation(libs.haze)
+    implementation(libs.haze.blur)
+    implementation(libs.navigation3.ui)
     implementation(libs.coroutines.android)
     implementation(libs.coil.compose)
     implementation(libs.coil.network)
@@ -128,6 +132,10 @@ dependencies {
     implementation(libs.zxing.core)
     implementation(libs.sentry.android.core)
     testImplementation(libs.junit)
+    testImplementation(libs.robolectric)
+    testImplementation(platform(libs.compose.bom))
+    testImplementation(libs.compose.ui.test.junit4)
+    debugImplementation(libs.compose.ui.test.manifest)
     // android.jar only stubs org.json; the APK uses the platform copy.
     testImplementation(libs.org.json)
 }

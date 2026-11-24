@@ -94,8 +94,8 @@ class MainActivity : ComponentActivity() {
     private fun Menu(onStart: (Int) -> Unit) = Page {
         Text("SDAT glass benchmark", style = MaterialTheme.typography.headlineSmall)
         Text(
-            "Runs ${scenes.size} scenes of SDAT, from a steady Discover pan to a fast fling with busy cores, each with live glass, " +
-                "with Glasmio's reduced transparency and without glass. Each scene warms up for ${WARMUP_MS / 1000} s and is measured for " +
+            "Runs ${scenes.size} scenes of SDAT, from a steady Discover pan to a fast fling with busy cores, each with SDAT's frosted " +
+                "glass, with the glass as its tint alone and without glass. Each scene warms up for ${WARMUP_MS / 1000} s and is measured for " +
                 "${MEASURE_MS / 1000} s. Plug the phone in or keep it charged, close other apps, and do not touch the screen while it runs.",
         )
         Button({ onStart(3) }) { Text("Full run, 3 rounds (about ${3 * scenes.size * (WARMUP_MS + MEASURE_MS) / 60_000 + 1} min)") }

@@ -47,31 +47,25 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.min
 import coil3.compose.AsyncImage
+import com.nichokas.sdat.core.Chrome
 import com.nichokas.sdat.core.Fav
 import com.nichokas.sdat.core.Favs
-import com.nichokas.sdat.core.Chrome
 import com.nichokas.sdat.core.Live
 import com.nichokas.sdat.core.Route
 import com.nichokas.sdat.core.friendlyMessage
-import io.github.neoruaa.glasmio.core.GlasmioTheme
-import io.github.neoruaa.glasmio.core.IosTypography
-import io.github.neoruaa.glasmio.glass.LocalGlassBackdrop
-import io.github.neoruaa.glasmio.glass.glassBackdropSource
-import io.github.neoruaa.glasmio.glass.render.backdrops.rememberLayerBackdrop
-import io.github.neoruaa.glasmio.glass.trackBackdropPosition
-import io.github.neoruaa.glasmio.scaffold.GlasmioPinnedPage
-import io.github.neoruaa.glasmio.scaffold.rememberGlasmioHeaderScrollEdge
-import io.github.neoruaa.glasmio.ui.GlasmioButton
-import io.github.neoruaa.glasmio.ui.GlasmioButtonSize
-import io.github.neoruaa.glasmio.ui.GlasmioCascadingMenu
-import io.github.neoruaa.glasmio.ui.GlasmioCascadingMenuItem
-import io.github.neoruaa.glasmio.ui.GlasmioIconButton
+import com.nichokas.sdat.ui.kit.Button
+import com.nichokas.sdat.ui.kit.ButtonSize
+import com.nichokas.sdat.ui.kit.IconButton
+import com.nichokas.sdat.ui.kit.MenuAction
+import com.nichokas.sdat.ui.kit.PinnedPage
+import com.nichokas.sdat.ui.kit.PopupMenu
+import com.nichokas.sdat.ui.kit.SdatTheme
+import com.nichokas.sdat.ui.kit.SdatType
 import uniffi.tonearm_ffi.FavouriteKind
 import uniffi.tonearm_ffi.Track
 
 /**
  * A pushed page over the blurred [backdropUrl], whose title shows in the top bar once the first item scrolls away.
- * Glass in [content] samples only the backdrop: the page itself is the app's sampled layer.
  */
 @Composable
 fun DetailScaffold(
@@ -83,27 +77,25 @@ fun DetailScaffold(
     val listState = rememberLazyListState()
     val pastHeader by remember { derivedStateOf { listState.firstVisibleItemIndex > 0 } }
     val collapse by animateFloatAsState(if (pastHeader) 1f else 0f, label = "title")
-    val glass = rememberLayerBackdrop()
-    GlasmioPinnedPage(
+    val scrolled by remember { derivedStateOf { listState.canScrollBackward } }
+    PinnedPage(
         title = title,
         onNavigateBack = Chrome::pop,
         actions = actions,
         collapseProgress = collapse,
-        topBarBlurProgress = rememberGlasmioHeaderScrollEdge(listState),
+        scrolled = scrolled,
         backgroundColor = Color.Black,
-        background = { CoverBackdrop(backdropUrl, Modifier.matchParentSize().glassBackdropSource(glass).trackBackdropPosition(glass)) },
+        background = { CoverBackdrop(backdropUrl, Modifier.matchParentSize()) },
     ) { padding ->
-        CompositionLocalProvider(LocalGlassBackdrop provides glass) {
-            LazyColumn(
-                state = listState,
-                modifier = Modifier.fillMaxSize(),
-                contentPadding = PaddingValues(
-                    top = padding.calculateTopPadding(),
-                    bottom = padding.calculateBottomPadding() + BottomChromeSpace,
-                ),
-                content = content,
-            )
-        }
+        LazyColumn(
+            state = listState,
+            modifier = Modifier.fillMaxSize(),
+            contentPadding = PaddingValues(
+                top = padding.calculateTopPadding(),
+                bottom = padding.calculateBottomPadding() + BottomChromeSpace,
+            ),
+            content = content,
+        )
     }
 }
 
@@ -135,10 +127,10 @@ fun LoadFailed(message: String, onRetry: () -> Unit) {
         verticalArrangement = Arrangement.spacedBy(8.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {
-        SdatIcon("wifi.exclamationmark", null, size = 40.dp, tint = GlasmioTheme.colors.secondaryContent)
-        Text("Couldn't load", style = IosTypography.title2, fontWeight = FontWeight.Bold)
-        Text(message, style = IosTypography.body, color = GlasmioTheme.colors.secondaryContent, textAlign = TextAlign.Center)
-        GlasmioButton(onRetry, Modifier.padding(top = 8.dp), size = GlasmioButtonSize.Medium) { Text("Retry") }
+        SdatIcon("wifi.exclamationmark", null, size = 40.dp, tint = SdatTheme.colors.secondaryContent)
+        Text("Couldn't load", style = SdatType.title2, fontWeight = FontWeight.Bold)
+        Text(message, style = SdatType.body, color = SdatTheme.colors.secondaryContent, textAlign = TextAlign.Center)
+        Button(onRetry, Modifier.padding(top = 8.dp), size = ButtonSize.Medium) { Text("Retry") }
     }
 }
 
@@ -171,23 +163,23 @@ fun DetailPage(
         backdropUrl = cover,
         actions = {
             if (favourite != null) {
-                GlasmioIconButton(toggleFav) {
+                IconButton(toggleFav) {
                     SdatIcon(if (isFav) "checkmark" else "plus", if (isFav) "Remove from Collection" else "Add to Collection", size = 20.dp)
                 }
             }
             val menu = buildList {
                 // An empty list queues nothing, so it offers nothing to confirm.
                 if (tracks.isNotEmpty()) {
-                    add(GlasmioCascadingMenuItem("Play Next", "text.line.first.and.arrowtriangle.forward", onClick = {
+                    add(MenuAction("Play Next", "text.line.first.and.arrowtriangle.forward", onClick = {
                         if (!Live.userPlayNext(tracks)) { player.playNext(tracks); Chrome.flash("Playing next") }
                     }))
-                    add(GlasmioCascadingMenuItem("Add to Queue", "text.line.last.and.arrowtriangle.forward", onClick = {
+                    add(MenuAction("Add to Queue", "text.line.last.and.arrowtriangle.forward", onClick = {
                         if (!Live.userEnqueue(tracks)) { player.addToQueue(tracks); Chrome.flash("Added to queue") }
                     }))
                     addAll(downloadMenuItems(tracks))
                 }
                 if (favourite != null) {
-                    add(GlasmioCascadingMenuItem(if (isFav) "Remove from Collection" else "Add to Collection", if (isFav) "star.slash" else "star", separatorBefore = isNotEmpty(), onClick = toggleFav))
+                    add(MenuAction(if (isFav) "Remove from Collection" else "Add to Collection", if (isFav) "star.slash" else "star", separatorBefore = isNotEmpty(), onClick = toggleFav))
                 }
             }
             if (menu.isNotEmpty()) DetailMenu(title, menu)
@@ -196,17 +188,17 @@ fun DetailPage(
         item(key = "header") {
             Column(Modifier.fillMaxWidth().padding(horizontal = ListGutter, vertical = 8.dp), horizontalAlignment = Alignment.CenterHorizontally) {
                 Artwork(cover, mosaic)
-                Text(title, style = IosTypography.title2, fontWeight = FontWeight.Bold, textAlign = TextAlign.Center, modifier = Modifier.padding(top = 18.dp))
+                Text(title, style = SdatType.title2, fontWeight = FontWeight.Bold, textAlign = TextAlign.Center, modifier = Modifier.padding(top = 18.dp))
                 if (subtitleRoute != null) {
                     Text(
                         subtitle,
-                        style = IosTypography.body,
-                        color = GlasmioTheme.colors.accent,
+                        style = SdatType.body,
+                        color = SdatTheme.colors.accent,
                         textAlign = TextAlign.Center,
                         modifier = Modifier.padding(top = 6.dp).clickable(role = Role.Button) { Chrome.push(subtitleRoute) },
                     )
                 } else {
-                    Text(subtitle, style = IosTypography.body, color = GlasmioTheme.colors.secondaryContent, textAlign = TextAlign.Center, modifier = Modifier.padding(top = 6.dp))
+                    Text(subtitle, style = SdatType.body, color = SdatTheme.colors.secondaryContent, textAlign = TextAlign.Center, modifier = Modifier.padding(top = 6.dp))
                 }
                 PlayShuffleButtons(
                     play = { player.playInOrder(tracks, title) },
@@ -215,9 +207,9 @@ fun DetailPage(
                     modifier = Modifier.padding(top = 18.dp),
                 )
                 if (paginationError != null && onRetryMore != null) {
-                    Text("Couldn't load all tracks", style = IosTypography.body, modifier = Modifier.padding(top = 16.dp))
-                    Text(paginationError, style = IosTypography.footnote, color = GlasmioTheme.colors.secondaryContent, textAlign = TextAlign.Center)
-                    GlasmioButton(onRetryMore, Modifier.padding(top = 8.dp), size = GlasmioButtonSize.Medium) { Text("Retry") }
+                    Text("Couldn't load all tracks", style = SdatType.body, modifier = Modifier.padding(top = 16.dp))
+                    Text(paginationError, style = SdatType.footnote, color = SdatTheme.colors.secondaryContent, textAlign = TextAlign.Center)
+                    Button(onRetryMore, Modifier.padding(top = 8.dp), size = ButtonSize.Medium) { Text("Retry") }
                 }
             }
         }
@@ -225,16 +217,16 @@ fun DetailPage(
         if (loadingMore) {
             item(key = "loading") {
                 Box(Modifier.fillMaxWidth().padding(vertical = 12.dp), contentAlignment = Alignment.Center) {
-                    CircularProgressIndicator(Modifier.size(24.dp), color = GlasmioTheme.colors.secondaryContent, strokeWidth = 2.dp)
+                    CircularProgressIndicator(Modifier.size(24.dp), color = SdatTheme.colors.secondaryContent, strokeWidth = 2.dp)
                 }
             }
         }
         item(key = "footer") {
-            Text(footer, style = IosTypography.footnote, color = GlasmioTheme.colors.secondaryContent, modifier = Modifier.padding(start = ListGutter, top = 8.dp, end = ListGutter))
+            Text(footer, style = SdatType.footnote, color = SdatTheme.colors.secondaryContent, modifier = Modifier.padding(start = ListGutter, top = 8.dp, end = ListGutter))
         }
         if (onRetry != null) {
             item(key = "retry") {
-                GlasmioButton(onRetry, Modifier.padding(start = ListGutter, top = 12.dp), size = GlasmioButtonSize.Medium) { Text("Retry") }
+                Button(onRetry, Modifier.padding(start = ListGutter, top = 12.dp), size = ButtonSize.Medium) { Text("Retry") }
             }
         }
     }
@@ -262,19 +254,17 @@ private fun Artwork(cover: String?, mosaic: List<String>) {
 
 /** The top bar's ellipsis button and the menu it opens. */
 @Composable
-fun DetailMenu(title: String, items: List<GlasmioCascadingMenuItem>) {
+fun DetailMenu(title: String, items: List<MenuAction>) {
     var bounds by remember { mutableStateOf<Rect?>(null) }
     var open by remember { mutableStateOf(false) }
-    GlasmioIconButton({ open = true }, Modifier.onGloballyPositioned { bounds = it.boundsInRoot() }) {
+    IconButton({ open = true }, Modifier.onGloballyPositioned { bounds = it.boundsInRoot() }) {
         SdatIcon("ellipsis", "More", size = 20.dp)
     }
     if (open) {
-        GlasmioCascadingMenu(
+        PopupMenu(
             anchorBounds = bounds,
-            items = items,
+            actions = items,
             title = title,
-            expandedDescription = "Expanded",
-            collapsedDescription = "Collapsed",
             onDismiss = { open = false },
         )
     }

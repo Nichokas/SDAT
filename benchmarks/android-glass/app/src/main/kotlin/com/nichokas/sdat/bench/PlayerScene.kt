@@ -22,6 +22,7 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material3.Slider
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -40,10 +41,6 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.dp
 import coil3.compose.AsyncImage
-import io.github.neoruaa.glasmio.core.IosTypography
-import io.github.neoruaa.glasmio.glass.GlasmioBackdropHost
-import io.github.neoruaa.glasmio.glass.GlassSurface
-import io.github.neoruaa.glasmio.ui.GlasmioSlider
 import kotlin.math.roundToInt
 import kotlin.math.sin
 import kotlinx.coroutines.delay
@@ -52,7 +49,7 @@ import kotlinx.coroutines.delay
 // swiping between Now Playing and the queue while the slider moves.
 
 @Composable
-internal fun Player(covers: List<Cover>, images: ImageCounter, seconds: State<Float>) {
+internal fun Player(glass: Glass, covers: List<Cover>, images: ImageCounter, seconds: State<Float>) {
     val pager = rememberPagerState { 2 }
     LaunchedEffect(pager) {
         while (true) {
@@ -61,14 +58,14 @@ internal fun Player(covers: List<Cover>, images: ImageCounter, seconds: State<Fl
         }
     }
     val art = covers[1]
-    GlasmioBackdropHost(
-        Modifier.fillMaxSize(),
-        sampledContent = {
+    Host(
+        glass,
+        page = {
             Box(Modifier.fillMaxSize().background(Color.Black)) {
                 AsyncImage(cover(art, 320, false, images), null, contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize().blur(80.dp).graphicsLayer { alpha = 0.6f })
             }
         },
-        overlayContent = {
+        chrome = {
             HorizontalPager(pager, Modifier.fillMaxSize()) { page ->
                 if (page == 0) NowPlaying(art, images, seconds) else Queue(covers, images, seconds)
             }
@@ -90,13 +87,13 @@ private fun NowPlaying(art: Cover, images: ImageCounter, seconds: State<Float>) 
             val px = (side.value * LocalDensity.current.density).roundToInt()
             AsyncImage(cover(art, px, false, images), null, Modifier.size(side).shadow(28.dp, RoundedCornerShape(16.dp)).clip(RoundedCornerShape(16.dp)), contentScale = ContentScale.Crop)
         }
-        Text("Track title", style = IosTypography.title3, color = Color.White, modifier = Modifier.padding(top = 24.dp))
-        Text("Artist", style = IosTypography.body, color = Color.White.copy(alpha = 0.6f))
+        Text("Track title", style = Type.title3, color = Color.White, modifier = Modifier.padding(top = 24.dp))
+        Text("Artist", style = Type.body, color = Color.White.copy(alpha = 0.6f))
         Spacer(Modifier.height(14.dp))
         val position by remember { derivedStateOf { (seconds.value * 4f) % 240f } }
-        GlasmioSlider(value = position, onValueChange = {}, valueRange = 0f..240f)
+        Slider(value = position, onValueChange = {}, valueRange = 0f..240f)
         Row(Modifier.padding(top = 20.dp), horizontalArrangement = Arrangement.spacedBy(46.dp)) {
-            repeat(3) { GlassSurface(Modifier.size(56.dp), shape = CircleShape) {} }
+            repeat(3) { Box(Modifier.size(56.dp).glass(CircleShape)) }
         }
         Spacer(Modifier.height(16.dp))
         // A pulse like the cover's play/pause spring, so the page redraws every frame.

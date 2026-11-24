@@ -31,7 +31,6 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import coil3.compose.AsyncImage
 import com.nichokas.sdat.ui.PlaneGeometry
-import io.github.neoruaa.glasmio.core.GlasmioTheme
 import kotlin.math.roundToInt
 
 // Discover: SDAT's CoverPlane and PlaneGeometry, with the covers from disk.
@@ -42,7 +41,7 @@ internal fun Discover(glass: Glass, covers: List<Cover>, images: ImageCounter, s
     Host(
         glass,
         page = {
-            val background = GlasmioTheme.colors.groupedBackground
+            val background = colors.groupedBackground
             Box(Modifier.fillMaxSize().background(background)) {
                 Plane(covers, images, seconds, speedDp, cold)
                 Box(
@@ -55,7 +54,7 @@ internal fun Discover(glass: Glass, covers: List<Cover>, images: ImageCounter, s
                         Brush.verticalGradient(0f to background.copy(alpha = 0f), 0.5f to background.copy(alpha = 0.5f), 1f to background.copy(alpha = 0.85f)),
                     ).navigationBarsPadding().height(150.dp),
                 )
-                Text("Discover", color = GlasmioTheme.colors.content, fontSize = 34.sp, fontWeight = FontWeight.Bold, modifier = Modifier.statusBarsPadding().padding(start = 20.dp, top = 4.dp))
+                Text("Discover", color = colors.content, fontSize = 34.sp, fontWeight = FontWeight.Bold, modifier = Modifier.statusBarsPadding().padding(start = 20.dp, top = 4.dp))
             }
         },
         chrome = {
@@ -68,7 +67,7 @@ internal fun Discover(glass: Glass, covers: List<Cover>, images: ImageCounter, s
 @Composable
 private fun Plane(covers: List<Cover>, images: ImageCounter, seconds: State<Float>, speedDp: Float, cold: Boolean) {
     val density = LocalDensity.current.density
-    val placeholder = GlasmioTheme.colors.content.copy(alpha = 0.07f)
+    val placeholder = colors.content.copy(alpha = 0.07f)
     BoxWithConstraints(Modifier.fillMaxSize()) {
         val plane = remember(covers.size) { PlaneGeometry(covers.size) }
         val margin = 75f

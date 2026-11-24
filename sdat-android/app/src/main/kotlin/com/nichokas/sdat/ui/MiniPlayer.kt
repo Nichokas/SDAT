@@ -86,15 +86,14 @@ import com.nichokas.sdat.core.Playback
 import com.nichokas.sdat.core.artistLine
 import com.nichokas.sdat.core.coverUrl
 import com.nichokas.sdat.core.displayTitle
-import io.github.neoruaa.glasmio.core.GlasmioTheme
-import io.github.neoruaa.glasmio.core.IosTypography
-import io.github.neoruaa.glasmio.glass.GlassSurface
-import io.github.neoruaa.glasmio.ui.GlasmioNavigationBar
+import com.nichokas.sdat.ui.kit.Glass
+import com.nichokas.sdat.ui.kit.SdatTheme
+import com.nichokas.sdat.ui.kit.SdatType
+import com.nichokas.sdat.ui.kit.TabBar
+import com.nichokas.sdat.ui.kit.capsule
 import kotlin.math.roundToInt
 import kotlinx.coroutines.withTimeoutOrNull
 import uniffi.tonearm_ffi.Track
-
-internal val capsule = RoundedCornerShape(percent = 50)
 
 private enum class MiniStyle { Circle, Capsule, Wide }
 
@@ -119,12 +118,12 @@ internal fun BottomChrome(playback: Playback, nav: NavState, modifier: Modifier)
         val frame = remember(widthDp, morphs, bar.collapsing) {
             derivedStateOf { Morph.frame(widthDp, if (morphs) clock.value else 0f, bar.collapsing) }
         }
-        // Glasmio lerps the bar from its width constraint to compactSize, which at tabMax is exactly Morph's tab width.
+        // TabBar lerps from its width constraint to compactSize, which at tabMax is exactly Morph's tab width.
         val compact = remember(frame, morphs) {
             derivedStateOf { if (morphs) frame.value.tabFraction else 0f }
         }
         if (!nav.inDetail) {
-            GlasmioNavigationBar(
+            TabBar(
                 items = tabItems,
                 selectedKey = nav.tab,
                 onSelected = Chrome::select,
@@ -173,7 +172,7 @@ internal fun BottomChrome(playback: Playback, nav: NavState, modifier: Modifier)
 private fun MiniPlayer(playback: Playback, style: MiniStyle, fraction: () -> Float, modifier: Modifier) {
     val track = playback.track
     val openPlayer = { Chrome.showPlayer = true }
-    GlassSurface(modifier, shape = capsule) {
+    Glass(modifier, shape = capsule) {
         if (track != null) {
             CapsuleContent(
                 playback,
@@ -225,7 +224,7 @@ private fun CircleContent(playback: Playback, onOpen: () -> Unit, modifier: Modi
     if (active) DisposableEffect(Unit) { onDispose { MiniFan.close() } }
     Box(
         modifier.width(Morph.CIRCLE.dp).fillMaxHeight()
-            .then(if (active && focused) Modifier.border(2.dp, GlasmioTheme.colors.content, capsule) else Modifier)
+            .then(if (active && focused) Modifier.border(2.dp, SdatTheme.colors.content, capsule) else Modifier)
             .semantics {
                 if (!enabled) return@semantics
                 role = Role.Button
@@ -284,7 +283,7 @@ private fun CircleContent(playback: Playback, onOpen: () -> Unit, modifier: Modi
 
 @Composable
 private fun CapsuleContent(playback: Playback, track: Track, wide: Boolean, onOpen: () -> Unit, modifier: Modifier, enabled: Boolean) {
-    val colors = GlasmioTheme.colors
+    val colors = SdatTheme.colors
     Row(
         modifier.fillMaxSize()
             .clickable(enabled = enabled, onClickLabel = "Open player", interactionSource = null, indication = null, onClick = onOpen)
@@ -294,8 +293,8 @@ private fun CapsuleContent(playback: Playback, track: Track, wide: Boolean, onOp
     ) {
         Cover(track.coverUrl, 38.dp)
         Column(Modifier.weight(1f)) {
-            Text(track.displayTitle, style = IosTypography.subheadline, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
-            Text(track.artistLine, style = IosTypography.caption1, color = colors.secondaryContent, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            Text(track.displayTitle, style = SdatType.subheadline, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            Text(track.artistLine, style = SdatType.caption1, color = colors.secondaryContent, maxLines = 1, overflow = TextOverflow.Ellipsis)
         }
         val label = playLabel(playback)
         Box(
@@ -326,7 +325,7 @@ private fun RingIcon(playback: Playback, size: Dp, active: Boolean) {
         playback.playing -> "pause.fill"
         else -> "play.fill"
     }
-    val tint = if (playback.track == null) GlasmioTheme.colors.tertiaryContent else GlasmioTheme.colors.content
+    val tint = if (playback.track == null) SdatTheme.colors.tertiaryContent else SdatTheme.colors.content
     Box(Modifier.size(size), contentAlignment = Alignment.Center) {
         // Hidden, not removed, while loading: the ring spins instead of a spinner.
         SdatIcon(symbol, contentDescription = null, size = size * 0.32f, tint = tint, modifier = Modifier.alpha(if (playback.loading) 0f else 1f))
@@ -385,7 +384,7 @@ private fun FanButton(item: MiniFan.Item, playback: Playback, hovered: Boolean, 
     }
     val lift by animateFloatAsState(if (hovered) 1.15f else 1f, spring(dampingRatio = 0.6f), label = "lift")
     val size = item.size.dp
-    GlassSurface(
+    Glass(
         Modifier
             .offset {
                 val c = center()
@@ -411,7 +410,7 @@ private fun FanButton(item: MiniFan.Item, playback: Playback, hovered: Boolean, 
                 .then(if (tappable) Modifier.clickable(role = Role.Button, onClickLabel = label) { runFanItem(item, playback) } else Modifier),
             contentAlignment = Alignment.Center,
         ) {
-            SdatIcon(symbol, label, size = size * 0.42f, tint = GlasmioTheme.colors.content.copy(alpha = if (locked) 0.4f else 1f))
+            SdatIcon(symbol, label, size = size * 0.42f, tint = SdatTheme.colors.content.copy(alpha = if (locked) 0.4f else 1f))
         }
     }
 }
