@@ -39,7 +39,7 @@ import io.github.neoruaa.glasmio.icons.SfSymbol
 import io.github.neoruaa.glasmio.ui.GlasmioNavigationBar
 import io.github.neoruaa.glasmio.ui.GlasmioTabItem
 
-/** Live is SDAT today; Reduced is Glasmio's reduceTransparency (glass drawn as solid fills, nothing sampled); None drops Glasmio's chrome. */
+/** Live is full liquid glass; Reduced, as SDAT ships, is Glasmio's reduceTransparency (glass drawn as solid fills, nothing sampled); None drops Glasmio's chrome. */
 enum class Glass(val label: String) { Live("live glass"), Reduced("reduced transparency"), None("no glass") }
 
 /**

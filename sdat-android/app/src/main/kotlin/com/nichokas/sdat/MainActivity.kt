@@ -23,6 +23,7 @@ import com.nichokas.sdat.core.Live
 import com.nichokas.sdat.ui.LocalTrackPlayer
 import com.nichokas.sdat.ui.RootView
 import com.nichokas.sdat.ui.inter
+import com.nichokas.sdat.ui.sdatGlass
 import io.github.neoruaa.glasmio.core.GlasmioTheme
 import io.github.neoruaa.glasmio.core.glasmioTypography
 import io.github.neoruaa.glasmio.icons.GlasmioIconProvider
@@ -49,7 +50,7 @@ class MainActivity : ComponentActivity() {
         if (savedInstanceState == null) openLink(intent)
         controller = MediaController.Builder(this, SessionToken(this, ComponentName(this, PlaybackService::class.java))).buildAsync()
         setContent {
-            GlasmioTheme(typography = glasmioTypography(inter)) {
+            GlasmioTheme(typography = glasmioTypography(inter), appearance = sdatGlass) {
                 GlasmioIconProvider {
                     val app = application as SdatApp
                     CompositionLocalProvider(LocalTrackPlayer provides app.playback) { RootView(app.session, app.playback, app.prefs, app.secrets, app.crashReporting) }
