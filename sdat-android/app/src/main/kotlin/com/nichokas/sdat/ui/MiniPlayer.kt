@@ -259,15 +259,17 @@ private fun CircleContent(playback: Playback, onOpen: () -> Unit, modifier: Modi
                     try {
                         while (true) {
                             val change = awaitPointerEvent().changes.firstOrNull { it.id == down.id } ?: break
-                            if (!change.pressed) {
-                                // Compose delivers a cancelled gesture as an up that is already consumed: it must not run the
-                                // control under the finger.
-                                if (!change.isConsumed) MiniFan.release()?.let { runFanItem(it, playback) }
-                                break
-                            }
+                            // Compose delivers a cancelled gesture as an up that is already consumed: it must not run the
+                            // control under the finger.
+                            if (change.isConsumed) break
                             change.consume()
                             val d = change.position - down.position
-                            if (MiniFan.move(d.x.toDp().value, d.y.toDp().value)) view.performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK)
+                            val moved = MiniFan.move(d.x.toDp().value, d.y.toDp().value)
+                            if (!change.pressed) {
+                                MiniFan.release()?.let { runFanItem(it, playback) }
+                                break
+                            }
+                            if (moved) view.performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK)
                         }
                     } finally {
                         if (MiniFan.state is MiniFan.State.Held) MiniFan.close()
@@ -405,7 +407,8 @@ private fun FanButton(item: MiniFan.Item, playback: Playback, hovered: Boolean, 
         Box(
             Modifier.fillMaxSize()
                 .then(if (hovered) Modifier.background(iosBlue.copy(alpha = 0.3f), CircleShape) else Modifier)
-                .clickable(enabled = tappable, role = Role.Button, onClickLabel = label) { runFanItem(item, playback) },
+                // Absent, not disabled, while closing: a disabled clickable still takes the touch from the circle beneath.
+                .then(if (tappable) Modifier.clickable(role = Role.Button, onClickLabel = label) { runFanItem(item, playback) } else Modifier),
             contentAlignment = Alignment.Center,
         ) {
             SdatIcon(symbol, label, size = size * 0.42f, tint = GlasmioTheme.colors.content.copy(alpha = if (locked) 0.4f else 1f))

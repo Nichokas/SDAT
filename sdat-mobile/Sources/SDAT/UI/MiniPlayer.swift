@@ -324,6 +324,11 @@ struct PressRecognizer: UIGestureRecognizerRepresentable {
             c.timer?.invalidate(); c.timer = nil
             // A system cancel after the hold must not run the control under the finger.
             let kind: End = g.state != .ended || c.cancelled ? .cancel : (c.fired ? .hold : .tap)
+            // The finger can lift somewhere the last .changed did not report.
+            if kind == .hold {
+                let p = g.location(in: g.view)
+                onMove(CGSize(width: p.x - c.start.x, height: p.y - c.start.y))
+            }
             onEnd(kind)
         default: break
         }
