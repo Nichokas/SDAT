@@ -40,6 +40,8 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.layout.boundsInRoot
 import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalWindowInfo
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.paneTitle
 import androidx.compose.ui.semantics.semantics
@@ -197,16 +199,26 @@ fun Menu(
     if (expanded) PopupMenu(bounds, actions, title = null, onDismiss = { onExpandedChange(false) })
 }
 
-/** A menu beside [anchorBounds], in root coordinates: below it if it fits, else above, and toward the screen's middle. */
+/**
+ * A menu beside [anchorBounds], in root coordinates: below it if it fits, else above, and toward the screen's middle.
+ * It is never taller than the roomier side, so it never covers its anchor; a longer menu scrolls.
+ */
 @Composable
 fun PopupMenu(anchorBounds: Rect?, actions: List<MenuAction>, title: String?, onDismiss: () -> Unit) {
     val colors = SdatTheme.colors
     val position = remember(anchorBounds) { MenuPosition(anchorBounds) }
+    val window = LocalWindowInfo.current.containerSize
+    val maxHeight = with(LocalDensity.current) {
+        val margin = menuMargin(window.width)
+        val room = anchorBounds?.let { maxOf(it.top, window.height - it.bottom) } ?: window.height.toFloat()
+        (room - margin * 1.5f).coerceAtLeast(0f).toDp()
+    }
     Popup(popupPositionProvider = position, onDismissRequest = onDismiss, properties = PopupProperties(focusable = true)) {
         NoGlassBackdrop {
             Column(
                 Modifier
                     .width(250.dp)
+                    .heightIn(max = maxHeight)
                     .glass(RoundedCornerShape(26.dp), tint = colors.elevatedBackground)
                     .verticalScroll(rememberScrollState())
                     .padding(vertical = 6.dp),
@@ -258,13 +270,22 @@ private fun MenuRow(action: MenuAction, onClick: () -> Unit) {
     }
 }
 
+private fun menuMargin(windowWidth: Int) = (windowWidth * 0.02f).roundToInt().coerceAtLeast(16)
+
 private class MenuPosition(private val anchor: Rect?) : PopupPositionProvider {
     override fun calculatePosition(anchorBounds: IntRect, windowSize: IntSize, layoutDirection: LayoutDirection, popupContentSize: IntSize): IntOffset {
         val a = anchor ?: Rect(anchorBounds.left.toFloat(), anchorBounds.top.toFloat(), anchorBounds.right.toFloat(), anchorBounds.bottom.toFloat())
-        val margin = (windowSize.width * 0.02f).roundToInt().coerceAtLeast(16)
+        val margin = menuMargin(windowSize.width)
         val x = if (a.center.x > windowSize.width / 2f) a.right - popupContentSize.width else a.left
         val below = a.bottom + margin / 2
-        val y = if (below + popupContentSize.height <= windowSize.height - margin) below else a.top - margin / 2 - popupContentSize.height
+        val above = a.top - margin / 2 - popupContentSize.height
+        val y = when {
+            below + popupContentSize.height <= windowSize.height - margin -> below
+            above >= margin -> above
+            // Without anchorBounds the height cap is the whole window, so neither side may fit.
+            windowSize.height - a.bottom > a.top -> below
+            else -> above
+        }
         return IntOffset(
             x.roundToInt().coerceIn(margin, (windowSize.width - popupContentSize.width - margin).coerceAtLeast(margin)),
             y.roundToInt().coerceIn(margin, (windowSize.height - popupContentSize.height - margin).coerceAtLeast(margin)),
