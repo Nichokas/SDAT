@@ -605,6 +605,8 @@ final class Player: LivePlaybackPort {
         // "paused" while the audio kept playing after a manual next.
         avPlayer.pause()
         isPlaying = false
+        // A stop, as a user pause: a restart of the item (failure, media reset) must not play it again.
+        pausedByUser = true
         seek(to: 0)
     }
 
