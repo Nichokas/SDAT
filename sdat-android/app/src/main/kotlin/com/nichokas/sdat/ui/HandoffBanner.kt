@@ -60,7 +60,7 @@ internal fun HandoffBanner(modifier: Modifier) {
                 value = System.currentTimeMillis()
             }
         }
-        Raised(Modifier.fillMaxWidth(), shape = RoundedCornerShape(22.dp)) {
+        Raised(Modifier.padding(16.dp).fillMaxWidth(), shape = RoundedCornerShape(22.dp)) {
             Row(
                 Modifier.padding(10.dp),
                 horizontalArrangement = Arrangement.spacedBy(10.dp),

@@ -115,8 +115,9 @@ fun RootView(session: Session, playback: Playback, prefs: Preferences, secrets: 
                         ProfileButton(session, { Chrome.push(Route.Settings) })
                     }
                 }
-                if (!nav.inSettings) HandoffBanner(Modifier.align(Alignment.BottomCenter).padding(16.dp))
             }
+            // Below the page rather than over it, so the banner never hides a list's last rows.
+            if (!nav.inSettings) HandoffBanner(Modifier.fillMaxWidth().background(colors.sheet))
             // Settings hides the bar; the sheet still runs under the gesture area.
             if (nav.inSettings) Box(Modifier.fillMaxWidth().background(colors.sheet).navigationBarsPadding())
             else BottomBar(playback, nav)

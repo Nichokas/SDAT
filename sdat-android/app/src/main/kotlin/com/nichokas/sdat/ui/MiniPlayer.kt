@@ -11,7 +11,6 @@ import androidx.compose.animation.core.infiniteRepeatable
 import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
-import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -24,6 +23,7 @@ import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsFocusedAsState
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -45,6 +45,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.draw.drawWithCache
 import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Rect
@@ -75,6 +76,7 @@ import androidx.compose.ui.semantics.customActions
 import androidx.compose.ui.semantics.onClick
 import androidx.compose.ui.semantics.role
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import com.nichokas.sdat.core.AppTab
@@ -165,7 +167,13 @@ private fun MiniPlayer(playback: Playback) {
             .then(if (focused) Modifier.border(2.dp, SdatTheme.colors.content, RoundedCornerShape(miniCorner)) else Modifier)
             .semantics {
                 role = Role.Button
-                contentDescription = "Now playing, ${track.title}"
+                contentDescription = track.title
+                stateDescription = when {
+                    playback.error != null -> "Playback failed"
+                    playback.loading -> "Loading"
+                    playback.playing -> "Playing"
+                    else -> "Paused"
+                }
                 onClick("Open player") { onOpen(); true }
                 // The fan's controls, as actions: the fan itself is a drag, which assistive technology can't do.
                 customActions = listOf(
@@ -249,7 +257,7 @@ private fun MiniRing(progress: () -> Double, spinning: Boolean, modifier: Modifi
     } else {
         null
     }
-    Canvas(modifier) {
+    Spacer(modifier.drawWithCache {
         val w = RING.dp.toPx()
         val inset = w / 2
         val r = miniCorner.toPx() - inset
@@ -258,9 +266,8 @@ private fun MiniRing(progress: () -> Double, spinning: Boolean, modifier: Modifi
         val right = size.width - inset
         val bottom = size.height - inset
         val stroke = Stroke(w, cap = StrokeCap.Round)
-        drawRoundRect(colors.separator, Offset(left, top), Size(right - left, bottom - top), CornerRadius(r), style = Stroke(w))
         // Traced by hand from the top centre: addRoundRect starts at a corner.
-        val path = Path().apply {
+        val outline = Path().apply {
             moveTo(size.width / 2, top)
             lineTo(right - r, top)
             arcTo(Rect(right - 2 * r, top, right, top + 2 * r), -90f, 90f, false)
@@ -272,19 +279,23 @@ private fun MiniRing(progress: () -> Double, spinning: Boolean, modifier: Modifi
             arcTo(Rect(left, top, left + 2 * r, top + 2 * r), 180f, 90f, false)
             lineTo(size.width / 2, top)
         }
-        val measure = PathMeasure().apply { setPath(path, false) }
+        val measure = PathMeasure().apply { setPath(outline, false) }
         val length = measure.length
         val played = Path()
-        if (phase != null) {
-            val start = phase.value * length
-            val end = start + length / 4
-            measure.getSegment(start, minOf(end, length), played, true)
-            if (end > length) measure.getSegment(0f, end - length, played, true)
-        } else if (q > 0f) {
-            measure.getSegment(0f, q * length, played, true)
+        onDrawBehind {
+            drawRoundRect(colors.separator, Offset(left, top), Size(right - left, bottom - top), CornerRadius(r), style = Stroke(w))
+            played.reset()
+            if (phase != null) {
+                val from = phase.value * length
+                val to = from + length / 4
+                measure.getSegment(from, minOf(to, length), played, true)
+                if (to > length) measure.getSegment(0f, to - length, played, true)
+            } else if (q > 0f) {
+                measure.getSegment(0f, q * length, played, true)
+            }
+            drawPath(played, colors.accent, style = stroke)
         }
-        drawPath(played, colors.accent, style = stroke)
-    }
+    })
 }
 
 private fun playLabel(playback: Playback) = when {
