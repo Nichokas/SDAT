@@ -19,7 +19,7 @@ use std::time::{Duration, Instant};
 use crate::error::{CoreError, CoreResult as Result};
 use crate::model::Track;
 use follow::Follower;
-use mirror::{Mirror, Out, Write, MAX_FUTURE};
+use mirror::{Mirror, Out, Write, MAX_FUTURE, MAX_HANDOFF_FUTURE};
 
 /// Reports closer together than this are written as one.
 const THROTTLE: Duration = Duration::from_millis(500);
@@ -63,6 +63,13 @@ pub enum Repeat {
     All,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+enum QueueSource {
+    #[default]
+    Fixed,
+    Discover,
+}
+
 /// What another device plays, or played last.
 #[derive(Debug, Clone)]
 pub struct Elsewhere {
@@ -93,6 +100,10 @@ pub struct LocalPlayback {
 }
 
 impl LocalPlayback {
+    fn queue_source(&self) -> QueueSource {
+        if self.discover { QueueSource::Discover } else { QueueSource::Fixed }
+    }
+
     /// The repeat mode written to the queue. Discover never ends, and TIDAL
     /// would hand its played tracks on as the ones to repeat.
     fn queue_repeat(&self) -> Repeat {
@@ -824,7 +835,7 @@ impl Worker {
         let from = from
             .or_else(|| head.updated_by.as_deref().and_then(|id| self.mirror.device(id)))
             .unwrap_or_else(|| Device { id: head.updated_by.clone().unwrap_or_default(), name: String::new() });
-        Ok(Resume { from, current: track, position_ms, repeat: head.repeat, discover: head.discover })
+        Ok(Resume { from, current: track, position_ms, repeat: head.repeat, discover: head.source == QueueSource::Discover })
     }
 
     /// Reads what follows a resumed track and tells the app, also when that is
@@ -866,7 +877,7 @@ impl Worker {
     /// What follows the current entry of `queue`, from reads that agree on its revision.
     fn read_tail(queue: &str) -> Result<Tail> {
         let revision = wire::head(queue)?.revision;
-        let (entries, tracks) = wire::future_tracks(queue, MAX_FUTURE)?;
+        let (entries, tracks) = wire::future_tracks(queue, MAX_HANDOFF_FUTURE)?;
         if wire::head(queue)?.revision != revision {
             return Err(CoreError::Network("the queue changed while what follows was read".into()));
         }
@@ -1145,17 +1156,18 @@ impl Worker {
                 Write::Queue(tracks) => {
                     let q = self.queue()?;
                     let repeat = local.queue_repeat();
-                    let batch = wire::rewrite(&q, &tracks, repeat, local.discover)?;
+                    let source = local.queue_source();
+                    let batch = wire::rewrite(&q, &tracks, repeat, source)?;
                     let head = wire::head(&q)?;
                     let mut entries: Vec<wire::Entry> = head.current.into_iter().collect();
                     if !sending {
                         entries.extend(wire::future_entries(&q, MAX_FUTURE)?);
                     }
-                    self.mirror.queue_written(tracks, entries, batch, head.revision, repeat);
+                    self.mirror.queue_written(tracks, entries, batch, head.revision, repeat, source);
                 }
                 Write::Append { batch, tracks, capped } => {
                     let q = self.queue()?;
-                    let rev = wire::append(&q, &tracks, &batch, local.discover)?;
+                    let rev = wire::append(&q, &tracks, &batch, local.queue_source())?;
                     self.mirror.appended(tracks, capped, wire::future_entries(&q, MAX_FUTURE)?, rev);
                 }
                 Write::Repeat(r) => {
@@ -1164,8 +1176,12 @@ impl Worker {
                 }
                 Write::Current { index, position_ms } => {
                     let e = self.mirror.entry(index).ok_or_else(|| CoreError::Other("queue entry missing".into()))?;
+                    let q = self.queue()?;
+                    if sending && let Some((batch, tracks)) = self.mirror.take_send_extension(index, local) {
+                        wire::append(&q, &tracks, &batch, QueueSource::Fixed)?;
+                    }
                     let position_ms = if local.playing { position_ms + i64::try_from(planned.elapsed().as_millis()).unwrap_or(0) } else { position_ms };
-                    let rev = wire::set_current(&self.queue()?, &e, position_ms, &me)?;
+                    let rev = wire::set_current(&q, &e, position_ms, &me)?;
                     self.mirror.current_written(index, position_ms, local.playing, now_ms(), rev);
                 }
                 Write::Status { playing } => {
