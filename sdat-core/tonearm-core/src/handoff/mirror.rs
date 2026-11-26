@@ -76,7 +76,7 @@ impl Written {
                     let rotated = tracks.len() == self.wrote.len() && tracks.starts_with(rest) && tracks.ends_with(before);
                     // A queue taken over was read as its whole batch only if it repeated then: under any
                     // other mode the batch may hold tracks from before its current one.
-                    (rotated && (own || (k == 0 && self.repeat == Repeat::All))).then_some(tracks.len())
+                    (rotated && (own || self.repeat == Repeat::All)).then_some(tracks.len())
                 }
                 _ if rest == tracks => Some(tracks.len()),
                 Repeat::Off if own => tracks.starts_with(rest).then_some(rest.len()),
@@ -787,6 +787,27 @@ mod tests {
         // What follows it was read as TIDAL repeats it: the rest of the batch, then its start.
         assert!(m.adopted_future("r", entries(&["2", "3"])));
         assert_eq!(m.plan(&repeating("1", &["2", "3"], &[]), 0), vec![Write::Current { index: 0, position_ms: 0 }]);
+    }
+
+    #[test]
+    fn a_repeating_adopted_queue_selects_the_next_existing_entry() {
+        let mut m = Mirror::new(ME.into());
+        let h = Head { repeat: Repeat::All, ..head("r", "0", "phone") };
+        m.fetched(state(Some(ME), Status::Playing), Some(h.clone()), None);
+        m.adopt(Entry { track_id: "0".into(), item_id: "i0".into() }, &h, 0, 0);
+        let future: Vec<_> = (1..=MAX_FUTURE).map(|i| Entry { track_id: i.to_string(), item_id: format!("i{i}") }).collect();
+        let mut playback = LocalPlayback {
+            current: Some("0".into()),
+            future: future.iter().map(|e| e.track_id.clone()).collect(),
+            playing: true,
+            repeat: Repeat::All,
+            ..LocalPlayback::default()
+        };
+        assert!(m.adopted_future("r", future));
+        m.current_written(0, 0, true, 0, "r".into());
+        playback.current = Some(playback.future.remove(0));
+        playback.past.push("0".into());
+        assert_eq!(m.plan(&playback, 1), vec![Write::Current { index: 1, position_ms: 0 }]);
     }
 
     #[test]
