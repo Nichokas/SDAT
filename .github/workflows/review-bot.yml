@@ -73,7 +73,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        reviewer: [cubic, macroscope]
+        reviewer: [macroscope]
     steps:
       - name: Check out the bot
         uses: actions/checkout@v4
@@ -96,9 +96,9 @@ jobs:
           BASE: ${{ needs.resolve.outputs.base }}
         run: |
           git switch -c review-head
-          # Reviewers diff against the branch tip, and cubic prefers origin/<base> over <base>.
-          # Pointing both at the merge base keeps commits that landed on the base after the PR
-          # branched out of the review, as GitHub's own diff does.
+          # Reviewers diff against the branch tip. Pointing <base> and origin/<base> at the merge
+          # base keeps commits that landed on the base after the PR branched out of the review,
+          # as GitHub's own diff does.
           merge_base=$(git merge-base HEAD "origin/$BASE")
           git branch -f "$BASE" "$merge_base"
           git update-ref "refs/remotes/origin/$BASE" "$merge_base"
@@ -117,7 +117,6 @@ jobs:
           BASE: ${{ needs.resolve.outputs.base }}
           REVIEWER: ${{ matrix.reviewer }}
           # Each reviewer process sees only its own credential.
-          CUBIC_API_KEY: ${{ matrix.reviewer == 'cubic' && secrets.CUBIC_API_KEY || '' }}
           MACROSCOPE_AUTH: ${{ matrix.reviewer == 'macroscope' && secrets.MACROSCOPE_AUTH || '' }}
         run: python3 ../bot/scripts/review_bot.py run "$REVIEWER" --base "$BASE" --out "../$REVIEWER.json"
       - name: Save the reviewer CLI cache
