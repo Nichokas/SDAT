@@ -77,12 +77,14 @@ fun recentTiles(remote: List<RecentItem>, local: List<LocalRecent>): List<ShelfI
 private class RemoteRecents {
     var items by mutableStateOf(emptyList<RecentItem>())
     var error by mutableStateOf<String?>(null)
-    var loading by mutableStateOf(false)
+    private var loading = false
+    var refreshing by mutableStateOf(false)
         private set
 
-    suspend fun load() {
+    suspend fun load(manual: Boolean = false) {
         if (loading) return
         loading = true
+        refreshing = manual
         try {
             items = recents()
             error = null
@@ -92,6 +94,7 @@ private class RemoteRecents {
             error = friendlyMessage(e)
         } finally {
             loading = false
+            refreshing = false
         }
     }
 }
@@ -105,8 +108,8 @@ fun CollectionView() {
     SdatPage(
         "My Collection",
         collapsesChrome = true,
-        isRefreshing = remote.loading,
-        onRefresh = { scope.launch { remote.load() } },
+        isRefreshing = remote.refreshing,
+        onRefresh = { scope.launch { remote.load(manual = true) } },
         actions = {
             IconButton({ Live.showScanner = true }) { SdatIcon("qrcode.viewfinder", "Scan Listen Together invitation", size = 20.dp) }
             // Clear of the floating buttons over the top bar's trailing edge (profile, plus download status while downloading).
