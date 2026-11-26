@@ -15,6 +15,7 @@ import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.sp
 import com.nichokas.sdat.ui.inter
+import com.nichokas.sdat.ui.interDisplay
 
 /** The iOS system colors SDAT is drawn with. */
 @Immutable
@@ -93,7 +94,7 @@ fun SdatTheme(isDark: Boolean = isSystemInDarkTheme(), content: @Composable () -
 }
 
 private fun style(size: Int, leading: Int, tracking: Float, weight: Int = 400) = TextStyle(
-    fontFamily = inter,
+    fontFamily = if (size >= 20) interDisplay else inter,
     fontSize = size.sp,
     lineHeight = leading.sp,
     letterSpacing = tracking.sp,

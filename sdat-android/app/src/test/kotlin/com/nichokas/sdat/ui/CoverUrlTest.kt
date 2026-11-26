@@ -20,4 +20,17 @@ class CoverUrlTest {
         assertEquals("https://example.com/80x80.jpg", CoverUrl.sized("https://example.com/80x80.jpg", 200))
         assertEquals("$base/80x80.jpg", CoverUrl.sized("$base/80x80.jpg", 0))
     }
+
+    @Test fun checksSmallerRenditionsInDescendingOrder() {
+        assertEquals(
+            listOf("$base/320x320.jpg", "$base/160x160.jpg", "$base/80x80.jpg"),
+            CoverUrl.smallerRenditions("$base/640x640.jpg", CoverUrl.Kind.Album),
+        )
+        assertEquals(
+            listOf("$base/480x480.jpg", "$base/320x320.jpg", "$base/160x160.jpg"),
+            CoverUrl.smallerRenditions("$base/750x750.jpg", CoverUrl.Kind.Artist),
+        )
+        assertEquals(emptyList<String>(), CoverUrl.smallerRenditions("$base/320x320.png", CoverUrl.Kind.Artist))
+        assertEquals(emptyList<String>(), CoverUrl.smallerRenditions("https://example.com/640x640.jpg", CoverUrl.Kind.Album))
+    }
 }

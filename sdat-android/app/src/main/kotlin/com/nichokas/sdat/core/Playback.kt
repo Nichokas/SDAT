@@ -140,6 +140,8 @@ class Playback(context: Context, private val prefs: Preferences, secrets: Secret
     override val isPlaying get() = playing
     val userQueue get() = queue.userQueue
     val upNext get() = queue.upNext
+    internal val userQueueSlice get() = queue.userSlice
+    internal val upcomingQueueSlice get() = queue.upcomingSlice
     val played get() = queue.played
     val shuffle get() = queue.shuffle
     val repeat get() = queue.repeat
@@ -410,14 +412,16 @@ class Playback(context: Context, private val prefs: Preferences, secrets: Secret
         queue.jumpToUser(offset)?.let { start(it) }
     }
 
-    fun removeUpNext(offset: Int) {
-        queue.removeUpNext(offset)
+    internal fun moveQueueTrack(slice: QueueSlice<Track>, from: Int, to: Int): Boolean {
+        if (Live.isGuest || !queue.move(slice, from, to)) return false
         changed()
+        return true
     }
 
-    fun removeUser(offset: Int) {
-        queue.removeUser(offset)
+    internal fun removeQueueTrack(slice: QueueSlice<Track>, offset: Int): Boolean {
+        if (Live.isGuest || !queue.remove(slice, offset)) return false
         changed()
+        return true
     }
 
     /** An endless queue keeps the source's order. */

@@ -1,8 +1,8 @@
 package com.nichokas.sdat.ui
 
-/** Material Symbols Rounded ligature for every SF Symbol name the iOS app uses; names ending in `.fill` use the filled font. */
+/** Material Symbols Rounded ligatures keyed by the app's symbol names. */
 val symbols: Map<String, String> = mapOf(
-    "airplayaudio" to "media_output",
+    "airplayaudio" to "airplay",
     "arrow.clockwise.circle" to "refresh",
     "arrow.clockwise" to "refresh",
     "arrow.down" to "arrow_downward",
@@ -43,7 +43,7 @@ val symbols: Map<String, String> = mapOf(
     "square.stack" to "library_books",
     "star" to "star",
     "star.fill" to "star",
-    "star.slash" to "star_border",
+    "star.slash" to "star",
     "text.badge.plus" to "playlist_add",
     "text.line.first.and.arrowtriangle.forward" to "queue_play_next",
     "text.line.last.and.arrowtriangle.forward" to "playlist_play",

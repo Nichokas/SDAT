@@ -2,24 +2,37 @@ package com.nichokas.sdat.core
 
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.referentialEqualityPolicy
 import androidx.compose.runtime.setValue
 import kotlin.random.Random
 
 enum class Repeat { Off, All, One }
+
+internal enum class QueueSection { User, UpNext }
+
+internal class QueueSlice<T>(val section: QueueSection, private val base: List<T>, private val start: Int = 0) {
+    val tracks: List<T> = base.subList(start, base.size)
+
+    // Equal track values can still represent different queue occurrences.
+    override fun equals(other: Any?): Boolean =
+        other is QueueSlice<*> && section == other.section && base === other.base && start == other.start
+
+    override fun hashCode(): Int = 31 * (31 * section.hashCode() + System.identityHashCode(base)) + start
+}
 
 /** The iOS Player's queues without the engine: the base queue, the user queue (Play Next, Add to Queue) that plays
  * before the rest of it, shuffle and repeat, and the endless-queue dedupe (recentIDs/recentOrder).
  * Operations that change the playing track return it; the caller starts it. */
 class PlayQueue<T>(private val random: Random = Random.Default, private val id: (T) -> String) {
     /** The base queue in playing order: [order] applied to [original]. */
-    var tracks by mutableStateOf(emptyList<T>())
+    var tracks by mutableStateOf(emptyList<T>(), referentialEqualityPolicy())
         private set
     var index by mutableStateOf<Int?>(null)
         private set
     /** [index]'s track; a user-queue track joins the base queue when it starts. */
     var current by mutableStateOf<T?>(null)
         private set
-    var userQueue by mutableStateOf(emptyList<T>())
+    var userQueue by mutableStateOf(emptyList<T>(), referentialEqualityPolicy())
         private set
     var shuffle by mutableStateOf(false)
         private set
@@ -36,7 +49,10 @@ class PlayQueue<T>(private val random: Random = Random.Default, private val id: 
     private val recentIDs = HashSet<String>()
     private val recentOrder = ArrayDeque<String>()
 
-    val upNext get() = index?.let { tracks.drop(it + 1) } ?: tracks
+    private val futureStart get() = (index ?: -1) + 1
+    val upNext get() = tracks.let { it.subList(futureStart, it.size) }
+    internal val upcomingSlice get() = QueueSlice(QueueSection.UpNext, tracks, futureStart)
+    internal val userSlice get() = QueueSlice(QueueSection.User, userQueue)
     /** The base queue before the current track: repeat all plays it again after the last. */
     val played get() = index?.let { tracks.take(it) } ?: emptyList()
     val needsRefill get() = index?.let { tracks.size - it <= 5 } ?: false
@@ -155,13 +171,39 @@ class PlayQueue<T>(private val random: Random = Random.Default, private val id: 
         return tracks[at].also { index = at; current = it }
     }
 
-    fun removeUpNext(offset: Int) {
-        val at = (index ?: return) + 1 + offset
-        if (at in order.indices) removePlaying(setOf(at))
+    internal fun move(slice: QueueSlice<T>, from: Int, to: Int): Boolean {
+        if (!accepts(slice, from) || to !in slice.tracks.indices || from == to) return false
+        when (slice.section) {
+            QueueSection.User -> userQueue = userQueue.moving(from, to)
+            QueueSection.UpNext -> {
+                val start = futureStart
+                val moved = order.moving(start + from, start + to)
+                // Discover keeps the two orders aligned even when shuffle is enabled.
+                if (order.indices.all { order[it] == it }) {
+                    setBase(moved.map(original::get), order)
+                } else {
+                    setBase(original, moved)
+                }
+            }
+        }
+        return true
     }
 
-    fun removeUser(offset: Int) {
-        userQueue = userQueue.filterIndexed { j, _ -> j != offset }
+    internal fun remove(slice: QueueSlice<T>, offset: Int): Boolean {
+        if (!accepts(slice, offset)) return false
+        when (slice.section) {
+            QueueSection.User -> userQueue = userQueue.toMutableList().apply { removeAt(offset) }
+            QueueSection.UpNext -> removePlaying(setOf(futureStart + offset))
+        }
+        return true
+    }
+
+    private fun accepts(slice: QueueSlice<T>, offset: Int): Boolean {
+        val active = when (slice.section) {
+            QueueSection.User -> userSlice
+            QueueSection.UpNext -> upcomingSlice
+        }
+        return slice == active && offset in active.tracks.indices
     }
 
     /** [reorder] is false for an endless queue: its order is the source's, and shuffle applies to the next list. */
@@ -285,6 +327,9 @@ class PlayQueue<T>(private val random: Random = Random.Default, private val id: 
         const val MAX_SAVED = 2000
     }
 }
+
+private fun <T> List<T>.moving(from: Int, to: Int): List<T> =
+    toMutableList().apply { add(to, removeAt(from)) }
 
 private const val ENDLESS_BEHIND = 50
 private const val ENDLESS_AHEAD = 200

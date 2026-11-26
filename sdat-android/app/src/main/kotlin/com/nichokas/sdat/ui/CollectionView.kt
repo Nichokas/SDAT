@@ -17,6 +17,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -37,6 +38,7 @@ import com.nichokas.sdat.ui.kit.IconButton
 import com.nichokas.sdat.ui.kit.SdatTheme
 import com.nichokas.sdat.ui.kit.SdatType
 import kotlin.coroutines.cancellation.CancellationException
+import kotlinx.coroutines.launch
 import uniffi.tonearm_ffi.RecentItem
 import uniffi.tonearm_ffi.RecentKind
 import uniffi.tonearm_ffi.collectionAlbums
@@ -75,8 +77,12 @@ fun recentTiles(remote: List<RecentItem>, local: List<LocalRecent>): List<ShelfI
 private class RemoteRecents {
     var items by mutableStateOf(emptyList<RecentItem>())
     var error by mutableStateOf<String?>(null)
+    var loading by mutableStateOf(false)
+        private set
 
     suspend fun load() {
+        if (loading) return
+        loading = true
         try {
             items = recents()
             error = null
@@ -84,6 +90,8 @@ private class RemoteRecents {
             throw e
         } catch (e: Exception) {
             error = friendlyMessage(e)
+        } finally {
+            loading = false
         }
     }
 }
@@ -91,12 +99,14 @@ private class RemoteRecents {
 @Composable
 fun CollectionView() {
     val remote = rememberRetained { RemoteRecents() }
-    // Android has no pull to refresh here, so the history refreshes each time the tab root shows instead.
+    val scope = rememberCoroutineScope()
     LaunchedEffect(remote) { remote.load() }
     val tiles = recentTiles(remote.items, Recents.items)
     SdatPage(
         "My Collection",
         collapsesChrome = true,
+        isRefreshing = remote.loading,
+        onRefresh = { scope.launch { remote.load() } },
         actions = {
             IconButton({ Live.showScanner = true }) { SdatIcon("qrcode.viewfinder", "Scan Listen Together invitation", size = 20.dp) }
             // Clear of the floating buttons over the top bar's trailing edge (profile, plus download status while downloading).

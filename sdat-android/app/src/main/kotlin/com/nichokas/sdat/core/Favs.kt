@@ -70,7 +70,7 @@ object Favs {
     suspend fun check(trackId: String) = check(Fav(FavouriteKind.TRACK, trackId))
 
     /** Writes the state the control advertised, which stays right even if the cached state was unknown or stale. */
-    fun set(fav: Fav, target: Boolean) {
+    fun set(fav: Fav, target: Boolean, onConfirmed: (() -> Unit)? = null) {
         known[fav] = target
         val gen = generation
         // The core doesn't order concurrent writes, so a fast second toggle waits for the first.
@@ -100,7 +100,9 @@ object Favs {
                     }
                 }
                 Chrome.flash(friendlyMessage(e))
+                return@launch
             }
+            if (writes[fav] == coroutineContext.job) onConfirmed?.invoke()
         }
     }
 

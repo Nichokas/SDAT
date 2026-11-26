@@ -1,12 +1,10 @@
 package com.nichokas.sdat.ui
 
 import androidx.compose.foundation.layout.RowScope
-import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.lazy.LazyListScope
 import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Modifier
@@ -35,6 +33,9 @@ fun SdatPage(
     showsLargeTitle: Boolean = true,
     bottomPadding: Dp = BottomChromeSpace,
     actions: @Composable RowScope.() -> Unit = {},
+    pinnedContent: (@Composable () -> Unit)? = null,
+    isRefreshing: Boolean = false,
+    onRefresh: (() -> Unit)? = null,
     content: LazyListScope.() -> Unit,
 ) {
     if (collapsesChrome) {
@@ -52,6 +53,9 @@ fun SdatPage(
         actions = actions,
         bottomPadding = bottomPadding,
         modifier = modifier,
+        pinnedContent = pinnedContent,
+        isRefreshing = isRefreshing,
+        onRefresh = onRefresh,
         content = content,
     )
 }

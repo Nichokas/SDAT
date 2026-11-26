@@ -104,6 +104,12 @@ private enum class MiniStyle { Circle, Capsule, Wide }
 @Composable
 internal fun BottomChrome(playback: Playback, nav: NavState, modifier: Modifier) {
     val hasMini = playback.track != null
+    val view = LocalView.current
+    var wasPlaying by remember(playback) { mutableStateOf(playback.playing) }
+    LaunchedEffect(playback.playing) {
+        if (hasMini && wasPlaying != playback.playing) view.performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK)
+        wasPlaying = playback.playing
+    }
     val morphs = hasMini && !nav.inDetail
     val bar = Chrome.bar
     // Snapped to expanded while the morph is hidden, so a mini-player appearing or a return from a pushed page animates in
@@ -219,6 +225,8 @@ private fun CircleContent(playback: Playback, onOpen: () -> Unit, modifier: Modi
     val active = enabled && track != null
     val focus = remember { MutableInteractionSource() }
     val focused by focus.collectIsFocusedAsState()
+    var pressed by remember { mutableStateOf(false) }
+    val pressScale by animateFloatAsState(if (pressed) 1.08f else 1f, label = "mini-player press")
     val view = LocalView.current
     // Whatever hides the circle (end of the queue, a pushed page) also takes the fan with it.
     if (active) DisposableEffect(Unit) { onDispose { MiniFan.close() } }
@@ -246,16 +254,16 @@ private fun CircleContent(playback: Playback, onOpen: () -> Unit, modifier: Modi
             }.focusable(interactionSource = focus).onGloballyPositioned { MiniFan.anchor = it.boundsInRoot().center }.pointerInput(Unit) {
                 awaitEachGesture {
                     val down = awaitFirstDown()
-                    var up: PointerInputChange? = null
-                    val released = withTimeoutOrNull(MiniFan.HOLD_MS) { up = waitForUpOrCancellation(); true }
-                    // A cancelled gesture (finger slid off, or consumed by another gesture) does nothing.
-                    if (released != null) {
-                        if (up != null) onOpen()
-                        return@awaitEachGesture
-                    }
-                    view.performHapticFeedback(HapticFeedbackConstants.LONG_PRESS)
-                    MiniFan.hold()
+                    pressed = true
                     try {
+                        var up: PointerInputChange? = null
+                        val released = withTimeoutOrNull(MiniFan.HOLD_MS) { up = waitForUpOrCancellation(); true }
+                        if (released != null) {
+                            if (up != null) onOpen()
+                            return@awaitEachGesture
+                        }
+                        view.performHapticFeedback(HapticFeedbackConstants.LONG_PRESS)
+                        MiniFan.hold()
                         while (true) {
                             val change = awaitPointerEvent().changes.firstOrNull { it.id == down.id } ?: break
                             // Compose delivers a cancelled gesture as an up that is already consumed: it must not run the
@@ -271,13 +279,16 @@ private fun CircleContent(playback: Playback, onOpen: () -> Unit, modifier: Modi
                             if (moved) view.performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK)
                         }
                     } finally {
+                        pressed = false
                         if (MiniFan.state is MiniFan.State.Held) MiniFan.close()
                     }
                 }
             }),
         contentAlignment = Alignment.Center,
     ) {
-        RingIcon(playback, Morph.CIRCLE.dp, active = enabled)
+        Box(Modifier.graphicsLayer { scaleX = pressScale; scaleY = pressScale }) {
+            RingIcon(playback, Morph.CIRCLE.dp, active = enabled)
+        }
     }
 }
 

@@ -309,9 +309,9 @@ class PlayQueueTest {
         assertEquals("y", q.jumpToUser(1))
         assertEquals(listOf("z"), q.userQueue)
         assertEquals(1, q.index)
-        q.removeUser(0)
+        q.remove(q.userSlice, 0)
         assertEquals(emptyList<String>(), q.userQueue)
-        q.removeUpNext(0)
+        q.remove(q.upcomingSlice, 0)
         assertEquals(listOf("c", "d"), q.upNext)
         assertEquals("d", q.jumpToUpNext(1))
         assertEquals(3, q.index)
@@ -320,10 +320,10 @@ class PlayQueueTest {
     @Test fun aRemovedTrackStaysRemovedWhenShuffleTurnsOff() {
         val q = queue()
         q.play(abcd)
-        q.removeUpNext(0)
+        q.remove(q.upcomingSlice, 0)
         q.setShuffle(true, reorder = true)
         val gone = q.upNext.first()
-        q.removeUpNext(0)
+        q.remove(q.upcomingSlice, 0)
         q.setShuffle(false, reorder = true)
         assertEquals(listOf("a", "c", "d") - gone, q.tracks)
     }
@@ -341,7 +341,7 @@ class PlayQueueTest {
         val q = queue()
         q.setShuffle(true, reorder = true)
         q.play(listOf("x", "a", "x", "b"))
-        q.removeUpNext(q.upNext.indexOf("x"))
+        q.remove(q.upcomingSlice, q.upNext.indexOf("x"))
         q.setShuffle(false, reorder = true)
         assertEquals(listOf("x", "a", "b"), q.tracks)
         assertEquals(0, q.index)
@@ -357,6 +357,76 @@ class PlayQueueTest {
         assertEquals(emptyList<String>(), q.tracks + q.userQueue)
         assertTrue(q.shuffle)
         assertEquals(Repeat.All, q.repeat)
+    }
+
+    @Test fun movedUserTracksKeepTheirPriorityAfterRestore() {
+        val q = queue()
+        q.play(abcd, startAt = 1)
+        q.addToQueue(listOf("x", "y", "x", "z"))
+        assertTrue(q.move(q.userSlice, 2, 0))
+        assertTrue(q.move(q.userSlice, 1, 3))
+
+        val restored = queue()
+        restored.restore(q.saved(1, endless = false), SavedState(1, "b", 1, 0.0, q.repeat, q.shuffle))
+        assertEquals("b", restored.current)
+        assertEquals(listOf("a"), restored.played)
+        assertEquals(listOf("x", "y", "z", "x", "c", "d"), List(6) { restored.advance(manual = true) })
+    }
+
+    @Test fun movedUpcomingTracksKeepTheirOrderAfterShuffleAndRestore() {
+        val q = queue()
+        q.play(listOf("a", "b", "c", "d", "e"), startAt = 1)
+        assertTrue(q.move(q.upcomingSlice, 0, 2))
+        assertEquals("b", q.current)
+        assertEquals(listOf("a"), q.played)
+        assertEquals("d", q.preloadable)
+        q.setShuffle(true, reorder = true)
+        q.setShuffle(false, reorder = true)
+
+        val restored = queue()
+        restored.restore(q.saved(1, endless = false), SavedState(1, "b", 1, 0.0, q.repeat, q.shuffle))
+        assertEquals(listOf("d", "e", "c"), restored.upNext)
+    }
+
+    @Test fun movingAndRemovingShuffledOccurrencesPreservesTheUnshuffledOrder() {
+        val q = queue()
+        q.restore(
+            SavedQueue(1, 0, listOf("a", "b", "x", "c", "x", "d"), listOf(1, 4, 3, 2, 0, 5), emptyList(), false, null),
+            SavedState(1, "b", 0, 0.0, Repeat.Off, shuffle = true),
+        )
+        assertTrue(q.move(q.upcomingSlice, 2, 0))
+        assertEquals(listOf("x", "x", "c", "a", "d"), q.upNext)
+        assertTrue(q.remove(q.upcomingSlice, 1))
+
+        val restored = queue()
+        restored.restore(q.saved(1, endless = false), SavedState(1, "b", 0, 0.0, q.repeat, q.shuffle))
+        assertEquals(listOf("x", "c", "a", "d"), restored.upNext)
+        restored.setShuffle(false, reorder = true)
+        assertEquals(listOf("a", "b", "x", "c", "d"), restored.tracks)
+        assertEquals(1, restored.index)
+    }
+
+    @Test fun editsRejectStaleSnapshotsEvenWithTheSameTracksAndRejectInvalidOffsets() {
+        val q = queue()
+        q.play(listOf("a", "a", "a", "a"))
+        val upcoming = q.upcomingSlice
+        q.play(listOf("a", "a", "a", "a"), startAt = 1)
+        assertFalse(q.move(upcoming, 0, 1))
+        assertFalse(q.remove(upcoming, 0))
+        assertFalse(q.remove(q.upcomingSlice, -1))
+        assertFalse(q.move(q.upcomingSlice, 0, 2))
+        val beforeAdvance = q.upcomingSlice
+        q.advance(manual = true)
+        assertFalse(q.remove(beforeAdvance, 0))
+
+        q.addToQueue(listOf("x", "x", "x"))
+        val user = q.userSlice
+        assertTrue(q.move(user, 0, 1))
+        assertFalse(q.remove(user, 1))
+        assertFalse(q.move(q.userSlice, 0, 0))
+        assertEquals(listOf("x", "x", "x"), q.userQueue)
+        assertEquals(listOf("a", "a"), q.played)
+        assertEquals(listOf("a"), q.upNext)
     }
 
     @Test fun preloadsWhatANaturalEndPlaysWithoutTakingIt() {
