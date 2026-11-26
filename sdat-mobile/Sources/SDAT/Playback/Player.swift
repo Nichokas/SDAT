@@ -349,7 +349,7 @@ final class Player: LivePlaybackPort {
             holdAutoplay = false
             // Playing here is a newer choice than a handoff still on its way.
             plays += 1
-            try? AVAudioSession.sharedInstance().setActive(true)
+            activateAudio()
             avPlayer.play()
         }
         isPlaying.toggle()
@@ -453,7 +453,13 @@ final class Player: LivePlaybackPort {
 
     func pauseEngine() { avPlayer.pause() }
     func playEngine() { avPlayer.play() }
-    func activateAudio() { try? AVAudioSession.sharedInstance().setActive(true) }
+    /// The category is checked on every activation: iOS drops it on a media services reset, and a session left on the
+    /// default category plays in the foreground but fades out when the app goes to the background.
+    func activateAudio() {
+        let s = AVAudioSession.sharedInstance()
+        if s.category != .playback || s.routeSharingPolicy != .longFormAudio { configureSession() }
+        do { try s.setActive(true) } catch { Self.audioFailed("activate", error) }
+    }
 
     func prerollIfReady() async {
         if avPlayer.status == .readyToPlay { _ = await avPlayer.preroll(atRate: 1) }
@@ -675,7 +681,7 @@ final class Player: LivePlaybackPort {
                     guard !Task.isCancelled, starts == mine else { return }
                 }
                 if autoplay, !holdAutoplay {
-                    try? AVAudioSession.sharedInstance().setActive(true)
+                    activateAudio()
                     avPlayer.play()
                     isPlaying = true
                 } else {
@@ -1116,9 +1122,14 @@ final class Player: LivePlaybackPort {
     // MARK: system integration
 
     private func configureSession() {
-        let s = AVAudioSession.sharedInstance()
-        try? s.setCategory(.playback, mode: .default, policy: .longFormAudio)
         // Activated only when playback starts: an active session at launch keeps an idle app awake.
+        do {
+            try AVAudioSession.sharedInstance().setCategory(.playback, mode: .default, policy: .longFormAudio)
+        } catch { Self.audioFailed("set category", error) }
+    }
+
+    private static func audioFailed(_ step: String, _ error: Error) {
+        diagRecord(level: .error, target: "audio-session", message: "\(step) failed: \(error)", backtrace: nil)
     }
 
     /// While paused (and not in Listen Together), deactivate the audio session after a grace
@@ -1175,7 +1186,7 @@ final class Player: LivePlaybackPort {
                         } else if self.loading {
                             self.holdAutoplay = false
                         } else {
-                            try? AVAudioSession.sharedInstance().setActive(true)
+                            self.activateAudio()
                             self.avPlayer.play()
                             self.isPlaying = true
                             self.updateNowPlaying()
@@ -1183,6 +1194,13 @@ final class Player: LivePlaybackPort {
                     }
                 @unknown default: break
                 }
+            }
+        })
+        systemObservers.append(nc.addObserver(forName: AVAudioSession.mediaServicesWereResetNotification,
+                                              object: nil, queue: .main) { [weak self] _ in
+            MainActor.assumeIsolated {
+                diagRecord(level: .warn, target: "audio-session", message: "media services were reset", backtrace: nil)
+                self?.configureSession()
             }
         })
         systemObservers.append(nc.addObserver(forName: AVAudioSession.routeChangeNotification,
