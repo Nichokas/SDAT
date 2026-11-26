@@ -11,6 +11,15 @@ class PlayQueueTest {
     private fun queue() = PlayQueue<String>(Random(7)) { it }
     private val abcd = listOf("a", "b", "c", "d")
 
+    @Test fun upNextIsEmptyBeforePlaybackAndAtTheLastTrack() {
+        val q = queue()
+        assertTrue(q.upNext.isEmpty())
+        assertTrue(q.upcomingSlice.tracks.isEmpty())
+        q.play(listOf("last"))
+        assertTrue(q.upNext.isEmpty())
+        assertTrue(q.upcomingSlice.tracks.isEmpty())
+    }
+
     @Test fun discoverStartsAtTheTapAndWrapsThePool() {
         val q = queue()
         assertEquals("c", q.discover("c", abcd))

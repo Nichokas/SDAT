@@ -49,7 +49,7 @@ class PlayQueue<T>(private val random: Random = Random.Default, private val id: 
     private val recentIDs = HashSet<String>()
     private val recentOrder = ArrayDeque<String>()
 
-    private val futureStart get() = (index ?: -1) + 1
+    private val futureStart get() = index?.let { it.coerceIn(-1, tracks.lastIndex) + 1 } ?: 0
     val upNext get() = tracks.let { it.subList(futureStart, it.size) }
     internal val upcomingSlice get() = QueueSlice(QueueSection.UpNext, tracks, futureStart)
     internal val userSlice get() = QueueSlice(QueueSection.User, userQueue)
