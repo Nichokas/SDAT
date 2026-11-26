@@ -32,7 +32,6 @@ class PinnedSearchTest {
             SdatTheme {
                 SdatPage(
                     "Search",
-                    showsLargeTitle = false,
                     pinnedContent = {
                         BasicTextField("Album", {}, Modifier.fillMaxWidth().height(48.dp).testTag("search"))
                     },

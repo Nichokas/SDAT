@@ -8,10 +8,11 @@ import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutVertically
 import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.background
-import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.statusBarsPadding
@@ -19,7 +20,6 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveableStateHolder
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -36,7 +36,6 @@ import com.nichokas.sdat.core.Destination
 import com.nichokas.sdat.core.Discover
 import com.nichokas.sdat.core.Downloads
 import com.nichokas.sdat.core.Live
-import com.nichokas.sdat.core.Morph
 import com.nichokas.sdat.core.PageKey
 import com.nichokas.sdat.core.Playback
 import com.nichokas.sdat.core.Preferences
@@ -47,27 +46,12 @@ import com.nichokas.sdat.ui.kit.AlertButton
 import com.nichokas.sdat.ui.kit.AlertButtonLayout
 import com.nichokas.sdat.ui.kit.AlertButtonRole
 import com.nichokas.sdat.ui.kit.AlertDialog
-import com.nichokas.sdat.ui.kit.Glass
-import com.nichokas.sdat.ui.kit.GlassHost
+import com.nichokas.sdat.ui.kit.LocalRootActions
+import com.nichokas.sdat.ui.kit.Raised
 import com.nichokas.sdat.ui.kit.SdatTheme
 import com.nichokas.sdat.ui.kit.SdatType
 import com.nichokas.sdat.ui.kit.Stack
-import com.nichokas.sdat.ui.kit.TabItem
 import com.nichokas.sdat.ui.kit.capsule
-
-private val AppTab.label get() = when (this) {
-    AppTab.Discover -> "Discover"
-    AppTab.Search -> "Search"
-    AppTab.Collection -> "My Collection"
-}
-
-private val AppTab.symbol get() = when (this) {
-    AppTab.Discover -> "signpost.right.and.left.fill"
-    AppTab.Search -> "magnifyingglass"
-    AppTab.Collection -> "music.note.house.fill"
-}
-
-internal val tabItems = AppTab.entries.map { TabItem(it, it.label, it.symbol) }
 
 /** Login until signed in, then one back stack per tab under the bottom chrome and the toast. */
 @Composable
@@ -82,15 +66,11 @@ fun RootView(session: Session, playback: Playback, prefs: Preferences, secrets: 
     }
     val colors = SdatTheme.colors
     if (!session.signedIn) {
-        return GlassHost(
-            modifier = Modifier.fillMaxSize(),
-            content = { Box(Modifier.fillMaxSize().background(colors.groupedBackground)) },
-            overlay = {
-                LoginView(session)
-                // Here too, so a fresh install is asked before sign-in.
-                if (crashReporting.shouldAsk) CrashReportsPrompt(crashReporting)
-            },
-        )
+        return Box(Modifier.fillMaxSize().background(colors.sheet)) {
+            LoginView(session)
+            // Here too, so a fresh install is asked before sign-in.
+            if (crashReporting.shouldAsk) CrashReportsPrompt(crashReporting)
+        }
     }
     // A fresh sign-in warms the caches before the shell, and with it Discover's first load, starts.
     if (Boot.active) return BootLoaderView(Boot.progress.value)
@@ -98,53 +78,53 @@ fun RootView(session: Session, playback: Playback, prefs: Preferences, secrets: 
     val stacks = rememberSaveableStateHolder()
     val mixes = Discover.mixes
     LaunchedEffect(mixes) { playback.resumeInfinite(mixes) }
-    GlassHost(
-        modifier = Modifier.fillMaxSize(),
-        content = {
-            // Each tab keeps its pages' saved state (scroll positions) while another tab is shown.
-            stacks.SaveableStateProvider(nav.tab.name) {
-                TabStack(nav.tab, nav.stack) { route ->
-                    when (route) {
-                        null -> TabRoot(nav.tab, session, playback)
-                        Route.Settings -> SettingsView(session, prefs, secrets, crashReporting, playback::setStreamingQuality, playback::setPreloadNext, onBack = Chrome::pop)
-                        Route.Diagnostics -> DiagnosticsView(crashReporting, onBack = Chrome::pop)
-                        Route.Country -> CountryView(onBack = Chrome::pop)
-                        is Route.Explore -> ExploreView(route.path, route.title)
-                        is Route.Album -> AlbumView(route.id)
-                        is Route.Playlist -> PlaylistView(route.id)
-                        is Route.Artist -> ArtistView(route.id)
-                        Route.CollectionTracks -> CollectionTracksView()
-                        Route.CollectionAlbums -> CollectionAlbumsView()
-                        Route.CollectionArtists -> CollectionArtistsView()
-                        Route.CollectionPlaylists -> CollectionPlaylistsView()
-                        Route.Downloads -> DownloadsView()
-                    }
-                }
-            }
-        },
-        overlay = {
-            if (!nav.inDetail) {
+    Box(Modifier.fillMaxSize().background(colors.frame)) {
+        Column(Modifier.fillMaxSize()) {
+            Box(Modifier.weight(1f)) {
                 // As on iOS, Discover's header has Shuffle where the other tabs show download progress.
-                Row(Modifier.align(Alignment.TopEnd).statusBarsPadding().padding(end = 16.dp, top = 4.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                val rootActions: @Composable RowScope.() -> Unit = {
                     if (nav.tab == AppTab.Discover) ShuffleButton(mixes.isNotEmpty(), { playback.playInfinite(mixes) })
                     else if (Downloads.queue.isActive) DownloadStatusButton()
                     ProfileButton(session, { Chrome.push(Route.Settings) })
                 }
+                // Each tab keeps its pages' saved state (scroll positions) while another tab is shown.
+                stacks.SaveableStateProvider(nav.tab.name) {
+                    CompositionLocalProvider(LocalRootActions provides rootActions) {
+                        TabStack(nav.tab, nav.stack) { route ->
+                            when (route) {
+                                null -> TabRoot(nav.tab, session, playback)
+                                Route.Settings -> SettingsView(session, prefs, secrets, crashReporting, playback::setStreamingQuality, playback::setPreloadNext, onBack = Chrome::pop)
+                                Route.Diagnostics -> DiagnosticsView(crashReporting, onBack = Chrome::pop)
+                                Route.Country -> CountryView(onBack = Chrome::pop)
+                                is Route.Explore -> ExploreView(route.path, route.title)
+                                is Route.Album -> AlbumView(route.id)
+                                is Route.Playlist -> PlaylistView(route.id)
+                                is Route.Artist -> ArtistView(route.id)
+                                Route.CollectionTracks -> CollectionTracksView()
+                                Route.CollectionAlbums -> CollectionAlbumsView()
+                                Route.CollectionArtists -> CollectionArtistsView()
+                                Route.CollectionPlaylists -> CollectionPlaylistsView()
+                                Route.Downloads -> DownloadsView()
+                            }
+                        }
+                    }
+                }
             }
-            if (!nav.inSettings) {
-                HandoffBanner(Modifier.align(Alignment.BottomCenter).navigationBarsPadding().padding(start = 16.dp, end = 16.dp, bottom = (Morph.CIRCLE + 22).dp))
-                BottomChrome(playback, nav, Modifier.align(Alignment.BottomCenter))
-                MiniFanOverlay(playback)
-            }
-            // After the bottom chrome, so the picker opens over the player sheet too.
-            Chrome.playlistPickerTrack?.let { PlaylistPicker(it) { Chrome.playlistPickerTrack = null } }
-            if (Live.showSheet) LiveSheet()
-            if (Live.showScanner) ScannerSheet { Live.showScanner = false }
-            if (crashReporting.shouldAsk) CrashReportsPrompt(crashReporting)
-            Toast(Chrome.toast, Modifier.align(Alignment.TopCenter))
-            BootLoaderFadeOut()
-        },
-    )
+            // Below the page rather than over it, so the banner never hides a list's last rows.
+            if (!nav.inSettings) HandoffBanner(Modifier.fillMaxWidth().background(colors.sheet))
+            // Settings hides the bar; the sheet still runs under the gesture area.
+            if (nav.inSettings) Box(Modifier.fillMaxWidth().background(colors.sheet).navigationBarsPadding())
+            else BottomBar(playback, nav)
+        }
+        if (!nav.inSettings) MiniFanOverlay(playback)
+        // After the bottom chrome, so the picker opens over the player sheet too.
+        Chrome.playlistPickerTrack?.let { PlaylistPicker(it) { Chrome.playlistPickerTrack = null } }
+        if (Live.showSheet) LiveSheet()
+        if (Live.showScanner) ScannerSheet { Live.showScanner = false }
+        if (crashReporting.shouldAsk) CrashReportsPrompt(crashReporting)
+        Toast(Chrome.toast, Modifier.align(Alignment.TopCenter))
+        BootLoaderFadeOut()
+    }
 }
 
 /** iOS push and pop transitions and predictive back for one tab; [page] gets null for the tab root. */
@@ -184,7 +164,7 @@ private fun Toast(text: String?, modifier: Modifier) {
         label = "toast",
     ) { shown ->
         if (shown != null) {
-            Glass(shape = capsule) {
+            Raised(shape = capsule, color = SdatTheme.colors.inverse, contentColor = SdatTheme.colors.onInverse) {
                 Text(shown, style = SdatType.subheadline, fontWeight = FontWeight.SemiBold, modifier = Modifier.padding(horizontal = 16.dp, vertical = 10.dp))
             }
         }

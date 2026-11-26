@@ -108,7 +108,7 @@ fun DiagnosticsView(crashReporting: CrashReporting, onBack: () -> Unit) {
         }
     }
 
-    SdatPage(title = "Diagnostics", onBack = onBack, showsLargeTitle = false, bottomPadding = 0.dp) {
+    SdatPage(title = "Diagnostics", onBack = onBack) {
         item {
             Section("Overview") {
                 ListRow("App version", detail = BuildConfig.VERSION_NAME, showTopSeparator = false)

@@ -47,7 +47,6 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clipToBounds
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.PointerEventPass
 import androidx.compose.ui.input.pointer.pointerInput
@@ -73,11 +72,7 @@ import kotlin.math.abs
 import kotlin.math.roundToInt
 import uniffi.tonearm_ffi.Track
 
-private val dimmed = Color.White.copy(alpha = 0.65f)
-private val inactive = Color.White.copy(alpha = 0.45f)
 private val queueHandleWidth = 44.dp
-private val removeRed = Color(0xFFFF453A)
-private val queueRowBackground = Color.White.copy(alpha = 0.06f)
 @Composable
 internal fun QueuePage(playback: Playback) {
     val guest = Live.isGuest
@@ -111,7 +106,7 @@ internal fun QueuePage(playback: Playback) {
                 playback.track?.let { t ->
                     header("Now Playing")
                     item(key = "now") {
-                        TrackRow(t, Modifier.fillMaxWidth().background(queueRowBackground).padding(horizontal = 8.dp, vertical = 6.dp))
+                        TrackRow(t, Modifier.fillMaxWidth().background(SdatTheme.colors.sheet).padding(horizontal = 8.dp, vertical = 6.dp))
                     }
                 }
                 if (guest) {
@@ -122,13 +117,13 @@ internal fun QueuePage(playback: Playback) {
                             horizontalArrangement = Arrangement.spacedBy(8.dp),
                             verticalAlignment = Alignment.CenterVertically,
                         ) {
-                            SdatIcon("dot.radiowaves.left.and.right", null, size = 18.dp, tint = Color.White)
-                            Text("Playing from Listen Together", style = SdatType.headline, color = Color.White)
+                            SdatIcon("dot.radiowaves.left.and.right", null, size = 18.dp, tint = SdatTheme.colors.accent)
+                            Text("Playing from Listen Together", style = SdatType.headline, color = SdatTheme.colors.content)
                         }
                     }
 
                     items(Live.upNext, key = { "live ${it.id}" }) { row ->
-                        TrackMenuRow(row.track, onClick = {}, Modifier.animateItem().background(queueRowBackground)) {
+                        TrackMenuRow(row.track, onClick = {}, Modifier.animateItem().background(SdatTheme.colors.sheet)) {
                             TrackRow(row.track, Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 6.dp))
                         }
                     }
@@ -150,7 +145,7 @@ internal fun QueuePage(playback: Playback) {
                         .graphicsLayer {
                             translationY = active.center - active.height / 2f - listState.layoutInfo.viewportStartOffset
                         }
-                        .background(Color(0xFF292929)).clearAndSetSemantics {},
+                        .background(SdatTheme.colors.elevatedBackground).clearAndSetSemantics {},
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
                     TrackRow(active.rows.slice.tracks[active.from], Modifier.weight(1f).padding(vertical = 6.dp))
@@ -166,16 +161,16 @@ internal fun QueuePage(playback: Playback) {
 private fun QueueHeader(playback: Playback) {
     val colors = SdatTheme.colors
     Box(Modifier.fillMaxWidth().heightIn(min = 44.dp), contentAlignment = Alignment.Center) {
-        IconTap("dot.radiowaves.left.and.right", "Listen Together", 20.dp, Modifier.align(Alignment.CenterStart), tint = if (Live.active) Color.White else inactive) {
+        IconTap("dot.radiowaves.left.and.right", "Listen Together", 20.dp, Modifier.align(Alignment.CenterStart), tint = if (Live.active) colors.accent else colors.tertiaryContent) {
             Live.showSheet = true
         }
         Text("Queue", style = SdatType.headline, color = colors.content)
         Row(Modifier.align(Alignment.CenterEnd)) {
-            IconTap("shuffle", if (playback.shuffle) "Shuffle: On" else "Shuffle: Off", 20.dp, tint = if (playback.shuffle) Color.White else inactive) {
+            IconTap("shuffle", if (playback.shuffle) "Shuffle: On" else "Shuffle: Off", 20.dp, tint = if (playback.shuffle) colors.accent else colors.tertiaryContent) {
                 playback.setShuffle(!playback.shuffle)
             }
             val repeat = playback.repeat
-            IconTap(if (repeat == Repeat.One) "repeat.1" else "repeat", "Repeat: " + when (repeat) { Repeat.Off -> "Off"; Repeat.All -> "All"; Repeat.One -> "One" }, 20.dp, tint = if (repeat == Repeat.Off) inactive else Color.White) {
+            IconTap(if (repeat == Repeat.One) "repeat.1" else "repeat", "Repeat: " + when (repeat) { Repeat.Off -> "Off"; Repeat.All -> "All"; Repeat.One -> "One" }, 20.dp, tint = if (repeat == Repeat.Off) colors.tertiaryContent else colors.accent) {
                 playback.cycleRepeat()
             }
         }
@@ -321,15 +316,15 @@ private fun LazyListScope.queueRows(
                 Box(Modifier.matchParentSize()) {
                     Box(
                         Modifier.align(Alignment.CenterEnd).fillMaxHeight().width(revealedWidth)
-                            .background(removeRed).clipToBounds(),
+                            .background(SdatTheme.colors.destructive).clipToBounds(),
                         contentAlignment = Alignment.Center,
                     ) {
-                        if (revealedWidth >= 36.dp) SdatIcon("trash", null, size = 20.dp, tint = Color.White)
+                        if (revealedWidth >= 36.dp) SdatIcon("trash", null, size = 20.dp, tint = SdatTheme.colors.onDestructive)
                     }
                 }
             }
             Box(Modifier.fillMaxWidth().clipToBounds()) {
-                Row(Modifier.fillMaxWidth().absoluteOffset { IntOffset(towardsStart * distance.roundToInt(), 0) }.background(queueRowBackground), verticalAlignment = Alignment.CenterVertically) {
+                Row(Modifier.fillMaxWidth().absoluteOffset { IntOffset(towardsStart * distance.roundToInt(), 0) }.background(SdatTheme.colors.sheet), verticalAlignment = Alignment.CenterVertically) {
                     TrackMenuRow(
                         track,
                         onClick = { onTap(i) },
@@ -345,7 +340,7 @@ private fun LazyListScope.queueRows(
                             }
                         },
                     ) { TrackRow(track, Modifier.padding(vertical = 6.dp)) }
-                    IconTap("minus.circle", action, 20.dp, tint = removeRed) { playback.removeQueueTrack(slice, i) }
+                    IconTap("minus.circle", action, 20.dp, tint = SdatTheme.colors.destructive) { playback.removeQueueTrack(slice, i) }
                     if (slice.tracks.size > 1) QueueDragHandle()
                 }
             }
@@ -358,7 +353,7 @@ private fun QueueDragHandle() {
     Box(Modifier.size(queueHandleWidth), contentAlignment = Alignment.Center) {
         Column(verticalArrangement = Arrangement.spacedBy(3.dp)) {
             repeat(2) {
-                Spacer(Modifier.size(16.dp, 2.dp).background(dimmed, RoundedCornerShape(1.dp)))
+                Spacer(Modifier.size(16.dp, 2.dp).background(SdatTheme.colors.secondaryContent, RoundedCornerShape(1.dp)))
             }
         }
     }

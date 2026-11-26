@@ -46,8 +46,8 @@ class MainActivity : ComponentActivity() {
         if (savedInstanceState == null) openLink(intent)
         controller = MediaController.Builder(this, SessionToken(this, ComponentName(this, PlaybackService::class.java))).buildAsync()
         setContent {
-            SdatTheme {
-                val app = application as SdatApp
+            val app = application as SdatApp
+            SdatTheme(app.prefs.accent) {
                 CompositionLocalProvider(LocalTrackPlayer provides app.playback) { RootView(app.session, app.playback, app.prefs, app.secrets, app.crashReporting) }
             }
         }

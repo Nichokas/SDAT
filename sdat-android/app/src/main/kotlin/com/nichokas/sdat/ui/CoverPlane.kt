@@ -10,7 +10,6 @@ import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.gestures.detectDragGestures
-import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.offset
@@ -150,6 +149,7 @@ fun CoverPlane(tracks: List<Track>, background: Color, placeholder: Color, onTap
     }
 }
 
+private val tileShape = RoundedCornerShape(14.dp)
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
 private fun DiscoverTile(track: Track, url: String?, placeholder: Color, modifier: Modifier, onTap: () -> Unit) {
@@ -165,7 +165,7 @@ private fun DiscoverTile(track: Track, url: String?, placeholder: Color, modifie
         modifier = modifier.zIndex(if (open) 1f else 0f)
             .onGloballyPositioned { bounds = it.boundsInRoot() }
             .graphicsLayer { scaleX = scale; scaleY = scale }
-            .clip(RoundedCornerShape(if (open) 10.dp else 0.dp))
+            .clip(tileShape)
             .background(placeholder)
             .menuAnchor(open)
             .combinedClickable(

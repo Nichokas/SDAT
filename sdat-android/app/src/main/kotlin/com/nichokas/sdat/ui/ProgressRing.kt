@@ -22,15 +22,12 @@ import androidx.compose.ui.unit.dp
 import kotlin.math.PI
 import kotlin.math.roundToInt
 
-/** iOS dark-mode system blue, SwiftUI's `.blue`. */
-internal val iosBlue = Color(0xFF0A84FF)
-
 /**
- * iOS ProgressRing: [color] (blue) arc from 12 o'clock clockwise over a static dashed white ring; spins once a second
+ * iOS ProgressRing: [color] arc from 12 o'clock clockwise over a static dashed white ring; spins once a second
  * while loading. [progress] is a lambda so the player's position ticks recompose the ring, not its caller.
  */
 @Composable
-fun ProgressRing(progress: () -> Double, spinning: Boolean, modifier: Modifier = Modifier, lineWidth: Dp = 2.5.dp, color: Color = iosBlue) {
+fun ProgressRing(progress: () -> Double, spinning: Boolean, modifier: Modifier = Modifier, lineWidth: Dp = 2.5.dp, color: Color) {
     val q by animateFloatAsState(
         if (spinning) 0f else progress().coerceIn(0.0, 1.0).toFloat(),
         tween(250, easing = LinearEasing),

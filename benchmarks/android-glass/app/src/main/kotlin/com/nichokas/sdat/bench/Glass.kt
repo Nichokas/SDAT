@@ -44,8 +44,7 @@ import dev.chrisbanes.haze.blur.hazeBlur
 import dev.chrisbanes.haze.hazeSource
 import dev.chrisbanes.haze.rememberHazeState
 
-// SDAT's ui/kit glass, colours and tab bar, reduced to what the scenes draw. Keep the glass recipe in step with
-// sdat-android's ui/kit/Glass.kt, or the benchmark measures something SDAT does not ship.
+// The glass, colours and tab bar SDAT shipped before it dropped the blur, reduced to what the scenes draw.
 
 data class Colors(val content: Color, val secondaryContent: Color, val accent: Color, val glass: Color, val groupedBackground: Color, val separator: Color, val fill: Color)
 

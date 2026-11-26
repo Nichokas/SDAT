@@ -11,7 +11,7 @@ import kotlin.math.hypot
 import kotlin.math.sin
 
 /**
- * Press-and-hold menu of the circle mini-player, ported from iOS. The circle sits in the bottom-right corner, so it turns
+ * Press-and-hold menu of the mini player, ported from iOS. The player sits in the bottom-right corner, so it turns
  * into a close button under the finger and the controls fan out over the quarter above and to its left. Sliding onto a
  * control and lifting runs it; lifting on the close button leaves the fan open for taps. Lengths are in dp.
  */
@@ -24,7 +24,7 @@ object MiniFan {
 
     /** [angle] in degrees from straight up, counterclockwise toward the left. */
     enum class Item(val angle: Float, val radius: Float, val size: Float) {
-        Close(0f, 0f, Morph.CIRCLE),
+        Close(0f, 0f, 56f),
         Toggle(0f, RADIUS, 56f),
         Previous(45f, RADIUS, 48f),
         Next(90f, RADIUS, 48f),
@@ -44,7 +44,7 @@ object MiniFan {
     var state by mutableStateOf<State>(State.Closed)
         private set
 
-    /** Centre of the circle in root coordinates, in px; read when the fan opens. */
+    /** Centre of the mini player in root coordinates, in px; read when the fan opens. */
     var anchor = Offset.Zero
 
     /** What a finger [dx], [dy] away from where it pressed points at. */

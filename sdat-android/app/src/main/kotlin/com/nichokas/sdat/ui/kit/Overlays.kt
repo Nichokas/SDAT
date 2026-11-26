@@ -36,7 +36,6 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.Rect
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.layout.boundsInRoot
 import androidx.compose.ui.layout.onGloballyPositioned
@@ -69,17 +68,15 @@ fun BottomSheet(onDismissRequest: () -> Unit, title: String, content: @Composabl
     ModalBottomSheet(
         onDismissRequest = onDismissRequest,
         sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true),
-        shape = RoundedCornerShape(topStart = 38.dp, topEnd = 38.dp),
-        containerColor = if (colors.isDark) colors.elevatedBackground else colors.groupedBackground,
+        shape = RoundedCornerShape(topStart = 28.dp, topEnd = 28.dp),
+        containerColor = colors.sheet,
         contentColor = colors.content,
         dragHandle = {
             Box(Modifier.padding(top = 6.dp, bottom = 10.dp).size(36.dp, 5.dp).clip(capsule).background(colors.tertiaryContent))
         },
         contentWindowInsets = { WindowInsets.statusBars.union(WindowInsets.ime) },
     ) {
-        NoGlassBackdrop {
-            Column(Modifier.semantics { paneTitle = title }, content = content)
-        }
+        Column(Modifier.semantics { paneTitle = title }, content = content)
     }
 }
 
@@ -103,29 +100,27 @@ fun AlertDialog(
 ) {
     val colors = SdatTheme.colors
     BasicAlertDialog(onDismissRequest = onDismissRequest, properties = properties) {
-        NoGlassBackdrop {
-            Column(
-                Modifier
-                    .width(300.dp)
-                    .clip(RoundedCornerShape(34.dp))
-                    .background(colors.elevatedBackground)
-                    .padding(start = 20.dp, end = 20.dp, top = 22.dp, bottom = 16.dp),
-                verticalArrangement = Arrangement.spacedBy(6.dp),
-            ) {
-                Text(title, Modifier.fillMaxWidth(), style = SdatType.headline, color = colors.content, textAlign = TextAlign.Center)
-                message?.let {
-                    Text(it, Modifier.fillMaxWidth(), style = SdatType.footnote, color = colors.content, textAlign = TextAlign.Center)
+        Column(
+            Modifier
+                .width(300.dp)
+                .clip(RoundedCornerShape(34.dp))
+                .background(colors.elevatedBackground)
+                .padding(start = 20.dp, end = 20.dp, top = 22.dp, bottom = 16.dp),
+            verticalArrangement = Arrangement.spacedBy(6.dp),
+        ) {
+            Text(title, Modifier.fillMaxWidth(), style = SdatType.headline, color = colors.content, textAlign = TextAlign.Center)
+            message?.let {
+                Text(it, Modifier.fillMaxWidth(), style = SdatType.footnote, color = colors.content, textAlign = TextAlign.Center)
+            }
+            content()
+            val buttonModifier = Modifier.padding(top = 10.dp)
+            if (buttonLayout == AlertButtonLayout.Stacked) {
+                Column(buttonModifier, verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    buttons.forEach { AlertButtonView(it, Modifier.fillMaxWidth()) }
                 }
-                content()
-                val buttonModifier = Modifier.padding(top = 10.dp)
-                if (buttonLayout == AlertButtonLayout.Stacked) {
-                    Column(buttonModifier, verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                        buttons.forEach { AlertButtonView(it, Modifier.fillMaxWidth()) }
-                    }
-                } else {
-                    Row(buttonModifier, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        buttons.forEach { AlertButtonView(it, Modifier.weight(1f)) }
-                    }
+            } else {
+                Row(buttonModifier, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    buttons.forEach { AlertButtonView(it, Modifier.weight(1f)) }
                 }
             }
         }
@@ -141,7 +136,7 @@ private fun AlertButtonView(button: AlertButton, modifier: Modifier) {
             button.label,
             style = SdatType.headline,
             color = when (button.role) {
-                AlertButtonRole.Default -> Color.White
+                AlertButtonRole.Default -> colors.onInverse
                 AlertButtonRole.Cancel -> colors.content
                 AlertButtonRole.Destructive -> colors.destructive
             },
@@ -218,30 +213,28 @@ fun PopupMenu(anchorBounds: Rect?, actions: List<MenuAction>, title: String?, on
         (room - margin * 1.5f).coerceAtLeast(0f).toDp()
     }
     Popup(popupPositionProvider = position, onDismissRequest = onDismiss, properties = PopupProperties(focusable = true)) {
-        NoGlassBackdrop {
-            Column(
-                Modifier
-                    .width(250.dp)
-                    .heightIn(max = maxHeight)
-                    .glass(RoundedCornerShape(26.dp), tint = colors.elevatedBackground)
-                    .verticalScroll(rememberScrollState())
-                    .padding(vertical = 6.dp),
-            ) {
-                title?.let {
-                    Text(
-                        it,
-                        Modifier.padding(horizontal = 18.dp, vertical = 8.dp),
-                        style = SdatType.footnote,
-                        color = colors.secondaryContent,
-                        maxLines = 2,
-                        overflow = TextOverflow.Ellipsis,
-                    )
-                    Divider()
-                }
-                actions.forEach { action ->
-                    if (action.separatorBefore) Divider()
-                    MenuRow(action) { onDismiss(); action.onClick() }
-                }
+        Column(
+            Modifier
+                .width(250.dp)
+                .heightIn(max = maxHeight)
+                .raised(RoundedCornerShape(24.dp), colors.elevatedBackground)
+                .verticalScroll(rememberScrollState())
+                .padding(vertical = 6.dp),
+        ) {
+            title?.let {
+                Text(
+                    it,
+                    Modifier.padding(horizontal = 18.dp, vertical = 8.dp),
+                    style = SdatType.footnote,
+                    color = colors.secondaryContent,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis,
+                )
+                Divider()
+            }
+            actions.forEach { action ->
+                if (action.separatorBefore) Divider()
+                MenuRow(action) { onDismiss(); action.onClick() }
             }
         }
     }

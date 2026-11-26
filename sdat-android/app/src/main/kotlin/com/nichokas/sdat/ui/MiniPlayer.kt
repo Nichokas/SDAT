@@ -5,7 +5,10 @@ import androidx.activity.compose.BackHandler
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.Spring
+import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
@@ -18,12 +21,9 @@ import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.gestures.waitForUpOrCancellation
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsFocusedAsState
-import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.BoxWithConstraints
-import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.fillMaxHeight
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -31,26 +31,32 @@ import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.selection.selectable
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.alpha
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.draw.drawWithCache
+import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Rect
+import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.TransformOrigin
+import androidx.compose.ui.graphics.Path
+import androidx.compose.ui.graphics.PathMeasure
+import androidx.compose.ui.graphics.StrokeCap
+import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.input.key.Key
 import androidx.compose.ui.input.key.KeyEventType
 import androidx.compose.ui.input.key.key
@@ -59,185 +65,117 @@ import androidx.compose.ui.input.key.type
 import androidx.compose.ui.input.pointer.PointerInputChange
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.boundsInRoot
-import androidx.compose.ui.layout.layout
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.layout.positionInRoot
+import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.semantics.CustomAccessibilityAction
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.customActions
-import androidx.compose.ui.semantics.disabled
 import androidx.compose.ui.semantics.onClick
 import androidx.compose.ui.semantics.role
 import androidx.compose.ui.semantics.semantics
-import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.style.TextOverflow
-import androidx.compose.ui.unit.Constraints
-import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
+import com.nichokas.sdat.core.AppTab
 import com.nichokas.sdat.core.Chrome
 import com.nichokas.sdat.core.Live
 import com.nichokas.sdat.core.MiniFan
-import com.nichokas.sdat.core.Morph
 import com.nichokas.sdat.core.NavState
 import com.nichokas.sdat.core.Playback
-import com.nichokas.sdat.core.artistLine
 import com.nichokas.sdat.core.coverUrl
-import com.nichokas.sdat.core.displayTitle
-import com.nichokas.sdat.ui.kit.Glass
+import com.nichokas.sdat.ui.kit.Raised
 import com.nichokas.sdat.ui.kit.SdatTheme
-import com.nichokas.sdat.ui.kit.SdatType
-import com.nichokas.sdat.ui.kit.TabBar
-import com.nichokas.sdat.ui.kit.capsule
 import kotlin.math.roundToInt
 import kotlinx.coroutines.withTimeoutOrNull
-import uniffi.tonearm_ffi.Track
 
-private enum class MiniStyle { Circle, Capsule, Wide }
+private val AppTab.label get() = when (this) {
+    AppTab.Discover -> "Discover"
+    AppTab.Search -> "Search"
+    AppTab.Collection -> "My Collection"
+}
 
-/**
- * iOS bottom chrome. At a tab root the tab bar sits beside the circle mini-player, and scrolling down morphs them into a
- * tab circle beside a capsule. Pushed pages show only a wide mini-player.
- */
+/** Outlined; the selected tab adds `.fill`. */
+private val AppTab.symbol get() = when (this) {
+    AppTab.Discover -> "safari"
+    AppTab.Search -> "magnifyingglass"
+    AppTab.Collection -> "music.note.house"
+}
+
+private const val MINI = 56
+private const val RING = 3
+private val miniCorner = 20.dp
+private val coverCorner = 14.dp
+
+/** The bottom bar: one slot per tab, and the mini player in the last slot while something is queued. */
 @Composable
-internal fun BottomChrome(playback: Playback, nav: NavState, modifier: Modifier) {
-    val hasMini = playback.track != null
+internal fun BottomBar(playback: Playback, nav: NavState) {
+    val colors = SdatTheme.colors
     val view = LocalView.current
     var wasPlaying by remember(playback) { mutableStateOf(playback.playing) }
     LaunchedEffect(playback.playing) {
-        if (hasMini && wasPlaying != playback.playing) view.performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK)
+        if (playback.track != null && wasPlaying != playback.playing) view.performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK)
         wasPlaying = playback.playing
     }
-    val morphs = hasMini && !nav.inDetail
-    val bar = Chrome.bar
-    // Snapped to expanded while the morph is hidden, so a mini-player appearing or a return from a pushed page animates in
-    // from the start.
-    val clock = remember { Animatable(0f) }
-    LaunchedEffect(morphs, bar.collapsed) {
-        if (morphs) clock.animateTo(if (bar.collapsed) 1f else 0f, tween(Morph.DURATION_MS, easing = LinearEasing)) else clock.snapTo(0f)
+    Row(
+        Modifier.fillMaxWidth().background(colors.sheet).navigationBarsPadding().height(64.dp).padding(horizontal = 16.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        for (tab in AppTab.entries) {
+            Box(Modifier.weight(1f), contentAlignment = Alignment.Center) { TabButton(tab, nav.tab == tab) { Chrome.select(tab) } }
+        }
+        // The slot grows in and out, so the tabs slide aside rather than jump when playback starts or ends.
+        val mini by animateFloatAsState(if (playback.track != null) 1f else 0f, label = "mini player slot")
+        if (mini > 0f) Box(Modifier.weight(mini), contentAlignment = Alignment.Center) { MiniPlayer(playback) }
     }
-    BoxWithConstraints(modifier.fillMaxWidth().navigationBarsPadding().padding(start = 24.dp, end = 24.dp, bottom = 12.dp)) {
-        val widthDp = maxWidth.value
-        // Deferred out of composition so the 400 ms morph drives layout and draw phases directly instead of recomposing every frame.
-        val frame = remember(widthDp, morphs, bar.collapsing) {
-            derivedStateOf { Morph.frame(widthDp, if (morphs) clock.value else 0f, bar.collapsing) }
-        }
-        // TabBar lerps from its width constraint to compactSize, which at tabMax is exactly Morph's tab width.
-        val compact = remember(frame, morphs) {
-            derivedStateOf { if (morphs) frame.value.tabFraction else 0f }
-        }
-        if (!nav.inDetail) {
-            TabBar(
-                items = tabItems,
-                selectedKey = nav.tab,
-                onSelected = Chrome::select,
-                onExpand = { Chrome.setCollapsed(false) },
-                compactProgress = compact,
-                compactSize = Morph.ROUND.dp,
-                modifier = Modifier.align(Alignment.CenterStart)
-                    .then(if (hasMini) Modifier.width(Morph.tabMax(widthDp).dp) else Modifier.fillMaxWidth()),
-            )
-        }
-        if (hasMini) {
-            val wide = nav.inDetail
-            val style by remember(frame, wide) {
-                derivedStateOf {
-                    when {
-                        wide -> MiniStyle.Wide
-                        frame.value.miniFraction >= 0.5f -> MiniStyle.Capsule
-                        else -> MiniStyle.Circle
-                    }
-                }
+    if (Chrome.showPlayer && playback.track != null) PlayerSheet(playback) { Chrome.showPlayer = false }
+}
+
+@Composable
+private fun TabButton(tab: AppTab, selected: Boolean, onClick: () -> Unit) {
+    val colors = SdatTheme.colors
+    val haptics = LocalHapticFeedback.current
+    Box(
+        Modifier.size(64.dp, 44.dp).clip(CircleShape)
+            .then(if (selected) Modifier.background(colors.fill) else Modifier)
+            .selectable(selected, role = Role.Tab) {
+                if (!selected) haptics.performHapticFeedback(HapticFeedbackType.SegmentTick)
+                onClick()
             }
-            MiniPlayer(
-                playback,
-                style = style,
-                fraction = { if (wide) 1f else frame.value.miniFraction },
-                modifier = Modifier.align(Alignment.CenterEnd).then(
-                    if (wide) Modifier.fillMaxWidth().height(Morph.CIRCLE.dp)
-                    else Modifier.layout { measurable, constraints ->
-                        val f = frame.value
-                        val w = f.miniWidth.dp.roundToPx().coerceIn(constraints.minWidth, constraints.maxWidth)
-                        val h = (Morph.CIRCLE - 8 * f.miniFraction).dp.roundToPx().coerceIn(constraints.minHeight, constraints.maxHeight)
-                        val placeable = measurable.measure(Constraints.fixed(w, h))
-                        layout(w, h) { placeable.place(0, 0) }
-                    },
-                ),
-            )
-        }
+            .semantics { contentDescription = tab.label },
+        contentAlignment = Alignment.Center,
+    ) {
+        SdatIcon(if (selected) "${tab.symbol}.fill" else tab.symbol, null, tint = if (selected) colors.content else colors.secondaryContent)
     }
 }
 
-/**
- * The iOS mini-player. Circle: a tap opens the player and a hold opens [MiniFan]. Capsule and wide: a tap opens the
- * player and the ring toggles play; wide adds next. [fraction] runs the crossfade from circle (0) to capsule (1).
- */
+/** The cover inside a progress ring. A tap opens the player and a hold opens [MiniFan]. */
 @Composable
-private fun MiniPlayer(playback: Playback, style: MiniStyle, fraction: () -> Float, modifier: Modifier) {
-    val track = playback.track
-    val openPlayer = { Chrome.showPlayer = true }
-    Glass(modifier, shape = capsule) {
-        if (track != null) {
-            CapsuleContent(
-                playback,
-                track,
-                wide = style == MiniStyle.Wide,
-                onOpen = openPlayer,
-                modifier = Modifier.align(Alignment.CenterEnd).morphLayer(
-                    alpha = { if (style == MiniStyle.Wide) 1f else Morph.inAlpha(fraction()) },
-                    scale = { if (style == MiniStyle.Wide) 1f else Morph.inScale(fraction()) },
-                    pivotX = 1f,
-                ),
-                enabled = style != MiniStyle.Circle,
-            )
-        }
-        CircleContent(
-            playback,
-            onOpen = openPlayer,
-            modifier = Modifier.align(Alignment.CenterEnd).morphLayer(
-                alpha = { if (style == MiniStyle.Wide) 0f else Morph.outAlpha(fraction()) },
-                scale = { Morph.outScale(fraction()) },
-            ),
-            enabled = style == MiniStyle.Circle,
-        )
-    }
-    if (Chrome.showPlayer && track != null) PlayerSheet(playback) { Chrome.showPlayer = false }
-}
-
-private fun Modifier.morphLayer(
-    alpha: () -> Float,
-    scale: () -> Float,
-    pivotX: Float = 0.5f,
-) = graphicsLayer {
-    this.alpha = alpha()
-    val s = scale()
-    scaleX = s
-    scaleY = s
-    transformOrigin = TransformOrigin(pivotX, 0.5f)
-}
-
-@Composable
-private fun CircleContent(playback: Playback, onOpen: () -> Unit, modifier: Modifier, enabled: Boolean) {
-    val track = playback.track
+private fun MiniPlayer(playback: Playback) {
+    val track = playback.track ?: return
+    val onOpen = { Chrome.showPlayer = true }
     val label = playLabel(playback)
-    val active = enabled && track != null
     val focus = remember { MutableInteractionSource() }
     val focused by focus.collectIsFocusedAsState()
     var pressed by remember { mutableStateOf(false) }
     val pressScale by animateFloatAsState(if (pressed) 1.08f else 1f, label = "mini-player press")
     val view = LocalView.current
-    // Whatever hides the circle (end of the queue, a pushed page) also takes the fan with it.
-    if (active) DisposableEffect(Unit) { onDispose { MiniFan.close() } }
+    // Whatever hides the mini player (the end of the queue, Settings) also takes the fan with it.
+    DisposableEffect(Unit) { onDispose { MiniFan.close() } }
     Box(
-        modifier.width(Morph.CIRCLE.dp).fillMaxHeight()
-            .then(if (active && focused) Modifier.border(2.dp, SdatTheme.colors.content, capsule) else Modifier)
+        Modifier.size(MINI.dp)
+            .then(if (focused) Modifier.border(2.dp, SdatTheme.colors.content, RoundedCornerShape(miniCorner)) else Modifier)
             .semantics {
-                if (!enabled) return@semantics
                 role = Role.Button
-                contentDescription = track?.let { "$label ${it.title}" } ?: label
-                if (track == null) disabled()
+                contentDescription = track.title
+                stateDescription = when {
+                    playback.error != null -> "Playback failed"
+                    playback.loading -> "Loading"
+                    playback.playing -> "Playing"
+                    else -> "Paused"
+                }
                 onClick("Open player") { onOpen(); true }
                 // The fan's controls, as actions: the fan itself is a drag, which assistive technology can't do.
                 customActions = listOf(
@@ -246,12 +184,14 @@ private fun CircleContent(playback: Playback, onOpen: () -> Unit, modifier: Modi
                     CustomAccessibilityAction("Next") { runFanItem(MiniFan.Item.Next, playback); true },
                 )
             }
-            // Only while active: the faded circle sits over the capsule's ring and next, and would take their touches.
-            .then(if (!active) Modifier else Modifier.onKeyEvent { e ->
+            .onKeyEvent { e ->
                 val activate = e.key == Key.Enter || e.key == Key.NumPadEnter || e.key == Key.Spacebar
                 if (activate && e.type == KeyEventType.KeyUp) onOpen()
                 activate
-            }.focusable(interactionSource = focus).onGloballyPositioned { MiniFan.anchor = it.boundsInRoot().center }.pointerInput(Unit) {
+            }
+            .focusable(interactionSource = focus)
+            .onGloballyPositioned { MiniFan.anchor = it.boundsInRoot().center }
+            .pointerInput(Unit) {
                 awaitEachGesture {
                     val down = awaitFirstDown()
                     pressed = true
@@ -283,66 +223,87 @@ private fun CircleContent(playback: Playback, onOpen: () -> Unit, modifier: Modi
                         if (MiniFan.state is MiniFan.State.Held) MiniFan.close()
                     }
                 }
-            }),
+            },
         contentAlignment = Alignment.Center,
     ) {
-        Box(Modifier.graphicsLayer { scaleX = pressScale; scaleY = pressScale }) {
-            RingIcon(playback, Morph.CIRCLE.dp, active = enabled)
+        MiniRing({ if (playback.loading) 0.0 else playback.progress }, playback.loading, Modifier.fillMaxSize().graphicsLayer { scaleX = pressScale; scaleY = pressScale })
+        Box(Modifier.size((MINI - 2 * (RING + 3)).dp).graphicsLayer { scaleX = pressScale; scaleY = pressScale }, contentAlignment = Alignment.Center) {
+            Cover(track.coverUrl, (MINI - 2 * (RING + 3)).dp, radius = coverCorner)
+            // Playing shows the cover alone; anything else says why it isn't playing.
+            val symbol = when {
+                playback.error != null -> "exclamationmark.triangle.fill"
+                playback.loading || playback.playing -> null
+                else -> "play.fill"
+            }
+            if (symbol != null) {
+                Box(Modifier.fillMaxSize().clip(RoundedCornerShape(coverCorner)).background(Color.Black.copy(alpha = 0.4f)), contentAlignment = Alignment.Center) {
+                    SdatIcon(symbol, null, size = 22.dp, tint = Color.White)
+                }
+            }
         }
     }
 }
 
+/**
+ * The played part in the accent, clockwise from the top centre of a rounded square, over the rest in the separator
+ * colour. While [spinning], a quarter of the ring runs around it instead. [progress] is a lambda so the player's position
+ * ticks redraw the ring, not its caller.
+ */
 @Composable
-private fun CapsuleContent(playback: Playback, track: Track, wide: Boolean, onOpen: () -> Unit, modifier: Modifier, enabled: Boolean) {
+private fun MiniRing(progress: () -> Double, spinning: Boolean, modifier: Modifier) {
     val colors = SdatTheme.colors
-    Row(
-        modifier.fillMaxSize()
-            .clickable(enabled = enabled, onClickLabel = "Open player", interactionSource = null, indication = null, onClick = onOpen)
-            .padding(start = 9.dp, end = 10.dp),
-        horizontalArrangement = Arrangement.spacedBy(10.dp),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        Cover(track.coverUrl, 38.dp)
-        Column(Modifier.weight(1f)) {
-            Text(track.displayTitle, style = SdatType.subheadline, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
-            Text(track.artistLine, style = SdatType.caption1, color = colors.secondaryContent, maxLines = 1, overflow = TextOverflow.Ellipsis)
-        }
-        val label = playLabel(playback)
-        Box(
-            Modifier.clickable(enabled = enabled, onClickLabel = label, role = Role.Button, interactionSource = null, indication = null) { Live.userToggle() }
-                .alpha(if (Live.playbackLocked) 0.4f else 1f)
-                .semantics { contentDescription = label },
-        ) { RingIcon(playback, 40.dp, active = enabled) }
-        if (wide) {
-            Box(
-                Modifier.size(36.dp, 40.dp).clickable(enabled = enabled, role = Role.Button, interactionSource = null, indication = null) { Live.userNext() }
-                    .alpha(if (Live.playbackLocked) 0.4f else 1f),
-                contentAlignment = Alignment.Center,
-            ) { SdatIcon("forward.fill", contentDescription = "Next", size = 18.dp, tint = colors.content) }
-        }
+    val q by animateFloatAsState(progress().coerceIn(0.0, 1.0).toFloat(), tween(250, easing = LinearEasing), label = "progress")
+    // Composed only while spinning: an idle infinite transition would keep animating unseen.
+    val phase = if (spinning) {
+        rememberInfiniteTransition(label = "spin").animateFloat(0f, 1f, infiniteRepeatable(tween(1200, easing = LinearEasing)), label = "phase")
+    } else {
+        null
     }
+    Spacer(modifier.drawWithCache {
+        val w = RING.dp.toPx()
+        val inset = w / 2
+        val r = miniCorner.toPx() - inset
+        val left = inset
+        val top = inset
+        val right = size.width - inset
+        val bottom = size.height - inset
+        val stroke = Stroke(w, cap = StrokeCap.Round)
+        // Traced by hand from the top centre: addRoundRect starts at a corner.
+        val outline = Path().apply {
+            moveTo(size.width / 2, top)
+            lineTo(right - r, top)
+            arcTo(Rect(right - 2 * r, top, right, top + 2 * r), -90f, 90f, false)
+            lineTo(right, bottom - r)
+            arcTo(Rect(right - 2 * r, bottom - 2 * r, right, bottom), 0f, 90f, false)
+            lineTo(left + r, bottom)
+            arcTo(Rect(left, bottom - 2 * r, left + 2 * r, bottom), 90f, 90f, false)
+            lineTo(left, top + r)
+            arcTo(Rect(left, top, left + 2 * r, top + 2 * r), 180f, 90f, false)
+            lineTo(size.width / 2, top)
+        }
+        val measure = PathMeasure().apply { setPath(outline, false) }
+        val length = measure.length
+        val played = Path()
+        onDrawBehind {
+            drawRoundRect(colors.separator, Offset(left, top), Size(right - left, bottom - top), CornerRadius(r), style = Stroke(w))
+            played.reset()
+            if (phase != null) {
+                val from = phase.value * length
+                val to = from + length / 4
+                measure.getSegment(from, minOf(to, length), played, true)
+                if (to > length) measure.getSegment(0f, to - length, played, true)
+            } else if (q > 0f) {
+                measure.getSegment(0f, q * length, played, true)
+            }
+            drawPath(played, colors.accent, style = stroke)
+        }
+    })
 }
 
 private fun playLabel(playback: Playback) = when {
     playback.error != null -> "Retry playback"
     playback.playing -> "Pause"
     else -> "Play"
-}
-
-@Composable
-private fun RingIcon(playback: Playback, size: Dp, active: Boolean) {
-    val symbol = when {
-        playback.error != null -> "exclamationmark.triangle.fill"
-        playback.playing -> "pause.fill"
-        else -> "play.fill"
-    }
-    val tint = if (playback.track == null) SdatTheme.colors.tertiaryContent else SdatTheme.colors.content
-    Box(Modifier.size(size), contentAlignment = Alignment.Center) {
-        // Hidden, not removed, while loading: the ring spins instead of a spinner.
-        SdatIcon(symbol, contentDescription = null, size = size * 0.32f, tint = tint, modifier = Modifier.alpha(if (playback.loading) 0f else 1f))
-        // Only the visible style spins so the hidden alpha=0 ring doesn't run a second infinite transition.
-        ProgressRing({ if (playback.loading) 0.0 else playback.progress }, playback.loading && active, Modifier.fillMaxSize().padding(size * 0.14f))
-    }
 }
 
 private fun runFanItem(item: MiniFan.Item, playback: Playback) {
@@ -354,7 +315,7 @@ private fun runFanItem(item: MiniFan.Item, playback: Playback) {
     }
 }
 
-/** Draws [MiniFan] over the whole screen, so the controls can leave the circle and a tap beside them closes it. */
+/** Draws [MiniFan] over the whole screen, so the controls can leave the mini player and a tap beside them closes it. */
 @Composable
 internal fun MiniFanOverlay(playback: Playback) {
     val state = MiniFan.state
@@ -368,8 +329,8 @@ internal fun MiniFanOverlay(playback: Playback) {
     Box(
         Modifier.fillMaxSize()
             .onGloballyPositioned { origin = it.positionInRoot() }
-            .drawBehind { drawRect(Color.Black, alpha = 0.25f * t.value.coerceIn(0f, 1f)) }
-            // Only once lifted: while held the finger still belongs to the circle, and a closing fan must not swallow taps.
+            .drawBehind { drawRect(Color.Black, alpha = 0.32f * t.value.coerceIn(0f, 1f)) }
+            // Only once lifted: while held the finger still belongs to the mini player, and a closing fan must not swallow taps.
             .then(if (state == MiniFan.State.Open) Modifier.pointerInput(Unit) { detectTapGestures { MiniFan.close() } } else Modifier),
     ) {
         for (item in MiniFan.Item.entries) {
@@ -382,6 +343,7 @@ internal fun MiniFanOverlay(playback: Playback) {
 
 @Composable
 private fun FanButton(item: MiniFan.Item, playback: Playback, hovered: Boolean, tappable: Boolean, t: () -> Float, center: () -> Offset) {
+    val colors = SdatTheme.colors
     val (symbol, label) = when (item) {
         MiniFan.Item.Close -> "xmark" to "Close"
         MiniFan.Item.Toggle -> (if (playback.playing) "pause.fill" else "play.fill") to playLabel(playback)
@@ -395,7 +357,9 @@ private fun FanButton(item: MiniFan.Item, playback: Playback, hovered: Boolean, 
     }
     val lift by animateFloatAsState(if (hovered) 1.15f else 1f, spring(dampingRatio = 0.6f), label = "lift")
     val size = item.size.dp
-    Glass(
+    val toggle = item == MiniFan.Item.Toggle
+    val content = if (toggle) colors.onInverse else colors.content
+    Raised(
         Modifier
             .offset {
                 val c = center()
@@ -406,22 +370,24 @@ private fun FanButton(item: MiniFan.Item, playback: Playback, hovered: Boolean, 
             .size(size)
             .graphicsLayer {
                 val p = t()
-                // The close button replaces the circle in place; the controls grow out of it.
+                // The close button replaces the mini player in place; the controls grow out of it.
                 val s = (if (item == MiniFan.Item.Close) 1f else 0.4f + 0.6f * p) * lift
                 scaleX = s
                 scaleY = s
                 alpha = p.coerceIn(0f, 1f)
             },
-        shape = CircleShape,
+        shape = if (item == MiniFan.Item.Close) RoundedCornerShape(miniCorner) else CircleShape,
+        color = if (toggle) colors.inverse else colors.sheet,
+        contentColor = content,
     ) {
         Box(
             Modifier.fillMaxSize()
-                .then(if (hovered) Modifier.background(iosBlue.copy(alpha = 0.3f), CircleShape) else Modifier)
-                // Absent, not disabled, while closing: a disabled clickable still takes the touch from the circle beneath.
+                .then(if (hovered) Modifier.background(colors.accent.copy(alpha = 0.3f)) else Modifier)
+                // Absent, not disabled, while closing: a disabled clickable still takes the touch from the player beneath.
                 .then(if (tappable) Modifier.clickable(role = Role.Button, onClickLabel = label) { runFanItem(item, playback) } else Modifier),
             contentAlignment = Alignment.Center,
         ) {
-            SdatIcon(symbol, label, size = size * 0.42f, tint = SdatTheme.colors.content.copy(alpha = if (locked) 0.4f else 1f))
+            SdatIcon(symbol, label, size = size * 0.46f, tint = content.copy(alpha = if (locked) 0.4f else 1f))
         }
     }
 }

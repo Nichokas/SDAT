@@ -15,7 +15,6 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.itemsIndexed
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material3.SwipeToDismissBox
 import androidx.compose.material3.SwipeToDismissBoxDefaults
 import androidx.compose.material3.SwipeToDismissBoxState
@@ -57,7 +56,7 @@ import com.nichokas.sdat.ui.kit.AlertButton
 import com.nichokas.sdat.ui.kit.AlertButtonLayout
 import com.nichokas.sdat.ui.kit.AlertButtonRole
 import com.nichokas.sdat.ui.kit.AlertDialog
-import com.nichokas.sdat.ui.kit.Glass
+import com.nichokas.sdat.ui.kit.IconButton
 import com.nichokas.sdat.ui.kit.MenuAction
 import com.nichokas.sdat.ui.kit.SdatTheme
 import com.nichokas.sdat.ui.kit.SdatType
@@ -113,10 +112,11 @@ fun DownloadBadge(id: String) {
 @Composable
 private fun DownloadRing(value: Double, size: Dp = 13.dp) {
     val v by animateFloatAsState(maxOf(0.02f, value.toFloat()), tween(200), label = "download")
+    val color = SdatTheme.colors.content
     Canvas(Modifier.size(size).semantics { contentDescription = "Downloading" }) {
         val w = 2.dp.toPx()
-        drawCircle(Color.White.copy(alpha = 0.2f), radius = (this.size.minDimension - w) / 2, style = Stroke(w))
-        drawArc(Color.White, -90f, 360f * v, false, topLeft = Offset(w / 2, w / 2),
+        drawCircle(color.copy(alpha = 0.2f), radius = (this.size.minDimension - w) / 2, style = Stroke(w))
+        drawArc(color, -90f, 360f * v, false, topLeft = Offset(w / 2, w / 2),
             size = Size(this.size.width - w, this.size.height - w), style = Stroke(w, cap = StrokeCap.Round))
     }
 }
@@ -125,17 +125,16 @@ private fun DownloadRing(value: Double, size: Dp = 13.dp) {
 @Composable
 fun DownloadStatusButton(modifier: Modifier = Modifier) {
     val p by animateFloatAsState(Downloads.queue.batchProgress.toFloat(), tween(350), label = "batch")
-    Glass(modifier.size(44.dp), shape = CircleShape) {
+    val accent = SdatTheme.colors.accent
+    IconButton({ Chrome.push(Route.Downloads) }, modifier.size(44.dp)) {
         Box(
-            Modifier.fillMaxSize()
-                .clickable(role = Role.Button, onClickLabel = "Downloads") { Chrome.push(Route.Downloads) }
-                .semantics { contentDescription = "Downloads"; stateDescription = "${(p * 100).toInt()} percent" },
+            Modifier.fillMaxSize().semantics { contentDescription = "Downloads"; stateDescription = "${(p * 100).toInt()} percent" },
             contentAlignment = Alignment.Center,
         ) {
             SdatIcon("arrow.down", null, size = 20.dp, tint = SdatTheme.colors.content)
             Canvas(Modifier.fillMaxSize().padding(1.5.dp)) {
                 val w = 3.dp.toPx()
-                drawArc(iosBlue, -90f, 360f * maxOf(0.001f, p), false, topLeft = Offset(w / 2, w / 2),
+                drawArc(accent, -90f, 360f * maxOf(0.001f, p), false, topLeft = Offset(w / 2, w / 2),
                     size = Size(size.width - w, size.height - w), style = Stroke(w, cap = StrokeCap.Round))
             }
         }
@@ -268,11 +267,11 @@ private fun DownloadSwipeAction(label: String, onDismiss: () -> Unit, content: @
                 Modifier.fillMaxSize().background(colors.destructive).padding(end = ListGutter),
                 contentAlignment = Alignment.CenterEnd,
             ) {
-                Text(label, style = SdatType.headline, color = Color.Black, modifier = Modifier.semantics { hideFromAccessibility() })
+                Text(label, style = SdatType.headline, color = colors.onDestructive, modifier = Modifier.semantics { hideFromAccessibility() })
             }
         },
         onDismiss = remember { { direction: SwipeToDismissBoxValue -> if (direction == SwipeToDismissBoxValue.EndToStart) dismiss() } },
     ) {
-        Box(Modifier.fillMaxWidth().background(colors.groupedBackground)) { content() }
+        Box(Modifier.fillMaxWidth().background(colors.sheet)) { content() }
     }
 }

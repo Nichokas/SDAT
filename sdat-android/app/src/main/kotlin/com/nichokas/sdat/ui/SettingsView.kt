@@ -5,12 +5,20 @@ import android.content.Context
 import android.content.Intent
 import android.widget.Toast
 import androidx.compose.foundation.Image
+import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.navigationBarsPadding
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.selection.selectable
+import androidx.compose.foundation.selection.selectableGroup
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.Text
@@ -24,9 +32,12 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.Dp
@@ -34,6 +45,7 @@ import androidx.compose.ui.unit.dp
 import androidx.core.net.toUri
 import androidx.lifecycle.compose.LifecycleResumeEffect
 import com.nichokas.sdat.R
+import com.nichokas.sdat.core.Accent
 import com.nichokas.sdat.core.AudioCache
 import com.nichokas.sdat.core.Chrome
 import com.nichokas.sdat.core.CrashReporting
@@ -62,6 +74,7 @@ import com.nichokas.sdat.ui.kit.SdatType
 import com.nichokas.sdat.ui.kit.SectionTitle
 import com.nichokas.sdat.ui.kit.Switch
 import com.nichokas.sdat.ui.kit.TextField
+import com.nichokas.sdat.ui.kit.colorScheme
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.launch
 import uniffi.tonearm_ffi.Quality
@@ -119,11 +132,16 @@ fun SettingsView(session: Session, prefs: Preferences, secrets: Secrets, crashRe
         onPauseOrDispose { if (lastFmPending != null) browserOpened = true }
     }
 
-    SdatPage(title = "Settings", onBack = onBack, showsLargeTitle = false, bottomPadding = 0.dp) {
+    SdatPage(title = "Settings", onBack = onBack) {
         item {
             Section("Account") {
                 ListRow("Sessions and devices", showTopSeparator = false, onClick = { context.open("https://account.tidal.com/") }, showDisclosure = false)
                 ListRow("Log out", titleColor = destructive, onClick = { confirmLogout = true }, showDisclosure = false)
+            }
+        }
+        item {
+            Section("Appearance") {
+                ListRow("Accent", subtitle = prefs.accent.label, showTopSeparator = false, trailing = { AccentPicker(prefs.accent) { prefs.accent = it } })
             }
         }
         item {
@@ -271,6 +289,31 @@ internal fun Section(title: String, content: @Composable () -> Unit) {
 @Composable
 internal fun ToggleRow(title: String, checked: Boolean, onChange: (Boolean) -> Unit, first: Boolean = false) {
     ListRow(title, showTopSeparator = !first, trailing = { Switch(checked, onChange) })
+}
+
+/** One swatch per [Accent], each in its own scheme's accent for the current light or dark mode. */
+@Composable
+private fun AccentPicker(selection: Accent, onSelect: (Accent) -> Unit) {
+    val context = LocalContext.current
+    val colors = SdatTheme.colors
+    Row(Modifier.selectableGroup(), horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+        for (accent in Accent.entries) {
+            val swatch = remember(accent, colors.isDark, context) { colorScheme(accent, colors.isDark, context).primary }
+            val selected = accent == selection
+            Box(
+                Modifier.size(40.dp).clip(CircleShape)
+                    .selectable(selected, role = Role.RadioButton) { onSelect(accent) }
+                    .semantics { contentDescription = accent.label },
+                contentAlignment = Alignment.Center,
+            ) {
+                Box(
+                    Modifier.size(28.dp)
+                        .then(if (selected) Modifier.border(2.dp, colors.content, CircleShape).padding(4.dp) else Modifier)
+                        .background(swatch, CircleShape),
+                )
+            }
+        }
+    }
 }
 
 @Composable

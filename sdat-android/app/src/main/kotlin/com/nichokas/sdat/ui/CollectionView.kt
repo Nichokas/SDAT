@@ -107,13 +107,10 @@ fun CollectionView() {
     val tiles = recentTiles(remote.items, Recents.items)
     SdatPage(
         "My Collection",
-        collapsesChrome = true,
         isRefreshing = remote.refreshing,
         onRefresh = { scope.launch { remote.load(manual = true) } },
         actions = {
             IconButton({ Live.showScanner = true }) { SdatIcon("qrcode.viewfinder", "Scan Listen Together invitation", size = 20.dp) }
-            // Clear of the floating buttons over the top bar's trailing edge (profile, plus download status while downloading).
-            Spacer(Modifier.width(if (Downloads.queue.isActive) 104.dp else 52.dp))
         },
     ) {
         item(key = "sections") {

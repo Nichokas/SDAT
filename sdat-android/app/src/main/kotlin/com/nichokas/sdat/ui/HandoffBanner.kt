@@ -19,7 +19,6 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.produceState
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -33,8 +32,8 @@ import com.nichokas.sdat.core.label
 import com.nichokas.sdat.ui.kit.Button
 import com.nichokas.sdat.ui.kit.ButtonSize
 import com.nichokas.sdat.ui.kit.Emphasis
-import com.nichokas.sdat.ui.kit.Glass
 import com.nichokas.sdat.ui.kit.MenuAction
+import com.nichokas.sdat.ui.kit.Raised
 import com.nichokas.sdat.ui.kit.SdatTheme
 import com.nichokas.sdat.ui.kit.SdatType
 import kotlinx.coroutines.delay
@@ -61,7 +60,7 @@ internal fun HandoffBanner(modifier: Modifier) {
                 value = System.currentTimeMillis()
             }
         }
-        Glass(Modifier.fillMaxWidth(), shape = RoundedCornerShape(22.dp)) {
+        Raised(Modifier.padding(16.dp).fillMaxWidth(), shape = RoundedCornerShape(22.dp)) {
             Row(
                 Modifier.padding(10.dp),
                 horizontalArrangement = Arrangement.spacedBy(10.dp),
@@ -74,7 +73,7 @@ internal fun HandoffBanner(modifier: Modifier) {
                     Text(elsewhereLine(e, now), style = SdatType.caption1, color = SdatTheme.colors.accent, maxLines = 1, overflow = TextOverflow.Ellipsis)
                 }
                 Button(Handoff::continueHere, emphasis = Emphasis.Prominent, size = ButtonSize.Small) {
-                    Text("Continue here", style = SdatType.subheadline, fontWeight = FontWeight.SemiBold, color = Color.White, maxLines = 1)
+                    Text("Continue here", style = SdatType.subheadline, fontWeight = FontWeight.SemiBold, maxLines = 1)
                 }
             }
         }

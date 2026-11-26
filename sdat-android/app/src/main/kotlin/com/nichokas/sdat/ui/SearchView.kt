@@ -92,8 +92,6 @@ fun SearchView() {
 
     SdatPage(
         "Search",
-        collapsesChrome = true,
-        showsLargeTitle = false,
         pinnedContent = {
             SearchBar(
                 query = field,

@@ -34,7 +34,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.draw.shadow
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.onFocusChanged
@@ -55,7 +55,7 @@ enum class ButtonSize(val height: Dp, val padding: Dp) { Small(28.dp, 12.dp), Me
 
 enum class Emphasis { Regular, Prominent }
 
-/** A capsule button: accent-filled when [emphasis] is prominent, otherwise a neutral fill. */
+/** A capsule button: inverse-filled when [emphasis] is prominent, otherwise a neutral fill. */
 @Composable
 fun Button(
     onClick: () -> Unit,
@@ -71,7 +71,7 @@ fun Button(
         modifier
             .height(size?.height ?: 48.dp)
             .clip(capsule)
-            .background(if (prominent) colors.accent else colors.fill)
+            .background(if (prominent) colors.inverse else colors.fill)
             .clickable(enabled = enabled, role = Role.Button, onClick = onClick)
             .padding(horizontal = size?.padding ?: 20.dp)
             .alpha(if (enabled) 1f else 0.4f),
@@ -79,19 +79,20 @@ fun Button(
         verticalAlignment = Alignment.CenterVertically,
     ) {
         CompositionLocalProvider(
-            LocalContentColor provides if (prominent) Color.White else colors.content,
+            LocalContentColor provides if (prominent) colors.onInverse else colors.content,
             LocalTextStyle provides SdatType.body.copy(fontWeight = SdatType.headline.fontWeight),
         ) { content() }
     }
 }
 
-/** A 44 dp glass circle around an icon. */
+/** A 44 dp circle around an icon, in the sheet's colour so it stands out on the frame. */
 @Composable
 fun IconButton(onClick: () -> Unit, modifier: Modifier = Modifier, enabled: Boolean = true, content: @Composable BoxScope.() -> Unit) {
     Box(
         modifier
             .defaultMinSize(44.dp, 44.dp)
-            .glass(CircleShape)
+            .clip(CircleShape)
+            .background(SdatTheme.colors.sheet)
             .clickable(enabled = enabled, role = Role.Button, onClick = onClick)
             .alpha(if (enabled) 1f else 0.4f),
         contentAlignment = Alignment.Center,
@@ -99,8 +100,6 @@ fun IconButton(onClick: () -> Unit, modifier: Modifier = Modifier, enabled: Bool
         CompositionLocalProvider(LocalContentColor provides SdatTheme.colors.content) { content() }
     }
 }
-
-private val switchGreen = Color(0xFF34C759)
 
 @Composable
 fun Switch(checked: Boolean, onCheckedChange: (Boolean) -> Unit, modifier: Modifier = Modifier, enabled: Boolean = true) {
@@ -112,17 +111,17 @@ fun Switch(checked: Boolean, onCheckedChange: (Boolean) -> Unit, modifier: Modif
         enabled = enabled,
         thumbContent = {},
         colors = SwitchDefaults.colors(
-            checkedThumbColor = Color.White,
-            checkedTrackColor = switchGreen,
+            checkedThumbColor = colors.onAccent,
+            checkedTrackColor = colors.accent,
             checkedBorderColor = Color.Transparent,
-            uncheckedThumbColor = Color.White,
+            uncheckedThumbColor = colors.secondaryContent,
             uncheckedTrackColor = colors.fill,
             uncheckedBorderColor = Color.Transparent,
         ),
     )
 }
 
-/** A thin capsule track with a small round thumb, drawn in the content color. */
+/** Material's split track: the played part in the accent, a gap, a bar of a handle, then the rest. */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun Slider(
@@ -133,7 +132,7 @@ fun Slider(
     enabled: Boolean = true,
     onValueChangeFinished: (() -> Unit)? = null,
 ) {
-    val content = LocalContentColor.current
+    val colors = SdatTheme.colors
     MaterialSlider(
         value = value,
         onValueChange = onValueChange,
@@ -141,14 +140,21 @@ fun Slider(
         enabled = enabled,
         valueRange = valueRange,
         onValueChangeFinished = onValueChangeFinished,
-        thumb = { Box(Modifier.size(18.dp).shadow(2.dp, CircleShape).background(Color.White, CircleShape)) },
+        thumb = { Box(Modifier.size(4.dp, 24.dp).background(if (enabled) colors.accent else colors.secondaryContent, capsule)) },
         track = { state ->
             Canvas(Modifier.fillMaxWidth().height(6.dp)) {
                 val span = state.valueRange.endInclusive - state.valueRange.start
                 val f = if (span > 0f) ((state.value - state.valueRange.start) / span).coerceIn(0f, 1f) else 0f
                 val r = CornerRadius(size.height / 2)
-                drawRoundRect(content.copy(alpha = 0.25f), cornerRadius = r)
-                drawRoundRect(content.copy(alpha = if (enabled) 0.9f else 0.5f), size = Size(size.width * f, size.height), cornerRadius = r)
+                // The handle sits in this gap; Material's thumb is centred on the value.
+                val gap = 6.dp.toPx()
+                val at = size.width * f
+                if (at - gap > 0f) {
+                    drawRoundRect(if (enabled) colors.accent else colors.secondaryContent, size = Size(at - gap, size.height), cornerRadius = r)
+                }
+                if (size.width - at - gap > 0f) {
+                    drawRoundRect(colors.fill, topLeft = Offset(at + gap, 0f), size = Size(size.width - at - gap, size.height), cornerRadius = r)
+                }
             }
         },
     )
@@ -208,7 +214,7 @@ fun TextField(
     )
 }
 
-/** A glass capsule search field; while [active], a close button beside it ends the search. */
+/** A capsule search field; while [active], a close button beside it ends the search. */
 @Composable
 fun SearchBar(
     query: TextFieldValue,
@@ -228,11 +234,12 @@ fun SearchBar(
         Row(
             Modifier
                 .weight(1f)
-                .height(48.dp)
-                .glass(capsule)
+                .height(52.dp)
+                .clip(capsule)
+                .background(colors.fill)
                 .clickable(role = Role.Button, onClickLabel = placeholder) { focus.requestFocus() }
-                .padding(horizontal = 14.dp),
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                .padding(horizontal = 18.dp),
+            horizontalArrangement = Arrangement.spacedBy(12.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
             SdatIcon("magnifyingglass", null, size = 22.dp, tint = colors.secondaryContent)
@@ -254,7 +261,11 @@ fun SearchBar(
             )
         }
         if (active) {
-            IconButton({ focusManager.clearFocus(); onClose() }, Modifier.size(48.dp)) { SdatIcon("xmark", closeContentDescription, size = 20.dp) }
+            Box(
+                Modifier.size(52.dp).clip(CircleShape).background(colors.fill)
+                    .clickable(role = Role.Button) { focusManager.clearFocus(); onClose() },
+                contentAlignment = Alignment.Center,
+            ) { SdatIcon("xmark", closeContentDescription, size = 20.dp) }
         }
     }
 }

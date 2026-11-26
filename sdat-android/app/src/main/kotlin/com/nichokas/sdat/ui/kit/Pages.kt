@@ -1,172 +1,71 @@
 package com.nichokas.sdat.ui.kit
 
-import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxScope
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.RowScope
-import androidx.compose.foundation.layout.WindowInsets
-import androidx.compose.foundation.layout.asPaddingValues
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.statusBars
 import androidx.compose.foundation.layout.statusBarsPadding
-import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.LazyListScope
-import androidx.compose.foundation.lazy.LazyListState
-import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Text
-import androidx.compose.material3.pulltorefresh.PullToRefreshDefaults
-import androidx.compose.material3.pulltorefresh.pullToRefresh
-import androidx.compose.material3.pulltorefresh.rememberPullToRefreshState
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.derivedStateOf
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.remember
+import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Brush
-import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.graphicsLayer
-import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.semantics.heading
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
-import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import com.nichokas.sdat.ui.SdatIcon
 
-private val barHeight = 52.dp
+/** Height of the header row on the frame, under the status bar. */
+val HeaderHeight = 56.dp
+
+private val sheetShape = RoundedCornerShape(topStart = 28.dp, topEnd = 28.dp)
 
 /**
- * A page under a top bar of glass buttons: back at the start, [actions] at the end, and [title] fading in with
- * [collapseProgress]. While [scrolled], a scrim of [backgroundColor] keeps the bar readable over the content.
+ * A header on the frame, then [content] on a sheet with rounded top corners. A tab root, with no [onNavigateBack],
+ * names itself in a larger title; a pushed page shows a back button beside a smaller one.
  */
+/** Trailing header actions every tab root shares (profile, shuffle, downloads), provided once by the shell. */
+val LocalRootActions = staticCompositionLocalOf<@Composable RowScope.() -> Unit> { {} }
+
 @Composable
-fun PinnedPage(
+fun SheetPage(
     title: String,
     onNavigateBack: (() -> Unit)?,
-    collapseProgress: Float,
-    scrolled: Boolean,
-    backgroundColor: Color,
     modifier: Modifier = Modifier,
     actions: @Composable RowScope.() -> Unit = {},
-    background: @Composable BoxScope.() -> Unit = {},
-    content: @Composable (PaddingValues) -> Unit,
+    content: @Composable BoxScope.() -> Unit,
 ) {
-    val status = WindowInsets.statusBars.asPaddingValues().calculateTopPadding()
-    val nav = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
-    val edge by animateFloatAsState(if (scrolled) 1f else 0f, label = "edge")
-    Box(modifier.fillMaxSize().background(backgroundColor)) {
-        background()
-        content(PaddingValues(top = status + barHeight, bottom = nav))
-        Box(
-            Modifier
-                .fillMaxWidth()
-                .height(status + barHeight + 16.dp)
-                .graphicsLayer { alpha = edge }
-                .background(Brush.verticalGradient(0.7f to backgroundColor, 1f to backgroundColor.copy(alpha = 0f))),
-        )
+    val colors = SdatTheme.colors
+    Column(modifier.fillMaxSize().background(colors.frame).statusBarsPadding()) {
         Row(
-            Modifier.fillMaxWidth().statusBarsPadding().height(barHeight).padding(start = 16.dp, end = 16.dp, top = 4.dp),
+            Modifier.fillMaxWidth().height(HeaderHeight).padding(start = if (onNavigateBack == null) 20.dp else 16.dp, end = 16.dp),
             horizontalArrangement = Arrangement.spacedBy(8.dp),
-            verticalAlignment = Alignment.Top,
+            verticalAlignment = Alignment.CenterVertically,
         ) {
-            if (onNavigateBack != null) IconButton(onNavigateBack) { SdatIcon("chevron.left", "Back", size = 26.dp) }
-            Box(Modifier.weight(1f).height(44.dp), contentAlignment = Alignment.Center) {
-                Text(
-                    title,
-                    Modifier.graphicsLayer { alpha = collapseProgress },
-                    style = SdatType.headline,
-                    color = SdatTheme.colors.content,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                )
-            }
+            if (onNavigateBack != null) IconButton(onNavigateBack) { SdatIcon("arrow.left", "Back", size = 22.dp) }
+            Text(
+                title,
+                Modifier.weight(1f).padding(start = if (onNavigateBack == null) 0.dp else 4.dp).semantics { heading() },
+                color = colors.content,
+                style = if (onNavigateBack == null) SdatType.title3.copy(fontSize = 20.sp, fontWeight = FontWeight.SemiBold) else SdatType.headline.copy(fontSize = 16.sp, fontWeight = FontWeight.Medium),
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
             actions()
+            if (onNavigateBack == null) LocalRootActions.current(this)
         }
-    }
-}
-
-/** A list page whose large [title] scrolls up into the top bar. */
-@OptIn(ExperimentalMaterial3Api::class)
-@Composable
-fun PinnedListPage(
-    title: String,
-    listState: LazyListState,
-    showsLargeTitle: Boolean,
-    onNavigateBack: (() -> Unit)?,
-    actions: @Composable RowScope.() -> Unit,
-    bottomPadding: Dp,
-    modifier: Modifier = Modifier,
-    pinnedContent: (@Composable () -> Unit)? = null,
-    isRefreshing: Boolean = false,
-    onRefresh: (() -> Unit)? = null,
-    content: LazyListScope.() -> Unit,
-) {
-    val density = LocalDensity.current
-    val pastTitle by remember(showsLargeTitle) {
-        derivedStateOf {
-            !showsLargeTitle || listState.firstVisibleItemIndex > 0 || listState.firstVisibleItemScrollOffset > with(density) { 36.dp.toPx() }
-        }
-    }
-    val collapse by animateFloatAsState(if (pastTitle) 1f else 0f, label = "title")
-    val scrolled by remember { derivedStateOf { listState.canScrollBackward } }
-    PinnedPage(
-        title = title,
-        onNavigateBack = onNavigateBack,
-        collapseProgress = collapse,
-        scrolled = scrolled && pinnedContent == null,
-        backgroundColor = SdatTheme.colors.groupedBackground,
-        modifier = modifier,
-        actions = actions,
-    ) { padding ->
-        val top = padding.calculateTopPadding()
-        val refreshState = if (onRefresh != null) rememberPullToRefreshState() else null
-        val refreshModifier = if (refreshState != null && onRefresh != null) {
-            Modifier.pullToRefresh(isRefreshing = isRefreshing, state = refreshState, onRefresh = onRefresh)
-        } else {
-            Modifier
-        }
-        Box(Modifier.fillMaxSize().then(refreshModifier)) {
-            Column(Modifier.fillMaxSize().padding(top = if (pinnedContent != null) top else 0.dp)) {
-                pinnedContent?.invoke()
-                LazyColumn(
-                    state = listState,
-                    modifier = Modifier.weight(1f).fillMaxWidth(),
-                    contentPadding = PaddingValues(
-                        top = if (pinnedContent == null) top else 0.dp,
-                        bottom = padding.calculateBottomPadding() + bottomPadding,
-                    ),
-                ) {
-                    if (showsLargeTitle) {
-                        item(key = "large-title") {
-                            Text(
-                                title,
-                                Modifier.padding(start = 16.dp, end = 16.dp, bottom = 8.dp),
-                                style = SdatType.largeTitle,
-                                color = SdatTheme.colors.content,
-                            )
-                        }
-                    }
-                    content()
-                }
-            }
-            if (refreshState != null) {
-                Box(Modifier.align(Alignment.TopCenter).padding(top = top)) {
-                    PullToRefreshDefaults.Indicator(
-                        state = refreshState,
-                        isRefreshing = isRefreshing,
-                        containerColor = SdatTheme.colors.elevatedBackground,
-                        color = SdatTheme.colors.content,
-                    )
-                }
-            }
-        }
+        Box(Modifier.padding(top = 8.dp).fillMaxSize().clip(sheetShape).background(colors.sheet), content = content)
     }
 }

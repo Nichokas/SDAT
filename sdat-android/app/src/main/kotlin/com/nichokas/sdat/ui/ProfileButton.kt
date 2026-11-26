@@ -2,7 +2,6 @@ package com.nichokas.sdat.ui
 
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
@@ -16,21 +15,20 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
-import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
 import coil3.compose.AsyncImage
 import com.nichokas.sdat.core.Session
-import com.nichokas.sdat.ui.kit.Glass
+import com.nichokas.sdat.ui.kit.IconButton
 import uniffi.tonearm_ffi.profilePictureUrl
 
 /** iOS ProfileButton: the circular TIDAL profile photo (generic silhouette as a fallback) that opens Settings. */
 @Composable
 fun ProfileButton(session: Session, onClick: () -> Unit, modifier: Modifier = Modifier) {
     LaunchedEffect(Unit) { runCatching { profilePictureUrl() }.onSuccess { session.profilePicture = it } }
-    Glass(modifier.size(44.dp), shape = CircleShape) {
-        Box(Modifier.fillMaxSize().clickable(role = Role.Button, onClickLabel = "Settings", onClick = onClick).padding(4.dp)) {
-            Avatar(session.profilePicture)
-        }
+    IconButton(onClick, modifier.size(44.dp).semantics { contentDescription = "Settings" }) {
+        Box(Modifier.fillMaxSize().padding(4.dp)) { Avatar(session.profilePicture) }
     }
 }
 
@@ -38,7 +36,7 @@ fun ProfileButton(session: Session, onClick: () -> Unit, modifier: Modifier = Mo
 private fun Avatar(url: String?) {
     val circle = Modifier.fillMaxSize().clip(CircleShape)
     if (url != null) {
-        AsyncImage(url, contentDescription = "Settings", modifier = circle, contentScale = ContentScale.Crop)
+        AsyncImage(url, contentDescription = null, modifier = circle, contentScale = ContentScale.Crop)
         return
     }
     // Head and shoulders, as iOS AvatarSilhouette; the circle clip cuts the shoulders off.

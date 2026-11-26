@@ -17,7 +17,7 @@ import com.nichokas.sdat.ui.kit.SdatTheme
 @Composable
 fun CountryView(onBack: () -> Unit) {
     LaunchedEffect(Unit) { Region.loadAutomatic() }
-    SdatPage(title = "Country / Region", onBack = onBack, showsLargeTitle = false, bottomPadding = 0.dp) {
+    SdatPage(title = "Country / Region", onBack = onBack) {
         item {
             GroupedList {
                 Choice(Region.automaticLabel, Region.preferred == null, first = true) { Region.select(null) }
