@@ -119,11 +119,14 @@ fun CoverPlane(tracks: List<Track>, background: Color, placeholder: Color, onTap
             }
         }
         // Every cover reaches the disk cache before a fling can, a few at a time so the tiles on screen are
-        // not queued behind the whole pool.
+        // not queued behind the whole pool. Those tiles load their own covers; warming them too would
+        // download them twice, since Coil does not merge identical requests in flight.
         LaunchedEffect(tracks, coverPx) {
             val loader = SingletonImageLoader.get(context)
             val permits = Semaphore(4)
-            for (track in tracks) {
+            val onScreen = cells.mapTo(HashSet()) { plane.index(it) }
+            for ((i, track) in tracks.withIndex()) {
+                if (i in onScreen) continue
                 val url = track.album?.coverUrl?.let { CoverUrl.sized(it, coverPx) } ?: continue
                 launch { permits.withPermit { loader.execute(coverRequest(context, url, coverPx)) } }
             }
