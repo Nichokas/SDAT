@@ -18,6 +18,15 @@
       "category": "entertainment",
       "versions": [
         {
+          "version": "2.7.1",
+          "buildVersion": "22",
+          "date": "2026-11-26T21:37:10Z",
+          "localizedDescription": "## What's Changed\n* Android: replace Glasmio with a Material 3 and Haze kit in iOS shapes by @Nichokas in https://github.com/Nichokas/SDAT/pull/250\n* iOS: restore the playback audio session when iOS drops it by @Nichokas in https://github.com/Nichokas/SDAT/pull/251\n* Preserve repeated tracks in desktop paginated queues by @Nichokas in https://github.com/Nichokas/SDAT/pull/260\n* Fix iOS playback lifecycle and queue state by @Nichokas in https://github.com/Nichokas/SDAT/pull/263\n* Preserve longer fixed queues in Send To by @Nichokas in https://github.com/Nichokas/SDAT/pull/261\n* Bring Android playback and browsing controls into parity by @Nichokas in https://github.com/Nichokas/SDAT/pull/262\n* Android: solid Material You surfaces with an accent picker and a rounded-square mini player by @Nichokas in https://github.com/Nichokas/SDAT/pull/264\n* Remove cubic from the review bot by @Nichokas in https://github.com/Nichokas/SDAT/pull/265\n\n\n**Full Changelog**: https://github.com/Nichokas/SDAT/compare/v2.7.0...v2.7.1",
+          "downloadURL": "https://github.com/Nichokas/SDAT/releases/download/v2.7.1/SDAT-v2.7.1-unsigned.ipa",
+          "size": 12121037,
+          "minOSVersion": "26.0"
+        },
+        {
           "version": "2.7.0",
           "buildVersion": "21",
           "date": "2026-11-24T17:59:09Z",
@@ -180,11 +189,11 @@
           "minOSVersion": "26.0"
         }
       ],
-      "version": "2.7.0",
-      "versionDate": "2026-11-24T17:59:09Z",
-      "versionDescription": "## What's Changed\n* Android: draw Glasmio with reduced transparency by @Nichokas in https://github.com/Nichokas/SDAT/pull/248\n* Hold the mini-player circle for a fan of playback controls (iOS, Android) by @Nichokas in https://github.com/Nichokas/SDAT/pull/249\n\n\n**Full Changelog**: https://github.com/Nichokas/SDAT/compare/v2.6.0...v2.7.0",
-      "downloadURL": "https://github.com/Nichokas/SDAT/releases/download/v2.7.0/SDAT-v2.7.0-unsigned.ipa",
-      "size": 12102008
+      "version": "2.7.1",
+      "versionDate": "2026-11-26T21:37:10Z",
+      "versionDescription": "## What's Changed\n* Android: replace Glasmio with a Material 3 and Haze kit in iOS shapes by @Nichokas in https://github.com/Nichokas/SDAT/pull/250\n* iOS: restore the playback audio session when iOS drops it by @Nichokas in https://github.com/Nichokas/SDAT/pull/251\n* Preserve repeated tracks in desktop paginated queues by @Nichokas in https://github.com/Nichokas/SDAT/pull/260\n* Fix iOS playback lifecycle and queue state by @Nichokas in https://github.com/Nichokas/SDAT/pull/263\n* Preserve longer fixed queues in Send To by @Nichokas in https://github.com/Nichokas/SDAT/pull/261\n* Bring Android playback and browsing controls into parity by @Nichokas in https://github.com/Nichokas/SDAT/pull/262\n* Android: solid Material You surfaces with an accent picker and a rounded-square mini player by @Nichokas in https://github.com/Nichokas/SDAT/pull/264\n* Remove cubic from the review bot by @Nichokas in https://github.com/Nichokas/SDAT/pull/265\n\n\n**Full Changelog**: https://github.com/Nichokas/SDAT/compare/v2.7.0...v2.7.1",
+      "downloadURL": "https://github.com/Nichokas/SDAT/releases/download/v2.7.1/SDAT-v2.7.1-unsigned.ipa",
+      "size": 12121037
     }
   ],
   "news": []
