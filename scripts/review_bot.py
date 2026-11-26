@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Run cubic and Macroscope on a pull request and publish their findings.
+"""Run Macroscope on a pull request and publish its findings.
 
   review_bot.py run <reviewer> --base main --out result.json
   review_bot.py publish --pr 12 --sha abc --base main --results dir --run-url url
@@ -99,29 +99,6 @@ def json_object(text: str) -> dict | None:
     return value if isinstance(value, dict) else None
 
 
-def parse_cubic(reviewer: str, output: Output) -> Result:
-    report = json_object(output.stdout) or {}
-    issues = report.get("issues")
-    if not isinstance(issues, list):
-        return Result(reviewer, Status.FAILED)
-    # Exit 1 means findings or an error, and a logged-out run reports `"issues": []` with `error`.
-    completed = not report.get("error") and (output.exit_code == 0 or bool(issues))
-    return Result(
-        reviewer,
-        Status.COMPLETED if completed else Status.FAILED,
-        findings=[
-            Finding(
-                severity=severity(issue.get("priority")),
-                file=issue.get("file", ""),
-                line=issue.get("line"),
-                title=issue.get("title", ""),
-                body=issue.get("description", ""),
-            )
-            for issue in issues
-        ],
-    )
-
-
 def parse_macroscope(reviewer: str, output: Output) -> Result:
     ignored = (json_object(output.stdout) or {}).get("error_code") == "all_files_ignored"
     if ignored and output.exit_code == 0:
@@ -171,7 +148,6 @@ def restore_macroscope() -> None:
 class Reviewer:
     label: str
     secret: str
-    secret_help: str
     install: str
     command: Callable[[str], list[str]]
     parse: Callable[[str, Output], Result]
@@ -179,18 +155,9 @@ class Reviewer:
 
 
 REVIEWERS = {
-    "cubic": Reviewer(
-        label="cubic",
-        secret="CUBIC_API_KEY",
-        secret_help="https://www.cubic.dev/settings?tab=api-cli&integration=cli",
-        install='curl -fsSL https://cubic.dev/install | CUBIC_INSTALL_DIR="$HOME/.local/bin" bash',
-        command=lambda base: ["cubic", "review", "--base", base, "--json"],
-        parse=parse_cubic,
-    ),
     "macroscope": Reviewer(
         label="Macroscope",
         secret="MACROSCOPE_AUTH",
-        secret_help="created by `set-account macroscope`",
         install=(
             "curl -fsSL https://raw.githubusercontent.com/prassoai/macroscope-local/main/install.sh"
             " | bash -s -- --yes --no-wizard"
@@ -544,15 +511,12 @@ def publish(pr: int, sha: str, base: str, results: list[Result], run_url: str) -
 
 
 def set_account(name: str) -> None:
-    reviewer = REVIEWERS[name]
-    if name == "macroscope":
-        value = macroscope_login()
-        subprocess.run(
-            ["gh", "secret", "set", reviewer.secret, "-R", REPO], input=value, text=True, check=True
-        )
-        return
-    print(f"Create the key at {reviewer.secret_help}, then paste it here.")
-    subprocess.run(["gh", "secret", "set", reviewer.secret, "-R", REPO], check=True)
+    subprocess.run(
+        ["gh", "secret", "set", REVIEWERS[name].secret, "-R", REPO],
+        input=macroscope_login(),
+        text=True,
+        check=True,
+    )
 
 
 def macroscope_login() -> str:

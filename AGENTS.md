@@ -70,8 +70,8 @@ Notes for coding agents working on SDAT, a TIDAL player for Fedora (GTK), iPhone
 ## Pull requests
 
 - The review bot runs on non-draft PRs and on every push to them; each run spends reviewer quota, so push finished batches. Comment `/review` to rerun it without a push. Fix the findings. It approves when every reviewer that ran is clean, and withdraws that approval on a later run that is not.
-- For a fork PR, or to review before pushing, run the CLIs: Macroscope (`--mode precise`) and cubic (`cubic review --base main`).
-- Bot accounts are repository secrets of this repo only. Change one with `python3 scripts/review_bot.py set-account <cubic|macroscope>`.
+- For a fork PR, or to review before pushing, run the Macroscope CLI with `--mode precise`.
+- Bot accounts are repository secrets of this repo only. Change one with `python3 scripts/review_bot.py set-account macroscope`.
 - Squash-merge when reviewers are clean, CI is green and review threads are resolved.
 - Agents watch every PR they open or push to until it merges or is closed: fix CI and the findings, answer the rest on their threads, and squash-merge as soon as the conditions above hold, without asking: the owner gave that standing OK.
 - The CodeRabbit GitHub app is removed: never post `@coderabbitai review`.

@@ -20,7 +20,6 @@ from review_bot import (
     inline_comments,
     inline_key,
     is_clean,
-    parse_cubic,
     parse_macroscope,
     render,
 )
@@ -31,27 +30,6 @@ def finding(body="body", severity="minor"):
 
 
 class ParseTests(unittest.TestCase):
-    def test_cubic_reports_findings_despite_exit_one(self):
-        stdout = json.dumps(
-            {"issues": [{"priority": "P0", "file": "a.rs", "line": 3, "title": "t", "description": "d"}]}
-        )
-        result = parse_cubic("cubic", Output(stdout, "", 1))
-        self.assertIs(result.status, Status.COMPLETED)
-        self.assertEqual(result.findings, [Finding("critical", "a.rs", 3, "t", "d")])
-
-    def test_cubic_error_is_not_clean(self):
-        self.assertIs(parse_cubic("cubic", Output("Unauthorized", "", 1)).status, Status.FAILED)
-
-    def test_cubic_logged_out_is_not_clean(self):
-        stdout = json.dumps({"issues": [], "error": "No AI provider is configured."})
-        self.assertIs(parse_cubic("cubic", Output(stdout, "", 1)).status, Status.FAILED)
-
-    def test_cubic_empty_issues_with_exit_one_is_not_clean(self):
-        self.assertIs(parse_cubic("cubic", Output('{"issues": []}', "", 1)).status, Status.FAILED)
-
-    def test_cubic_clean_review_is_clean(self):
-        self.assertIs(parse_cubic("cubic", Output('{"issues": []}', "", 0)).status, Status.COMPLETED)
-
     def test_macroscope_failure_keeps_findings(self):
         event = {"path": "a.rs", "line": 3, "severity": "medium", "body": "Bad thing. More detail."}
         stderr = "\n".join(
@@ -84,21 +62,20 @@ class RenderTests(unittest.TestCase):
         return render(list(results), "abcdef123", "main", "https://run")
 
     def test_failed_reviewer_is_never_clean(self):
-        comment = self.render(Result("cubic", Status.FAILED), Result("macroscope", Status.COMPLETED))
-        self.assertIn("| cubic | **failed**, no review |", comment)
-        self.assertIn("| Macroscope | clean |", comment)
+        comment = self.render(Result("macroscope", Status.FAILED))
+        self.assertIn("| Macroscope | **failed**, no review |", comment)
 
     def test_skipped_reviewer_says_so(self):
         comment = self.render(Result("macroscope", Status.SKIPPED, note="Out of included reviews."))
         self.assertIn("| Macroscope | skipped | Out of included reviews. |", comment)
 
     def test_mentions_do_not_ping(self):
-        comment = self.render(Result("cubic", Status.COMPLETED, [finding("uses @types/node")]))
+        comment = self.render(Result("macroscope", Status.COMPLETED, [finding("uses @types/node")]))
         self.assertNotIn("@types", comment)
 
     def test_oversized_review_stays_within_github_limit_and_balanced(self):
         huge = [finding("x" * 30000) for _ in range(5)]
-        comment = self.render(Result("cubic", Status.COMPLETED, huge))
+        comment = self.render(Result("macroscope", Status.COMPLETED, huge))
         self.assertLess(len(comment), 65536)
         self.assertEqual(comment.count("<details>"), comment.count("</details>"))
         self.assertIn("4 omitted", comment)
@@ -106,7 +83,7 @@ class RenderTests(unittest.TestCase):
 
     def test_most_severe_finding_comes_first(self):
         comment = self.render(
-            Result("cubic", Status.COMPLETED, [finding("low one", "info"), finding("high one", "critical")])
+            Result("macroscope", Status.COMPLETED, [finding("low one", "info"), finding("high one", "critical")])
         )
         self.assertLess(comment.index("high one"), comment.index("low one"))
 
@@ -146,19 +123,19 @@ class InlineTests(unittest.TestCase):
         other_file = Finding("major", "b.rs", 3, "other file", "b")
         no_line = Finding("major", "a.rs", None, "no line", "b")
         old = Finding("major", "a.rs", 3, "already posted", "b")
-        results = [Result("cubic", Status.COMPLETED, [on_diff, off_diff, other_file, no_line, old, on_diff])]
+        results = [Result("macroscope", Status.COMPLETED, [on_diff, off_diff, other_file, no_line, old, on_diff])]
 
-        comments = inline_comments(results, {"a.rs": {3}}, {inline_key("cubic", old)})
+        comments = inline_comments(results, {"a.rs": {3}}, {inline_key("macroscope", old)})
 
         self.assertEqual(len(comments), 1)
         self.assertEqual((comments[0]["path"], comments[0]["line"]), ("a.rs", 3))
-        self.assertIn(f"<!-- review-bot:{inline_key('cubic', on_diff)} -->", comments[0]["body"])
+        self.assertIn(f"<!-- review-bot:{inline_key('macroscope', on_diff)} -->", comments[0]["body"])
         self.assertNotIn("@someone", comments[0]["body"])
 
 
     def test_same_title_on_two_lines_gets_two_comments(self):
         findings = [Finding("major", "a.rs", 3, "same", "b"), Finding("major", "a.rs", 4, "same", "b")]
-        comments = inline_comments([Result("cubic", Status.COMPLETED, findings)], {"a.rs": {3, 4}}, set())
+        comments = inline_comments([Result("macroscope", Status.COMPLETED, findings)], {"a.rs": {3, 4}}, set())
         self.assertEqual([c["line"] for c in comments], [3, 4])
 
 
@@ -171,7 +148,7 @@ class PublishTests(unittest.TestCase):
             return json.dumps({"head": {"sha": "newer"}})
 
         with mock.patch.object(review_bot, "gh_api", fake):
-            review_bot.publish(7, "older", "main", [Result("cubic", Status.COMPLETED)], "url")
+            review_bot.publish(7, "older", "main", [Result("macroscope", Status.COMPLETED)], "url")
         self.assertEqual(calls, [(f"repos/{review_bot.REPO}/pulls/7",)])
 
     def test_publish_command_reaches_publish(self):
@@ -187,7 +164,7 @@ class PublishTests(unittest.TestCase):
 
 
 class ApprovalTests(unittest.TestCase):
-    clean = Result("cubic", Status.COMPLETED)
+    clean = Result("macroscope", Status.COMPLETED)
     skipped = Result("macroscope", Status.SKIPPED)
 
     def test_skipped_reviewer_does_not_block_approval(self):
@@ -235,13 +212,13 @@ class ApprovalTests(unittest.TestCase):
             return review_bot.load_results(Path(directory))
 
     def test_status_survives_the_result_artifact(self):
-        results = self.load(self.clean, self.skipped)
-        self.assertEqual([r.status for r in results], [Status.COMPLETED, Status.SKIPPED])
+        results = self.load(self.clean)
+        self.assertEqual([r.status for r in results], [Status.COMPLETED])
         self.assertTrue(is_clean(results))
 
     def test_missing_result_artifact_is_a_failure(self):
-        results = self.load(self.clean)
-        self.assertEqual([r.status for r in results], [Status.COMPLETED, Status.FAILED])
+        results = self.load()
+        self.assertEqual([r.status for r in results], [Status.FAILED])
         self.assertFalse(is_clean(results))
 
 
@@ -263,12 +240,12 @@ class GateTests(unittest.TestCase):
             return review_bot.gate(7, "abc", keep_waiting)
 
     def test_findings_or_failures_block_and_skips_do_not(self):
-        self.assertTrue(review_bot.builds_may_run([Result("cubic", Status.SKIPPED)]))
-        self.assertFalse(review_bot.builds_may_run([Result("cubic", Status.COMPLETED, [finding()])]))
-        self.assertFalse(review_bot.builds_may_run([Result("cubic", Status.FAILED)]))
+        self.assertTrue(review_bot.builds_may_run([Result("macroscope", Status.SKIPPED)]))
+        self.assertFalse(review_bot.builds_may_run([Result("macroscope", Status.COMPLETED, [finding()])]))
+        self.assertFalse(review_bot.builds_may_run([Result("macroscope", Status.FAILED)]))
 
     def test_comment_carries_the_verdict_for_its_sha(self):
-        comment = render([Result("cubic", Status.COMPLETED, [finding()])], "abc", "main", "url")
+        comment = render([Result("macroscope", Status.COMPLETED, [finding()])], "abc", "main", "url")
         self.assertIn("<!-- review-bot-verdict:abc:block -->", comment)
 
     def test_waits_for_the_verdict_on_its_own_sha(self):
@@ -449,16 +426,16 @@ class InstallCliTests(unittest.TestCase):
 class RunReviewTests(unittest.TestCase):
     def test_timeout_returns_failed_result(self):
         timeout = subprocess.TimeoutExpired(
-            cmd=["cubic"],
+            cmd=["macroscope"],
             timeout=review_bot.REVIEW_TIMEOUT_SECONDS,
             output=b"partial stdout",
             stderr=b"partial stderr",
         )
         with mock.patch.dict(os.environ, {"PATH": ""}, clear=True), \
-                mock.patch("shutil.which", return_value="/usr/bin/cubic"), \
+                mock.patch("shutil.which", return_value="/usr/bin/macroscope"), \
                 mock.patch("subprocess.run", side_effect=timeout) as run:
-            result = review_bot.run_review("cubic", "main")
-        self.assertEqual(result, Result("cubic", Status.FAILED, note="Timed out."))
+            result = review_bot.run_review("macroscope", "main")
+        self.assertEqual(result, Result("macroscope", Status.FAILED, note="Timed out."))
         self.assertEqual(run.call_args.kwargs["timeout"], review_bot.REVIEW_TIMEOUT_SECONDS)
 
     def test_macroscope_timeout_preserves_emitted_findings(self):
@@ -480,30 +457,6 @@ class RunReviewTests(unittest.TestCase):
                 "macroscope",
                 Status.FAILED,
                 findings=[Finding("minor", "a.rs", 3, "Bad thing", "More detail.")],
-                note="Timed out.",
-            ),
-        )
-
-    def test_cubic_timeout_keeps_failed_status_when_findings_were_emitted(self):
-        stdout = json.dumps(
-            {"issues": [{"priority": "P0", "file": "a.rs", "line": 3, "title": "t", "description": "d"}]}
-        )
-        timeout = subprocess.TimeoutExpired(
-            cmd=["cubic"],
-            timeout=review_bot.REVIEW_TIMEOUT_SECONDS,
-            output=stdout,
-            stderr=None,
-        )
-        with mock.patch.dict(os.environ, {"PATH": ""}, clear=True), \
-                mock.patch("shutil.which", return_value="/usr/bin/cubic"), \
-                mock.patch("subprocess.run", side_effect=timeout):
-            result = review_bot.run_review("cubic", "main")
-        self.assertEqual(
-            result,
-            Result(
-                "cubic",
-                Status.FAILED,
-                findings=[Finding("critical", "a.rs", 3, "t", "d")],
                 note="Timed out.",
             ),
         )
