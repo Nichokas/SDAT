@@ -8,13 +8,11 @@ import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutVertically
 import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.background
-import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.statusBarsPadding
@@ -48,7 +46,7 @@ import com.nichokas.sdat.ui.kit.AlertButton
 import com.nichokas.sdat.ui.kit.AlertButtonLayout
 import com.nichokas.sdat.ui.kit.AlertButtonRole
 import com.nichokas.sdat.ui.kit.AlertDialog
-import com.nichokas.sdat.ui.kit.HeaderHeight
+import com.nichokas.sdat.ui.kit.LocalRootActions
 import com.nichokas.sdat.ui.kit.Raised
 import com.nichokas.sdat.ui.kit.SdatTheme
 import com.nichokas.sdat.ui.kit.SdatType
@@ -83,36 +81,32 @@ fun RootView(session: Session, playback: Playback, prefs: Preferences, secrets: 
     Box(Modifier.fillMaxSize().background(colors.frame)) {
         Column(Modifier.fillMaxSize()) {
             Box(Modifier.weight(1f)) {
+                // As on iOS, Discover's header has Shuffle where the other tabs show download progress.
+                val rootActions: @Composable RowScope.() -> Unit = {
+                    if (nav.tab == AppTab.Discover) ShuffleButton(mixes.isNotEmpty(), { playback.playInfinite(mixes) })
+                    else if (Downloads.queue.isActive) DownloadStatusButton()
+                    ProfileButton(session, { Chrome.push(Route.Settings) })
+                }
                 // Each tab keeps its pages' saved state (scroll positions) while another tab is shown.
                 stacks.SaveableStateProvider(nav.tab.name) {
-                    TabStack(nav.tab, nav.stack) { route ->
-                        when (route) {
-                            null -> TabRoot(nav.tab, session, playback)
-                            Route.Settings -> SettingsView(session, prefs, secrets, crashReporting, playback::setStreamingQuality, playback::setPreloadNext, onBack = Chrome::pop)
-                            Route.Diagnostics -> DiagnosticsView(crashReporting, onBack = Chrome::pop)
-                            Route.Country -> CountryView(onBack = Chrome::pop)
-                            is Route.Explore -> ExploreView(route.path, route.title)
-                            is Route.Album -> AlbumView(route.id)
-                            is Route.Playlist -> PlaylistView(route.id)
-                            is Route.Artist -> ArtistView(route.id)
-                            Route.CollectionTracks -> CollectionTracksView()
-                            Route.CollectionAlbums -> CollectionAlbumsView()
-                            Route.CollectionArtists -> CollectionArtistsView()
-                            Route.CollectionPlaylists -> CollectionPlaylistsView()
-                            Route.Downloads -> DownloadsView()
+                    CompositionLocalProvider(LocalRootActions provides rootActions) {
+                        TabStack(nav.tab, nav.stack) { route ->
+                            when (route) {
+                                null -> TabRoot(nav.tab, session, playback)
+                                Route.Settings -> SettingsView(session, prefs, secrets, crashReporting, playback::setStreamingQuality, playback::setPreloadNext, onBack = Chrome::pop)
+                                Route.Diagnostics -> DiagnosticsView(crashReporting, onBack = Chrome::pop)
+                                Route.Country -> CountryView(onBack = Chrome::pop)
+                                is Route.Explore -> ExploreView(route.path, route.title)
+                                is Route.Album -> AlbumView(route.id)
+                                is Route.Playlist -> PlaylistView(route.id)
+                                is Route.Artist -> ArtistView(route.id)
+                                Route.CollectionTracks -> CollectionTracksView()
+                                Route.CollectionAlbums -> CollectionAlbumsView()
+                                Route.CollectionArtists -> CollectionArtistsView()
+                                Route.CollectionPlaylists -> CollectionPlaylistsView()
+                                Route.Downloads -> DownloadsView()
+                            }
                         }
-                    }
-                }
-                if (!nav.inDetail) {
-                    // As on iOS, Discover's header has Shuffle where the other tabs show download progress.
-                    Row(
-                        Modifier.align(Alignment.TopEnd).statusBarsPadding().height(HeaderHeight).padding(end = 16.dp),
-                        horizontalArrangement = Arrangement.spacedBy(8.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                    ) {
-                        if (nav.tab == AppTab.Discover) ShuffleButton(mixes.isNotEmpty(), { playback.playInfinite(mixes) })
-                        else if (Downloads.queue.isActive) DownloadStatusButton()
-                        ProfileButton(session, { Chrome.push(Route.Settings) })
                     }
                 }
             }

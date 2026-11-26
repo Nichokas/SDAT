@@ -126,7 +126,9 @@ internal fun BottomBar(playback: Playback, nav: NavState) {
         for (tab in AppTab.entries) {
             Box(Modifier.weight(1f), contentAlignment = Alignment.Center) { TabButton(tab, nav.tab == tab) { Chrome.select(tab) } }
         }
-        if (playback.track != null) Box(Modifier.weight(1f), contentAlignment = Alignment.Center) { MiniPlayer(playback) }
+        // The slot grows in and out, so the tabs slide aside rather than jump when playback starts or ends.
+        val mini by animateFloatAsState(if (playback.track != null) 1f else 0f, label = "mini player slot")
+        if (mini > 0f) Box(Modifier.weight(mini), contentAlignment = Alignment.Center) { MiniPlayer(playback) }
     }
     if (Chrome.showPlayer && playback.track != null) PlayerSheet(playback) { Chrome.showPlayer = false }
 }

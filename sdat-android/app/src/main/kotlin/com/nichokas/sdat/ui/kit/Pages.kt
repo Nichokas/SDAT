@@ -15,6 +15,7 @@ import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -35,6 +36,9 @@ private val sheetShape = RoundedCornerShape(topStart = 28.dp, topEnd = 28.dp)
  * A header on the frame, then [content] on a sheet with rounded top corners. A tab root, with no [onNavigateBack],
  * names itself in a larger title; a pushed page shows a back button beside a smaller one.
  */
+/** Trailing header actions every tab root shares (profile, shuffle, downloads), provided once by the shell. */
+val LocalRootActions = staticCompositionLocalOf<@Composable RowScope.() -> Unit> { {} }
+
 @Composable
 fun SheetPage(
     title: String,
@@ -60,6 +64,7 @@ fun SheetPage(
                 overflow = TextOverflow.Ellipsis,
             )
             actions()
+            if (onNavigateBack == null) LocalRootActions.current(this)
         }
         Box(Modifier.padding(top = 8.dp).fillMaxSize().clip(sheetShape).background(colors.sheet), content = content)
     }
