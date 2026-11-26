@@ -440,6 +440,7 @@ final class Live {
     private func guestTick() {
         guard let guest, mode == .joined else { return }
         logDiagnostics(guest)
+        guard !player.awaitingLivePlay else { return }
         guard let t = guest.target(latencyMs: latencyMs) else { return }
         guard let trackId = t.trackId else {
             if player.isPlaying { player.toggle() }
@@ -457,7 +458,7 @@ final class Live {
                 guard gen == generation else { return }
                 defer { if switching == trackId { switching = nil } }
                 // Re-read the target: the host may have moved on while resolving.
-                guard let track, let now = self.guest?.target(latencyMs: latencyMs),
+                guard !player.awaitingLivePlay, let track, let now = self.guest?.target(latencyMs: latencyMs),
                       now.trackId == trackId else { return }
                 loaded = (trackId, Date())
                 // A system pause (call, headphones unplugged) also holds a new
