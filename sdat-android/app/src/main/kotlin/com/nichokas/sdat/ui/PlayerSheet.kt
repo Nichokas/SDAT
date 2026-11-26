@@ -65,6 +65,8 @@ import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
@@ -168,6 +170,7 @@ private fun NowPlayingPage(playback: Playback, track: Track, onDismiss: () -> Un
                 Modifier.size(84.dp).alpha(if (Live.playbackLocked) 0.4f else 1f)
                     .clip(RoundedCornerShape(28.dp))
                     .background(colors.content)
+                    .semantics { contentDescription = if (playback.playing) "Pause" else "Play" }
                     .clickable(onClickLabel = if (playback.playing) "Pause" else "Play", role = Role.Button) { Live.userToggle() },
                 contentAlignment = Alignment.Center,
             ) {
@@ -175,7 +178,7 @@ private fun NowPlayingPage(playback: Playback, track: Track, onDismiss: () -> Un
                     CircularProgressIndicator(color = colors.sheet)
                 } else {
                     Crossfade(playback.playing, label = "play control") { playing ->
-                        SdatIcon(if (playing) "pause.fill" else "play.fill", if (playing) "Pause" else "Play", size = 40.dp, tint = colors.sheet)
+                        SdatIcon(if (playing) "pause.fill" else "play.fill", null, size = 40.dp, tint = colors.sheet)
                     }
                 }
             }
