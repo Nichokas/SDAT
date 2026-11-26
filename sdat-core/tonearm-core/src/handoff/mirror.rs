@@ -241,8 +241,8 @@ impl Mirror {
         if w.source != QueueSource::Fixed || w.repeat != Repeat::Off || Some(current) != local.current.as_ref() || !local.future.starts_with(future) {
             return None;
         }
-        let end = local.future.len().min(MAX_HANDOFF_FUTURE);
-        let extra = local.future.get(future.len()..end)?.to_vec();
+        let remaining = MAX_HANDOFF_FUTURE.saturating_sub(future.len());
+        let extra: Vec<_> = local.future.iter().skip(future.len()).take(remaining).cloned().collect();
         if extra.is_empty() {
             return None;
         }
