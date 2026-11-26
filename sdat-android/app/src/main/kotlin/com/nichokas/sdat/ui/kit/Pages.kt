@@ -5,6 +5,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxScope
+import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.RowScope
@@ -20,7 +21,11 @@ import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyListScope
 import androidx.compose.foundation.lazy.LazyListState
+import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Text
+import androidx.compose.material3.pulltorefresh.PullToRefreshDefaults
+import androidx.compose.material3.pulltorefresh.pullToRefresh
+import androidx.compose.material3.pulltorefresh.rememberPullToRefreshState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
@@ -89,6 +94,7 @@ fun PinnedPage(
 }
 
 /** A list page whose large [title] scrolls up into the top bar. */
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun PinnedListPage(
     title: String,
@@ -98,6 +104,9 @@ fun PinnedListPage(
     actions: @Composable RowScope.() -> Unit,
     bottomPadding: Dp,
     modifier: Modifier = Modifier,
+    pinnedContent: (@Composable () -> Unit)? = null,
+    isRefreshing: Boolean = false,
+    onRefresh: (() -> Unit)? = null,
     content: LazyListScope.() -> Unit,
 ) {
     val density = LocalDensity.current
@@ -112,30 +121,52 @@ fun PinnedListPage(
         title = title,
         onNavigateBack = onNavigateBack,
         collapseProgress = collapse,
-        scrolled = scrolled,
+        scrolled = scrolled && pinnedContent == null,
         backgroundColor = SdatTheme.colors.groupedBackground,
         modifier = modifier,
         actions = actions,
     ) { padding ->
-        LazyColumn(
-            state = listState,
-            modifier = Modifier.fillMaxSize(),
-            contentPadding = PaddingValues(
-                top = padding.calculateTopPadding(),
-                bottom = padding.calculateBottomPadding() + bottomPadding,
-            ),
-        ) {
-            if (showsLargeTitle) {
-                item(key = "large-title") {
-                    Text(
-                        title,
-                        Modifier.padding(start = 16.dp, end = 16.dp, bottom = 8.dp),
-                        style = SdatType.largeTitle,
+        val top = padding.calculateTopPadding()
+        val refreshState = if (onRefresh != null) rememberPullToRefreshState() else null
+        val refreshModifier = if (refreshState != null && onRefresh != null) {
+            Modifier.pullToRefresh(isRefreshing = isRefreshing, state = refreshState, onRefresh = onRefresh)
+        } else {
+            Modifier
+        }
+        Box(Modifier.fillMaxSize().then(refreshModifier)) {
+            Column(Modifier.fillMaxSize().padding(top = if (pinnedContent != null) top else 0.dp)) {
+                pinnedContent?.invoke()
+                LazyColumn(
+                    state = listState,
+                    modifier = Modifier.weight(1f).fillMaxWidth(),
+                    contentPadding = PaddingValues(
+                        top = if (pinnedContent == null) top else 0.dp,
+                        bottom = padding.calculateBottomPadding() + bottomPadding,
+                    ),
+                ) {
+                    if (showsLargeTitle) {
+                        item(key = "large-title") {
+                            Text(
+                                title,
+                                Modifier.padding(start = 16.dp, end = 16.dp, bottom = 8.dp),
+                                style = SdatType.largeTitle,
+                                color = SdatTheme.colors.content,
+                            )
+                        }
+                    }
+                    content()
+                }
+            }
+            if (refreshState != null) {
+                Box(Modifier.align(Alignment.TopCenter).padding(top = top)) {
+                    PullToRefreshDefaults.Indicator(
+                        state = refreshState,
+                        isRefreshing = isRefreshing,
+                        containerColor = SdatTheme.colors.elevatedBackground,
                         color = SdatTheme.colors.content,
                     )
                 }
             }
-            content()
         }
     }
 }

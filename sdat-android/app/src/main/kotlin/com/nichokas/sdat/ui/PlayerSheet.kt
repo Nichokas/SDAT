@@ -1,27 +1,33 @@
 package com.nichokas.sdat.ui
 
+import android.animation.ValueAnimator
 import android.content.Context
 import android.content.Intent
 import android.content.pm.ApplicationInfo
 import android.content.pm.PackageManager
+import android.graphics.Bitmap
 import android.media.MediaRouter2
 import android.os.Build
+import android.view.HapticFeedbackConstants
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.ContentTransform
+import androidx.compose.animation.Crossfade
+import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.spring
+import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.slideInHorizontally
 import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.animation.togetherWith
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -31,10 +37,8 @@ import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.LazyListScope
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.foundation.rememberScrollState
@@ -55,27 +59,34 @@ import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
+import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.layout.boundsInRoot
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
-import coil3.compose.AsyncImage
+import coil3.BitmapImage
+import coil3.SingletonImageLoader
+import coil3.request.SuccessResult
 import com.nichokas.sdat.core.Chrome
 import com.nichokas.sdat.core.Favs
 import com.nichokas.sdat.core.Fmt
 import com.nichokas.sdat.core.Live
 import com.nichokas.sdat.core.Origin
 import com.nichokas.sdat.core.Playback
-import com.nichokas.sdat.core.Repeat
 import com.nichokas.sdat.core.artistLine
 import com.nichokas.sdat.core.badgeText
 import com.nichokas.sdat.core.coverUrlLarge
@@ -88,17 +99,18 @@ import com.nichokas.sdat.ui.kit.SdatTheme
 import com.nichokas.sdat.ui.kit.SdatType
 import com.nichokas.sdat.ui.kit.Slider
 import com.nichokas.sdat.ui.kit.menuAnchor
+import kotlin.math.cos
+import kotlin.math.hypot
 import kotlinx.coroutines.launch
 import uniffi.tonearm_ffi.Track
 
 private val dimmed = Color.White.copy(alpha = 0.65f)
 private val quiet = Color.White.copy(alpha = 0.85f)
-private val inactive = Color.White.copy(alpha = 0.45f)
-private val removeRed = Color(0xFFFF453A)
 
 /** The full player, dark like iOS's; swipe left, or tap the queue button, for the queue. */
 @Composable
 fun PlayerSheet(playback: Playback, onDismiss: () -> Unit) {
+    val lightBackdrop = !SdatTheme.colors.isDark
     SdatTheme(isDark = true) {
         BottomSheet(onDismissRequest = onDismiss, title = "Now Playing") {
             val track = playback.track ?: return@BottomSheet
@@ -107,7 +119,7 @@ fun PlayerSheet(playback: Playback, onDismiss: () -> Unit) {
             // The sheet is its own window, so its glass blurs the cover behind it rather than the app.
             GlassHost(
                 modifier = Modifier.fillMaxSize(),
-                content = { CoverBackdrop(track.coverUrlLarge) },
+                content = { CoverBackdrop(track.coverUrlLarge, playback.playing, track.bpm, lightBackdrop) },
                 overlay = {
                     HorizontalPager(pager, Modifier.fillMaxSize().navigationBarsPadding()) { page ->
                         if (page == 0) {
@@ -123,17 +135,47 @@ fun PlayerSheet(playback: Playback, onDismiss: () -> Unit) {
 }
 
 @Composable
-private fun CoverBackdrop(url: String?) {
-    Box(Modifier.fillMaxSize().background(Color.Black)) {
-        if (url != null) {
-            val context = LocalContext.current
-            val request = remember(url, context) { backdropRequest(context, url, saturation = 1f, radius = 8) }
-            AsyncImage(
-                model = request,
-                contentDescription = null,
-                contentScale = ContentScale.Crop,
-                modifier = Modifier.fillMaxSize().alpha(0.6f),
-            )
+private fun CoverBackdrop(url: String?, playing: Boolean, bpm: Double?, light: Boolean) {
+    val context = LocalContext.current
+    val animate = ValueAnimator.areAnimatorsEnabled()
+    var art by remember { mutableStateOf<Bitmap?>(null) }
+    val beats = remember { mutableDoubleStateOf(0.0) }
+    LaunchedEffect(context, url) {
+        val result = url?.let { SingletonImageLoader.get(context).execute(backdropRequest(context, it, radius = 8)) }
+        art = ((result as? SuccessResult)?.image as? BitmapImage)?.bitmap
+    }
+    LaunchedEffect(playing, bpm, animate) {
+        if (!playing || !animate) return@LaunchedEffect
+        val beatsPerSecond = (bpm?.takeIf { it.isFinite() } ?: 100.0).coerceIn(60.0, 160.0) / 60
+        var last = withFrameNanos { it }
+        while (true) {
+            withFrameNanos { now ->
+                beats.doubleValue += (now - last).coerceIn(0L, 100_000_000L) * beatsPerSecond / 1e9
+                last = now
+            }
+        }
+    }
+    Box(Modifier.fillMaxSize().background(if (light) Color(0xFF16161B) else Color.Black).clipToBounds()) {
+        Crossfade(
+            art, Modifier.fillMaxSize(), animationSpec = tween(if (animate) 800 else 0), label = "Backdrop cover",
+        ) { bitmap ->
+            if (bitmap != null) {
+                Image(
+                    bitmap = remember(bitmap) { bitmap.asImageBitmap() },
+                    contentDescription = null,
+                    contentScale = ContentScale.Crop,
+                    modifier = Modifier.fillMaxSize().graphicsLayer {
+                        val phase = beats.doubleValue
+                        val breath = (0.5 - 0.5 * cos(phase * Math.PI / 2)).toFloat()
+                        val smallerSide = minOf(size.width, size.height).coerceAtLeast(1f)
+                        val fit = hypot(size.width, size.height) / smallerSide
+                        rotationZ = (phase * 4.5 % 360).toFloat()
+                        scaleX = fit.coerceAtLeast(1f) * (1f + 0.06f * breath)
+                        scaleY = scaleX
+                        alpha = if (light) 0.46f else 0.38f
+                    },
+                )
+            }
         }
     }
 }
@@ -141,6 +183,10 @@ private fun CoverBackdrop(url: String?) {
 @Composable
 private fun NowPlayingPage(playback: Playback, track: Track, showQueue: () -> Unit) {
     var forward by remember { mutableStateOf(true) }
+    val view = LocalView.current
+    val scope = rememberCoroutineScope()
+    val previousWiggle = remember { Animatable(0f) }
+    val nextWiggle = remember { Animatable(0f) }
     LaunchedEffect(track.id) {
         forward = true
         Favs.check(track.id)
@@ -173,8 +219,16 @@ private fun NowPlayingPage(playback: Playback, track: Track, showQueue: () -> Un
         Scrubber(playback, Modifier.padding(top = 14.dp))
         QualityBadge(playback, Modifier.padding(top = 2.dp))
         Row(Modifier.padding(top = 20.dp), horizontalArrangement = Arrangement.spacedBy(46.dp), verticalAlignment = Alignment.CenterVertically) {
-            IconTap("backward.fill", "Previous", 30.dp, Modifier.alpha(if (Live.isGuest) 0.4f else 1f)) {
+            IconTap("backward.fill", "Previous", 30.dp, Modifier.graphicsLayer {
+                alpha = if (Live.isGuest) 0.4f else 1f
+                rotationZ = previousWiggle.value
+            }) {
                 if (!Live.guestRefuses()) {
+                    view.performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK)
+                    scope.launch {
+                        previousWiggle.snapTo(-12f)
+                        previousWiggle.animateTo(0f, spring(dampingRatio = 0.3f, stiffness = 600f))
+                    }
                     val before = playback.track?.id
                     playback.previous()
                     // A restart (seek to 0) keeps the track, so the next change must still slide forward.
@@ -183,16 +237,32 @@ private fun NowPlayingPage(playback: Playback, track: Track, showQueue: () -> Un
             }
             Box(
                 Modifier.size(64.dp).alpha(if (Live.playbackLocked) 0.4f else 1f)
-                    .clickable(onClickLabel = if (playback.playing) "Pause" else "Play", role = Role.Button) { Live.userToggle() },
+                    .semantics { contentDescription = if (playback.playing) "Pause" else "Play" }
+                    .clickable(role = Role.Button) { Live.userToggle() },
                 contentAlignment = Alignment.Center,
             ) {
                 if (playback.loading) {
                     CircularProgressIndicator(color = Color.White)
                 } else {
-                    SdatIcon(if (playback.playing) "pause.fill" else "play.fill", if (playback.playing) "Pause" else "Play", size = 46.dp, tint = Color.White)
+                    Crossfade(playback.playing, label = "play control") { playing ->
+                        SdatIcon(if (playing) "pause.fill" else "play.fill", null, size = 46.dp, tint = Color.White)
+                    }
                 }
             }
-            IconTap("forward.fill", "Next", 30.dp, Modifier.alpha(if (Live.playbackLocked) 0.4f else 1f)) { forward = true; Live.userNext() }
+            IconTap("forward.fill", "Next", 30.dp, Modifier.graphicsLayer {
+                alpha = if (Live.playbackLocked) 0.4f else 1f
+                rotationZ = nextWiggle.value
+            }) {
+                if (!Live.playbackLocked) {
+                    view.performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK)
+                    scope.launch {
+                        nextWiggle.snapTo(12f)
+                        nextWiggle.animateTo(0f, spring(dampingRatio = 0.3f, stiffness = 600f))
+                    }
+                }
+                forward = true
+                Live.userNext()
+            }
         }
         Row(Modifier.fillMaxWidth().padding(top = 16.dp)) {
             val context = LocalContext.current
@@ -346,85 +416,7 @@ private fun QualityBadge(playback: Playback, modifier: Modifier = Modifier) {
 }
 
 @Composable
-private fun QueuePage(playback: Playback) {
-    val colors = SdatTheme.colors
-    LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(start = 20.dp, end = 12.dp, bottom = 24.dp)) {
-        item(key = "title") {
-            Box(Modifier.fillMaxWidth().heightIn(min = 44.dp), contentAlignment = Alignment.Center) {
-                IconTap("dot.radiowaves.left.and.right", "Listen Together", 20.dp, Modifier.align(Alignment.CenterStart), tint = if (Live.active) Color.White else inactive) {
-                    Live.showSheet = true
-                }
-                Text("Queue", style = SdatType.headline, color = colors.content)
-                Row(Modifier.align(Alignment.CenterEnd)) {
-                    IconTap("shuffle", if (playback.shuffle) "Shuffle: On" else "Shuffle: Off", 20.dp, tint = if (playback.shuffle) Color.White else inactive) {
-                        playback.setShuffle(!playback.shuffle)
-                    }
-                    val repeat = playback.repeat
-                    IconTap(if (repeat == Repeat.One) "repeat.1" else "repeat", "Repeat: " + when (repeat) { Repeat.Off -> "Off"; Repeat.All -> "All"; Repeat.One -> "One" }, 20.dp, tint = if (repeat == Repeat.Off) inactive else Color.White) {
-                        playback.cycleRepeat()
-                    }
-                }
-            }
-        }
-        playback.track?.let { t ->
-            header("Now Playing")
-            item(key = "now") { TrackRow(t, Modifier.padding(vertical = 6.dp).padding(end = 8.dp)) }
-        }
-        if (Live.isGuest) {
-            // Guests follow the host's queue; the header opens the session sheet.
-            item(key = "live header") {
-                Row(
-                    Modifier.padding(top = 20.dp, bottom = 4.dp).clickable(role = Role.Button) { Live.showSheet = true },
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    SdatIcon("dot.radiowaves.left.and.right", null, size = 18.dp, tint = Color.White)
-                    Text("Playing from Listen Together", style = SdatType.headline, color = Color.White)
-                }
-            }
-
-            items(Live.upNext, key = { "live ${it.id}" }) { row ->
-                TrackMenuRow(row.track, onClick = {}, Modifier.animateItem()) { TrackRow(row.track, Modifier.padding(vertical = 6.dp).padding(end = 8.dp)) }
-            }
-            return@LazyColumn
-        }
-        if (playback.userQueue.isNotEmpty()) {
-            header("Next in Queue")
-            queueRows("user", playback.userQueue, playback::jumpToUser, playback::removeUser)
-        }
-        header(playback.source?.let { "Playing from $it" } ?: "Up Next")
-        queueRows("base", playback.upNext, playback::jumpToUpNext, playback::removeUpNext)
-    }
-}
-
-private fun LazyListScope.header(title: String) {
-    item(key = "header $title") {
-        Text(title, style = SdatType.headline, color = SdatTheme.colors.content, modifier = Modifier.padding(top = 20.dp, bottom = 4.dp))
-    }
-}
-
-private fun LazyListScope.queueRows(section: String, tracks: List<Track>, onTap: (Int) -> Unit, onRemove: (Int) -> Unit) {
-    val keys = occurrenceKeys(tracks.map { it.id })
-    itemsIndexed(tracks, key = { i, _ -> "$section ${keys[i]}" }) { i, t ->
-        Row(Modifier.animateItem(), verticalAlignment = Alignment.CenterVertically) {
-            TrackMenuRow(t, onClick = { onTap(i) }, Modifier.weight(1f)) { TrackRow(t, Modifier.padding(vertical = 6.dp)) }
-            IconTap("minus.circle", "Remove ${t.displayTitle}", 20.dp, tint = removeRed) { onRemove(i) }
-        }
-    }
-}
-
-/** Row keys that survive a removal above them: a track's id and which occurrence of it this is. */
-internal fun occurrenceKeys(ids: List<String>): List<String> {
-    val seen = HashMap<String, Int>()
-    return ids.map { id ->
-        val n = seen[id] ?: 0
-        seen[id] = n + 1
-        "$id#$n"
-    }
-}
-
-@Composable
-private fun IconTap(
+internal fun IconTap(
     symbol: String,
     label: String,
     size: Dp,

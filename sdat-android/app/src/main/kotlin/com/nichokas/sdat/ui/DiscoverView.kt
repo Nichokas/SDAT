@@ -1,5 +1,6 @@
 package com.nichokas.sdat.ui
 
+import android.view.HapticFeedbackConstants
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -23,6 +24,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -40,12 +42,16 @@ import uniffi.tonearm_ffi.Track
 @Composable
 fun DiscoverView(session: Session, onPlay: (Track, List<Track>, List<Mix>) -> Unit) {
     val context = LocalContext.current
+    val view = LocalView.current
     LaunchedEffect(Unit) { Discover.load(DiscoverCache.of(context)) }
     val tracks = Discover.tracks
     val colors = SdatTheme.colors
     val background = colors.groupedBackground
     Box(Modifier.fillMaxSize().background(background)) {
-        CoverPlane(tracks, background, colors.content.copy(alpha = 0.07f), onTap = { onPlay(it, tracks, Discover.mixes) })
+        CoverPlane(tracks, background, colors.content.copy(alpha = 0.07f), onTap = {
+            view.performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK)
+            onPlay(it, tracks, Discover.mixes)
+        })
         // Scrims keep the title and the bottom bar legible over bright covers, as on iOS.
         Box(
             Modifier.fillMaxWidth().background(

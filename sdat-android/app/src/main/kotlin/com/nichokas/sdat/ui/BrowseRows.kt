@@ -14,6 +14,7 @@ import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -47,10 +48,20 @@ val ListGutter = 16.dp
 
 @Composable
 private fun RouteRow(route: Route, onOpen: () -> Unit = {}, content: @Composable () -> Unit) {
-    Box(
+    Row(
         Modifier.fillMaxWidth().clickable(role = Role.Button) { onOpen(); Chrome.push(route) }
             .padding(horizontal = ListGutter, vertical = 6.dp),
-    ) { content() }
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Box(Modifier.weight(1f)) { content() }
+        SdatIcon("chevron.right", null, size = 14.dp, tint = SdatTheme.colors.tertiaryContent)
+    }
+}
+
+@Composable
+internal fun BrowseRowDivider() {
+    HorizontalDivider(Modifier.padding(start = ListGutter + 54.dp, end = ListGutter), color = SdatTheme.colors.separator)
 }
 
 @Composable
@@ -183,6 +194,7 @@ fun LazyListScope.trackItems(
         val itemId = if (ownPlaylistId != null) t.playlistItemId else null
         if (itemId != null) "$keyPrefix:item:$itemId" else "$keyPrefix:${t.id}#$i"
     }) { i, _ ->
+        if (i > 0) BrowseRowDivider()
         TrackItem(tracks, i, source, showCover, numbered, ownPlaylistId, onRemoved)
     }
 }
@@ -195,6 +207,7 @@ fun <T> LazyListScope.paged(loader: PagedLoader<T>, key: (T) -> Any, row: @Compo
     val list = loader.list
     itemsIndexed(list.items, key = { i, t -> "${key(t)}#$i" }) { i, _ ->
         LaunchedEffect(i, list.items.size) { if (list.wantsMore(i)) loader.more() }
+        if (i > 0) BrowseRowDivider()
         row(list.items, i)
     }
     val error = list.error
