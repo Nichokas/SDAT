@@ -1201,8 +1201,8 @@ final class Player: LivePlaybackPort {
             MainActor.assumeIsolated {
                 diagRecord(level: .warn, target: "audio-session", message: "media services were reset", backtrace: nil)
                 guard let self else { return }
-                // A paused player keeps the session inactive, so iOS may still suspend the idle app.
-                if self.isPlaying { self.activateAudio() } else { self.configureSession() }
+                // The same sessions `scheduleSessionRelease` keeps active; an idle player stays inactive so iOS may suspend it.
+                if self.isPlaying || Live.shared.active { self.activateAudio() } else { self.configureSession() }
             }
         })
         systemObservers.append(nc.addObserver(forName: AVAudioSession.routeChangeNotification,
