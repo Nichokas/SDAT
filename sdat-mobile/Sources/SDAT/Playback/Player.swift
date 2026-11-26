@@ -749,9 +749,14 @@ final class Player: LivePlaybackPort {
     }
 
     private func fail(_ message: String) {
+        error = message
+        park()
+    }
+
+    /// Drops the engine's items but keeps the track and position: the next play starts it anew there.
+    private func park() {
         loadTask?.cancel(); loadTask = nil
         loading = false; liveEngine.loadResumeAt = nil
-        error = message
         avPlayer.pause(); avPlayer.removeAllItems(); playingItem = nil
         isPlaying = false
         needsStart = true
@@ -1201,8 +1206,10 @@ final class Player: LivePlaybackPort {
             MainActor.assumeIsolated {
                 diagRecord(level: .warn, target: "audio-session", message: "media services were reset", backtrace: nil)
                 guard let self else { return }
-                // The same sessions `scheduleSessionRelease` keeps active; an idle player stays inactive so iOS may suspend it.
-                if self.isPlaying || Live.shared.active { self.activateAudio() } else { self.configureSession() }
+                self.configureSession()
+                // The reset kills the engine's items. Apple asks apps not to restart playback on their own,
+                // so the track waits for the user's play.
+                if self.current != nil, !self.needsStart { self.clearPreload(); self.park() }
             }
         })
         systemObservers.append(nc.addObserver(forName: AVAudioSession.routeChangeNotification,
