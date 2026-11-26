@@ -1017,12 +1017,15 @@ mod playlist_tests {
     fn clicking_playlist_row_replaces_the_pending_queue() -> Result<()> {
         let info = PlaylistInfo::default();
         let clicked = track("B", Some("b"));
-        let tracks = vec![track("A", Some("a")), clicked.clone(), track("C", Some("c"))];
+        let tracks = vec![track("A", Some("a")), clicked.clone(), track("C", Some("c")), track("B", Some("later"))];
         user_queue().append(track("queued", None));
 
         assert!(glib::MainContext::new().block_on(play_playlist_selection(info, tracks, &clicked, 0))?);
         assert!(user_queue().is_empty());
-        assert_eq!(base_queue().peek().as_ref().map(Track::id), Some("C"));
+        base_queue().entries().with(|tracks| {
+            let items: Vec<_> = tracks.iter().map(|track| track.playlist_item_id.as_deref()).collect();
+            assert_eq!(items, [Some("c"), Some("later")]);
+        });
         Ok(())
     }
 
@@ -1292,19 +1295,23 @@ pub fn feed(force: bool) {
 }
 
 /// Appends late-loaded tracks to the list started by [`play_list_from`].
+/// An overlapping feed skips IDs already in the source.
 /// Returns `false` (and does nothing) once another list replaced it.
-pub fn extend_list(generation: u64, tracks: &[Track]) -> bool {
+pub fn extend_list(generation: u64, tracks: Vec<Track>, overlaps: bool) -> bool {
     if LIST_GENERATION.with(std::cell::Cell::get) != generation {
         return false;
     }
-    base_queue().extend(tracks);
+    if overlaps {
+        base_queue().extend(&tracks);
+    } else {
+        base_queue().extend_occurrences(tracks);
+    }
     update_unloaded();
     true
 }
 
 /// Makes `tracks` the rest of the list after the current track, as if the
 /// list had started with them: queue repeat and shuffle cover all of it.
-/// Unlike [`extend_list`], keeps repeated tracks.
 pub fn set_list_rest(tracks: Vec<Track>) {
     let Some(current) = track_changed().with(|t| t.as_ref().map(|e| e.track.clone())) else { return };
     let id = current.id().to_string();

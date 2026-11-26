@@ -340,28 +340,37 @@ impl DurableQueue {
         Ok(skipped)
     }
 
-    /// Adds late-arriving tracks without touching what is already queued.
+    /// Adds only track IDs that have not appeared in the source.
     pub fn extend(&self, tracks: &[Track]) {
-        let mut source = self.source.borrow_mut();
-        let mut seen: std::collections::HashSet<&str> = source.iter().map(|t| t.id()).collect();
-        let added: Vec<_> = tracks.iter().filter(|t| seen.insert(t.id())).cloned().collect();
-        if added.is_empty() {
+        let added = {
+            let source = self.source.borrow();
+            let mut seen: std::collections::HashSet<&str> = source.iter().map(|t| t.id()).collect();
+            tracks.iter().filter(|t| seen.insert(t.id())).cloned().collect()
+        };
+        self.extend_occurrences(added);
+    }
+
+    /// Appends every list occurrence without reordering existing upcoming tracks.
+    pub fn extend_occurrences(&self, tracks: Vec<Track>) {
+        if tracks.is_empty() {
             return;
         }
-        let start = source.len();
-        source.extend(added.into_iter().map(Rc::new));
-        let end = source.len();
-        drop(source);
+        let range = {
+            let mut source = self.source.borrow_mut();
+            let start = source.len();
+            source.extend(tracks.into_iter().map(Rc::new));
+            start..source.len()
+        };
         {
             let mut upcoming = self.upcoming.borrow_mut();
             if self.shuffled.get() {
                 let mut rng = rand::rng();
-                for i in start..end {
+                for i in range {
                     let pos = rand::RngExt::random_range(&mut rng, 0..=upcoming.len());
                     upcoming.insert(pos, i);
                 }
             } else {
-                upcoming.extend(start..end);
+                upcoming.extend(range);
             }
         }
         self.publish();
