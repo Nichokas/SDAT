@@ -146,11 +146,13 @@ final class Player: LivePlaybackPort {
         Task { [weak player] in
             do {
                 let batch = try await source.nextBatch(min: 10)
-                guard avPlayer === player, !liveEngine.liveFollowing, infinite === source, !batch.isEmpty else { return }
+                guard !liveEngine.liveFollowing, infinite === source, !batch.isEmpty else { return }
+                let samePlayer = avPlayer === player
+                guard samePlayer || current == nil else { return }
                 replaceQueue(batch)
-                load(0)
+                load(0, autoplay: samePlayer)
             } catch {
-                guard avPlayer === player, infinite === source else { return }
+                guard infinite === source, avPlayer === player || current == nil else { return }
                 self.error = friendlyMessage(error)
             }
         }
