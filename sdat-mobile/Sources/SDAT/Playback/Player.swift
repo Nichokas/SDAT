@@ -664,7 +664,11 @@ final class Player: LivePlaybackPort {
         discardPlayback()
         needsStart = false
         if let autoplay {
-            if autoplay { requestPlayback() } else { wantsPlayback = false }
+            if autoplay {
+                requestPlayback()
+            } else if !liveEngine.liveFollowing || !resumeAfterInterruption {
+                wantsPlayback = false
+            }
         }
         let mine = starts
         let exact = exactResume
