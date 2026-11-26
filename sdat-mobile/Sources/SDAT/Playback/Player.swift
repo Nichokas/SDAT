@@ -1197,7 +1197,7 @@ final class Player: LivePlaybackPort {
             }
         })
         systemObservers.append(nc.addObserver(forName: AVAudioSession.mediaServicesWereResetNotification,
-                                              object: session, queue: .main) { [weak self] _ in
+                                              object: nil, queue: .main) { [weak self] _ in
             MainActor.assumeIsolated {
                 diagRecord(level: .warn, target: "audio-session", message: "media services were reset", backtrace: nil)
                 self?.configureSession()
