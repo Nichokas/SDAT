@@ -11,6 +11,7 @@ data class Frame(val x: Float, val y: Float, val size: Float)
 /** Plane math ported from iOS PlaneScrollView, in dp. */
 class PlaneGeometry(private val count: Int) {
     private val sizes = floatArrayOf(96f, 140f, 118f, 100f, 132f, 150f, 108f)
+    val largestSize = sizes.max()
     private val gap = 12f
     private val period = sizes.sum() + gap * sizes.size
     private val rows = maxOf(12, kotlin.math.sqrt(count / 1.4).toInt())
