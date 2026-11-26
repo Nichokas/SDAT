@@ -13,7 +13,7 @@ import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.offset
+import androidx.compose.foundation.layout.absoluteOffset
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
@@ -27,6 +27,7 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.listSaver
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.AbsoluteAlignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Rect
@@ -96,6 +97,8 @@ fun CoverPlane(tracks: List<Track>, background: Color, placeholder: Color, onTap
                 pan -= drag
             }
         },
+        // Absolute placement: the plane follows the finger and anchors menus the same way in RTL.
+        contentAlignment = AbsoluteAlignment.TopLeft,
     ) {
         if (tracks.isEmpty()) return@BoxWithConstraints
         val plane = remember(tracks.size) { PlaneGeometry(tracks.size) }
@@ -135,7 +138,7 @@ fun CoverPlane(tracks: List<Track>, background: Color, placeholder: Color, onTap
                     px = coverPx,
                     placeholder = placeholder,
                     modifier = Modifier
-                        .offset { IntOffset((frame.x * px - pan.x).roundToInt(), (frame.y * px - pan.y).roundToInt()) }
+                        .absoluteOffset { IntOffset((frame.x * px - pan.x).roundToInt(), (frame.y * px - pan.y).roundToInt()) }
                         .size(frame.size.dp),
                     bounds = { Rect(origin + Offset(frame.x * px - pan.x, frame.y * px - pan.y), Size(frame.size * px, frame.size * px)) },
                     onTap = { onTap(track) },
