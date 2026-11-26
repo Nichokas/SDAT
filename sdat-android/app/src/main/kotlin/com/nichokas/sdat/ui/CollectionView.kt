@@ -96,7 +96,6 @@ fun CollectionView() {
     val tiles = recentTiles(remote.items, Recents.items)
     SdatPage(
         "My Collection",
-        collapsesChrome = true,
         actions = {
             IconButton({ Live.showScanner = true }) { SdatIcon("qrcode.viewfinder", "Scan Listen Together invitation", size = 20.dp) }
             // Clear of the floating buttons over the top bar's trailing edge (profile, plus download status while downloading).

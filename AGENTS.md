@@ -8,10 +8,10 @@ Notes for coding agents working on SDAT, a TIDAL player for Fedora (GTK), iPhone
 - `sdat-core/tonearm-ffi` – UniFFI bindings of the core for Swift (iOS) and Kotlin (Android).
 - `sdat-desktop` – GTK4/libadwaita desktop app (Rust), packaged for Fedora (`packaging/fedora/`, COPR).
 - `sdat-mobile` – iOS app (SwiftUI, built with xtool).
-- `sdat-android` – Android app (Kotlin, Jetpack Compose with Material 3; its iOS-shaped components and Haze frosted glass live in `ui/kit`).
+- `sdat-android` – Android app (Kotlin, Jetpack Compose with Material 3; solid Material You surfaces, no blur; the components live in `ui/kit`, the colours in `ui/kit/Theme.kt`, from the wallpaper or the accent picked in Settings).
 - `obtainium/README.md` – how to add the Android app to Obtainium; it reads the `android-v*` GitHub releases directly, so there is no source file to maintain.
 - `feather/source.json` – Feather source for iOS sideloading; updated by CI, not by hand.
-- `benchmarks/android-glass` – standalone Android app that measures frame times of SDAT's heaviest screens with frosted, tinted and no glass; see its README.
+- `benchmarks/android-glass` – standalone Android app that measures frame times of SDAT's heaviest screens with frosted, tinted and no glass (the app itself no longer blurs); see its README.
 - Root `Cargo.toml` is the workspace (`sdat-desktop`, `tonearm-core`, `tonearm-ffi`) with strict lints.
 
 ## Build and test

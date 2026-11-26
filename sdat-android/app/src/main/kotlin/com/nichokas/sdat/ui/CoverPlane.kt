@@ -6,7 +6,6 @@ import androidx.compose.animation.core.exponentialDecay
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectDragGestures
-import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.offset
@@ -30,6 +29,8 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.ui.draw.clip
 import coil3.compose.AsyncImage
 import kotlin.math.roundToInt
 import kotlinx.coroutines.Job
@@ -91,6 +92,7 @@ fun CoverPlane(tracks: List<Track>, background: Color, placeholder: Color, onTap
                     modifier = Modifier
                         .offset { IntOffset((frame.x * px - pan.x).roundToInt(), (frame.y * px - pan.y).roundToInt()) }
                         .size(frame.size.dp)
+                        .clip(tileShape)
                         .background(placeholder)
                         .clickable(enabled = track.streamable) { onTap(track) },
                 )
@@ -98,6 +100,8 @@ fun CoverPlane(tracks: List<Track>, background: Color, placeholder: Color, onTap
         }
     }
 }
+
+private val tileShape = RoundedCornerShape(14.dp)
 
 private val tidalSize = Regex("""/\d+x\d+\.jpg$""")
 private val albumSizes = intArrayOf(80, 160, 320, 640, 1280)

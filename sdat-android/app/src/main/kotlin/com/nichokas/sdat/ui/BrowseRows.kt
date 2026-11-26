@@ -19,7 +19,6 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
@@ -123,8 +122,8 @@ fun PlayShuffleButtons(play: () -> Unit, shuffle: () -> Unit, modifier: Modifier
     val style = if (compact) SdatType.subheadline.copy(fontWeight = FontWeight.SemiBold) else SdatType.headline
     Row(modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
         Button(play, Modifier.weight(1f), enabled = enabled, emphasis = Emphasis.Prominent, size = size) {
-            SdatIcon("play.fill", null, size = if (compact) 16.dp else 20.dp, tint = Color.White)
-            Text("Play", style = style, color = Color.White, modifier = Modifier.padding(start = 6.dp))
+            SdatIcon("play.fill", null, size = if (compact) 16.dp else 20.dp)
+            Text("Play", style = style, modifier = Modifier.padding(start = 6.dp))
         }
         Button(shuffle, Modifier.weight(1f), enabled = enabled, size = size) {
             SdatIcon("shuffle", null, size = if (compact) 16.dp else 20.dp, tint = SdatTheme.colors.content)

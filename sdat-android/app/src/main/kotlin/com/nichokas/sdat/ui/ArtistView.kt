@@ -25,7 +25,6 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
@@ -82,7 +81,7 @@ fun ArtistView(id: String) {
     val hint = ArtistCache.hints[id]
     val name = overview?.artist?.name ?: hint?.name.orEmpty()
     val picture = listOf(overview?.artist?.pictureUrl, hint?.picture).firstOrNull { !it.isNullOrEmpty() }
-    DetailScaffold(title = name, backdropUrl = picture) {
+    SdatPage(name, onBack = Chrome::pop) {
         item(key = "header") {
             Column(
                 Modifier.fillMaxWidth().padding(vertical = 12.dp),
@@ -218,7 +217,7 @@ private fun LazyListScope.sections(o: ArtistOverview, more: MoreTopTracks) {
                     TrackRow(t, Modifier.heightIn(min = 72.dp), coverSize = 56.dp)
                 }
                 if (i < top.lastIndex) {
-                    Box(Modifier.padding(start = 68.dp).fillMaxWidth().height(0.5.dp).background(Color.White.copy(alpha = 0.15f)))
+                    Box(Modifier.padding(start = 68.dp).fillMaxWidth().height(0.5.dp).background(SdatTheme.colors.separator))
                 }
             }
         }

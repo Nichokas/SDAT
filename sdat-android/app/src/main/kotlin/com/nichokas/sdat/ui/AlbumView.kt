@@ -7,6 +7,7 @@ import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import com.nichokas.sdat.core.Chrome
 import com.nichokas.sdat.core.Downloads
 import com.nichokas.sdat.core.Fmt
 import com.nichokas.sdat.core.LocalRecent
@@ -56,8 +57,8 @@ private suspend fun <T : Any> loadWithin(ms: Long, op: suspend () -> T): PageLoa
 @Composable
 private fun <T : Any> LoadedPage(state: PageLoad<T>, onRetry: () -> Unit, ready: @Composable (T) -> Unit) = when (state) {
     is PageLoad.Ready -> ready(state.value)
-    is PageLoad.Failed -> DetailScaffold("", null) { item { LoadFailed(state.message, onRetry) } }
-    PageLoad.Loading -> DetailScaffold("", null) { item { DetailSkeleton() } }
+    is PageLoad.Failed -> SdatPage("", onBack = Chrome::pop) { item { LoadFailed(state.message, onRetry) } }
+    PageLoad.Loading -> SdatPage("", onBack = Chrome::pop) { item { DetailSkeleton() } }
 }
 
 @Composable

@@ -119,8 +119,6 @@ dependencies {
     implementation(platform(libs.compose.bom))
     implementation(libs.compose.material3)
     implementation(libs.activity.compose)
-    implementation(libs.haze)
-    implementation(libs.haze.blur)
     implementation(libs.navigation3.ui)
     implementation(libs.coroutines.android)
     implementation(libs.coil.compose)

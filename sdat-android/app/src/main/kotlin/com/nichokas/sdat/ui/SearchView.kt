@@ -90,7 +90,7 @@ fun SearchView() {
     val albums = if (paging == SearchFilter.Albums) rememberRetained(shown, paging) { searchAlbums(shown).let { p -> PagedLoader(pager = p, next = p::nextPage) } } else null
     val playlists = if (paging == SearchFilter.Playlists) rememberRetained(shown, paging) { searchPlaylists(shown).let { p -> PagedLoader(pager = p, next = p::nextPage) } } else null
 
-    SdatPage("Search", collapsesChrome = true) {
+    SdatPage("Search") {
         item(key = "search-field") {
             SearchBar(
                 query = field,

@@ -8,7 +8,6 @@ import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -20,6 +19,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.selection.selectable
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Text
@@ -62,11 +62,11 @@ import com.nichokas.sdat.core.Route
 import com.nichokas.sdat.core.artistLine
 import com.nichokas.sdat.core.displayTitle
 import com.nichokas.sdat.core.friendlyMessage
-import com.nichokas.sdat.ui.kit.Glass
 import com.nichokas.sdat.ui.kit.MenuAction
 import com.nichokas.sdat.ui.kit.PopupMenu
 import com.nichokas.sdat.ui.kit.SdatTheme
 import com.nichokas.sdat.ui.kit.SdatType
+import com.nichokas.sdat.ui.kit.capsule
 import com.nichokas.sdat.ui.kit.menuAnchor
 import kotlin.coroutines.cancellation.CancellationException
 import kotlin.math.abs
@@ -123,7 +123,7 @@ fun Cover(url: String?, size: Dp, modifier: Modifier = Modifier, radius: Dp = 8.
     val px = with(LocalDensity.current) { size.roundToPx() }
     val kind = if (circle) CoverUrl.Kind.Artist else CoverUrl.Kind.Album
     Box(
-        modifier.size(size).clip(if (circle) CircleShape else RoundedCornerShape(radius)).background(Color.White.copy(alpha = 0.08f)),
+        modifier.size(size).clip(if (circle) CircleShape else RoundedCornerShape(radius)).background(SdatTheme.colors.fill),
         contentAlignment = Alignment.Center,
     ) {
         if (url == null) {
@@ -312,10 +312,11 @@ fun Skeleton(modifier: Modifier = Modifier, width: Dp? = null, height: Dp = 14.d
     )
     // The shimmer is read in the draw phase: a loading page holds dozens of these, and
     // recomposing each one every frame is what a skeleton is there to avoid.
+    val tone = SdatTheme.colors.content
     Box(
         modifier.then(if (width != null) Modifier.width(width) else Modifier.fillMaxWidth())
             .height(height)
-            .drawBehind { drawRoundRect(Color.White.copy(alpha = alpha.value), cornerRadius = CornerRadius(radius.toPx())) },
+            .drawBehind { drawRoundRect(tone.copy(alpha = alpha.value), cornerRadius = CornerRadius(radius.toPx())) },
     )
 }
 
@@ -405,17 +406,19 @@ fun ErrorBanner(text: String, modifier: Modifier = Modifier) {
     }
 }
 
-/** Liquid Glass chip, tinted with the accent when selected. */
+/** A 36 dp capsule on the fill colour; inverse when selected. */
 @Composable
 fun Chip(title: String, selected: Boolean = false, onClick: () -> Unit) {
-    Glass(shape = CircleShape) {
-        Box(
-            Modifier
-                .then(if (selected) Modifier.background(SdatTheme.colors.accent.copy(alpha = 0.5f)) else Modifier)
-                .clickable(role = Role.Button, onClick = onClick)
-                .padding(horizontal = 16.dp, vertical = 8.dp),
-        ) {
-            Text(title, style = SdatType.subheadline, fontWeight = FontWeight.Medium, color = SdatTheme.colors.content)
-        }
+    val colors = SdatTheme.colors
+    Box(
+        Modifier
+            .height(36.dp)
+            .clip(capsule)
+            .background(if (selected) colors.inverse else colors.fill)
+            .selectable(selected, role = Role.Button, onClick = onClick)
+            .padding(horizontal = 16.dp),
+        contentAlignment = Alignment.Center,
+    ) {
+        Text(title, style = SdatType.subheadline, fontWeight = FontWeight.Medium, color = if (selected) colors.onInverse else colors.content)
     }
 }

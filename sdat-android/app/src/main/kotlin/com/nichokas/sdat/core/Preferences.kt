@@ -40,6 +40,14 @@ val Quality.detail: String
         Quality.AAC -> "Up to 320 kbps AAC"
     }
 
+/** The app's accent: the wallpaper's Material You colour, or a fixed one. */
+enum class Accent(val key: String, val label: String) {
+    System("system", "Wallpaper"),
+    Blue("blue", "Blue"),
+    Green("green", "Green"),
+    Rose("rose", "Rose"),
+}
+
 /** User preferences. Secrets never go here; see [Secrets]. */
 class Preferences(context: Context) {
     private val d = context.getSharedPreferences("preferences", Context.MODE_PRIVATE)
@@ -52,6 +60,7 @@ class Preferences(context: Context) {
     private val listenBrainz = mutableStateOf(false)
     private val liveDelay = mutableIntStateOf(0)
     private val crash = mutableStateOf(CrashReports.Unset)
+    private val accentState = mutableStateOf(Accent.System)
 
     var streamingQuality: Quality
         get() = quality.value
@@ -78,6 +87,10 @@ class Preferences(context: Context) {
         get() = liveDelay.intValue
         set(ms) { liveDelay.intValue = ms; d.edit { putInt("liveExtraLatencyMsV2", ms) } }
 
+    var accent: Accent
+        get() = accentState.value
+        set(a) { accentState.value = a; d.edit { putString("accent", a.key) } }
+
     var crashReports: CrashReports
         get() = crash.value
         set(c) { crash.value = c; d.edit { if (c.key == null) remove("crash_reports") else putString("crash_reports", c.key) } }
@@ -98,6 +111,7 @@ class Preferences(context: Context) {
         listenBrainz.value = d.getBoolean("scrobbleListenBrainz", false)
         liveDelay.intValue = d.getInt("liveExtraLatencyMsV2", 0)
         crash.value = CrashReports.of(d.getString("crash_reports", null))
+        accentState.value = d.getString("accent", null).let { key -> Accent.entries.firstOrNull { it.key == key } } ?: Accent.System
     }
 
     fun clear() { d.edit(commit = true) { clear() }; load() }

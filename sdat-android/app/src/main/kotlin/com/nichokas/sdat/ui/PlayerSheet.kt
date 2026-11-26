@@ -38,6 +38,7 @@ import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.CircularProgressIndicator
@@ -55,11 +56,10 @@ import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
-import androidx.compose.ui.draw.shadow
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
-import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.layout.boundsInRoot
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.platform.LocalContext
@@ -68,7 +68,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
-import coil3.compose.AsyncImage
+import androidx.compose.ui.unit.sp
 import com.nichokas.sdat.core.Chrome
 import com.nichokas.sdat.core.Favs
 import com.nichokas.sdat.core.Fmt
@@ -81,7 +81,6 @@ import com.nichokas.sdat.core.badgeText
 import com.nichokas.sdat.core.coverUrlLarge
 import com.nichokas.sdat.core.displayTitle
 import com.nichokas.sdat.ui.kit.BottomSheet
-import com.nichokas.sdat.ui.kit.GlassHost
 import com.nichokas.sdat.ui.kit.MenuAction
 import com.nichokas.sdat.ui.kit.PopupMenu
 import com.nichokas.sdat.ui.kit.SdatTheme
@@ -91,55 +90,26 @@ import com.nichokas.sdat.ui.kit.menuAnchor
 import kotlinx.coroutines.launch
 import uniffi.tonearm_ffi.Track
 
-private val dimmed = Color.White.copy(alpha = 0.65f)
-private val quiet = Color.White.copy(alpha = 0.85f)
-private val inactive = Color.White.copy(alpha = 0.45f)
-private val removeRed = Color(0xFFFF453A)
-
-/** The full player, dark like iOS's; swipe left, or tap the queue button, for the queue. */
+/** The full player, in the app's theme and accent; swipe left, or tap the queue button, for the queue. */
 @Composable
 fun PlayerSheet(playback: Playback, onDismiss: () -> Unit) {
-    SdatTheme(isDark = true) {
-        BottomSheet(onDismissRequest = onDismiss, title = "Now Playing") {
-            val track = playback.track ?: return@BottomSheet
-            val pager = rememberPagerState { 2 }
-            val scope = rememberCoroutineScope()
-            // The sheet is its own window, so its glass blurs the cover behind it rather than the app.
-            GlassHost(
-                modifier = Modifier.fillMaxSize(),
-                content = { CoverBackdrop(track.coverUrlLarge) },
-                overlay = {
-                    HorizontalPager(pager, Modifier.fillMaxSize().navigationBarsPadding()) { page ->
-                        if (page == 0) {
-                            NowPlayingPage(playback, track, showQueue = { scope.launch { pager.animateScrollToPage(1) } })
-                        } else {
-                            QueuePage(playback)
-                        }
-                    }
-                },
-            )
+    BottomSheet(onDismissRequest = onDismiss, title = "Now Playing") {
+        val track = playback.track ?: return@BottomSheet
+        val pager = rememberPagerState { 2 }
+        val scope = rememberCoroutineScope()
+        HorizontalPager(pager, Modifier.fillMaxSize().navigationBarsPadding()) { page ->
+            if (page == 0) {
+                NowPlayingPage(playback, track, onDismiss, showQueue = { scope.launch { pager.animateScrollToPage(1) } })
+            } else {
+                QueuePage(playback)
+            }
         }
     }
 }
 
 @Composable
-private fun CoverBackdrop(url: String?) {
-    Box(Modifier.fillMaxSize().background(Color.Black)) {
-        if (url != null) {
-            val context = LocalContext.current
-            val request = remember(url, context) { backdropRequest(context, url, saturation = 1f, radius = 8) }
-            AsyncImage(
-                model = request,
-                contentDescription = null,
-                contentScale = ContentScale.Crop,
-                modifier = Modifier.fillMaxSize().alpha(0.6f),
-            )
-        }
-    }
-}
-
-@Composable
-private fun NowPlayingPage(playback: Playback, track: Track, showQueue: () -> Unit) {
+private fun NowPlayingPage(playback: Playback, track: Track, onDismiss: () -> Unit, showQueue: () -> Unit) {
+    val colors = SdatTheme.colors
     var forward by remember { mutableStateOf(true) }
     LaunchedEffect(track.id) {
         forward = true
@@ -154,9 +124,10 @@ private fun NowPlayingPage(playback: Playback, track: Track, showQueue: () -> Un
     val compact = maxHeight < 560.dp
     Column(
         Modifier.fillMaxSize().then(if (compact) Modifier.verticalScroll(rememberScrollState()) else Modifier)
-            .padding(horizontal = 24.dp).padding(top = 24.dp, bottom = 12.dp),
+            .padding(horizontal = 24.dp).padding(bottom = 12.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {
+        Header(playback, track, onDismiss, Modifier.padding(bottom = 20.dp))
         BoxWithConstraints(if (compact) Modifier.fillMaxWidth().height(200.dp) else Modifier.weight(1f).fillMaxWidth(), contentAlignment = Alignment.Center) {
             val side = minOf(maxWidth, maxHeight)
             AnimatedContent(track, transitionSpec = { slide() }, contentKey = { it.id }, label = "cover") { t ->
@@ -164,16 +135,16 @@ private fun NowPlayingPage(playback: Playback, track: Track, showQueue: () -> Un
                 Cover(
                     t.coverUrlLarge,
                     side,
-                    Modifier.graphicsLayer { scaleX = scale; scaleY = scale }.shadow(28.dp, RoundedCornerShape(16.dp)),
-                    radius = 16.dp,
+                    Modifier.graphicsLayer { scaleX = scale; scaleY = scale },
+                    radius = 28.dp,
                 )
             }
         }
         TitleRow(playback, track, slide, Modifier.padding(top = 24.dp))
         Scrubber(playback, Modifier.padding(top = 14.dp))
         QualityBadge(playback, Modifier.padding(top = 2.dp))
-        Row(Modifier.padding(top = 20.dp), horizontalArrangement = Arrangement.spacedBy(46.dp), verticalAlignment = Alignment.CenterVertically) {
-            IconTap("backward.fill", "Previous", 30.dp, Modifier.alpha(if (Live.isGuest) 0.4f else 1f)) {
+        Row(Modifier.padding(top = 16.dp), horizontalArrangement = Arrangement.spacedBy(28.dp), verticalAlignment = Alignment.CenterVertically) {
+            IconTap("backward.fill", "Previous", 36.dp, Modifier.size(64.dp).alpha(if (Live.isGuest) 0.4f else 1f)) {
                 if (!Live.guestRefuses()) {
                     val before = playback.track?.id
                     playback.previous()
@@ -182,25 +153,29 @@ private fun NowPlayingPage(playback: Playback, track: Track, showQueue: () -> Un
                 }
             }
             Box(
-                Modifier.size(64.dp).alpha(if (Live.playbackLocked) 0.4f else 1f)
+                Modifier.size(84.dp).alpha(if (Live.playbackLocked) 0.4f else 1f)
+                    .clip(RoundedCornerShape(28.dp))
+                    .background(colors.content)
                     .clickable(onClickLabel = if (playback.playing) "Pause" else "Play", role = Role.Button) { Live.userToggle() },
                 contentAlignment = Alignment.Center,
             ) {
                 if (playback.loading) {
-                    CircularProgressIndicator(color = Color.White)
+                    CircularProgressIndicator(color = colors.sheet)
                 } else {
-                    SdatIcon(if (playback.playing) "pause.fill" else "play.fill", if (playback.playing) "Pause" else "Play", size = 46.dp, tint = Color.White)
+                    SdatIcon(if (playback.playing) "pause.fill" else "play.fill", if (playback.playing) "Pause" else "Play", size = 40.dp, tint = colors.sheet)
                 }
             }
-            IconTap("forward.fill", "Next", 30.dp, Modifier.alpha(if (Live.playbackLocked) 0.4f else 1f)) { forward = true; Live.userNext() }
+            IconTap("forward.fill", "Next", 36.dp, Modifier.size(64.dp).alpha(if (Live.playbackLocked) 0.4f else 1f)) { forward = true; Live.userNext() }
         }
-        Row(Modifier.fillMaxWidth().padding(top = 16.dp)) {
+        Row(Modifier.fillMaxWidth().padding(top = 16.dp), horizontalArrangement = Arrangement.SpaceBetween) {
             val context = LocalContext.current
-            IconTap("airplayaudio", "Audio output", 22.dp, tint = quiet) {
+            IconTap("airplayaudio", "Audio output", 24.dp, tint = colors.secondaryContent) {
                 if (!showOutputSwitcher(context)) Chrome.flash("Couldn't open the audio output picker")
             }
-            Spacer(Modifier.weight(1f))
-            IconTap("list.bullet", "Queue", 22.dp, tint = quiet, onClick = showQueue)
+            IconTap("dot.radiowaves.left.and.right", "Listen Together", 24.dp, tint = if (Live.active) colors.accent else colors.secondaryContent) {
+                Live.showSheet = true
+            }
+            IconTap("list.bullet", "Queue", 24.dp, tint = colors.secondaryContent, onClick = showQueue)
         }
     }
     }
@@ -275,32 +250,32 @@ private fun Scrubber(playback: Playback, modifier: Modifier = Modifier) {
             )
             Row(Modifier.fillMaxWidth()) {
                 val digits = SdatType.caption1.copy(fontFeatureSettings = "tnum")
-                Text(Fmt.time(displayed), style = digits, color = Color.White.copy(alpha = 0.6f))
+                val secondary = SdatTheme.colors.secondaryContent
+                Text(Fmt.time(displayed), style = digits, color = secondary)
                 Spacer(Modifier.weight(1f))
-                Text("-" + Fmt.time(maxOf(0.0, playback.duration - displayed)), style = digits, color = Color.White.copy(alpha = 0.6f))
+                Text("-" + Fmt.time(maxOf(0.0, playback.duration - displayed)), style = digits, color = secondary)
             }
         }
     }
 }
 
+/** Close, where the queue plays from, and the track's menu. */
 @Composable
-private fun TitleRow(playback: Playback, track: Track, slide: () -> ContentTransform, modifier: Modifier = Modifier) {
+private fun Header(playback: Playback, track: Track, onDismiss: () -> Unit, modifier: Modifier = Modifier) {
+    val colors = SdatTheme.colors
     val context = LocalContext.current
-    val fav = Favs.known(track.id) ?: false
     var menuBounds by remember { mutableStateOf<Rect?>(null) }
     var menuOpen by remember { mutableStateOf(false) }
-    Row(modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-        AnimatedContent(track, Modifier.weight(1f), transitionSpec = { slide() }, contentKey = { it.id }, label = "title") { t ->
-            Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                Text(t.displayTitle, style = SdatType.title3, fontWeight = FontWeight.Bold, color = Color.White, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                Row(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically) {
-                    if (playback.origin == Origin.DOWNLOADED && playback.track?.id == t.id) SdatIcon("arrow.down.circle.fill", "Playing downloaded copy", size = 15.dp, tint = dimmed)
-                    Text(t.artistLine, style = SdatType.body, color = dimmed, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                }
+    Row(modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+        CircleTap("chevron.down", "Close player", onClick = onDismiss)
+        Column(Modifier.weight(1f), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(2.dp)) {
+            val source = playback.source
+            if (source != null) {
+                Text("Playing from", style = SdatType.caption1, color = colors.secondaryContent, maxLines = 1)
+                Text(source, style = SdatType.footnote, fontWeight = FontWeight.Medium, maxLines = 1, overflow = TextOverflow.Ellipsis)
             }
         }
-        IconTap(if (fav) "star.fill" else "star", if (fav) "Unfavourite" else "Favourite", 22.dp) { Favs.set(track.id, !fav) }
-        IconTap("ellipsis", "More", 22.dp, Modifier.onGloballyPositioned { menuBounds = it.boundsInRoot() }.menuAnchor(menuOpen)) { menuOpen = true }
+        CircleTap("ellipsis", "More", Modifier.onGloballyPositioned { menuBounds = it.boundsInRoot() }.menuAnchor(menuOpen)) { menuOpen = true }
     }
     if (menuOpen) {
         val share = MenuAction("Share", "square.and.arrow.up", onClick = {
@@ -314,6 +289,24 @@ private fun TitleRow(playback: Playback, track: Track, slide: () -> ContentTrans
             title = track.displayTitle,
             onDismiss = { menuOpen = false },
         )
+    }
+}
+
+@Composable
+private fun TitleRow(playback: Playback, track: Track, slide: () -> ContentTransform, modifier: Modifier = Modifier) {
+    val colors = SdatTheme.colors
+    val fav = Favs.known(track.id) ?: false
+    Row(modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp), verticalAlignment = Alignment.CenterVertically) {
+        AnimatedContent(track, Modifier.weight(1f), transitionSpec = { slide() }, contentKey = { it.id }, label = "title") { t ->
+            Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                Text(t.displayTitle, style = SdatType.title3.copy(fontSize = 24.sp, lineHeight = 30.sp), fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                Row(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically) {
+                    if (playback.origin == Origin.DOWNLOADED && playback.track?.id == t.id) SdatIcon("arrow.down.circle.fill", "Playing downloaded copy", size = 15.dp, tint = colors.secondaryContent)
+                    Text(t.artistLine, style = SdatType.body.copy(fontSize = 16.sp), color = colors.secondaryContent, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                }
+            }
+        }
+        CircleTap(if (fav) "star.fill" else "star", if (fav) "Unfavourite" else "Favourite", tint = if (fav) colors.accent else colors.content) { Favs.set(track.id, !fav) }
     }
 }
 
@@ -339,8 +332,8 @@ private fun QualityBadge(playback: Playback, modifier: Modifier = Modifier) {
             verticalAlignment = Alignment.CenterVertically,
         ) {
             QualityLogo(q, 16.dp)
-            Text(q.badgeText, style = SdatType.caption1, fontWeight = FontWeight.SemiBold, color = Color.White.copy(alpha = 0.7f), maxLines = 1)
-            SdatIcon("chevron.up.chevron.down", null, size = 11.dp, tint = Color.White.copy(alpha = 0.5f))
+            Text(q.badgeText, style = SdatType.caption1, fontWeight = FontWeight.SemiBold, color = SdatTheme.colors.secondaryContent, maxLines = 1)
+            SdatIcon("chevron.up.chevron.down", null, size = 11.dp, tint = SdatTheme.colors.tertiaryContent)
         }
     }
 }
@@ -351,16 +344,16 @@ private fun QueuePage(playback: Playback) {
     LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(start = 20.dp, end = 12.dp, bottom = 24.dp)) {
         item(key = "title") {
             Box(Modifier.fillMaxWidth().heightIn(min = 44.dp), contentAlignment = Alignment.Center) {
-                IconTap("dot.radiowaves.left.and.right", "Listen Together", 20.dp, Modifier.align(Alignment.CenterStart), tint = if (Live.active) Color.White else inactive) {
+                IconTap("dot.radiowaves.left.and.right", "Listen Together", 20.dp, Modifier.align(Alignment.CenterStart), tint = if (Live.active) colors.accent else colors.tertiaryContent) {
                     Live.showSheet = true
                 }
                 Text("Queue", style = SdatType.headline, color = colors.content)
                 Row(Modifier.align(Alignment.CenterEnd)) {
-                    IconTap("shuffle", if (playback.shuffle) "Shuffle: On" else "Shuffle: Off", 20.dp, tint = if (playback.shuffle) Color.White else inactive) {
+                    IconTap("shuffle", if (playback.shuffle) "Shuffle: On" else "Shuffle: Off", 20.dp, tint = if (playback.shuffle) colors.accent else colors.tertiaryContent) {
                         playback.setShuffle(!playback.shuffle)
                     }
                     val repeat = playback.repeat
-                    IconTap(if (repeat == Repeat.One) "repeat.1" else "repeat", "Repeat: " + when (repeat) { Repeat.Off -> "Off"; Repeat.All -> "All"; Repeat.One -> "One" }, 20.dp, tint = if (repeat == Repeat.Off) inactive else Color.White) {
+                    IconTap(if (repeat == Repeat.One) "repeat.1" else "repeat", "Repeat: " + when (repeat) { Repeat.Off -> "Off"; Repeat.All -> "All"; Repeat.One -> "One" }, 20.dp, tint = if (repeat == Repeat.Off) colors.tertiaryContent else colors.accent) {
                         playback.cycleRepeat()
                     }
                 }
@@ -378,8 +371,8 @@ private fun QueuePage(playback: Playback) {
                     horizontalArrangement = Arrangement.spacedBy(8.dp),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
-                    SdatIcon("dot.radiowaves.left.and.right", null, size = 18.dp, tint = Color.White)
-                    Text("Playing from Listen Together", style = SdatType.headline, color = Color.White)
+                    SdatIcon("dot.radiowaves.left.and.right", null, size = 18.dp, tint = colors.accent)
+                    Text("Playing from Listen Together", style = SdatType.headline, color = colors.content)
                 }
             }
 
@@ -408,7 +401,7 @@ private fun LazyListScope.queueRows(section: String, tracks: List<Track>, onTap:
     itemsIndexed(tracks, key = { i, _ -> "$section ${keys[i]}" }) { i, t ->
         Row(Modifier.animateItem(), verticalAlignment = Alignment.CenterVertically) {
             TrackMenuRow(t, onClick = { onTap(i) }, Modifier.weight(1f)) { TrackRow(t, Modifier.padding(vertical = 6.dp)) }
-            IconTap("minus.circle", "Remove ${t.displayTitle}", 20.dp, tint = removeRed) { onRemove(i) }
+            IconTap("minus.circle", "Remove ${t.displayTitle}", 20.dp, tint = SdatTheme.colors.destructive) { onRemove(i) }
         }
     }
 }
@@ -429,13 +422,24 @@ private fun IconTap(
     label: String,
     size: Dp,
     modifier: Modifier = Modifier,
-    tint: Color = Color.White,
+    tint: Color = SdatTheme.colors.content,
     onClick: () -> Unit,
 ) {
     Box(
-        modifier.size(maxOf(size + 20.dp, 44.dp)).clickable(onClickLabel = label, role = Role.Button, onClick = onClick),
+        modifier.size(maxOf(size + 20.dp, 44.dp)).clip(CircleShape).clickable(onClickLabel = label, role = Role.Button, onClick = onClick),
         contentAlignment = Alignment.Center,
     ) {
         SdatIcon(symbol, label, size = size, tint = tint)
+    }
+}
+
+/** A 44 dp circle on the fill colour around a 22 dp icon. */
+@Composable
+private fun CircleTap(symbol: String, label: String, modifier: Modifier = Modifier, tint: Color = SdatTheme.colors.content, onClick: () -> Unit) {
+    Box(
+        modifier.size(44.dp).clip(CircleShape).background(SdatTheme.colors.fill).clickable(onClickLabel = label, role = Role.Button, onClick = onClick),
+        contentAlignment = Alignment.Center,
+    ) {
+        SdatIcon(symbol, label, size = 22.dp, tint = tint)
     }
 }
