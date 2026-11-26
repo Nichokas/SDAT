@@ -605,7 +605,7 @@ final class Player: LivePlaybackPort {
         // "paused" while the audio kept playing after a manual next.
         avPlayer.pause()
         isPlaying = false
-        // A stop, as a user pause: a restart of the item (failure, media reset) must not play it again.
+        // A stop, as a user pause: a restart of the item after a failure must not play it again.
         pausedByUser = true
         seek(to: 0)
     }
@@ -730,7 +730,8 @@ final class Player: LivePlaybackPort {
             break
         }
         // While a start loads, `position` follows the engine, not where the start was meant to begin.
-        restart(t, at: liveEngine.loadResumeAt ?? position)
+        // Not `isPlaying`: the rate observer may already have dropped it for the failure.
+        restart(t, at: liveEngine.loadResumeAt ?? position, autoplay: autoplayAfterEnd())
     }
 
     /// A dead URL fails again within seconds, an expired one hours later.
@@ -742,11 +743,10 @@ final class Player: LivePlaybackPort {
     private static let retryWindow: TimeInterval = 60
 
     /// Still the same listen: its scrobble progress survives the new start.
-    private func restart(_ t: Track, at secs: Double, online: Bool = true) {
+    private func restart(_ t: Track, at secs: Double, autoplay: Bool, online: Bool = true) {
         let kept = (listened, scrobbled, startedAt, artwork)
         exactResume = true
-        // Not `isPlaying`: the rate observer may already have dropped it for the failure.
-        start(t, resumeAt: secs, autoplay: autoplayAfterEnd(), online: online)
+        start(t, resumeAt: secs, autoplay: autoplay, online: online)
         (listened, scrobbled, startedAt, artwork) = kept
     }
 
@@ -1204,10 +1204,10 @@ final class Player: LivePlaybackPort {
                 diagRecord(level: .warn, target: "audio-session", message: "media services were reset", backtrace: nil)
                 guard let self else { return }
                 self.configureSession()
-                // The engine's items die with the media server: the current track gets a new one where it was, as after
-                // a failed stream, but from a local copy when there is one. A start activates the session if it plays.
+                // The engine's items die with the media server: the current track gets a new one where it was, from a
+                // local copy when there is one. Paused, as Apple asks: only the user restarts playback after a reset.
                 if let t = self.current, !self.needsStart {
-                    self.restart(t, at: self.liveEngine.loadResumeAt ?? self.position, online: false)
+                    self.restart(t, at: self.liveEngine.loadResumeAt ?? self.position, autoplay: false, online: false)
                 }
             }
         })
