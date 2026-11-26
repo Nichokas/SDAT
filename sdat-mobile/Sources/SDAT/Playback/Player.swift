@@ -740,11 +740,11 @@ final class Player: LivePlaybackPort {
     private static let retryWindow: TimeInterval = 60
 
     /// Still the same listen: its scrobble progress survives the new start.
-    private func restart(_ t: Track, at secs: Double) {
+    private func restart(_ t: Track, at secs: Double, online: Bool = true) {
         let kept = (listened, scrobbled, startedAt, artwork)
         exactResume = true
         // Not `isPlaying`: the rate observer may already have dropped it for the failure.
-        start(t, resumeAt: secs, autoplay: autoplayAfterEnd(), online: true)
+        start(t, resumeAt: secs, autoplay: autoplayAfterEnd(), online: online)
         (listened, scrobbled, startedAt, artwork) = kept
     }
 
@@ -1201,8 +1201,12 @@ final class Player: LivePlaybackPort {
             MainActor.assumeIsolated {
                 diagRecord(level: .warn, target: "audio-session", message: "media services were reset", backtrace: nil)
                 guard let self else { return }
-                // The same sessions `scheduleSessionRelease` keeps active; an idle player stays inactive so iOS may suspend it.
-                if self.isPlaying || Live.shared.active { self.activateAudio() } else { self.configureSession() }
+                self.configureSession()
+                // The engine's items die with the media server: the current track gets a new one where it was, as after
+                // a failed stream, but from a local copy when there is one. A start activates the session if it plays.
+                if let t = self.current, !self.needsStart {
+                    self.restart(t, at: self.liveEngine.loadResumeAt ?? self.position, online: false)
+                }
             }
         })
         systemObservers.append(nc.addObserver(forName: AVAudioSession.routeChangeNotification,
