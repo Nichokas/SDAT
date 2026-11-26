@@ -382,7 +382,6 @@ impl Mirror {
         let Some(w) = self.written.as_mut() else { return false };
         w.wrote.extend(future.iter().map(|e| e.track_id.clone()));
         w.entries.extend(future);
-        w.capped = w.wrote.len() == MAX_FUTURE + 1;
         true
     }
 
@@ -788,6 +787,21 @@ mod tests {
         // What follows it was read as TIDAL repeats it: the rest of the batch, then its start.
         assert!(m.adopted_future("r", entries(&["2", "3"])));
         assert_eq!(m.plan(&repeating("1", &["2", "3"], &[]), 0), vec![Write::Current { index: 0, position_ms: 0 }]);
+    }
+
+    #[test]
+    fn an_adopted_queue_rewrites_when_the_local_queue_grows() {
+        let h = head("r", "0", "phone");
+        let mut m = Mirror::new(ME.into());
+        m.fetched(state(Some(ME), Status::Playing), Some(h.clone()), None);
+        m.adopt(Entry { track_id: "0".into(), item_id: "i0".into() }, &h, 0, 0);
+        let ids: Vec<String> = (1..=MAX_FUTURE + 1).map(|i| i.to_string()).collect();
+        assert!(m.adopted_future(
+            "r",
+            ids[..MAX_FUTURE].iter().map(|id| Entry { track_id: id.clone(), item_id: format!("i{id}") }).collect(),
+        ));
+        let playback = LocalPlayback { current: Some(ids[0].clone()), future: ids[1..].to_vec(), playing: true, ..LocalPlayback::default() };
+        assert!(matches!(m.plan(&playback, 0).first(), Some(Write::Queue(tracks)) if tracks == &ids));
     }
 
     #[test]
