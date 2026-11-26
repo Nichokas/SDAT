@@ -1,5 +1,6 @@
 package com.nichokas.sdat.ui
 
+import android.view.HapticFeedbackConstants
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -16,6 +17,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.unit.dp
 import com.nichokas.sdat.core.Discover
 import com.nichokas.sdat.core.DiscoverCache
@@ -33,12 +35,16 @@ import uniffi.tonearm_ffi.Track
 @Composable
 fun DiscoverView(session: Session, onPlay: (Track, List<Track>, List<Mix>) -> Unit) {
     val context = LocalContext.current
+    val view = LocalView.current
     LaunchedEffect(Unit) { Discover.load(DiscoverCache.of(context)) }
     val tracks = Discover.tracks
     val colors = SdatTheme.colors
     val background = colors.sheet
     SheetPage("Discover", onNavigateBack = null) {
-        CoverPlane(tracks, background, colors.fill, onTap = { onPlay(it, tracks, Discover.mixes) })
+        CoverPlane(tracks, background, colors.fill, onTap = {
+            view.performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK)
+            onPlay(it, tracks, Discover.mixes)
+        })
         // The plane fades into the bottom bar, which has the sheet's colour.
         Box(Modifier.align(Alignment.BottomCenter).fillMaxWidth().height(120.dp).background(Brush.verticalGradient(0f to background.copy(alpha = 0f), 1f to background)))
         if (tracks.isEmpty()) {

@@ -147,6 +147,62 @@ mod pagination_tests {
     }
 
     #[test]
+    fn paginated_playback_keeps_repeated_tracks() -> anyhow::Result<()> {
+        use super::{Track, page_feeder, player, service};
+        use crate::api::openapi::{LinksMeta, Relationships};
+
+        let track = |id: &str| {
+            let mut track = Track::default();
+            track.info.id = id.into();
+            track
+        };
+        for shuffled in [false, true] {
+            let mut pages = ["A,B,C", "A,D,D"].into_iter().peekable();
+            let mut paginator = super::Paginator::new(
+                Box::new(move |_| {
+                    let mut page = Relationships::default();
+                    page.links.self_ = pages.next().expect("no fetch after EOF").into();
+                    page.links.meta = Some(LinksMeta { next_cursor: pages.peek().map(|p| (*p).into()) });
+                    Ok(page)
+                }),
+                Box::new(move |page| page.links.self_.split(',').map(track).collect()),
+            );
+            let queue = player::base_queue();
+            let first = paginator.next_page()?;
+            let loaded = first.len();
+            queue.clear();
+            queue.set(first);
+            let active = queue.pop().unwrap();
+            let occurrence = queue.current_occurrence(&active).unwrap();
+            if shuffled {
+                queue.shuffle(active.id(), &[]);
+            }
+            let ids = || queue.entries().with(|rows| rows.iter().map(|row| row.id().to_owned()).collect::<Vec<_>>());
+            let before = ids();
+            let feeder = page_feeder(None, service::shared(paginator), player::list_generation(), Some(loaded));
+            let context = glib::MainContext::new();
+            let (send, recv) = async_channel::bounded(1);
+            let more = context.block_on(async {
+                feeder(std::rc::Rc::new(move |more| send.try_send(more).unwrap()));
+                recv.recv().await
+            })?;
+
+            assert!(!more);
+            assert!(occurrence.ptr_eq(&queue.current_occurrence(&active).unwrap()));
+            assert_eq!(queue.is_shuffled(), shuffled);
+            if shuffled {
+                assert_eq!(ids().into_iter().filter(|id| id == "B" || id == "C").collect::<Vec<_>>(), before);
+                let mut current = ids();
+                current.sort_unstable();
+                assert_eq!(current, ["A", "B", "C", "D", "D"]);
+                queue.restore();
+            }
+            assert_eq!(ids(), ["B", "C", "A", "D", "D"]);
+        }
+        Ok(())
+    }
+
+    #[test]
     fn fetches_only_when_close_to_the_end() {
         // 600px viewport at the top of 10000px of content: far from the end.
         assert!(!should_fetch(false, false, 0.0, 600.0, 10_000.0));
@@ -324,7 +380,7 @@ fn play_whole_list_on_click(list: &TrackList, p: Option<SharedPaginator<Track>>,
         let initial_count = tracks.len();
         let Some(generation) = player::play_list_from(source.clone(), tracks, t, pos) else { return };
         if let Some(p) = &p {
-            player::set_list_feeder(generation, page_feeder(Some(l.downgrade()), std::sync::Arc::clone(p), generation, initial_count));
+            player::set_list_feeder(generation, page_feeder(Some(l.downgrade()), std::sync::Arc::clone(p), generation, Some(initial_count)));
             if matches!(source, PlaybackSource::MyTracks) {
                 set_favourites_total(generation);
             }
@@ -355,8 +411,11 @@ fn next_queue_batch<T: Clone>(p: &mut Paginator<T>, queued: usize) -> anyhow::Re
 
 /// A [`player::ListFeeder`] that loads the next page of `p`, shows it in the
 /// list (if still open) and appends it to the queue of list `generation`.
-fn page_feeder(list: Option<crate::ui::components::tracklist::WeakTrackList>, p: SharedPaginator<Track>, generation: u64, initial_count: usize) -> player::ListFeeder {
-    let queued = Rc::new(Cell::new(initial_count));
+/// An independently fetched preview has no offset into `p`, so it can overlap
+/// the fetched pages.
+fn page_feeder(list: Option<crate::ui::components::tracklist::WeakTrackList>, p: SharedPaginator<Track>, generation: u64, initial_count: Option<usize>) -> player::ListFeeder {
+    let queued = Rc::new(Cell::new(initial_count.unwrap_or_default()));
+    let overlaps = initial_count.is_none();
     Rc::new(move |done| {
         let (list, p, queued) = (list.clone(), std::sync::Arc::clone(&p), Rc::clone(&queued));
         glib::spawn_future_local(async move {
@@ -379,8 +438,9 @@ fn page_feeder(list: Option<crate::ui::components::tracklist::WeakTrackList>, p:
             if let (Some(l), Some(start)) = (list, start) {
                 append_loaded_tracks(&l, start, &rows);
             }
-            let alive = player::extend_list(generation, &page);
-            queued.set(offset + page.len());
+            let count = page.len();
+            let alive = player::extend_list(generation, page, overlaps);
+            queued.set(offset + count);
             done(alive && more);
         });
     })
@@ -1017,7 +1077,7 @@ async fn my_collection() -> Response {
         let p = service::shared(service::user_collection_tracks("me"));
         // The preview came from a separate request. Read page one in full so new
         // favourites are included; the queue skips preview IDs, even played ones.
-        player::set_list_feeder(generation, page_feeder(None, p, generation, 0));
+        player::set_list_feeder(generation, page_feeder(None, p, generation, None));
         set_favourites_total(generation);
     });
     let title = RowTitle::new().set_title(&tr("Tracks")).set_view_all_route("my-collection/tracks");

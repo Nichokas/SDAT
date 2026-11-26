@@ -2,10 +2,10 @@
 //! Pure: time comes in as Unix ms, every effect goes out as a value.
 
 use super::wire::{Entry, Head, State, Status};
-use super::{Device, Elsewhere, HandoffEvent, LocalPlayback, Repeat};
+use super::{Device, Elsewhere, HandoffEvent, LocalPlayback, QueueSource, Repeat};
 
-/// Tracks written after the current one.
 pub(super) const MAX_FUTURE: usize = 100;
+pub(super) const MAX_HANDOFF_FUTURE: usize = 499;
 /// A position this far from the extrapolated one is a seek.
 const SEEK_MS: i64 = 3_000;
 
@@ -48,6 +48,7 @@ struct Written {
     cur: usize,
     revision: String,
     repeat: Repeat,
+    source: QueueSource,
     position_ms: i64,
     at_ms: i64,
     playing: bool,
@@ -75,7 +76,7 @@ impl Written {
                     let rotated = tracks.len() == self.wrote.len() && tracks.starts_with(rest) && tracks.ends_with(before);
                     // A queue taken over was read as its whole batch only if it repeated then: under any
                     // other mode the batch may hold tracks from before its current one.
-                    (rotated && (own || (k == 0 && self.repeat == Repeat::All))).then_some(tracks.len())
+                    (rotated && (own || self.repeat == Repeat::All)).then_some(tracks.len())
                 }
                 _ if rest == tracks => Some(tracks.len()),
                 Repeat::Off if own => tracks.starts_with(rest).then_some(rest.len()),
@@ -197,9 +198,19 @@ impl Mirror {
         // Repeat all plays the tracks before the current one again after the last. They are written
         // behind it, as one batch that TIDAL repeats: the device that takes the queue over reads the whole list.
         let before = if repeat == Repeat::All { local.past.as_slice() } else { &[] };
-        let tracks: Vec<String> = std::iter::once(cur).chain(&local.future).chain(before).take(MAX_FUTURE + 1).cloned().collect();
+        let ordered = || std::iter::once(cur).chain(&local.future).chain(before);
+        let tracks: Vec<String> = ordered().take(MAX_FUTURE + 1).cloned().collect();
         // An entry never read back can't be selected: the queue is written again.
-        let found = self.written.as_ref().and_then(|w| w.find(&tracks, repeat).filter(|&(i, _)| w.known(i).is_some()).map(|f| (w, f)));
+        let found = self
+            .written
+            .as_ref()
+            .filter(|w| w.source == local.queue_source())
+            .and_then(|w| {
+                let adopted = (w.batch.is_none() && w.wrote.len() > MAX_FUTURE + 1)
+                    .then(|| ordered().take(MAX_HANDOFF_FUTURE + 1).cloned().collect::<Vec<_>>());
+                let matched = w.find(adopted.as_deref().unwrap_or(&tracks), repeat)?;
+                w.known(matched.0).map(|_| (w, matched))
+            });
         if let Some((w, (index, written))) = found {
             // First, so that what follows an append is read as it is queued, not as another mode shows it.
             if w.repeat != repeat {
@@ -221,6 +232,23 @@ impl Mirror {
             out.push(Write::Status { playing: local.playing });
         }
         out
+    }
+
+    pub(super) fn take_send_extension(&mut self, index: usize, local: &LocalPlayback) -> Option<(String, Vec<String>)> {
+        let w = self.written.as_ref()?;
+        let batch = w.batch.as_ref()?;
+        let (current, future) = w.wrote.get(index..)?.split_first()?;
+        if w.source != QueueSource::Fixed || w.repeat != Repeat::Off || Some(current) != local.current.as_ref() || !local.future.starts_with(future) {
+            return None;
+        }
+        let remaining = MAX_HANDOFF_FUTURE.saturating_sub(future.len());
+        let extra: Vec<_> = local.future.iter().skip(future.len()).take(remaining).cloned().collect();
+        if extra.is_empty() {
+            return None;
+        }
+        let extension = (batch.clone(), extra);
+        self.written = None;
+        Some(extension)
     }
 
     /// TIDAL's entry for written index `index`, if it still matches.
@@ -251,9 +279,9 @@ impl Mirror {
         self.written = None;
     }
 
-    pub(super) fn queue_written(&mut self, wrote: Vec<String>, entries: Vec<Entry>, batch: String, revision: String, repeat: Repeat) {
+    pub(super) fn queue_written(&mut self, wrote: Vec<String>, entries: Vec<Entry>, batch: String, revision: String, repeat: Repeat, source: QueueSource) {
         let capped = wrote.len() == MAX_FUTURE + 1;
-        self.written = Some(Written { wrote, entries, batch: Some(batch), capped, cur: 0, revision, repeat, position_ms: 0, at_ms: 0, playing: false });
+        self.written = Some(Written { wrote, entries, batch: Some(batch), capped, cur: 0, revision, repeat, source, position_ms: 0, at_ms: 0, playing: false });
     }
 
     /// `future`: the entries after TIDAL's current one, read after the append.
@@ -329,6 +357,7 @@ impl Mirror {
             cur: 0,
             revision: head.revision.clone(),
             repeat: head.repeat,
+            source: head.source,
             position_ms,
             at_ms: now_ms,
             playing: false,
@@ -353,7 +382,6 @@ impl Mirror {
         let Some(w) = self.written.as_mut() else { return false };
         w.wrote.extend(future.iter().map(|e| e.track_id.clone()));
         w.entries.extend(future);
-        w.capped = w.wrote.len() == MAX_FUTURE + 1;
         true
     }
 
@@ -482,7 +510,7 @@ mod tests {
         let mut m = Mirror::new(ME.into());
         m.fetched(state(Some(ME), Status::Playing), None, None);
         let entries = tracks.iter().map(|t| Entry { track_id: (*t).into(), item_id: format!("i{t}") }).collect();
-        m.queue_written(ids(tracks), entries, "b".into(), "r".into(), Repeat::Off);
+        m.queue_written(ids(tracks), entries, "b".into(), "r".into(), Repeat::Off, QueueSource::Fixed);
         m.current_written(0, 0, true, 0, "r".into());
         m.local_playing = true;
         m
@@ -552,6 +580,29 @@ mod tests {
     }
 
     #[test]
+    fn a_500_track_send_extends_only_the_known_prefix() {
+        let mut all: Vec<String> = (0..600).map(|i| i.to_string()).collect();
+        all[120] = all[4].clone();
+        let mut m = active_with(&[]);
+        let playback = LocalPlayback { current: Some(all[0].clone()), future: all[1..].to_vec(), playing: true, ..LocalPlayback::default() };
+        let prefix = all[..101].to_vec();
+        assert_eq!(m.plan(&playback, 0).first(), Some(&Write::Queue(prefix.clone())));
+        m.queue_written(prefix.clone(), entries(&["0"]), "batch".into(), "r".into(), Repeat::Off, QueueSource::Fixed);
+        assert_eq!(m.take_send_extension(0, &playback), Some(("batch".into(), all[101..500].to_vec())));
+        assert!(m.take_send_extension(0, &playback).is_none());
+        assert_eq!(m.plan(&playback, 0).first(), Some(&Write::Queue(prefix)));
+    }
+
+    #[test]
+    fn a_send_cannot_extend_a_repeat_all_or_mismatched_batch() {
+        let mut m = active_with(&["1", "2"]);
+        let reordered = local("1", &["3", "2"], 0, true);
+        assert!(m.take_send_extension(0, &reordered).is_none());
+        m.repeat_written(Repeat::All, "r".into());
+        assert!(m.take_send_extension(0, &local("1", &["2", "3"], 0, true)).is_none());
+    }
+
+    #[test]
     fn long_queues_are_capped_and_topped_up() {
         let all: Vec<String> = (0..300).map(|i| i.to_string()).collect();
         let mut m = active_with(&[]);
@@ -559,7 +610,7 @@ mod tests {
         let Some(Write::Queue(wrote)) = m.plan(&l(0), 0).into_iter().next() else { panic!("expected a rewrite") };
         assert_eq!(wrote.len(), MAX_FUTURE + 1);
         let entries = wrote.iter().map(|t| Entry { track_id: t.clone(), item_id: t.clone() }).collect();
-        m.queue_written(wrote, entries, "b".into(), "r".into(), Repeat::Off);
+        m.queue_written(wrote, entries, "b".into(), "r".into(), Repeat::Off, QueueSource::Fixed);
         m.current_written(0, 0, true, 0, "r".into());
         assert_eq!(m.plan(&l(10), 0), vec![Write::Current { index: 10, position_ms: 0 }]);
         // Less than half of the cap is left written: the rest of it is added.
@@ -625,7 +676,7 @@ mod tests {
         let mut m = active_with(&[]);
         let Some(Write::Queue(wrote)) = m.plan(&l(60), 0).into_iter().next() else { panic!("expected a rewrite") };
         let entries = wrote.iter().map(|t| Entry { track_id: t.clone(), item_id: t.clone() }).collect();
-        m.queue_written(wrote, entries, "b".into(), "r".into(), Repeat::Off);
+        m.queue_written(wrote, entries, "b".into(), "r".into(), Repeat::Off, QueueSource::Fixed);
         m.current_written(0, 0, true, 0, "r".into());
         // More than half of the new list is written, but nothing of it was left out before.
         assert_eq!(m.plan(&l(300), 0), vec![Write::Append { batch: "b".into(), tracks: all[60..101].to_vec(), capped: true }]);
@@ -651,7 +702,7 @@ mod tests {
         m.local_playing = true;
         // Started at the second of three: the first follows the last.
         assert_eq!(m.plan(&repeating("2", &["3"], &["1"]), 0).first(), Some(&Write::Queue(ids(&["2", "3", "1"]))));
-        m.queue_written(ids(&["2", "3", "1"]), entries(&["2", "3", "1"]), "b".into(), "r".into(), Repeat::All);
+        m.queue_written(ids(&["2", "3", "1"]), entries(&["2", "3", "1"]), "b".into(), "r".into(), Repeat::All, QueueSource::Fixed);
         m.current_written(0, 0, true, 0, "r".into());
         // TIDAL repeats the batch: every track of the list, and the wrap to its first, only moves current.
         assert_eq!(m.plan(&repeating("3", &[], &["1", "2"]), 0), vec![Write::Current { index: 1, position_ms: 0 }]);
@@ -692,9 +743,18 @@ mod tests {
     }
 
     #[test]
+    fn changing_to_discover_rewrites_the_current_items_source() {
+        let mut m = active_with(&["2", "3"]);
+        let l = LocalPlayback { discover: true, ..local("2", &["3"], 0, true) };
+        assert_eq!(m.plan(&l, 0).first(), Some(&Write::Queue(ids(&["2", "3"]))));
+    }
+
+    #[test]
     fn discover_does_not_repeat() {
         let mut m = active_with(&["2", "3"]);
         let l = LocalPlayback { discover: true, ..repeating("2", &["3"], &["1"]) };
+        m.queue_written(ids(&["2", "3"]), entries(&["2", "3"]), "b".into(), "r".into(), Repeat::Off, QueueSource::Discover);
+        m.current_written(0, 0, true, 0, "r".into());
         assert!(m.plan(&l, 0).is_empty());
         // Its refill is appended.
         let more = LocalPlayback { discover: true, ..repeating("2", &["3", "4"], &["1"]) };
@@ -727,6 +787,64 @@ mod tests {
         // What follows it was read as TIDAL repeats it: the rest of the batch, then its start.
         assert!(m.adopted_future("r", entries(&["2", "3"])));
         assert_eq!(m.plan(&repeating("1", &["2", "3"], &[]), 0), vec![Write::Current { index: 0, position_ms: 0 }]);
+    }
+
+    #[test]
+    fn a_repeating_adopted_queue_selects_the_next_existing_entry() {
+        let mut m = Mirror::new(ME.into());
+        let h = Head { repeat: Repeat::All, ..head("r", "0", "phone") };
+        m.fetched(state(Some(ME), Status::Playing), Some(h.clone()), None);
+        m.adopt(Entry { track_id: "0".into(), item_id: "i0".into() }, &h, 0, 0);
+        let future: Vec<_> = (1..=MAX_FUTURE).map(|i| Entry { track_id: i.to_string(), item_id: format!("i{i}") }).collect();
+        let mut playback = LocalPlayback {
+            current: Some("0".into()),
+            future: future.iter().map(|e| e.track_id.clone()).collect(),
+            playing: true,
+            repeat: Repeat::All,
+            ..LocalPlayback::default()
+        };
+        assert!(m.adopted_future("r", future));
+        m.current_written(0, 0, true, 0, "r".into());
+        playback.current = Some(playback.future.remove(0));
+        playback.past.push("0".into());
+        assert_eq!(m.plan(&playback, 1), vec![Write::Current { index: 1, position_ms: 0 }]);
+    }
+
+    #[test]
+    fn an_adopted_queue_rewrites_when_the_local_queue_grows() {
+        let h = head("r", "0", "phone");
+        let mut m = Mirror::new(ME.into());
+        m.fetched(state(Some(ME), Status::Playing), Some(h.clone()), None);
+        m.adopt(Entry { track_id: "0".into(), item_id: "i0".into() }, &h, 0, 0);
+        let ids: Vec<String> = (1..=MAX_FUTURE + 1).map(|i| i.to_string()).collect();
+        assert!(m.adopted_future(
+            "r",
+            ids[..MAX_FUTURE].iter().map(|id| Entry { track_id: id.clone(), item_id: format!("i{id}") }).collect(),
+        ));
+        let playback = LocalPlayback { current: Some(ids[0].clone()), future: ids[1..].to_vec(), playing: true, ..LocalPlayback::default() };
+        assert!(matches!(m.plan(&playback, 0).first(), Some(Write::Queue(tracks)) if tracks == &ids));
+    }
+
+    #[test]
+    fn reports_keep_a_long_queue_received_from_another_device() {
+        let h = head("r", "0", "phone");
+        let mut m = Mirror::new(ME.into());
+        m.fetched(state(Some(ME), Status::Playing), Some(h.clone()), None);
+        m.adopt(Entry { track_id: "0".into(), item_id: "i0".into() }, &h, 0, 0);
+        let future: Vec<_> = (1..=499).map(|i| Entry { track_id: i.to_string(), item_id: format!("i{i}") }).collect();
+        let mut playback = LocalPlayback {
+            current: Some("0".into()),
+            future: future.iter().map(|e| e.track_id.clone()).collect(),
+            playing: true,
+            ..LocalPlayback::default()
+        };
+        assert!(m.adopted_future("r", future));
+        assert!(matches!(m.plan(&playback, 0).as_slice(), [Write::Current { index: 0, .. }]));
+        m.current_written(0, 0, true, 0, "r".into());
+        playback.current = Some(playback.future.remove(0));
+        assert!(matches!(m.plan(&playback, 1).as_slice(), [Write::Current { index: 1, .. }]));
+        playback.future.swap(250, 251);
+        assert!(matches!(m.plan(&playback, 2).first(), Some(Write::Queue(tracks)) if tracks.len() == MAX_FUTURE + 1));
     }
 
     #[test]
@@ -907,7 +1025,7 @@ mod tests {
     fn entries_not_read_back_are_written_again() {
         let mut m = active_with(&[]);
         // A send reads back only the current entry.
-        m.queue_written(ids(&["1", "2", "3"]), vec![Entry { track_id: "1".into(), item_id: "i1".into() }], "b".into(), "r".into(), Repeat::Off);
+        m.queue_written(ids(&["1", "2", "3"]), vec![Entry { track_id: "1".into(), item_id: "i1".into() }], "b".into(), "r".into(), Repeat::Off, QueueSource::Fixed);
         m.current_written(0, 0, true, 0, "r".into());
         assert_eq!(m.plan(&local("1", &["2", "3"], 30_000, false), 30_000), vec![Write::Current { index: 0, position_ms: 30_000 }, Write::Status { playing: false }]);
         assert_eq!(m.plan(&local("2", &["3"], 0, true), 31_000).first(), Some(&Write::Queue(ids(&["2", "3"]))));

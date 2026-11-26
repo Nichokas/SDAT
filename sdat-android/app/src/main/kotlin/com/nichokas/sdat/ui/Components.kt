@@ -1,5 +1,6 @@
 package com.nichokas.sdat.ui
 
+import android.animation.ValueAnimator
 import androidx.compose.animation.core.RepeatMode
 import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.infiniteRepeatable
@@ -46,13 +47,18 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.layout.boundsInRoot
 import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
+import coil3.SingletonImageLoader
 import coil3.compose.AsyncImage
+import coil3.memory.MemoryCache
+import coil3.request.ImageRequest
+import coil3.request.crossfade
 import com.nichokas.sdat.core.Chrome
 import com.nichokas.sdat.core.Downloads
 import com.nichokas.sdat.core.Favs
@@ -115,6 +121,14 @@ object CoverUrl {
         val size = sizes.firstOrNull { it >= px } ?: sizes.last()
         return url.replaceRange(match.range, "/${size}x$size.${if (png) "png" else "jpg"}")
     }
+
+    fun smallerRenditions(url: String, kind: Kind): List<String> {
+        if ("resources.tidal.com/images/" !in url || !url.endsWith(".jpg")) return emptyList()
+        val match = sizeSuffix.find(url) ?: return emptyList()
+        val size = match.value.substring(1).substringBefore('x').toIntOrNull() ?: return emptyList()
+        return kind.sizes.asReversed().filter { it < size }
+            .map { url.replaceRange(match.range, "/${it}x$it.jpg") }
+    }
 }
 
 /** Square cover sized for its frame. */
@@ -129,8 +143,27 @@ fun Cover(url: String?, size: Dp, modifier: Modifier = Modifier, radius: Dp = 8.
         if (url == null) {
             SdatIcon("music.note", null, size = size / 3, tint = SdatTheme.colors.secondaryContent)
         } else {
+            val context = LocalContext.current
+            val loader = SingletonImageLoader.get(context)
+            val localFile = Downloads.coverFile(url)
+            val remote = CoverUrl.sized(url, px, kind)
+            val animate = ValueAnimator.areAnimatorsEnabled()
+            val request = remember(context, loader, localFile, remote, kind, animate) {
+                ImageRequest.Builder(context).data(localFile ?: remote).apply {
+                    if (localFile == null) {
+                        val cache = loader.memoryCache
+                        val key = (sequenceOf(remote) + CoverUrl.smallerRenditions(remote, kind))
+                            .map { MemoryCache.Key(it) }
+                            .firstOrNull { cache?.get(it) != null }
+                        placeholderMemoryCacheKey(key)
+                        if (key != null) error { cache?.get(key)?.image }
+                    }
+                    crossfade(if (animate) 150 else 0)
+                }.build()
+            }
             AsyncImage(
-                model = Downloads.coverFile(url) ?: CoverUrl.sized(url, px, kind),
+                model = request,
+                imageLoader = loader,
                 contentDescription = null,
                 contentScale = ContentScale.Crop,
                 modifier = Modifier.fillMaxSize(),

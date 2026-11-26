@@ -22,6 +22,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.sp
 import com.nichokas.sdat.core.Accent
 import com.nichokas.sdat.ui.inter
+import com.nichokas.sdat.ui.interDisplay
 
 /** The roles SDAT draws with, all read from one Material colour scheme. */
 @Immutable
@@ -44,6 +45,7 @@ data class Palette(
     val inverse: Color,
     val onInverse: Color,
     val destructive: Color,
+    val onDestructive: Color,
 )
 
 private fun ColorScheme.palette(isDark: Boolean) = Palette(
@@ -62,6 +64,7 @@ private fun ColorScheme.palette(isDark: Boolean) = Palette(
     inverse = inverseSurface,
     onInverse = inverseOnSurface,
     destructive = error,
+    onDestructive = onError,
 )
 
 /** The neutrals of a Material scheme tinted towards one accent, for the presets that don't follow the wallpaper. */
@@ -123,7 +126,7 @@ fun SdatTheme(accent: Accent = Accent.System, isDark: Boolean = isSystemInDarkTh
 }
 
 private fun style(size: Int, leading: Int, tracking: Float, weight: Int = 400) = TextStyle(
-    fontFamily = inter,
+    fontFamily = if (size >= 20) interDisplay else inter,
     fontSize = size.sp,
     lineHeight = leading.sp,
     letterSpacing = tracking.sp,

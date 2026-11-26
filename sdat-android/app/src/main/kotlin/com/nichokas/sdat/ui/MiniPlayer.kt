@@ -55,6 +55,7 @@ import androidx.compose.ui.graphics.PathMeasure
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.input.key.Key
 import androidx.compose.ui.input.key.KeyEventType
 import androidx.compose.ui.input.key.key
@@ -65,6 +66,7 @@ import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.boundsInRoot
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.layout.positionInRoot
+import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.semantics.CustomAccessibilityAction
 import androidx.compose.ui.semantics.Role
@@ -81,10 +83,11 @@ import com.nichokas.sdat.core.Live
 import com.nichokas.sdat.core.MiniFan
 import com.nichokas.sdat.core.NavState
 import com.nichokas.sdat.core.Playback
+import com.nichokas.sdat.core.coverUrl
 import com.nichokas.sdat.ui.kit.Raised
 import com.nichokas.sdat.ui.kit.SdatTheme
-import kotlinx.coroutines.withTimeoutOrNull
 import kotlin.math.roundToInt
+import kotlinx.coroutines.withTimeoutOrNull
 
 private val AppTab.label get() = when (this) {
     AppTab.Discover -> "Discover"
@@ -108,6 +111,12 @@ private val coverCorner = 14.dp
 @Composable
 internal fun BottomBar(playback: Playback, nav: NavState) {
     val colors = SdatTheme.colors
+    val view = LocalView.current
+    var wasPlaying by remember(playback) { mutableStateOf(playback.playing) }
+    LaunchedEffect(playback.playing) {
+        if (playback.track != null && wasPlaying != playback.playing) view.performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK)
+        wasPlaying = playback.playing
+    }
     Row(
         Modifier.fillMaxWidth().background(colors.sheet).navigationBarsPadding().height(64.dp).padding(horizontal = 16.dp),
         verticalAlignment = Alignment.CenterVertically,
@@ -123,10 +132,14 @@ internal fun BottomBar(playback: Playback, nav: NavState) {
 @Composable
 private fun TabButton(tab: AppTab, selected: Boolean, onClick: () -> Unit) {
     val colors = SdatTheme.colors
+    val haptics = LocalHapticFeedback.current
     Box(
         Modifier.size(64.dp, 44.dp).clip(CircleShape)
             .then(if (selected) Modifier.background(colors.fill) else Modifier)
-            .selectable(selected, role = Role.Tab, onClick = onClick)
+            .selectable(selected, role = Role.Tab) {
+                if (!selected) haptics.performHapticFeedback(HapticFeedbackType.SegmentTick)
+                onClick()
+            }
             .semantics { contentDescription = tab.label },
         contentAlignment = Alignment.Center,
     ) {
@@ -142,6 +155,8 @@ private fun MiniPlayer(playback: Playback) {
     val label = playLabel(playback)
     val focus = remember { MutableInteractionSource() }
     val focused by focus.collectIsFocusedAsState()
+    var pressed by remember { mutableStateOf(false) }
+    val pressScale by animateFloatAsState(if (pressed) 1.08f else 1f, label = "mini-player press")
     val view = LocalView.current
     // Whatever hides the mini player (the end of the queue, Settings) also takes the fan with it.
     DisposableEffect(Unit) { onDispose { MiniFan.close() } }
@@ -169,16 +184,16 @@ private fun MiniPlayer(playback: Playback) {
             .pointerInput(Unit) {
                 awaitEachGesture {
                     val down = awaitFirstDown()
-                    var up: PointerInputChange? = null
-                    val released = withTimeoutOrNull(MiniFan.HOLD_MS) { up = waitForUpOrCancellation(); true }
-                    // A cancelled gesture (finger slid off, or consumed by another gesture) does nothing.
-                    if (released != null) {
-                        if (up != null) onOpen()
-                        return@awaitEachGesture
-                    }
-                    view.performHapticFeedback(HapticFeedbackConstants.LONG_PRESS)
-                    MiniFan.hold()
+                    pressed = true
                     try {
+                        var up: PointerInputChange? = null
+                        val released = withTimeoutOrNull(MiniFan.HOLD_MS) { up = waitForUpOrCancellation(); true }
+                        if (released != null) {
+                            if (up != null) onOpen()
+                            return@awaitEachGesture
+                        }
+                        view.performHapticFeedback(HapticFeedbackConstants.LONG_PRESS)
+                        MiniFan.hold()
                         while (true) {
                             val change = awaitPointerEvent().changes.firstOrNull { it.id == down.id } ?: break
                             // Compose delivers a cancelled gesture as an up that is already consumed: it must not run the
@@ -194,14 +209,15 @@ private fun MiniPlayer(playback: Playback) {
                             if (moved) view.performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK)
                         }
                     } finally {
+                        pressed = false
                         if (MiniFan.state is MiniFan.State.Held) MiniFan.close()
                     }
                 }
             },
         contentAlignment = Alignment.Center,
     ) {
-        MiniRing({ if (playback.loading) 0.0 else playback.progress }, playback.loading, Modifier.fillMaxSize())
-        Box(Modifier.size((MINI - 2 * (RING + 3)).dp), contentAlignment = Alignment.Center) {
+        MiniRing({ if (playback.loading) 0.0 else playback.progress }, playback.loading, Modifier.fillMaxSize().graphicsLayer { scaleX = pressScale; scaleY = pressScale })
+        Box(Modifier.size((MINI - 2 * (RING + 3)).dp).graphicsLayer { scaleX = pressScale; scaleY = pressScale }, contentAlignment = Alignment.Center) {
             Cover(track.coverUrl, (MINI - 2 * (RING + 3)).dp, radius = coverCorner)
             // Playing shows the cover alone; anything else says why it isn't playing.
             val symbol = when {

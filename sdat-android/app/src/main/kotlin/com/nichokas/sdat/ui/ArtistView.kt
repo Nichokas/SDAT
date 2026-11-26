@@ -1,5 +1,6 @@
 package com.nichokas.sdat.ui
 
+import android.view.HapticFeedbackConstants
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -25,6 +26,7 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
@@ -246,13 +248,17 @@ private fun SectionTitle(text: String) = SectionHeader(text, Modifier.padding(to
 @Composable
 fun FollowButton(artistId: String) {
     val fav = Fav(FavouriteKind.ARTIST, artistId)
+    val view = LocalView.current
     // As on iOS, a failed check leaves the button usable as "Follow".
     var checked by remember(fav) { mutableStateOf(false) }
     LaunchedEffect(fav) { Favs.check(fav); checked = true }
     val following = Favs.known(fav)
     val on = following == true
     Button(
-        onClick = { Favs.set(fav, !on) },
+        onClick = {
+            if (on) Favs.set(fav, false)
+            else Favs.set(fav, true) { view.performHapticFeedback(HapticFeedbackConstants.CONFIRM) }
+        },
         enabled = following != null || checked,
         emphasis = if (on) Emphasis.Prominent else Emphasis.Regular,
         size = ButtonSize.Medium,

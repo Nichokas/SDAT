@@ -36,7 +36,7 @@
 use reqwest::Method;
 use serde_json::{json, Value};
 
-use super::{Device, Repeat};
+use super::{Device, QueueSource, Repeat};
 use crate::api::{self, openapi};
 use crate::error::{CoreError, CoreResult as Result};
 use crate::model::{track_from_openapi, Track};
@@ -86,8 +86,7 @@ pub(super) struct Head {
     pub updated_by: Option<String>,
     pub track: Option<Track>,
     pub stream: Option<String>,
-    /// The current item carries [`DISCOVER`].
-    pub discover: bool,
+    pub source: QueueSource,
 }
 
 thread_local! {
@@ -215,7 +214,10 @@ pub(super) fn parse_head(v: &Value) -> Head {
         position_ms: meta.and_then(|m| m.get("position")).and_then(Value::as_str).and_then(ms_of_iso),
         position_at_ms: meta.and_then(|m| m.get("positionUpdatedAt")).and_then(Value::as_str).and_then(unix_ms),
         updated_by: meta.and_then(|m| str_at(m, "/updatedByInstallationId")),
-        discover: meta.and_then(|m| str_at(m, "/legacySource/type")).as_deref() == Some(DISCOVER),
+        source: match meta.and_then(|m| m.pointer("/legacySource/type")).and_then(Value::as_str) {
+            Some(DISCOVER) => QueueSource::Discover,
+            _ => QueueSource::Fixed,
+        },
         track: cur.and_then(|c| tracks(v, &Value::Array(vec![c.clone()])).into_iter().next()),
         stream: stream_href(v),
     }
@@ -280,7 +282,7 @@ pub(super) fn installation_name(id: &str) -> Result<String> {
 }
 
 /// Future pages of a queue, up to `cap` entries; with tracks when `with_tracks`.
-fn future(queue: &str, cap: usize, with_tracks: bool) -> Result<(Vec<Entry>, Vec<Track>)> {
+fn future(queue: &str, cap: usize, with_tracks: bool, mut get: impl FnMut(&str) -> Result<Value>) -> Result<(Vec<Entry>, Vec<Track>)> {
     let mut path = format!("/v2/playQueues/{queue}/relationships/future");
     if with_tracks {
         let inc = TRACK_INCLUDES.split(',').map(|i| format!("future.{i}")).collect::<Vec<_>>().join(",");
@@ -288,7 +290,7 @@ fn future(queue: &str, cap: usize, with_tracks: bool) -> Result<(Vec<Entry>, Vec
     }
     let (mut entries, mut out) = (Vec::new(), Vec::new());
     loop {
-        let v = call(Method::GET, &path, None)?;
+        let v = get(&path)?;
         for rel in v.get("data").and_then(Value::as_array).into_iter().flatten() {
             let Some(e) = entry(rel) else { continue };
             if with_tracks {
@@ -320,12 +322,12 @@ fn future(queue: &str, cap: usize, with_tracks: bool) -> Result<(Vec<Entry>, Vec
 
 /// Item ids of the future, after a write.
 pub(super) fn future_entries(queue: &str, cap: usize) -> Result<Vec<Entry>> {
-    future(queue, cap, false).map(|f| f.0)
+    future(queue, cap, false, |path| call(Method::GET, path, None)).map(|f| f.0)
 }
 
 /// Future tracks, for a resume.
 pub(super) fn future_tracks(queue: &str, cap: usize) -> Result<(Vec<Entry>, Vec<Track>)> {
-    future(queue, cap, true)
+    future(queue, cap, true, |path| call(Method::GET, path, None))
 }
 
 pub(super) fn create_queue() -> Result<String> {
@@ -357,20 +359,21 @@ fn track_ids(ids: &[String]) -> Value {
 }
 
 /// `meta` of an add to the future.
-fn add_meta(mode: &str, batch: &str, discover: bool) -> Value {
-    let mut meta = json!({"mode": mode, "batchId": batch});
-    if discover {
-        meta["legacySource"] = json!({"type": DISCOVER, "id": "discover"});
-    }
-    meta
+fn add_payloads<'a>(tracks: &'a [String], mode: &'a str, batch: &'a str, source: QueueSource) -> impl Iterator<Item = Value> + 'a {
+    tracks.chunks(CHUNK).enumerate().map(move |(i, chunk)| {
+        let mut meta = json!({"mode": if i == 0 { mode } else { "ADD_TO_BACK" }, "batchId": batch});
+        if source == QueueSource::Discover {
+            meta["legacySource"] = json!({"type": DISCOVER, "id": "discover"});
+        }
+        json!({"data": track_ids(chunk), "meta": meta})
+    })
 }
 
 /// Adds `tracks` to batch `batch` of the future in `mode`, the later chunks after it; returns the last revision.
-fn add(queue: &str, tracks: &[String], mode: &str, batch: &str, discover: bool) -> Result<String> {
+fn add(queue: &str, tracks: &[String], mode: &str, batch: &str, source: QueueSource) -> Result<String> {
     let path = format!("/v2/playQueues/{queue}/relationships/future");
     let mut rev = String::new();
-    for (i, chunk) in tracks.chunks(CHUNK).enumerate() {
-        let body = json!({"data": track_ids(chunk), "meta": add_meta(if i == 0 { mode } else { "ADD_TO_BACK" }, batch, discover)});
+    for body in add_payloads(tracks, mode, batch, source) {
         rev = revision(&call(Method::POST, &path, Some(&body))?);
     }
     Ok(rev)
@@ -378,17 +381,17 @@ fn add(queue: &str, tracks: &[String], mode: &str, batch: &str, discover: bool) 
 
 /// Replaces the queue with `tracks` as one batch (the first becomes current); returns the batch.
 /// One batch, so that repeat all covers the whole list.
-pub(super) fn rewrite(queue: &str, tracks: &[String], repeat: Repeat, discover: bool) -> Result<String> {
+pub(super) fn rewrite(queue: &str, tracks: &[String], repeat: Repeat, source: QueueSource) -> Result<String> {
     let attributes = json!({"shuffle": "OFF", "shuffled": false, "repeat": repeat_str(repeat)});
     call(Method::PATCH, &format!("/v2/playQueues/{queue}"), Some(&json!({"data": {"type": "playQueues", "id": queue, "attributes": attributes}})))?;
     let batch = super::uuid_v4();
-    add(queue, tracks, "REPLACE_ALL_AND_CURRENT", &batch, discover)?;
+    add(queue, tracks, "REPLACE_ALL_AND_CURRENT", &batch, source)?;
     Ok(batch)
 }
 
 /// Adds `tracks` at the end of batch `batch`; returns the revision.
-pub(super) fn append(queue: &str, tracks: &[String], batch: &str, discover: bool) -> Result<String> {
-    add(queue, tracks, "ADD_TO_BACK", batch, discover)
+pub(super) fn append(queue: &str, tracks: &[String], batch: &str, source: QueueSource) -> Result<String> {
+    add(queue, tracks, "ADD_TO_BACK", batch, source)
 }
 
 pub(super) fn set_repeat(queue: &str, repeat: Repeat) -> Result<String> {
@@ -447,7 +450,7 @@ mod tests {
         let h = parse_head(&serde_json::from_str(HEAD).expect("json"));
         assert_eq!(h.revision, "r1");
         assert_eq!(h.repeat, Repeat::All);
-        assert!(!h.discover);
+        assert_eq!(h.source, QueueSource::Fixed);
         assert_eq!(h.current, Some(Entry { track_id: "40475829".into(), item_id: "7706807".into() }));
         assert_eq!(h.position_ms, Some(83_456));
         assert_eq!(h.position_at_ms, Some(1_794_746_339_242));
@@ -473,19 +476,65 @@ mod tests {
     fn the_discover_mark_is_read_from_the_current_item() {
         let h = parse_head(&serde_json::from_str(r#"{"data":{"id":"q","type":"playQueues","attributes":{"revision":"r","repeat":"NONE"},
             "relationships":{"current":{"data":{"id":"1","type":"tracks","meta":{"itemId":"5","legacySource":{"type":"SDAT_DISCOVER","id":"discover"}}}}}}}"#).expect("json"));
-        assert!(h.discover);
+        assert_eq!(h.source, QueueSource::Discover);
         let other = parse_head(&serde_json::from_str(r#"{"data":{"id":"q","type":"playQueues","attributes":{"revision":"r","repeat":"NONE"},
             "relationships":{"current":{"data":{"id":"1","type":"tracks","meta":{"itemId":"5","legacySource":{"type":"ALBUM","id":"7"}}}}}}}"#).expect("json"));
-        assert!(!other.discover);
-        assert_eq!(add_meta("ADD_TO_BACK", "b", true), json!({"mode": "ADD_TO_BACK", "batchId": "b", "legacySource": {"type": "SDAT_DISCOVER", "id": "discover"}}));
-        assert_eq!(add_meta("ADD_TO_BACK", "b", false), json!({"mode": "ADD_TO_BACK", "batchId": "b"}));
+        assert_eq!(other.source, QueueSource::Fixed);
+    }
+
+    #[test]
+    fn a_long_queue_is_written_in_order_as_one_batch() {
+        let ids: Vec<String> = (0..500).map(|i| (i % 39).to_string()).collect();
+        let (mirrored, extra) = ids.split_at(101);
+        for source in [QueueSource::Fixed, QueueSource::Discover] {
+            let bodies: Vec<_> = add_payloads(mirrored, "REPLACE_ALL_AND_CURRENT", "batch", source)
+                .chain(add_payloads(extra, "ADD_TO_BACK", "batch", source))
+                .collect();
+            assert_eq!(bodies.len(), 26);
+            for (i, (body, chunk)) in bodies.iter().zip(mirrored.chunks(20).chain(extra.chunks(20))).enumerate() {
+                let mode = if i == 0 { "REPLACE_ALL_AND_CURRENT" } else { "ADD_TO_BACK" };
+                let mut meta = json!({"mode": mode, "batchId": "batch"});
+                if source == QueueSource::Discover {
+                    meta["legacySource"] = json!({"type": "SDAT_DISCOVER", "id": "discover"});
+                }
+                let expected: Vec<_> = chunk.iter().map(|id| json!({"type": "tracks", "id": id})).collect();
+                assert_eq!(*body, json!({"data": expected, "meta": meta}));
+            }
+        }
+    }
+
+    #[test]
+    fn a_resume_reads_past_the_old_limit_without_losing_occurrences() {
+        let path = "/playQueues/q/relationships/future";
+        let mut page = 0;
+        let (entries, tracks) = future("q", crate::handoff::MAX_HANDOFF_FUTURE, true, |request| {
+            if page == 0 {
+                assert!(request.starts_with(&format!("/v2{path}?include=")));
+            } else {
+                assert_eq!(request, format!("/v2{path}?page[cursor]={page}"));
+            }
+            let data: Vec<_> = (page * 20..(page + 1) * 20)
+                .map(|i| json!({"type": "tracks", "id": (i % 19).to_string(), "meta": {"itemId": i.to_string()}}))
+                .collect();
+            let included: Vec<_> = (0..19).map(|i| json!({"type": "tracks", "id": i.to_string(), "attributes": {"title": "Track", "duration": "PT3M"}})).collect();
+            page += 1;
+            Ok(json!({"data": data, "included": included, "links": {"next": format!("{path}?page[cursor]={page}")}}))
+        })
+        .expect("future");
+        assert_eq!(page, 25);
+        assert_eq!(entries.len(), 499);
+        assert_eq!(tracks.len(), 499);
+        for (i, (entry, track)) in entries.iter().zip(tracks).enumerate() {
+            assert_eq!(entry.item_id, i.to_string());
+            assert_eq!(track.id(), (i % 19).to_string());
+        }
     }
 
     /// What `rewrite` and `append` leave in `queue`, the current track first, and whether it carries the Discover mark.
     fn written(queue: &str) -> Result<(Vec<String>, bool)> {
         let h = head(queue)?;
         let future = future_entries(queue, 100)?;
-        Ok((h.current.into_iter().chain(future).map(|e| e.track_id).collect(), h.discover))
+        Ok((h.current.into_iter().chain(future).map(|e| e.track_id).collect(), h.source == QueueSource::Discover))
     }
 
     /// The writes of a Discover queue and of a repeated list, as TIDAL keeps
@@ -506,28 +555,28 @@ mod tests {
         let entry = |track: &String| future_entries(&q, 100).map(|f| f.into_iter().find(|e| &e.track_id == track).expect("entry"));
         let run = || -> Result<()> {
             // A Discover queue, then its refill: every item carries the mark.
-            let batch = rewrite(&q, &ids[..3], Repeat::Off, true)?;
+            let batch = rewrite(&q, &ids[..3], Repeat::Off, QueueSource::Discover)?;
             assert_eq!(written(&q)?, (ids[..3].to_vec(), true));
             // The mirror keeps the revision an append returns.
-            assert_eq!(append(&q, &ids[3..], &batch, true)?, head(&q)?.revision);
+            assert_eq!(append(&q, &ids[3..], &batch, QueueSource::Discover)?, head(&q)?.revision);
             set_current(&q, &entry(&ids[4])?, 1_000, &me)?;
             assert_eq!(written(&q)?, (ids[4..].to_vec(), true));
             // Repeat all, written while another track is current: the new list
             // starts, without the mark, and what follows a track wraps around.
-            rewrite(&q, &ids[..3], Repeat::All, false)?;
+            rewrite(&q, &ids[..3], Repeat::All, QueueSource::Fixed)?;
             assert_eq!(written(&q)?, (ids[..3].to_vec(), false));
             assert_eq!(head(&q)?.repeat, Repeat::All);
             set_current(&q, &entry(&ids[1])?, 0, &me)?;
             assert_eq!(written(&q)?.0, [&ids[1], &ids[2], &ids[0]].map(String::clone));
             // A list longer than one add stays one batch, an append included.
             let long: Vec<String> = (0..25).map(|i| ids[i % 5].clone()).collect();
-            let batch = rewrite(&q, &long, Repeat::All, false)?;
-            append(&q, &ids[..1], &batch, false)?;
+            let batch = rewrite(&q, &long, Repeat::All, QueueSource::Fixed)?;
+            append(&q, &ids[..1], &batch, QueueSource::Fixed)?;
             let last = future_entries(&q, 100)?.pop().expect("last");
             set_current(&q, &last, 0, &me)?;
             assert_eq!(written(&q)?.0, std::iter::once(&ids[0]).chain(&long).cloned().collect::<Vec<_>>());
             // Repeat one: the new list starts too.
-            rewrite(&q, &ids[3..], Repeat::One, false)?;
+            rewrite(&q, &ids[3..], Repeat::One, QueueSource::Fixed)?;
             assert_eq!(head(&q)?.current.map(|e| e.track_id), Some(ids[3].clone()));
             Ok(())
         };

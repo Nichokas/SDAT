@@ -6,12 +6,27 @@ import Foundation
 enum PlaybackStore {
     struct QueueFile: Codable {
         var queue: [DiscoverCache.T]
-        var original: [DiscoverCache.T]
+        var original: [DiscoverCache.T]? = nil
+        var originalOrder: [Int]?
         var userQueue: [DiscoverCache.T]
         var infinite: Bool
         var sourceTitle: String?
         /// Matches `StateFile.queueID`, so a state never pairs with a stale queue.
         var id: Int
+
+        var sourceOrder: [Int] {
+            if let originalOrder, originalOrder.count == queue.count,
+               Set(originalOrder) == Set(queue.indices) {
+                return originalOrder
+            }
+            guard let original else { return Array(queue.indices) }
+            // Legacy files lack occurrence identity, so pair equal track IDs in encounter order.
+            var remaining = Dictionary(grouping: queue.indices, by: { queue[$0].id })
+                .mapValues { Array($0.reversed()) }
+            let matched = original.compactMap { remaining[$0.id]?.popLast() }
+            let used = Set(matched)
+            return matched + queue.indices.filter { !used.contains($0) }
+        }
     }
     struct StateFile: Codable {
         var current: DiscoverCache.T

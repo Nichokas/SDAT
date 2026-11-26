@@ -3,6 +3,7 @@ package com.nichokas.sdat.ui
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -14,6 +15,10 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.material3.SwipeToDismissBox
+import androidx.compose.material3.SwipeToDismissBoxDefaults
+import androidx.compose.material3.SwipeToDismissBoxState
+import androidx.compose.material3.SwipeToDismissBoxValue
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -21,6 +26,7 @@ import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -31,6 +37,7 @@ import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.hideFromAccessibility
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.text.font.FontWeight
@@ -166,12 +173,15 @@ fun DownloadsView() {
                     )
                 }
             }
-            items(active, key = { "active:${it.id}" }) { t ->
-                Row(Modifier.fillMaxWidth().padding(horizontal = ListGutter, vertical = 6.dp), verticalAlignment = Alignment.CenterVertically) {
-                    MediaRow(t.displayTitle, t.artistLine, t.album?.coverUrl, Modifier.weight(1f))
-                    DownloadBadge(t.id)
-                    Box(Modifier.padding(start = 8.dp).size(36.dp).clickable(role = Role.Button) { Downloads.cancel(t.id) }, contentAlignment = Alignment.Center) {
-                        SdatIcon("xmark.circle", "Cancel", size = 20.dp, tint = secondary)
+            itemsIndexed(active, key = { _, t -> "active:${t.id}" }) { i, t ->
+                if (i > 0) BrowseRowDivider()
+                DownloadSwipeAction("Cancel", onDismiss = { Downloads.cancel(t.id) }) {
+                    Row(Modifier.fillMaxWidth().padding(horizontal = ListGutter, vertical = 6.dp), verticalAlignment = Alignment.CenterVertically) {
+                        MediaRow(t.displayTitle, t.artistLine, t.album?.coverUrl, Modifier.weight(1f))
+                        DownloadBadge(t.id)
+                        Box(Modifier.padding(start = 8.dp).size(36.dp).clickable(role = Role.Button) { Downloads.cancel(t.id) }, contentAlignment = Alignment.Center) {
+                            SdatIcon("xmark.circle", "Cancel", size = 20.dp, tint = secondary)
+                        }
                     }
                 }
             }
@@ -194,14 +204,17 @@ fun DownloadsView() {
                 SectionHeader("${saved.size} tracks · ${Fmt.bytes(Downloads.totalSize)}", Modifier.padding(top = 12.dp), style = SdatType.footnote)
             }
         }
-        itemsIndexed(saved, key = { i, t -> "saved:${t.id}#$i" }) { i, t ->
+        itemsIndexed(saved, key = { _, t -> "saved:${t.id}" }) { i, t ->
+            if (i > 0) BrowseRowDivider()
             val entry = Downloads.entries[t.id]
-            TrackMenuRow(t, onClick = { player.play(saved, i, "Downloads") }) {
-                Row(Modifier.fillMaxWidth().padding(horizontal = ListGutter, vertical = 6.dp), verticalAlignment = Alignment.CenterVertically) {
-                    TrackRow(t, Modifier.weight(1f))
-                    Column(Modifier.padding(start = 8.dp), horizontalAlignment = Alignment.End, verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                        Text(Fmt.bytes(entry?.size ?: 0), style = SdatType.caption1.copy(fontFeatureSettings = "tnum"), color = secondary)
-                        entry?.qualityText?.let { Text(it, style = SdatType.caption2, fontWeight = FontWeight.SemiBold, color = secondary, maxLines = 1) }
+            DownloadSwipeAction("Delete", onDismiss = { Downloads.remove(t.id) }) {
+                TrackMenuRow(t, onClick = { player.play(saved, i, "Downloads") }) {
+                    Row(Modifier.fillMaxWidth().padding(horizontal = ListGutter, vertical = 6.dp), verticalAlignment = Alignment.CenterVertically) {
+                        TrackRow(t, Modifier.weight(1f))
+                        Column(Modifier.padding(start = 8.dp), horizontalAlignment = Alignment.End, verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                            Text(Fmt.bytes(entry?.size ?: 0), style = SdatType.caption1.copy(fontFeatureSettings = "tnum"), color = secondary)
+                            entry?.qualityText?.let { Text(it, style = SdatType.caption2, fontWeight = FontWeight.SemiBold, color = secondary, maxLines = 1) }
+                        }
                     }
                 }
             }
@@ -211,6 +224,7 @@ fun DownloadsView() {
                 SectionHeader("Cached · ${cached.size} tracks · ${Fmt.cacheBytes(cached.sumOf { it.bytes.toLong() })}", Modifier.padding(top = 12.dp), style = SdatType.footnote)
             }
             itemsIndexed(cached, key = { i, c -> "cached:${c.track.id}#$i" }) { i, c ->
+                if (i > 0) BrowseRowDivider()
                 val remove = MenuAction(title = "Remove from Cache", systemName = "trash", destructive = true, onClick = { AudioCache.remove(c.track.id) })
                 TrackMenuRow(c.track, onClick = { player.play(cachedTracks, i, "Cached") }, extraItems = listOf(remove)) {
                     Row(Modifier.fillMaxWidth().padding(horizontal = ListGutter, vertical = 6.dp), verticalAlignment = Alignment.CenterVertically) {
@@ -235,5 +249,29 @@ fun DownloadsView() {
                 AlertButton("Cancel", { confirmAll = false }, AlertButtonRole.Cancel),
             ),
         )
+    }
+}
+
+@Composable
+private fun DownloadSwipeAction(label: String, onDismiss: () -> Unit, content: @Composable () -> Unit) {
+    val colors = SdatTheme.colors
+    val threshold = SwipeToDismissBoxDefaults.positionalThreshold
+    // A settled swipe restored from saved state would run the destructive action again.
+    val state = remember { SwipeToDismissBoxState(SwipeToDismissBoxValue.Settled, threshold) }
+    val dismiss by rememberUpdatedState(onDismiss)
+    SwipeToDismissBox(
+        state = state,
+        enableDismissFromStartToEnd = false,
+        backgroundContent = {
+            Box(
+                Modifier.fillMaxSize().background(colors.destructive).padding(end = ListGutter),
+                contentAlignment = Alignment.CenterEnd,
+            ) {
+                Text(label, style = SdatType.headline, color = colors.onDestructive, modifier = Modifier.semantics { hideFromAccessibility() })
+            }
+        },
+        onDismiss = remember { { direction: SwipeToDismissBoxValue -> if (direction == SwipeToDismissBoxValue.EndToStart) dismiss() } },
+    ) {
+        Box(Modifier.fillMaxWidth().background(colors.sheet)) { content() }
     }
 }

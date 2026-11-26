@@ -90,8 +90,9 @@ fun SearchView() {
     val albums = if (paging == SearchFilter.Albums) rememberRetained(shown, paging) { searchAlbums(shown).let { p -> PagedLoader(pager = p, next = p::nextPage) } } else null
     val playlists = if (paging == SearchFilter.Playlists) rememberRetained(shown, paging) { searchPlaylists(shown).let { p -> PagedLoader(pager = p, next = p::nextPage) } } else null
 
-    SdatPage("Search") {
-        item(key = "search-field") {
+    SdatPage(
+        "Search",
+        pinnedContent = {
             SearchBar(
                 query = field,
                 onQueryChange = { field = it; model.edit(it.text) },
@@ -103,7 +104,8 @@ fun SearchView() {
                 onSearch = { keyboard?.hide() },
                 modifier = Modifier.padding(horizontal = ListGutter, vertical = 8.dp),
             )
-        }
+        },
+    ) {
         if (shown.isEmpty()) {
             explore(explore)
             return@SdatPage
@@ -180,13 +182,28 @@ private fun LazyListScope.topResults(state: SearchState<SearchHit>) {
 }
 
 private fun LazyListScope.artistItems(artists: List<ArtistRef>) =
-    artists.forEachIndexed { i, a -> item(key = "artist:${a.id}#$i") { ArtistRow(a, subtitle = "Artist") } }
+    artists.forEachIndexed { i, a ->
+        item(key = "artist:${a.id}#$i") {
+            if (i > 0) BrowseRowDivider()
+            ArtistRow(a, subtitle = "Artist")
+        }
+    }
 
 private fun LazyListScope.albumItems(albums: List<Album>) =
-    albums.forEachIndexed { i, a -> item(key = "album:${a.id}#$i") { AlbumRow(a) } }
+    albums.forEachIndexed { i, a ->
+        item(key = "album:${a.id}#$i") {
+            if (i > 0) BrowseRowDivider()
+            AlbumRow(a)
+        }
+    }
 
 private fun LazyListScope.playlistItems(playlists: List<Playlist>) =
-    playlists.forEachIndexed { i, p -> item(key = "playlist:${p.id}#$i") { PlaylistRow(p) } }
+    playlists.forEachIndexed { i, p ->
+        item(key = "playlist:${p.id}#$i") {
+            if (i > 0) BrowseRowDivider()
+            PlaylistRow(p)
+        }
+    }
 
 @Composable
 private fun TopArtist(o: ArtistOverview) {

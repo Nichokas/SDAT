@@ -6,8 +6,11 @@ import android.content.pm.ApplicationInfo
 import android.content.pm.PackageManager
 import android.media.MediaRouter2
 import android.os.Build
+import android.view.HapticFeedbackConstants
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.ContentTransform
+import androidx.compose.animation.Crossfade
+import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.spring
 import androidx.compose.animation.fadeIn
@@ -21,7 +24,6 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -31,10 +33,7 @@ import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.LazyListScope
 import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.foundation.rememberScrollState
@@ -60,9 +59,11 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.boundsInRoot
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -75,7 +76,6 @@ import com.nichokas.sdat.core.Fmt
 import com.nichokas.sdat.core.Live
 import com.nichokas.sdat.core.Origin
 import com.nichokas.sdat.core.Playback
-import com.nichokas.sdat.core.Repeat
 import com.nichokas.sdat.core.artistLine
 import com.nichokas.sdat.core.badgeText
 import com.nichokas.sdat.core.coverUrlLarge
@@ -111,6 +111,10 @@ fun PlayerSheet(playback: Playback, onDismiss: () -> Unit) {
 private fun NowPlayingPage(playback: Playback, track: Track, onDismiss: () -> Unit, showQueue: () -> Unit) {
     val colors = SdatTheme.colors
     var forward by remember { mutableStateOf(true) }
+    val view = LocalView.current
+    val scope = rememberCoroutineScope()
+    val previousWiggle = remember { Animatable(0f) }
+    val nextWiggle = remember { Animatable(0f) }
     LaunchedEffect(track.id) {
         forward = true
         Favs.check(track.id)
@@ -144,8 +148,16 @@ private fun NowPlayingPage(playback: Playback, track: Track, onDismiss: () -> Un
         Scrubber(playback, Modifier.padding(top = 14.dp))
         QualityBadge(playback, Modifier.padding(top = 2.dp))
         Row(Modifier.padding(top = 16.dp), horizontalArrangement = Arrangement.spacedBy(28.dp), verticalAlignment = Alignment.CenterVertically) {
-            IconTap("backward.fill", "Previous", 36.dp, Modifier.size(64.dp).alpha(if (Live.isGuest) 0.4f else 1f)) {
+            IconTap("backward.fill", "Previous", 36.dp, Modifier.size(64.dp).graphicsLayer {
+                alpha = if (Live.isGuest) 0.4f else 1f
+                rotationZ = previousWiggle.value
+            }) {
                 if (!Live.guestRefuses()) {
+                    view.performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK)
+                    scope.launch {
+                        previousWiggle.snapTo(-12f)
+                        previousWiggle.animateTo(0f, spring(dampingRatio = 0.3f, stiffness = 600f))
+                    }
                     val before = playback.track?.id
                     playback.previous()
                     // A restart (seek to 0) keeps the track, so the next change must still slide forward.
@@ -162,10 +174,25 @@ private fun NowPlayingPage(playback: Playback, track: Track, onDismiss: () -> Un
                 if (playback.loading) {
                     CircularProgressIndicator(color = colors.sheet)
                 } else {
-                    SdatIcon(if (playback.playing) "pause.fill" else "play.fill", if (playback.playing) "Pause" else "Play", size = 40.dp, tint = colors.sheet)
+                    Crossfade(playback.playing, label = "play control") { playing ->
+                        SdatIcon(if (playing) "pause.fill" else "play.fill", if (playing) "Pause" else "Play", size = 40.dp, tint = colors.sheet)
+                    }
                 }
             }
-            IconTap("forward.fill", "Next", 36.dp, Modifier.size(64.dp).alpha(if (Live.playbackLocked) 0.4f else 1f)) { forward = true; Live.userNext() }
+            IconTap("forward.fill", "Next", 36.dp, Modifier.size(64.dp).graphicsLayer {
+                alpha = if (Live.playbackLocked) 0.4f else 1f
+                rotationZ = nextWiggle.value
+            }) {
+                if (!Live.playbackLocked) {
+                    view.performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK)
+                    scope.launch {
+                        nextWiggle.snapTo(12f)
+                        nextWiggle.animateTo(0f, spring(dampingRatio = 0.3f, stiffness = 600f))
+                    }
+                }
+                forward = true
+                Live.userNext()
+            }
         }
         Row(Modifier.fillMaxWidth().padding(top = 16.dp), horizontalArrangement = Arrangement.SpaceBetween) {
             val context = LocalContext.current
@@ -339,85 +366,7 @@ private fun QualityBadge(playback: Playback, modifier: Modifier = Modifier) {
 }
 
 @Composable
-private fun QueuePage(playback: Playback) {
-    val colors = SdatTheme.colors
-    LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(start = 20.dp, end = 12.dp, bottom = 24.dp)) {
-        item(key = "title") {
-            Box(Modifier.fillMaxWidth().heightIn(min = 44.dp), contentAlignment = Alignment.Center) {
-                IconTap("dot.radiowaves.left.and.right", "Listen Together", 20.dp, Modifier.align(Alignment.CenterStart), tint = if (Live.active) colors.accent else colors.tertiaryContent) {
-                    Live.showSheet = true
-                }
-                Text("Queue", style = SdatType.headline, color = colors.content)
-                Row(Modifier.align(Alignment.CenterEnd)) {
-                    IconTap("shuffle", if (playback.shuffle) "Shuffle: On" else "Shuffle: Off", 20.dp, tint = if (playback.shuffle) colors.accent else colors.tertiaryContent) {
-                        playback.setShuffle(!playback.shuffle)
-                    }
-                    val repeat = playback.repeat
-                    IconTap(if (repeat == Repeat.One) "repeat.1" else "repeat", "Repeat: " + when (repeat) { Repeat.Off -> "Off"; Repeat.All -> "All"; Repeat.One -> "One" }, 20.dp, tint = if (repeat == Repeat.Off) colors.tertiaryContent else colors.accent) {
-                        playback.cycleRepeat()
-                    }
-                }
-            }
-        }
-        playback.track?.let { t ->
-            header("Now Playing")
-            item(key = "now") { TrackRow(t, Modifier.padding(vertical = 6.dp).padding(end = 8.dp)) }
-        }
-        if (Live.isGuest) {
-            // Guests follow the host's queue; the header opens the session sheet.
-            item(key = "live header") {
-                Row(
-                    Modifier.padding(top = 20.dp, bottom = 4.dp).clickable(role = Role.Button) { Live.showSheet = true },
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    SdatIcon("dot.radiowaves.left.and.right", null, size = 18.dp, tint = colors.accent)
-                    Text("Playing from Listen Together", style = SdatType.headline, color = colors.content)
-                }
-            }
-
-            items(Live.upNext, key = { "live ${it.id}" }) { row ->
-                TrackMenuRow(row.track, onClick = {}, Modifier.animateItem()) { TrackRow(row.track, Modifier.padding(vertical = 6.dp).padding(end = 8.dp)) }
-            }
-            return@LazyColumn
-        }
-        if (playback.userQueue.isNotEmpty()) {
-            header("Next in Queue")
-            queueRows("user", playback.userQueue, playback::jumpToUser, playback::removeUser)
-        }
-        header(playback.source?.let { "Playing from $it" } ?: "Up Next")
-        queueRows("base", playback.upNext, playback::jumpToUpNext, playback::removeUpNext)
-    }
-}
-
-private fun LazyListScope.header(title: String) {
-    item(key = "header $title") {
-        Text(title, style = SdatType.headline, color = SdatTheme.colors.content, modifier = Modifier.padding(top = 20.dp, bottom = 4.dp))
-    }
-}
-
-private fun LazyListScope.queueRows(section: String, tracks: List<Track>, onTap: (Int) -> Unit, onRemove: (Int) -> Unit) {
-    val keys = occurrenceKeys(tracks.map { it.id })
-    itemsIndexed(tracks, key = { i, _ -> "$section ${keys[i]}" }) { i, t ->
-        Row(Modifier.animateItem(), verticalAlignment = Alignment.CenterVertically) {
-            TrackMenuRow(t, onClick = { onTap(i) }, Modifier.weight(1f)) { TrackRow(t, Modifier.padding(vertical = 6.dp)) }
-            IconTap("minus.circle", "Remove ${t.displayTitle}", 20.dp, tint = SdatTheme.colors.destructive) { onRemove(i) }
-        }
-    }
-}
-
-/** Row keys that survive a removal above them: a track's id and which occurrence of it this is. */
-internal fun occurrenceKeys(ids: List<String>): List<String> {
-    val seen = HashMap<String, Int>()
-    return ids.map { id ->
-        val n = seen[id] ?: 0
-        seen[id] = n + 1
-        "$id#$n"
-    }
-}
-
-@Composable
-private fun IconTap(
+internal fun IconTap(
     symbol: String,
     label: String,
     size: Dp,
