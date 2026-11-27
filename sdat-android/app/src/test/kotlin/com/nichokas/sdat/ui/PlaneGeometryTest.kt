@@ -44,11 +44,4 @@ class PlaneGeometryTest {
             assertEquals((0 until count).toSet(), seen)
         }
     }
-
-    @Test fun picksTheSmallestCoverThatFits() {
-        val base = "https://resources.tidal.com/images/ab/cd/320x320.jpg"
-        assertEquals("https://resources.tidal.com/images/ab/cd/640x640.jpg", coverUrl(base, 420f))
-        assertEquals("https://resources.tidal.com/images/ab/cd/1280x1280.jpg", coverUrl(base, 5000f))
-        assertEquals("https://example.com/a.jpg", coverUrl("https://example.com/a.jpg", 100f))
-    }
 }

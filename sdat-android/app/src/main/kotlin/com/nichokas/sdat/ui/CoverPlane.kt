@@ -1,5 +1,6 @@
 package com.nichokas.sdat.ui
 
+import android.content.Context
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.VectorConverter
 import androidx.compose.animation.core.animateFloatAsState
@@ -12,7 +13,7 @@ import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.offset
+import androidx.compose.foundation.layout.absoluteOffset
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
@@ -26,19 +27,19 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.listSaver
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
-import androidx.compose.runtime.snapshotFlow
+import androidx.compose.ui.AbsoluteAlignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Rect
+import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.PointerEventPass
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.input.pointer.util.VelocityTracker
 import androidx.compose.ui.layout.ContentScale
-import androidx.compose.ui.layout.boundsInRoot
 import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.layout.positionInRoot
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.semantics.Role
@@ -55,8 +56,9 @@ import com.nichokas.sdat.ui.kit.PopupMenu
 import com.nichokas.sdat.ui.kit.menuAnchor
 import kotlin.math.roundToInt
 import kotlinx.coroutines.Job
-import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Semaphore
+import kotlinx.coroutines.sync.withPermit
 import uniffi.tonearm_ffi.Track
 
 private val offsetSaver = listSaver<Offset, Float>({ listOf(it.x, it.y) }, { Offset(it[0], it[1]) })
@@ -69,8 +71,11 @@ fun CoverPlane(tracks: List<Track>, background: Color, placeholder: Color, onTap
     var fling by remember { mutableStateOf<Job?>(null) }
     val scope = rememberCoroutineScope()
     val density = LocalDensity.current
+    // Tiles derive their menu anchor from this instead of each tracking its own position, which would run a
+    // callback per tile on every frame of a pan.
+    var origin by remember { mutableStateOf(Offset.Zero) }
     BoxWithConstraints(
-        modifier.fillMaxSize().background(background).pointerInput(Unit) {
+        modifier.fillMaxSize().background(background).onGloballyPositioned { origin = it.positionInRoot() }.pointerInput(Unit) {
             awaitEachGesture {
                 awaitFirstDown(requireUnconsumed = false, pass = PointerEventPass.Initial)
                 fling?.cancel()
@@ -92,6 +97,8 @@ fun CoverPlane(tracks: List<Track>, background: Color, placeholder: Color, onTap
                 pan -= drag
             }
         },
+        // Absolute placement: the plane follows the finger and anchors menus the same way in RTL.
+        contentAlignment = AbsoluteAlignment.TopLeft,
     ) {
         if (tracks.isEmpty()) return@BoxWithConstraints
         val plane = remember(tracks.size) { PlaneGeometry(tracks.size) }
@@ -99,6 +106,9 @@ fun CoverPlane(tracks: List<Track>, background: Color, placeholder: Color, onTap
         val margin = 75f
         val (w, h) = maxWidth.value to maxHeight.value
         val context = LocalContext.current
+        // One rendition and decode size for every row, so a cover is fetched, decoded and cached once, and a
+        // tile entering the screen finds it in the memory cache on its first frame.
+        val coverPx = (plane.largestSize * px).roundToInt()
         // The pan changes every frame of a drag or fling. Composition sees only the set of
         // visible cells, which changes when a tile enters or leaves; the tiles follow the pan
         // in the layout phase.
@@ -108,27 +118,17 @@ fun CoverPlane(tracks: List<Track>, background: Color, placeholder: Color, onTap
                 plane.cells(view.x - margin, view.y - margin, view.x + w + margin, view.y + h + margin)
             }
         }
-        LaunchedEffect(plane, tracks, px, w, h) {
+        // Every cover reaches the disk cache before a fling can, a few at a time so the tiles on screen are
+        // not queued behind the whole pool. Those tiles load their own covers; warming them too would
+        // download them twice, since Coil does not merge identical requests in flight.
+        LaunchedEffect(tracks, coverPx) {
             val loader = SingletonImageLoader.get(context)
-            var previous: Offset? = null
-            snapshotFlow {
-                val view = pan / px
-                Offset((view.x / margin).roundToInt() * margin, (view.y / margin).roundToInt() * margin)
-            }.collectLatest { view ->
-                val last = previous
-                previous = view
-                if (last == null) return@collectLatest
-                val delta = view - last
-                val ahead = view + delta * (2 * margin / delta.getDistance())
-                val visible = cells.toSet()
-                val requests = plane.cells(ahead.x - margin, ahead.y - margin, ahead.x + w + margin, ahead.y + h + margin)
-                    .asSequence().filterNot(visible::contains).mapNotNull { cell ->
-                        val size = plane.frame(cell).size * px
-                        tracks[plane.index(cell)].album?.coverUrl?.let { coverUrl(it, size) to size.roundToInt().coerceAtLeast(1) }
-                    }.distinct().take(6)
-                for ((url, size) in requests) {
-                    loader.execute(ImageRequest.Builder(context).data(url).size(size).build())
-                }
+            val permits = Semaphore(4)
+            val onScreen = cells.mapTo(HashSet()) { plane.index(it) }
+            for ((i, track) in tracks.withIndex()) {
+                if (i in onScreen) continue
+                val url = track.album?.coverUrl?.let { CoverUrl.sized(it, coverPx) } ?: continue
+                launch { permits.withPermit { loader.execute(coverRequest(context, url, coverPx)) } }
             }
         }
         for (cell in cells) {
@@ -137,11 +137,13 @@ fun CoverPlane(tracks: List<Track>, background: Color, placeholder: Color, onTap
             key(cell, track.id) {
                 DiscoverTile(
                     track = track,
-                    url = track.album?.coverUrl?.let { coverUrl(it, frame.size * px) },
+                    url = track.album?.coverUrl?.let { CoverUrl.sized(it, coverPx) },
+                    px = coverPx,
                     placeholder = placeholder,
                     modifier = Modifier
-                        .offset { IntOffset((frame.x * px - pan.x).roundToInt(), (frame.y * px - pan.y).roundToInt()) }
+                        .absoluteOffset { IntOffset((frame.x * px - pan.x).roundToInt(), (frame.y * px - pan.y).roundToInt()) }
                         .size(frame.size.dp),
+                    bounds = { Rect(origin + Offset(frame.x * px - pan.x, frame.y * px - pan.y), Size(frame.size * px, frame.size * px)) },
                     onTap = { onTap(track) },
                 )
             }
@@ -150,44 +152,36 @@ fun CoverPlane(tracks: List<Track>, background: Color, placeholder: Color, onTap
 }
 
 private val tileShape = RoundedCornerShape(14.dp)
+
+private fun coverRequest(context: Context, url: String?, px: Int) =
+    ImageRequest.Builder(context).data(url).size(px).crossfade(150).build()
+
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
-private fun DiscoverTile(track: Track, url: String?, placeholder: Color, modifier: Modifier, onTap: () -> Unit) {
-    var bounds by remember { mutableStateOf<Rect?>(null) }
-    var open by remember { mutableStateOf(false) }
+private fun DiscoverTile(track: Track, url: String?, px: Int, placeholder: Color, modifier: Modifier, bounds: () -> Rect, onTap: () -> Unit) {
+    var menu by remember { mutableStateOf<Rect?>(null) }
+    val open = menu != null
     val scale by animateFloatAsState(if (open) 1.08f else 1f, label = "cover preview")
     val context = LocalContext.current
-    val request = remember(context, url) { ImageRequest.Builder(context).data(url).crossfade(150).build() }
+    val request = remember(context, url, px) { coverRequest(context, url, px) }
     AsyncImage(
         model = request,
         contentDescription = track.displayTitle,
         contentScale = ContentScale.Crop,
         modifier = modifier.zIndex(if (open) 1f else 0f)
-            .onGloballyPositioned { bounds = it.boundsInRoot() }
-            .graphicsLayer { scaleX = scale; scaleY = scale }
-            .clip(tileShape)
+            .graphicsLayer { scaleX = scale; scaleY = scale; shape = tileShape; clip = true }
             .background(placeholder)
             .menuAnchor(open)
             .combinedClickable(
                 role = Role.Button,
                 onClickLabel = if (track.streamable) "Play" else "Track options",
                 onLongClickLabel = "Track options",
-                onLongClick = { open = true },
-                onClick = { if (track.streamable) onTap() else open = true },
+                onLongClick = { menu = bounds() },
+                onClick = { if (track.streamable) onTap() else menu = bounds() },
             ),
     )
     if (open) {
         LaunchedEffect(track.id) { Favs.check(track.id) }
-        PopupMenu(bounds, trackMenuItems(track), title = track.displayTitle, onDismiss = { open = false })
+        PopupMenu(menu, trackMenuItems(track), title = track.displayTitle, onDismiss = { menu = null })
     }
-}
-
-private val tidalSize = Regex("""/\d+x\d+\.jpg$""")
-private val albumSizes = intArrayOf(80, 160, 320, 640, 1280)
-
-/** Smallest TIDAL album rendition that covers [px] pixels, like iOS CoverURL.sized. */
-fun coverUrl(url: String, px: Float): String {
-    if (!url.contains("resources.tidal.com/images/") || !tidalSize.containsMatchIn(url)) return url
-    val size = albumSizes.firstOrNull { it >= px } ?: albumSizes.last()
-    return url.replace(tidalSize, "/${size}x$size.jpg")
 }
