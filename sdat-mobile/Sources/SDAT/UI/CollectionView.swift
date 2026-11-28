@@ -110,6 +110,7 @@ struct Paged<Pager, Item, Row: View>: View {
     let makePager: () -> Pager
     let nextPage: (Pager) async throws -> [Item]?
     var onLoaded: (([Item]) -> Void)? = nil
+    var keep: ((Item) -> Bool)? = nil
     var header: AnyView? = nil
     @ViewBuilder let row: ([Item], Int) -> Row
     @State private var pager: Pager?
@@ -119,10 +120,11 @@ struct Paged<Pager, Item, Row: View>: View {
     @State private var error: String?
 
     var body: some View {
+        let shown = keep.map { items.filter($0) } ?? items
         List {
             if let header { header.listRowSeparator(.hidden) }
-            ForEach(items.indices, id: \.self) { i in
-                row(items, i).onAppear { if i >= items.count - 5 { Task { await more() } } }
+            ForEach(shown.indices, id: \.self) { i in
+                row(shown, i).onAppear { if i >= shown.count - 5 { Task { await more() } } }
             }
             if let error {
                 VStack(alignment: .leading, spacing: 8) {
@@ -130,8 +132,9 @@ struct Paged<Pager, Item, Row: View>: View {
                     Button("Retry") { self.error = nil; Task { await more() } }.buttonStyle(.glass)
                 }
             } else if !done {
-                ProgressView().frame(maxWidth: .infinity).task { await more() }
-            } else if items.isEmpty {
+                // Keyed on the count: a page whose rows are all filtered out shows no row to ask for the next.
+                ProgressView().frame(maxWidth: .infinity).task(id: items.count) { await more() }
+            } else if shown.isEmpty {
                 ContentUnavailableView("Nothing here yet", systemImage: "tray")
             }
         }
@@ -160,13 +163,17 @@ struct PagedTracks: View {
     @Environment(Player.self) private var player
     @State private var loaded: [Track] = []
 
+    /// Hides tracks unfavourited since the list loaded.
+    private var keep: ((Track) -> Bool)? { favourites ? { Favs.shared.known($0.id) != false } : nil }
+
     var body: some View {
+        let shown = keep.map { loaded.filter($0) } ?? loaded
         Paged(title: title, makePager: makePager, nextPage: { try await $0.nextPage() }, onLoaded: { all in
             loaded = all
-            if favourites { Favs.shared.mark(all.map(\.id), true) }
-        }, header: loaded.isEmpty ? nil : AnyView(PlayShuffleButtons(
-            play: { player.shuffle ? player.setShuffle(false) : (); player.play(loaded, from: title) },
-            shuffle: { player.playShuffled(loaded, from: title) }
+            if favourites { Favs.shared.listed(all.map(\.id)) }
+        }, keep: keep, header: shown.isEmpty ? nil : AnyView(PlayShuffleButtons(
+            play: { player.shuffle ? player.setShuffle(false) : (); player.play(shown, from: title) },
+            shuffle: { player.playShuffled(shown, from: title) }
         ))) { items, i in
             Button { player.play(items, startAt: i, from: title) } label: { TrackRow(track: items[i]) }
                 .buttonStyle(.plain)
