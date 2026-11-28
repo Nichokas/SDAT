@@ -607,18 +607,18 @@ async fn album(id: String) -> Response {
     let i = id.clone();
     list.set_click_handler(move |_, pos| {
         let i = i.clone();
-        play(async move { player::play_album(&i, false, pos).await }, tr("An error occurred while playing the track"), "An error occurred while playing the album");
+        play(async move { player::play_album(&i, player::ListStart::Selected(pos)).await }, tr("An error occurred while playing the track"), "An error occurred while playing the album");
     });
     let (i1, i2) = (id.clone(), id);
     let header = tracklist_header::album(
         &a,
         move || {
             let i = i1.clone();
-            play(async move { player::play_album(&i, false, 0).await }, tr("An error occurred while playing the album"), "An error occurred while playing the album");
+            play(async move { player::play_album(&i, player::ListStart::InOrder(0)).await }, tr("An error occurred while playing the album"), "An error occurred while playing the album");
         },
         move || {
             let i = i2.clone();
-            play(async move { player::play_album(&i, true, 0).await }, tr("An error occurred while playing the album"), "An error occurred while playing the album");
+            play(async move { player::play_album(&i, player::ListStart::Shuffle).await }, tr("An error occurred while playing the album"), "An error occurred while playing the album");
         },
     )
     .hmargin(40);
@@ -690,11 +690,11 @@ async fn artist(id: String) -> Response {
         &a,
         move || {
             let i = i1.clone();
-            play(async move { player::play_artist_top_songs(&i, false, 0).await }, tr("An error occurred while playing the top tracks"), "An error occurred while playing the top tracks");
+            play(async move { player::play_artist_top_songs(&i, player::ListStart::InOrder(0)).await }, tr("An error occurred while playing the top tracks"), "An error occurred while playing the top tracks");
         },
         move || {
             let i = i2.clone();
-            play(async move { player::play_artist_top_songs(&i, true, 0).await }, tr("An error occurred while playing the top tracks"), "An error occurred while playing the top tracks");
+            play(async move { player::play_artist_top_songs(&i, player::ListStart::Shuffle).await }, tr("An error occurred while playing the top tracks"), "An error occurred while playing the top tracks");
         },
     )
     .hmargin(40);
@@ -1133,7 +1133,8 @@ async fn my_tracks() -> Response {
             play(
                 async move {
                     let tracks = crate::cache::all_tracks(crate::cache::Job::FavouriteTracks).await?;
-                    player::play_tracklist(PlaybackSource::MyTracks, tracks, shuffle, 0).await
+                    let start = if shuffle { player::ListStart::Shuffle } else { player::ListStart::InOrder(0) };
+                    player::play_tracklist(PlaybackSource::MyTracks, tracks, start).await
                 },
                 msg,
                 "An error occurred while playing the tracks",

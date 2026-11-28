@@ -487,7 +487,7 @@ async fn on_eos_stopped() {
         let order = PLAY_NEXT_ORDER.with(|s| std::mem::take(&mut *s.borrow_mut()));
         clear_queues();
         stop();
-        let started = play_tracks(tracks, false, 1);
+        let started = play_tracks(tracks, ListStart::InOrder(1));
         PLAY_NEXT_GENERATION.with(|g| g.set(generation));
         PLAY_NEXT_ORDER.with(|s| *s.borrow_mut() = order);
         started?;
@@ -803,8 +803,6 @@ pub fn set_shuffle(shuffle: bool, current_track_id: &str) {
     if shuffle {
         base_queue().shuffle(current_track_id, &user_queue().source_occurrences());
     } else {
-        // Continues after the last list track that played, which may not be
-        // the current one (a "play next" track).
         base_queue().restore();
     }
     shuffle_state_changed().set(shuffle);
@@ -833,25 +831,25 @@ pub fn play_track(track: Track) {
 }
 
 #[expect(clippy::unused_async, reason = "callers await it like the other playback entry points; mirrors Go's PlayTracklist")]
-pub async fn play_tracklist(source: PlaybackSource, tracks: Vec<Track>, shuffle: bool, position: usize) -> Result<()> {
-    play_tracks(tracks, shuffle, position)?;
+pub async fn play_tracklist(source: PlaybackSource, tracks: Vec<Track>, start: ListStart) -> Result<()> {
+    play_tracks(tracks, start)?;
     source_changed().set(Some(source));
     Ok(())
 }
 
-pub async fn play_album(album_id: &str, shuffle: bool, position: usize) -> Result<()> {
+pub async fn play_album(album_id: &str, start: ListStart) -> Result<()> {
     let id = album_id.to_string();
     let i = id.clone();
     let info = api::run(move || service::get_album_info(&i)).await?;
     let tracks = crate::cache::all_tracks(crate::cache::Job::Album(id)).await?;
     clear_queues();
     stop();
-    play_tracks(tracks, shuffle, position)?;
+    play_tracks(tracks, start)?;
     source_changed().set(Some(PlaybackSource::Album(info)));
     Ok(())
 }
 
-pub async fn play_artist_top_songs(artist_id: &str, shuffle: bool, position: usize) -> Result<()> {
+pub async fn play_artist_top_songs(artist_id: &str, start: ListStart) -> Result<()> {
     let id = artist_id.to_string();
     let (info, tracks) = api::run(move || {
         let info = service::get_artist_info(&id)?;
@@ -872,7 +870,7 @@ pub async fn play_artist_top_songs(artist_id: &str, shuffle: bool, position: usi
     .await?;
     clear_queues();
     stop();
-    play_tracks(tracks, shuffle, position)?;
+    play_tracks(tracks, start)?;
     source_changed().set(Some(PlaybackSource::Artist(info)));
     Ok(())
 }
@@ -882,7 +880,8 @@ pub async fn play_playlist(playlist_id: &str, shuffle: bool) -> Result<()> {
     let i = id.clone();
     let info = api::run(move || service::get_playlist_info(&i)).await?;
     let tracks = crate::cache::all_tracks(crate::cache::Job::Playlist(id)).await?;
-    play_tracklist(PlaybackSource::Playlist(info), tracks, shuffle, 0).await
+    let start = if shuffle { ListStart::Shuffle } else { ListStart::InOrder(0) };
+    play_tracklist(PlaybackSource::Playlist(info), tracks, start).await
 }
 
 pub async fn play_playlist_track(playlist_id: &str, clicked: &Track, position: usize) -> Result<bool> {
@@ -897,7 +896,7 @@ async fn play_playlist_selection(info: PlaylistInfo, tracks: Vec<Track>, clicked
     let Some(start) = playlist_start(&tracks, clicked, position) else {
         return Ok(false);
     };
-    play_tracklist(PlaybackSource::Playlist(info), tracks, false, start).await?;
+    play_tracklist(PlaybackSource::Playlist(info), tracks, ListStart::Selected(start)).await?;
     Ok(true)
 }
 
@@ -997,9 +996,11 @@ mod playlist_tests {
     #[test]
     fn starting_a_list_under_repeat_one_plays_its_selected_track() -> Result<()> {
         set_repeat_mode(RepeatMode::Track);
+        set_shuffle(true, "");
         let tracks = vec![track("A", None), track("B", None)];
-        let started = play_tracks(tracks, false, 1)?;
+        let started = play_tracks(tracks, ListStart::Selected(1))?;
         assert_eq!(started.id(), "B");
+        assert!(shuffle_state_changed().get());
         assert_eq!(repeat_mode_changed().get(), RepeatMode::Track);
         set_repeat_mode(RepeatMode::None);
         Ok(())
@@ -1027,6 +1028,45 @@ mod playlist_tests {
             assert_eq!(items, [Some("c"), Some("later")]);
         });
         Ok(())
+    }
+
+    #[test]
+    fn clicking_playlist_row_keeps_shuffle_and_selects_the_exact_occurrence() -> Result<()> {
+        set_shuffle(true, "");
+        let first = track("A", Some("first"));
+        let clicked = track("A", Some("clicked"));
+        let tracks = vec![first, track("B", None), clicked.clone(), track("C", None)];
+
+        assert!(glib::MainContext::new().block_on(play_playlist_selection(PlaylistInfo::default(), tracks, &clicked, 0))?);
+        assert!(shuffle_state_changed().get());
+        assert!(base_queue().is_shuffled());
+        set_shuffle(false, clicked.id());
+        base_queue().entries().with(|tracks| {
+            assert_eq!(tracks.iter().map(Track::id).collect::<Vec<_>>(), ["A", "B", "C"]);
+            assert_eq!(tracks[0].playlist_item_id.as_deref(), Some("first"));
+        });
+        Ok(())
+    }
+
+    #[test]
+    fn clicking_a_paginated_row_keeps_shuffle_for_late_pages() {
+        set_shuffle(true, "");
+        let clicked = track("C", None);
+        let first_page = vec![track("A", None), track("B", None), clicked.clone()];
+        let generation = play_list_from(PlaybackSource::MyTracks, first_page, &clicked, 2).unwrap();
+        assert!(base_queue().is_shuffled());
+        assert!(base_queue().current_occurrence(&clicked).is_some());
+        let next_page = vec![track("D", None), track("E", None)];
+        assert!(extend_list(generation, next_page, false));
+
+        set_shuffle(false, clicked.id());
+        base_queue().entries().with(|tracks| {
+            assert_eq!(tracks.iter().map(Track::id).collect::<Vec<_>>(), ["A", "B", "D", "E"]);
+        });
+        base_queue().rewind();
+        base_queue().entries().with(|tracks| {
+            assert_eq!(tracks.iter().map(Track::id).collect::<Vec<_>>(), ["A", "B", "C", "D", "E"]);
+        });
     }
 
     #[test]
@@ -1158,12 +1198,12 @@ thread_local! {
     static PAUSES: std::cell::Cell<u64> = const { std::cell::Cell::new(0) };
 }
 
-/// Plays `tracks` as the queue starting at the clicked row; earlier rows go to
-/// the history so "previous" walks back through the list. Returns the queue
-/// generation for [`extend_list`], or `None` if nothing could be played.
+/// Plays `tracks` starting at the clicked row, honoring the shuffle setting.
+/// In order, earlier rows go to history. Returns the queue generation for
+/// [`extend_list`], or `None` if nothing could be played.
 pub fn play_list_from(source: PlaybackSource, tracks: Vec<Track>, clicked: &Track, pos: usize) -> Option<u64> {
     let start = crate::model::queue_start(&tracks, clicked.id(), pos);
-    match play_tracks(tracks, false, start) {
+    match play_tracks(tracks, ListStart::Selected(start)) {
         Ok(_) => {
             source_changed().set(Some(source));
             Some(LIST_GENERATION.with(std::cell::Cell::get))
@@ -1335,19 +1375,39 @@ fn bump_list_generation() {
     update_unloaded();
 }
 
-fn play_tracks(tracks: Vec<Track>, shuffle: bool, starting_position: usize) -> Result<Track> {
+/// The order and first track to use when starting a list.
+#[derive(Debug, Clone, Copy)]
+pub enum ListStart {
+    InOrder(usize),
+    Shuffle,
+    /// Play this row first and honor the current shuffle setting.
+    Selected(usize),
+}
+
+fn play_tracks(tracks: Vec<Track>, start: ListStart) -> Result<Track> {
+    let shuffle_after_start = matches!(start, ListStart::Selected(_)) && shuffle_state_changed().get();
     bump_list_generation();
     clear_queues();
     stop();
     base_queue().set(tracks);
-    set_shuffle(shuffle, "");
-    if starting_position > 0 {
-        match base_queue().skip(starting_position) {
-            Ok(skipped) => skipped.into_iter().for_each(|t| history().prepend(t)),
-            Err(e) => log::warn!("could not skip to position {starting_position}: {e:#}"),
+    match start {
+        ListStart::Shuffle => set_shuffle(true, ""),
+        ListStart::Selected(position) if shuffle_after_start => base_queue().move_entry(position, 0),
+        ListStart::InOrder(position) | ListStart::Selected(position) => {
+            set_shuffle(false, "");
+            if position > 0 {
+                match base_queue().skip(position) {
+                    Ok(skipped) => skipped.into_iter().for_each(|t| history().prepend(t)),
+                    Err(e) => log::warn!("could not skip to position {position}: {e:#}"),
+                }
+            }
         }
     }
-    let Some(t) = pop_next_streamable_from_queue() else {
+    let started = pop_next_streamable_from_queue();
+    if shuffle_after_start {
+        set_shuffle(true, started.as_ref().map_or("", Track::id));
+    }
+    let Some(t) = started else {
         anyhow::bail!("tracklist produced no valid tracks to be played");
     };
     fire(Trigger::PlayTrack(t.clone(), false));
@@ -1404,7 +1464,7 @@ pub fn play_at(source: Option<PlaybackSource>, tracks: Vec<Track>, position: Dur
             statemachine::drop_start_paused(t);
         }
     };
-    let started = play_tracks(tracks, false, 0).inspect_err(|_| drop_request())?;
+    let started = play_tracks(tracks, ListStart::InOrder(0)).inspect_err(|_| drop_request())?;
     source_changed().set(source);
     if position.is_zero() || first.as_deref() != Some(started.id()) {
         drop_request();
