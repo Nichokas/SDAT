@@ -228,6 +228,9 @@ fn fire(t: Trigger) {
 /// For a restart nobody asked for, such as streaming a failed cached copy: what waits on the user's start (a
 /// handoff's seek) keeps waiting for it.
 fn fire_uncounted(t: Trigger) {
+    if matches!(t, Trigger::Stop | Trigger::PlayTrack(..) | Trigger::PlayTrackId(..)) {
+        WAITING.with(|w| w.set(false));
+    }
     if with(|p| p.machine.fire(t)).is_none() {
         log::warn!("player not initialised, dropping trigger");
     }
@@ -420,6 +423,9 @@ async fn on_eos_stopped() {
     };
     if crate::live::is_guest() {
         stop();
+        return;
+    }
+    if with(|p| p.machine.has_queued_stop_or_start()).unwrap_or(false) {
         return;
     }
     if list_pending() {
@@ -1328,8 +1334,11 @@ pub fn feed(force: bool) {
             feed(true); // page was empty or all duplicates: keep going
         } else {
             // The list ended (or failed) while waiting: finish like a normal end.
-            WAITING.with(|w| w.set(false));
-            glib::spawn_future_local(on_eos_stopped());
+            glib::spawn_future_local(async move {
+                if list_generation() == generation && WAITING.with(|w| w.replace(false)) {
+                    on_eos_stopped().await;
+                }
+            });
         }
     }));
 }
@@ -1576,6 +1585,32 @@ mod start_tests {
 
 #[cfg(test)]
 mod feed_tests {
+    #[test]
+    fn a_late_page_does_not_advance_after_a_start_or_stop() {
+        use super::*;
+
+        for trigger in [Trigger::PlayTrack(Track::default(), false), Trigger::Stop] {
+            bump_list_generation();
+            clear_queues();
+            set_repeat_mode(RepeatMode::None);
+            let generation = list_generation();
+            let done = Rc::new(std::cell::RefCell::new(None));
+            let callback = Rc::clone(&done);
+            FEEDER.with(|f| *f.borrow_mut() = Some((generation, Rc::new(move |cb| *callback.borrow_mut() = Some(cb)))));
+            WAITING.with(|w| w.set(true));
+            feed(true);
+
+            fire_uncounted(trigger);
+            let mut late = Track::default();
+            late.info.streamable = true;
+            assert!(extend_list(generation, vec![late], false));
+            done.borrow_mut().take().unwrap()(false);
+
+            assert!(!WAITING.with(Cell::get));
+            assert_eq!(base_queue().entries().with(Vec::len), 1);
+        }
+    }
+
     #[test]
     fn unloaded_rows_cover_the_rest_of_the_list() {
         assert_eq!(super::unloaded_count(Some(3000), 50, true), 2950);

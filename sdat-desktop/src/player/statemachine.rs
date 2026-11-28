@@ -692,7 +692,11 @@ impl Machine {
                 Trigger::StreamStart if from == State::Paused && self.has_armed_gapless() => {
                     self.promote_gapless();
                 }
-                Trigger::Stop if from == State::Stopped => log::debug!("already stopped"),
+                Trigger::Stop if from == State::Stopped => {
+                    if track_changed().with(Option::is_some) {
+                        on_stopped_stop();
+                    }
+                }
                 Trigger::Error(e) if from == State::Stopped => log::debug!("playback error while stopped: {e}"),
                 Trigger::StreamStart if from == State::Playing => {}
                 _ => log::error!("Failed Transition state={from:?} trigger={t:?}"),
