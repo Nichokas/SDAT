@@ -468,17 +468,24 @@ impl HistoryQueue {
         self.previous.borrow_mut().pop_front()
     }
 
+    fn pending_matches(entry: &HistoryEntry, track: &Track) -> bool {
+        entry.track.id() == track.id() && entry.track.playlist_item_id == track.playlist_item_id
+    }
+
+    /// Removes the pending entry for a track that failed to start.
+    pub fn forget_failed_start(&self, track: &Track) {
+        self.pending.borrow_mut().take_if(|entry| Self::pending_matches(entry, track));
+    }
+
     /// Takes the latest history entry other than the active track.
     pub fn pop_previous(&self, current: Option<&Track>) -> Option<HistoryEntry> {
-        let is_current = self.pending.borrow().as_ref().is_some_and(|entry| {
-            current.is_some_and(|track| {
-                entry.track.id() == track.id() && entry.track.playlist_item_id == track.playlist_item_id
-            })
-        });
-        if is_current {
-            return if self.is_empty() { None } else { self.pop() };
+        let mut pending = self.pending.borrow_mut();
+        if matches!((&*pending, current), (Some(entry), Some(track)) if Self::pending_matches(entry, track)) {
+            let previous = self.previous.borrow_mut().pop_front()?;
+            pending.take();
+            return Some(previous);
         }
-        self.pending.borrow_mut().take().or_else(|| self.previous.borrow_mut().pop_front())
+        pending.take().or_else(|| self.previous.borrow_mut().pop_front())
     }
 
     pub fn is_empty(&self) -> bool {

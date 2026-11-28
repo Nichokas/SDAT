@@ -409,6 +409,7 @@ pub struct Hooks {
     pub on_eos_stopped: fn() -> std::pin::Pin<Box<dyn std::future::Future<Output = ()>>>,
     pub on_stopped_resume: fn(),
     pub clear_source: fn(),
+    pub forget_failed_start: fn(&Track),
     /// Playback of the track (its id) stopped on an error.
     pub on_error: fn(Option<&str>, &str),
 }
@@ -425,6 +426,7 @@ impl Default for Hooks {
             on_eos_stopped: || Box::pin(async {}),
             on_stopped_resume: || {},
             clear_source: || {},
+            forget_failed_start: |_| {},
             on_error: |_, _| {},
         }
     }
@@ -795,14 +797,10 @@ impl Machine {
                         on_stopped_stop();
                     }
                     Trigger::TokenExpired => {
-                        let track = track_changed().with(|t| t.as_ref().map(|e| e.track.id().to_string()));
-                        self.stopped_on_error(track, crate::i18n::tr("The streaming server refused playback"));
+                        self.stopped_on_stream_error(from, crate::i18n::tr("The streaming server refused playback"));
                     }
                     Trigger::Eos => (self.hooks.on_eos_stopped)().await,
-                    Trigger::Error(e) => {
-                        let track = track_changed().with(|t| t.as_ref().map(|e| e.track.id().to_string()));
-                        self.stopped_on_error(track, e);
-                    }
+                    Trigger::Error(e) => self.stopped_on_stream_error(from, e),
                     _ => {}
                 }
                 r
@@ -949,6 +947,20 @@ impl Machine {
             s.buffering = buffering;
             s
         });
+    }
+
+    fn stopped_on_stream_error(&self, from: State, e: String) {
+        let track = track_changed().with(|t| {
+            t.as_ref().map(|event| {
+                // Metadata is published before the stream starts, so its
+                // provisional history entry must go if that start fails.
+                if from == State::Preparing && !event.skip_history {
+                    (self.hooks.forget_failed_start)(&event.track);
+                }
+                event.track.id().to_string()
+            })
+        });
+        self.stopped_on_error(track, e);
     }
 
     /// Clears a track that stopped on an error and reports it, unless a

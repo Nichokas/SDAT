@@ -544,18 +544,24 @@ fn expired_token_on_fresh_start_reports_the_refused_track() {
                     ORDER.with(|o| o.borrow_mut().push("error"));
                 },
                 clear_source: || ORDER.with(|o| o.borrow_mut().push("clear")),
+                forget_failed_start: |track| crate::player::history().forget_failed_start(track),
                 ..Hooks::default()
             },
         );
         m.state.set(State::Preparing);
+        let mut previous = Track::default();
+        previous.info.id = "previous".into();
         let mut track = Track::default();
         track.info.id = "refused".into();
+        crate::player::history().prepend(previous.into());
+        crate::player::history().prepend(track.clone().into());
         track_changed().set(Some(TrackChangedEvent { track, skip_history: false }));
         m.fire(Trigger::TokenExpired);
         m.fire(Trigger::Error("stream error".into()));
         while ctx.iteration(false) {}
         assert_eq!(m.state.get(), State::Stopped);
         assert!(track_changed().get().is_none());
+        assert_eq!(crate::player::history().pop_previous(None).unwrap().track.id(), "previous");
         assert_eq!(ORDER.with(|o| o.borrow().clone()), ["clear", "error"]);
     })
     .unwrap();

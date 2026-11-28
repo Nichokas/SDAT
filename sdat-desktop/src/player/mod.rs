@@ -271,6 +271,7 @@ pub fn init() -> Result<()> {
             on_eos_stopped: || Box::pin(on_eos_stopped()),
             on_stopped_resume: next_now,
             clear_source: || source_changed().set(None),
+            forget_failed_start: |track| history().forget_failed_start(track),
             on_error: |track, e| {
                 if crate::live::playback_failed(track) {
                     toasts().notify(&crate::i18n::trf("Playback failed: %s", &[&e]));
