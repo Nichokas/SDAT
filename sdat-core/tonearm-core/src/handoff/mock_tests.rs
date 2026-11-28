@@ -53,6 +53,7 @@ struct Account {
     position_at_ms: i64,
     missing: bool,
     fail_after_claim: bool,
+    reclaim_after_failed_claim: bool,
     fail_rollback_state: bool,
     seek_before_claim: bool,
     fail_queue_creation_with_selection: Option<&'static str>,
@@ -79,6 +80,7 @@ impl Account {
             position_at_ms: now_ms() - 60_000,
             missing: false,
             fail_after_claim: false,
+            reclaim_after_failed_claim: false,
             fail_rollback_state: false,
             seek_before_claim: false,
             fail_queue_creation_with_selection: None,
@@ -120,6 +122,9 @@ impl Account {
             ),
             ("GET", "/v2/playQueues/queue") if self.active == Some("receiver") && self.fail_after_claim => {
                 self.fail_after_claim = false;
+                if self.reclaim_after_failed_claim {
+                    self.active = Some("source");
+                }
                 (UNAVAILABLE, json!({}))
             }
             ("GET", "/v2/playQueues/queue") => (
@@ -355,6 +360,7 @@ fn handoff_against_mock_service() {
     a_rollback_does_not_undo_a_new_push_on_the_same_queue_from_the_same_source();
     continue_here_delivers_a_discovered_push_only_in_its_reply();
     a_failed_pull_hands_back_when_the_same_queue_is_still_selected();
+    a_reclaimed_queue_is_not_rewritten_by_a_pre_pull_report();
     a_failed_pull_can_finish_on_the_receiver_after_a_concurrent_source_seek();
     repeat_one_does_not_append_the_current_occurrence();
 }
@@ -561,6 +567,27 @@ fn a_failed_pull_hands_back_when_the_same_queue_is_still_selected() {
     let account = account.lock().expect("account");
     assert_eq!(account.active, Some("source"));
     assert_eq!(account.claims, ["receiver", "source", "source"]);
+}
+
+fn a_reclaimed_queue_is_not_rewritten_by_a_pre_pull_report() {
+    for playing in [false, true] {
+        let (account, mut worker, _events) = setup();
+        {
+            let mut account = account.lock().expect("account");
+            account.fail_after_claim = true;
+            account.reclaim_after_failed_claim = true;
+        }
+        let local = LocalPlayback { current: Some("2".into()), playing, ..LocalPlayback::default() };
+        worker.reported(local.clone(), Instant::now());
+        assert!(worker.continue_here(deadline()).is_err());
+        assert!(worker.write_local(false));
+        worker.reported(local, Instant::now());
+        assert!(worker.write_local(false));
+        let account = account.lock().expect("account");
+        assert_eq!(account.current, "1");
+        assert_eq!(account.active, Some("source"));
+        assert_eq!(account.claims, ["receiver"]);
+    }
 }
 
 fn a_failed_pull_can_finish_on_the_receiver_after_a_concurrent_source_seek() {

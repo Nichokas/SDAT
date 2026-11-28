@@ -996,10 +996,9 @@ impl Worker {
             self.restore_playing(rollback.playing)?;
             return Ok(restored_queue || rollback.playing);
         }
-        let active = self.checked(|| wire::set_active(&rollback.to))?;
-        let back = active.as_deref() == Some(&rollback.to);
-        self.mirror.claimed(active);
-        if !back {
+        state.active = self.checked(|| wire::set_active(&rollback.to))?;
+        self.mirror.claimed(state.active.clone());
+        if state.active.as_deref() != Some(&rollback.to) {
             return Err(CoreError::Other("the other device is not available yet".into()));
         }
         self.restore_playing(rollback.playing)?;
@@ -1026,7 +1025,22 @@ impl Worker {
 
     fn undo_claim(&mut self, rollback: Option<Rollback>, e: CoreError) -> CoreError {
         let Some(mut rollback) = rollback else { return e };
-        if self.checked(wire::state).and_then(|mut state| self.settle_rollback(&mut rollback, &mut state, true)).is_err() {
+        let restored = self.checked(wire::state).and_then(|mut state| {
+            let result = self.settle_rollback(&mut rollback, &mut state, true);
+            if state.active.as_deref() != Some(self.mirror.me()) {
+                if let Some(event) = self.mirror.moved(&state) {
+                    self.emit(event);
+                } else if self.mirror.state().active != state.active {
+                    self.mirror.claimed(state.active);
+                }
+                if self.last_local.take().is_some_and(|l| l.playing) {
+                    self.mirror.still_playing();
+                }
+                self.pending = None;
+            }
+            result
+        });
+        if restored.is_err() {
             self.rollback = Some(rollback);
             // Playback from before the pull is not a reason to keep it; a report after this one is.
             self.last_local = None;
