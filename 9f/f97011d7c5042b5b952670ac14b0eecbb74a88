@@ -1,0 +1,21 @@
+sdat-core/tonearm-core/src/playlist_import.rs
+  s_3b477a0ef30bcc::t_776737b841fe26 78,140
+sdat-core/tonearm-core/src/api/client.rs
+  s_3b477a0ef30bcc::t_776737b841fe26 386-405
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "9ff97011d7c5042b5b952670ac14b0eecbb74a88",
+  "prompts": {},
+  "sessions": {
+    "s_3b477a0ef30bcc": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "5974fff8-0a9d-4f5b-9e06-ea0a5e0ee952",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Nicolas Rodriguez-Alvarez <me@nichokas.eu>"
+    }
+  }
+}
