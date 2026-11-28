@@ -1,0 +1,26 @@
+sdat-core/tonearm-ffi/src/lib.rs
+  s_3b477a0ef30bcc::t_3aaa5013789eb7 22,35
+sdat-core/tonearm-ffi/src/transfer.rs
+  s_3b477a0ef30bcc::t_4ea60de4c25366 1-117
+sdat-mobile/Sources/tonearm_ffiFFI/include/tonearm_ffiFFI.h
+  s_3b477a0ef30bcc::t_8cbc7927f26bbc 322-328,404-412,939-978,1347-1351,2024-2029,2360-2376
+  s_3b477a0ef30bcc::t_353d2cfac14ab8 2377
+sdat-mobile/Sources/SDAT/Core/TonearmFFI.generated.swift
+  s_3b477a0ef30bcc::t_8f910ee2208dc6 2165-2310,4597-4788,4790,4792-4800,4803-4810,4813,4818,4827-4828,4834-4835,7441-7602,8914-9057,10890-10902,11126-11128,11294-11302,11324
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "2063eac33b2c9fd5fdd90e91543caa24b4518152",
+  "prompts": {},
+  "sessions": {
+    "s_3b477a0ef30bcc": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "5974fff8-0a9d-4f5b-9e06-ea0a5e0ee952",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Nicolas Rodriguez-Alvarez <me@nichokas.eu>"
+    }
+  }
+}
