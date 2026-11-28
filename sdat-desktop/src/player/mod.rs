@@ -837,8 +837,11 @@ pub fn play_track(track: Track) {
     bump_list_generation();
     clear_queues();
     stop();
-    source_changed().set(Some(PlaybackSource::Track(Box::new(track.clone()))));
-    fire(Trigger::PlayTrack(track, false));
+    base_queue().set(vec![track]);
+    if let Some(track) = base_queue().pop() {
+        source_changed().set(Some(PlaybackSource::Track(Box::new(track.clone()))));
+        fire(Trigger::PlayTrack(track, false));
+    }
 }
 
 #[expect(clippy::unused_async, reason = "callers await it like the other playback entry points; mirrors Go's PlayTracklist")]
@@ -1003,6 +1006,19 @@ mod playlist_tests {
         unavailable.info.streamable = false;
         base_queue().set(vec![unavailable]);
         assert!(next_track(false).0.is_none());
+        set_repeat_mode(RepeatMode::None);
+    }
+
+    #[test]
+    fn repeat_queue_wraps_a_standalone_track() {
+        set_repeat_mode(RepeatMode::Queue);
+        play_track(track("A", None));
+        assert!(base_queue().is_empty());
+        let wrapped = peek_gapless().unwrap();
+        assert_eq!(wrapped.track.id(), "A");
+        assert_eq!(wrapped.source, GaplessSource::BaseQueue { rewound: true });
+        assert_eq!(next_track(false).0.as_ref().map(Track::id), Some("A"));
+        assert!(base_queue().is_empty());
         set_repeat_mode(RepeatMode::None);
     }
 
