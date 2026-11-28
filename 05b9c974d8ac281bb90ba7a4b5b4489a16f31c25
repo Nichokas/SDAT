@@ -1,0 +1,14 @@
+sdat-mobile/Sources/SDAT/Live/Live.swift
+  h_4221ae13ba15cb 458,460
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "05b9c974d8ac281bb90ba7a4b5b4489a16f31c25",
+  "prompts": {},
+  "humans": {
+    "h_4221ae13ba15cb": {
+      "author": "Nicolas Rodriguez-Alvarez <me@nichokas.eu>"
+    }
+  }
+}

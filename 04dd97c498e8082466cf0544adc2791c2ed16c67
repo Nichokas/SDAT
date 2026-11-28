@@ -1,0 +1,47 @@
+sdat-core/locales/bg/default.po
+  s_17379194c39764::t_ed5663abc62e02 606-611
+sdat-core/locales/ca/default.po
+  s_17379194c39764::t_701a8f1790348a 605-610
+sdat-core/locales/cs/default.po
+  s_17379194c39764::t_146f754b654707 606-611
+sdat-core/locales/de/default.po
+  s_17379194c39764::t_1ed46aa308a0cc 607-612
+sdat-core/locales/en_US/default.po
+  s_17379194c39764::t_d360d50a51a901 599-604
+sdat-core/locales/es/default.po
+  s_17379194c39764::t_f390d51a7d9cee 605-610
+sdat-core/locales/et/default.po
+  s_17379194c39764::t_63d1acfaae7cbb 606-611
+sdat-core/locales/fr/default.po
+  s_17379194c39764::t_068ece1110c2ce 615-620
+sdat-core/locales/nl/default.po
+  s_17379194c39764::t_4b76802eecc546 842-847
+sdat-core/locales/pl/default.po
+  s_17379194c39764::t_a3a6564ff526c2 610-615
+sdat-core/locales/pt_BR/default.po
+  s_17379194c39764::t_538e418938d21f 608-613
+sdat-core/locales/ru/default.po
+  s_17379194c39764::t_c030b3c8e241aa 848-853
+sdat-core/locales/tonearm.pot
+  s_17379194c39764::t_82ae218534cddc 817-822
+sdat-core/locales/vi/default.po
+  s_17379194c39764::t_949bd02a93d853 583-588
+sdat-core/locales/zh_Hans/default.po
+  s_17379194c39764::t_776df5d615cf2b 586-591
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "04dd97c498e8082466cf0544adc2791c2ed16c67",
+  "prompts": {},
+  "sessions": {
+    "s_17379194c39764": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "2c7a04f4-1e7b-430e-8da1-4d34860527c4",
+        "model": "unknown"
+      },
+      "human_author": "Nicolas Rodriguez-Alvarez <me@nichokas.eu>"
+    }
+  }
+}

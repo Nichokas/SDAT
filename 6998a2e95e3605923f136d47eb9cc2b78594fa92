@@ -1,0 +1,21 @@
+sdat-desktop/src/ui/components/add_to_playlist.rs
+  s_17379194c39764::t_a4156aeb74d7f8 25-26,37-38,40,44-48,102,180,184-194,198-199
+sdat-desktop/src/ui/window.rs
+  s_17379194c39764::t_09342c4062768a 459,466
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "6998a2e95e3605923f136d47eb9cc2b78594fa92",
+  "prompts": {},
+  "sessions": {
+    "s_17379194c39764": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "2c7a04f4-1e7b-430e-8da1-4d34860527c4",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Nicolas Rodriguez-Alvarez <me@nichokas.eu>"
+    }
+  }
+}

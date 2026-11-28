@@ -1,0 +1,16 @@
+sdat-android/app/build.gradle.kts
+  h_4221ae13ba15cb 51
+sdat-android/app/src/main/kotlin/com/nichokas/sdat/ui/RootView.kt
+  h_4221ae13ba15cb 16-17,28,77,81
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "0000c29fd947f2149be6803a7eeb5e81d88f9403",
+  "prompts": {},
+  "humans": {
+    "h_4221ae13ba15cb": {
+      "author": "Nicolas Rodriguez-Alvarez <me@nichokas.eu>"
+    }
+  }
+}

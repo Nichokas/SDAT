@@ -1,0 +1,19 @@
+sdat-core/locales/pt_BR/default.po
+  s_17379194c39764::t_b2a943dda472c2 615,621
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "75bc4f5164403a96d623b1ae5c2b786a19281e2d",
+  "prompts": {},
+  "sessions": {
+    "s_17379194c39764": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "2c7a04f4-1e7b-430e-8da1-4d34860527c4",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Nicolas Rodriguez-Alvarez <me@nichokas.eu>"
+    }
+  }
+}
