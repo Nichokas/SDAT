@@ -55,6 +55,7 @@ struct Account {
     fail_after_claim: bool,
     fail_rollback_state: bool,
     seek_before_claim: bool,
+    fail_queue_creation_with_selection: Option<&'static str>,
     fail_send_with_queue: Option<&'static str>,
     fail_send_selection: bool,
     fail_queue_restore: bool,
@@ -80,6 +81,7 @@ impl Account {
             fail_after_claim: false,
             fail_rollback_state: false,
             seek_before_claim: false,
+            fail_queue_creation_with_selection: None,
             fail_send_with_queue: None,
             fail_send_selection: false,
             fail_queue_restore: false,
@@ -143,8 +145,21 @@ impl Account {
                 };
                 (OK, json!({"data":data,"included":[track("1"),track("2")]}))
             }
+            ("GET", "/v2/playQueues/send-queue" | "/v2/playQueues/other-empty") => (OK, json!({
+                "data":{"id":self.queue_id,"type":"playQueues","attributes":{"revision":"empty"},
+                "relationships":{"current":{"data":null}}}
+            })),
+            ("GET", "/v2/playQueues/send-queue/relationships/future") => (OK, json!({"data":[]})),
+            ("GET", "/v2/playQueues/newer-queue") => (OK, json!({
+                "data":{"id":"newer-queue","type":"playQueues","attributes":{"revision":"newer"},
+                "relationships":{"current":{"data":entry("2", "new-item")}}}
+            })),
             ("GET", "/v2/tracks/1") => (MISSING, json!({})),
             ("POST", "/v2/playQueues") => {
+                if let Some(selected) = self.fail_queue_creation_with_selection.take() {
+                    self.queue_id = selected.into();
+                    return (UNAVAILABLE, json!({}));
+                }
                 self.queue_id = "send-queue".into();
                 (OK, json!({"data":{"id":self.queue_id}}))
             }
@@ -335,6 +350,8 @@ fn handoff_against_mock_service() {
     pulling_from_a_paused_device_cannot_restore_a_previous_sends_playing_status();
     failed_send_restores_only_its_own_replacement_queue();
     failed_send_restores_the_queue_after_a_lost_selection_response();
+    failed_queue_creation_recovers_an_empty_selection_without_overwriting_new_playback();
+    failed_queue_creation_leaves_a_different_empty_queue_selected_on_retry();
     a_rollback_does_not_undo_a_new_push_on_the_same_queue_from_the_same_source();
     continue_here_delivers_a_discovered_push_only_in_its_reply();
     a_failed_pull_hands_back_when_the_same_queue_is_still_selected();
@@ -441,6 +458,52 @@ fn failed_send_restores_the_queue_after_a_lost_selection_response() {
     assert_eq!(account.queue_id, "queue");
     assert_eq!(account.active, Some("source"));
     assert_eq!(account.claims, ["receiver", "source"]);
+}
+
+fn failed_queue_creation_recovers_an_empty_selection_without_overwriting_new_playback() {
+    for (selected, fail_read, expected_queue, expected_owner) in [
+        ("queue", false, "queue", "source"),
+        ("send-queue", false, "queue", "source"),
+        ("send-queue", true, "queue", "source"),
+        ("newer-queue", false, "newer-queue", "receiver"),
+    ] {
+        let (account, mut worker, _events) = setup();
+        {
+            let mut account = account.lock().expect("account");
+            account.fail_queue_creation_with_selection = Some(selected);
+            account.fail_rollback_state = fail_read;
+        }
+        worker.reported(
+            LocalPlayback { current: Some("2".into()), playing: true, ..LocalPlayback::default() },
+            Instant::now(),
+        );
+        assert!(worker.send_to("target", deadline()).is_err());
+        if fail_read {
+            worker.refresh().expect("read the selection again");
+        }
+        let account = account.lock().expect("account");
+        assert_eq!(account.queue_id, expected_queue);
+        assert_eq!(account.active, Some(expected_owner));
+    }
+}
+
+fn failed_queue_creation_leaves_a_different_empty_queue_selected_on_retry() {
+    let (account, mut worker, _events) = setup();
+    {
+        let mut account = account.lock().expect("account");
+        account.fail_queue_creation_with_selection = Some("send-queue");
+        account.fail_queue_restore = true;
+    }
+    worker.reported(
+        LocalPlayback { current: Some("2".into()), playing: true, ..LocalPlayback::default() },
+        Instant::now(),
+    );
+    assert!(worker.send_to("target", deadline()).is_err());
+    account.lock().expect("account").queue_id = "other-empty".into();
+    worker.refresh().expect("read newer selection");
+    let account = account.lock().expect("account");
+    assert_eq!(account.queue_id, "other-empty");
+    assert_eq!(account.active, Some("receiver"));
 }
 
 fn a_rollback_does_not_undo_a_new_push_on_the_same_queue_from_the_same_source() {

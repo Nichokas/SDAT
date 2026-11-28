@@ -424,7 +424,12 @@ struct Rollback {
 
 struct QueueSwap {
     original: String,
-    replacement: String,
+    replacement: ReplacementQueue,
+}
+
+enum ReplacementQueue {
+    Created(String),
+    Unconfirmed { observed_empty: Option<String> },
 }
 
 struct QueueStamp {
@@ -672,9 +677,9 @@ impl Worker {
             return Err(CoreError::NotSignedIn);
         }
         let mut state = wire::state()?;
-        if let Some(rollback) = self.rollback.take() {
+        if let Some(mut rollback) = self.rollback.take() {
             let idle = self.last_local.as_ref().is_none_or(|l| !l.playing);
-            match self.settle_rollback(&rollback, &mut state, idle) {
+            match self.settle_rollback(&mut rollback, &mut state, idle) {
                 Ok(true) => state = wire::state()?,
                 Ok(false) => {}
                 Err(e) => {
@@ -935,7 +940,7 @@ impl Worker {
 
     /// Restores the queue and active player displaced by a failed transfer.
     /// Returns whether the state needs to be read again.
-    fn settle_rollback(&mut self, rollback: &Rollback, state: &mut wire::State, idle: bool) -> Result<bool> {
+    fn settle_rollback(&mut self, rollback: &mut Rollback, state: &mut wire::State, idle: bool) -> Result<bool> {
         let already_back = state.active.as_deref() == Some(&rollback.to);
         if !already_back && (!idle || (state.active.is_some() && state.active.as_deref() != Some(self.mirror.me()))) {
             return Ok(false);
@@ -955,15 +960,36 @@ impl Worker {
             }
         }
         let mut restored_queue = false;
-        if let Some(swap) = &rollback.queue {
-            match state.queue_id.as_deref() {
-                Some(id) if id == swap.replacement => {
-                    self.checked(|| wire::select_queue(&swap.original))?;
-                    self.mirror.queue_created(swap.original.clone());
-                    restored_queue = true;
+        if let Some(swap) = &mut rollback.queue {
+            let Some(selected) = &state.queue_id else { return Ok(false) };
+            if selected != &swap.original {
+                match &mut swap.replacement {
+                    ReplacementQueue::Created(replacement) if selected != replacement => return Ok(false),
+                    ReplacementQueue::Created(_) => {}
+                    ReplacementQueue::Unconfirmed { observed_empty } => {
+                        // A lost creation reply leaves no ID. Creation can only account
+                        // for an empty selection while this device still owns playback.
+                        if state.active.as_deref() != Some(self.mirror.me()) || observed_empty.as_ref().is_some_and(|id| id != selected) {
+                            return Ok(false);
+                        }
+                        if wire::head(selected)?.current.is_some() || !wire::future_entries(selected, 1)?.is_empty() {
+                            self.arrival.get_or_insert(Arrival(None));
+                            return Ok(false);
+                        }
+                        let current = wire::state()?;
+                        if state.active != current.active || state.queue_id != current.queue_id {
+                            *state = current;
+                            if state.active.as_deref() == Some(self.mirror.me()) {
+                                self.arrival.get_or_insert(Arrival(None));
+                            }
+                            return Ok(false);
+                        }
+                        *observed_empty = Some(selected.clone());
+                    }
                 }
-                Some(id) if id == swap.original => {}
-                _ => return Ok(false),
+                self.checked(|| wire::select_queue(&swap.original))?;
+                self.mirror.queue_created(swap.original.clone());
+                restored_queue = true;
             }
         }
         if already_back {
@@ -999,8 +1025,8 @@ impl Worker {
     }
 
     fn undo_claim(&mut self, rollback: Option<Rollback>, e: CoreError) -> CoreError {
-        let Some(rollback) = rollback else { return e };
-        if self.checked(wire::state).and_then(|mut state| self.settle_rollback(&rollback, &mut state, true)).is_err() {
+        let Some(mut rollback) = rollback else { return e };
+        if self.checked(wire::state).and_then(|mut state| self.settle_rollback(&mut rollback, &mut state, true)).is_err() {
             self.rollback = Some(rollback);
             // Playback from before the pull is not a reason to keep it; a report after this one is.
             self.last_local = None;
@@ -1055,16 +1081,17 @@ impl Worker {
             return Err(self.undo_send(claimed, before, None, playing, e));
         }
         let queue_swap = if let Some(original) = their_queue {
+            let mut swap = QueueSwap { original, replacement: ReplacementQueue::Unconfirmed { observed_empty: None } };
             let replacement = match self.checked(wire::post_queue) {
                 Ok(q) => q,
-                Err(e) => return Err(self.undo_send(claimed, before, None, playing, e)),
+                Err(e) => return Err(self.undo_send(claimed, before, Some(swap), playing, e)),
             };
-            let swap = QueueSwap { original, replacement };
+            swap.replacement = ReplacementQueue::Created(replacement.clone());
             // The server can select the new queue even if the reply is lost.
-            if let Err(e) = self.checked(|| wire::select_queue(&swap.replacement)) {
+            if let Err(e) = self.checked(|| wire::select_queue(&replacement)) {
                 return Err(self.undo_send(claimed, before, Some(swap), playing, e));
             }
-            self.mirror.queue_created(swap.replacement.clone());
+            self.mirror.queue_created(replacement);
             Some(swap)
         } else {
             None
