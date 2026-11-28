@@ -196,49 +196,35 @@ private struct RoutePicker: UIViewRepresentable {
     func updateUIView(_ uiView: AVRoutePickerView, context: Context) {}
 }
 
-/// Seek slider and times. Its own view so position updates and display-rate
-/// extrapolation re-render only this, not the whole page.
+/// Seek slider and times. Its own view so the 4 Hz position ticks re-render only this,
+/// not the whole page. No `TimelineView`: a slider inside one lost the end of its drag
+/// and never seeked.
 private struct Scrubber: View {
     @Environment(Player.self) private var player
     @State private var scrub: Double?
-    @State private var anchor: (position: Double, at: Date)?
-
-    private var advancing: Bool { player.isPlaying && !player.loading && scrub == nil }
-
-    private func displayPosition(at now: Date) -> Double {
-        if let scrub { return scrub }
-        guard advancing, let anchor, anchor.position == player.position else { return player.position }
-        let dt = min(max(0, now.timeIntervalSince(anchor.at)), 0.5)
-        return min(anchor.position + dt, max(player.duration, anchor.position))
-    }
 
     var body: some View {
-        TimelineView(.animation(paused: !advancing)) { ctx in
-            let shown = displayPosition(at: ctx.date)
-            VStack(spacing: 4) {
-                Slider(
-                    value: Binding(get: { shown }, set: { scrub = $0 }),
-                    in: 0...max(player.duration, 1)
-                ) { editing in
-                    if !editing, let s = scrub {
-                        scrub = nil
-                        // Guests with control ask the host to seek everyone.
-                        if !Live.shared.userSeek(s) { player.seek(to: s) }
-                    }
+        let shown = scrub ?? player.position
+        VStack(spacing: 4) {
+            Slider(
+                value: Binding(get: { shown }, set: { scrub = $0 }),
+                in: 0...max(player.duration, 1)
+            ) { editing in
+                if !editing, let s = scrub {
+                    scrub = nil
+                    // Guests with control ask the host to seek everyone.
+                    if !Live.shared.userSeek(s) { player.seek(to: s) }
                 }
-                .disabled(Live.shared.isGuest && !Live.shared.guestControl)
-                .tint(.primary)
-                HStack {
-                    Text(Fmt.time(shown))
-                    Spacer()
-                    Text("-" + Fmt.time(max(0, player.duration - shown)))
-                }
-                .font(.caption.monospacedDigit()).foregroundStyle(Color.primary.opacity(0.6))
             }
+            .disabled(Live.shared.isGuest && !Live.shared.guestControl)
+            .tint(.primary)
+            HStack {
+                Text(Fmt.time(shown))
+                Spacer()
+                Text("-" + Fmt.time(max(0, player.duration - shown)))
+            }
+            .font(.caption.monospacedDigit()).foregroundStyle(Color.primary.opacity(0.6))
         }
-        .onChange(of: player.position, initial: true) { _, p in anchor = advancing ? (p, Date.now) : nil }
-        .onChange(of: advancing) { _, on in anchor = on ? (player.position, Date.now) : nil }
-        .onChange(of: player.current?.id) { anchor = advancing ? (player.position, Date.now) : nil }
     }
 }
 
