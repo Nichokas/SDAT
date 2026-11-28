@@ -3,6 +3,7 @@ package com.nichokas.sdat
 import android.app.PendingIntent
 import android.content.Intent
 import android.os.Bundle
+import android.os.SystemClock
 import androidx.annotation.OptIn
 import androidx.compose.runtime.snapshotFlow
 import androidx.media3.common.util.UnstableApi
@@ -100,19 +101,19 @@ class PlaybackService : MediaSessionService() {
 private fun MediaSession.mayFavourite(controller: MediaSession.ControllerInfo) = isMediaNotificationController(controller)
 
 @OptIn(UnstableApi::class)
-internal class NotificationFavouriteActions {
+internal class NotificationFavouriteActions(private val clock: () -> Long = SystemClock::elapsedRealtime) {
     private var current: TrackActions? = null
-    // System UI can still send the previous button while applying the new preferences.
-    private var previous: TrackActions? = null
+    private val retired = ArrayDeque<RetiredActions>()
 
     fun update(id: String?, fav: Boolean): CommandButton? {
         if (id == null) {
             current = null
-            previous = null
+            retired.clear()
             return null
         }
         val actions = current?.takeIf { it.id == id } ?: TrackActions(id).also {
-            previous = current
+            // System UI can send a button from before several rapid track changes.
+            current?.let { retired.addLast(RetiredActions(it, clock() + FAVOURITE_GRACE_MS)) }
             current = it
         }
         return CommandButton.Builder(if (fav) CommandButton.ICON_STAR_FILLED else CommandButton.ICON_STAR_UNFILLED)
@@ -122,11 +123,11 @@ internal class NotificationFavouriteActions {
     }
 
     fun availableCommands(defaults: SessionCommands): SessionCommands = defaults.buildUpon().apply {
-        for (actions in listOfNotNull(current, previous)) add(actions.add).add(actions.remove)
+        for (actions in recentActions()) add(actions.add).add(actions.remove)
     }.build()
 
     fun target(command: SessionCommand): Pair<String, Boolean>? {
-        for (actions in listOfNotNull(current, previous)) {
+        for (actions in recentActions()) {
             when (command) {
                 actions.add -> return actions.id to true
                 actions.remove -> return actions.id to false
@@ -135,10 +136,22 @@ internal class NotificationFavouriteActions {
         return null
     }
 
+    private fun recentActions(): List<TrackActions> {
+        val now = clock()
+        while (retired.firstOrNull()?.expiresAt?.let { it <= now } == true) retired.removeFirst()
+        return listOfNotNull(current) + retired.map { it.actions }
+    }
+
+    private class RetiredActions(val actions: TrackActions, val expiresAt: Long)
+
     private class TrackActions(val id: String) {
         // Media3 ignores extras when comparing buttons, so the action itself has to change with the track.
         private val token = UUID.randomUUID()
         val add = SessionCommand("com.nichokas.sdat.FAVOURITE_ADD.$token", Bundle.EMPTY)
         val remove = SessionCommand("com.nichokas.sdat.FAVOURITE_REMOVE.$token", Bundle.EMPTY)
+    }
+
+    private companion object {
+        const val FAVOURITE_GRACE_MS = 5_000L
     }
 }

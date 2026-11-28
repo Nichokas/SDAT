@@ -380,6 +380,8 @@ fn play_after_a_start_error_resumes_the_queue() {
         m.fire(Trigger::Resume);
         m.fire(Trigger::Stop);
         while ctx.iteration(false) {}
+        m.fire(Trigger::Resume);
+        while ctx.iteration(false) {}
         assert_eq!(ORDER.with(|o| o.borrow().clone()), ["resume queue"]);
     })
     .unwrap();

@@ -44,6 +44,7 @@ const UNAVAILABLE: &str = "503 Service Unavailable";
 struct Account {
     active: Option<&'static str>,
     writer: &'static str,
+    queue_id: String,
     current: String,
     item: String,
     status: &'static str,
@@ -54,6 +55,8 @@ struct Account {
     fail_after_claim: bool,
     fail_rollback_state: bool,
     seek_before_claim: bool,
+    fail_send_with_queue: Option<&'static str>,
+    fail_queue_restore: bool,
     unavailable: Option<&'static str>,
     rewrites: usize,
     claims: Vec<String>,
@@ -65,6 +68,7 @@ impl Account {
         Self {
             active: Some("source"),
             writer: "source",
+            queue_id: "queue".into(),
             current: "1".into(),
             item: "i1".into(),
             status: "PAUSED",
@@ -75,6 +79,8 @@ impl Account {
             fail_after_claim: false,
             fail_rollback_state: false,
             seek_before_claim: false,
+            fail_send_with_queue: None,
+            fail_queue_restore: false,
             unavailable: None,
             rewrites: 0,
             claims: Vec::new(),
@@ -104,7 +110,7 @@ impl Account {
                     "relationships":{
                         "activePlayer":{"data":self.active.map(|id| json!({"id":id,"type":"installations"}))},
                         "availablePlayers":{"data":[{"id":"source","type":"installations"},{"id":"receiver","type":"installations"}]},
-                        "playQueue":{"data":{"id":"queue","type":"playQueues"}}
+                        "playQueue":{"data":{"id":self.queue_id,"type":"playQueues"}}
                     }
                 }}),
             ),
@@ -136,6 +142,24 @@ impl Account {
                 (OK, json!({"data":data,"included":[track("1"),track("2")]}))
             }
             ("GET", "/v2/tracks/1") => (MISSING, json!({})),
+            ("POST", "/v2/playQueues") => {
+                self.queue_id = "send-queue".into();
+                (OK, json!({"data":{"id":self.queue_id}}))
+            }
+            ("PATCH", "/v2/userPlaybackStates/me/relationships/playQueue") => {
+                let id = body["data"]["id"].as_str().expect("queue id");
+                if id == "queue" && self.fail_queue_restore {
+                    self.fail_queue_restore = false;
+                    return (UNAVAILABLE, json!({}));
+                }
+                self.queue_id = id.into();
+                (OK, json!({}))
+            }
+            ("PATCH", "/v2/playQueues/send-queue") => {
+                self.active = Some("source");
+                self.queue_id = self.fail_send_with_queue.take().expect("queue after failed send").into();
+                (UNAVAILABLE, json!({}))
+            }
             ("PATCH", "/v2/userPlaybackStates/me/relationships/activePlayer") => {
                 let to = body["data"]["id"].as_str().expect("target");
                 self.claims.push(to.into());
@@ -303,6 +327,7 @@ fn handoff_against_mock_service() {
     }
     missing_pushed_track_releases_local_writes();
     pulling_from_a_paused_device_cannot_restore_a_previous_sends_playing_status();
+    failed_send_restores_only_its_own_replacement_queue();
     a_rollback_does_not_undo_a_new_push_on_the_same_queue_from_the_same_source();
     continue_here_delivers_a_discovered_push_only_in_its_reply();
     a_failed_pull_hands_back_when_the_same_queue_is_still_selected();
@@ -368,6 +393,33 @@ fn pulling_from_a_paused_device_cannot_restore_a_previous_sends_playing_status()
     let account = account.lock().expect("account");
     assert_eq!(account.active, Some("source"));
     assert_eq!(account.status, "PAUSED");
+}
+
+fn failed_send_restores_only_its_own_replacement_queue() {
+    for (selected, fail_restore, expected) in [
+        ("send-queue", false, "queue"),
+        ("send-queue", true, "queue"),
+        ("newer-queue", false, "newer-queue"),
+    ] {
+        let (account, mut worker, _events) = setup();
+        {
+            let mut account = account.lock().expect("account");
+            account.fail_send_with_queue = Some(selected);
+            account.fail_queue_restore = fail_restore;
+        }
+        worker.reported(
+            LocalPlayback { current: Some("2".into()), playing: true, ..LocalPlayback::default() },
+            Instant::now(),
+        );
+        assert!(worker.send_to("target", deadline()).is_err());
+        if fail_restore {
+            assert_eq!(account.lock().expect("account").queue_id, "send-queue");
+            worker.refresh().expect("retry queue restoration");
+        }
+        let account = account.lock().expect("account");
+        assert_eq!(account.queue_id, expected);
+        assert_eq!(account.active, Some("source"));
+    }
 }
 
 fn a_rollback_does_not_undo_a_new_push_on_the_same_queue_from_the_same_source() {

@@ -417,9 +417,14 @@ fn nothing_to_continue() -> CoreError {
 
 struct Rollback {
     to: String,
-    queue: Option<String>,
+    queue: Option<QueueSwap>,
     playing: bool,
     pull_from: Option<QueueStamp>,
+}
+
+struct QueueSwap {
+    original: String,
+    replacement: String,
 }
 
 struct QueueStamp {
@@ -667,9 +672,9 @@ impl Worker {
             return Err(CoreError::NotSignedIn);
         }
         let mut state = wire::state()?;
-        if let Some(mut rollback) = self.rollback.take() {
+        if let Some(rollback) = self.rollback.take() {
             let idle = self.last_local.as_ref().is_none_or(|l| !l.playing);
-            match self.settle_rollback(&mut rollback, &mut state, idle) {
+            match self.settle_rollback(&rollback, &mut state, idle) {
                 Ok(true) => state = wire::state()?,
                 Ok(false) => {}
                 Err(e) => {
@@ -767,11 +772,12 @@ impl Worker {
             }
             self.resume(ResumeMode::Push(deadline), from, state.queue_id.zip(head), now)
         });
-        if result.is_ok() {
+        if let Err(e) = &result {
+            log::warn!("handoff: arrived queue unreadable, retrying error={e}");
+            self.dirty.get_or_insert_with(|| Instant::now() + RETRY);
+        } else {
             // A missing current track is terminal, so a local report can write again.
             self.arrival = None;
-        } else {
-            self.dirty.get_or_insert_with(|| Instant::now() + RETRY);
         }
         result
     }
@@ -929,16 +935,12 @@ impl Worker {
 
     /// Restores the queue and active player displaced by a failed transfer.
     /// Returns whether the state needs to be read again.
-    fn settle_rollback(&mut self, rollback: &mut Rollback, state: &mut wire::State, idle: bool) -> Result<bool> {
-        if state.active.as_deref() == Some(&rollback.to) {
-            rollback.queue = None;
-            self.restore_playing(rollback.playing)?;
-            return Ok(rollback.playing);
-        }
-        if !idle || (state.active.is_some() && state.active.as_deref() != Some(self.mirror.me())) {
+    fn settle_rollback(&mut self, rollback: &Rollback, state: &mut wire::State, idle: bool) -> Result<bool> {
+        let already_back = state.active.as_deref() == Some(&rollback.to);
+        if !already_back && (!idle || (state.active.is_some() && state.active.as_deref() != Some(self.mirror.me()))) {
             return Ok(false);
         }
-        if let Some(stamp) = &rollback.pull_from {
+        if !already_back && let Some(stamp) = &rollback.pull_from {
             let unchanged = state.queue_id.as_deref() == Some(&stamp.queue) && stamp.matches(&wire::head(&stamp.queue)?);
             let current = wire::state()?;
             let same_owner = state.active == current.active && state.queue_id == current.queue_id;
@@ -952,10 +954,21 @@ impl Worker {
                 return Ok(false);
             }
         }
-        if let Some(q) = &rollback.queue {
-            self.checked(|| wire::select_queue(q))?;
-            self.mirror.queue_created(q.clone());
-            rollback.queue = None;
+        let mut restored_queue = false;
+        if let Some(swap) = &rollback.queue {
+            match state.queue_id.as_deref() {
+                Some(id) if id == swap.replacement => {
+                    self.checked(|| wire::select_queue(&swap.original))?;
+                    self.mirror.queue_created(swap.original.clone());
+                    restored_queue = true;
+                }
+                Some(id) if id == swap.original => {}
+                _ => return Ok(false),
+            }
+        }
+        if already_back {
+            self.restore_playing(rollback.playing)?;
+            return Ok(restored_queue || rollback.playing);
         }
         let active = self.checked(|| wire::set_active(&rollback.to))?;
         let back = active.as_deref() == Some(&rollback.to);
@@ -982,12 +995,15 @@ impl Worker {
             }
             return e;
         }
-        self.undo_claim(before.map(|to| Rollback { to, queue: their_queue, playing, pull_from: None }), e)
+        let queue = their_queue.zip(self.mirror.queue_id()).and_then(|(original, replacement)| {
+            (original != replacement).then(|| QueueSwap { original, replacement: replacement.to_string() })
+        });
+        self.undo_claim(before.map(|to| Rollback { to, queue, playing, pull_from: None }), e)
     }
 
     fn undo_claim(&mut self, rollback: Option<Rollback>, e: CoreError) -> CoreError {
-        let Some(mut rollback) = rollback else { return e };
-        if self.checked(wire::state).and_then(|mut state| self.settle_rollback(&mut rollback, &mut state, true)).is_err() {
+        let Some(rollback) = rollback else { return e };
+        if self.checked(wire::state).and_then(|mut state| self.settle_rollback(&rollback, &mut state, true)).is_err() {
             self.rollback = Some(rollback);
             // Playback from before the pull is not a reason to keep it; a report after this one is.
             self.last_local = None;

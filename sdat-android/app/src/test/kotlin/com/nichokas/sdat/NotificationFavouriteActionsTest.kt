@@ -24,6 +24,7 @@ class NotificationFavouriteActionsTest {
         val addA = checkNotNull(actions.update("a", fav = false))
         val removeA = checkNotNull(actions.update("a", fav = true))
         val addB = checkNotNull(actions.update("b", fav = false))
+        actions.update("c", fav = false)
 
         assertNotEquals(addA, addB)
         val commands = actions.availableCommands(SessionCommands.EMPTY)
@@ -34,10 +35,12 @@ class NotificationFavouriteActionsTest {
         }
     }
 
-    @Test fun expiresOldCommandsWhenTheTrackChangesAgainOrTheQueueClears() {
-        val actions = NotificationFavouriteActions()
+    @Test fun expiresRetiredCommandsAfterTheGracePeriodOrWhenTheQueueClears() {
+        var now = 0L
+        val actions = NotificationFavouriteActions { now }
         val a = checkNotNull(actions.update("a", fav = false)?.sessionCommand)
         actions.update("b", fav = false)
+        now += 5_000
         val c = checkNotNull(actions.update("c", fav = false)?.sessionCommand)
 
         assertFalse(actions.availableCommands(SessionCommands.EMPTY).contains(a))

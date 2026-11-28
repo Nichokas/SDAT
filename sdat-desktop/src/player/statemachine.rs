@@ -444,6 +444,7 @@ pub struct Machine {
     gate: Arc<GaplessGate>,
     gapless: RefCell<Option<GaplessSlot>>,
     gapless_ended_while_paused: Cell<bool>,
+    stopped_after_failed_start: Cell<bool>,
     retry_position: Cell<Option<Duration>>,
     /// A pause arrived while the track was still preparing: the stream
     /// starts paused instead of playing (Listen Together aligned start).
@@ -476,6 +477,7 @@ impl Machine {
             gate,
             gapless: RefCell::new(None),
             gapless_ended_while_paused: Cell::new(false),
+            stopped_after_failed_start: Cell::new(false),
             retry_position: Cell::new(None),
             pause_on_start: Cell::new(false),
             buffering: Cell::new(false),
@@ -638,13 +640,16 @@ impl Machine {
     async fn handle(self: &Rc<Self>, t: Trigger) {
         let t = match t {
             Trigger::Resume if self.state.get() == State::Stopped => {
-                if self.has_queued_stop_or_start() {
+                if !self.stopped_after_failed_start.get() || self.has_queued_stop_or_start() {
                     return;
                 }
                 Trigger::Deferred(Box::new(self.hooks.on_stopped_resume))
             }
             t => t,
         };
+        if matches!(t, Trigger::Stop) {
+            self.stopped_after_failed_start.set(false);
+        }
         if let Trigger::AfterStop(action) = t {
             action();
             return;
@@ -753,6 +758,7 @@ impl Machine {
         // The deferred next / previous started a track: the failure it
         // waited on is superseded.
         if to == State::Preparing {
+            self.stopped_after_failed_start.set(false);
             self.queue.borrow_mut().retain(|t| !matches!(t, Trigger::ReportError(..)));
         }
         if matches!(to, State::Preparing | State::Stopped) {
@@ -831,6 +837,7 @@ impl Machine {
                 if let Err(e) = &r {
                     // Deviation from Go: don't stay stuck in PREPARING with a spinner.
                     log::error!("failed to start playback: {e:#}");
+                    self.stopped_after_failed_start.set(true);
                     self.state.set(State::Stopped);
                     if let Err(e) = on_stopped(&*self.playbin) {
                         log::error!("failed to reset the pipeline after a playback error: {e:#}");
@@ -950,6 +957,7 @@ impl Machine {
     }
 
     fn stopped_on_stream_error(&self, from: State, e: String) {
+        self.stopped_after_failed_start.set(from == State::Preparing);
         let track = track_changed().with(|t| {
             t.as_ref().map(|event| {
                 // Metadata is published before the stream starts, so its
