@@ -201,6 +201,7 @@ private struct RoutePicker: UIViewRepresentable {
 private struct Scrubber: View {
     @Environment(Player.self) private var player
     @State private var scrub: Double?
+    @State private var editing = false
     @State private var anchor: (position: Double, at: Date)?
 
     private var advancing: Bool { player.isPlaying && !player.loading && scrub == nil }
@@ -217,9 +218,12 @@ private struct Scrubber: View {
             let shown = displayPosition(at: ctx.date)
             VStack(spacing: 4) {
                 Slider(
-                    value: Binding(get: { shown }, set: { scrub = $0 }),
+                    // Slider also writes to its binding when its range changes (a new track's
+                    // duration); taken as a scrub, that froze the thumb at the old position.
+                    value: Binding(get: { shown }, set: { if editing { scrub = $0 } }),
                     in: 0...max(player.duration, 1)
                 ) { editing in
+                    self.editing = editing
                     if !editing, let s = scrub {
                         scrub = nil
                         // Guests with control ask the host to seek everyone.
@@ -238,7 +242,11 @@ private struct Scrubber: View {
         }
         .onChange(of: player.position, initial: true) { _, p in anchor = advancing ? (p, Date.now) : nil }
         .onChange(of: advancing) { _, on in anchor = on ? (player.position, Date.now) : nil }
-        .onChange(of: player.current?.id) { anchor = advancing ? (player.position, Date.now) : nil }
+        .onChange(of: player.current?.id) {
+            scrub = nil
+            editing = false
+            anchor = advancing ? (player.position, Date.now) : nil
+        }
     }
 }
 
