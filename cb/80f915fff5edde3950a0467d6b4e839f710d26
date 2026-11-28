@@ -1,0 +1,19 @@
+sdat-desktop/src/player/statemachine_tests.rs
+  s_3a63bebbb256f3::t_5e0baf32bc6789 267-290
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "cb80f915fff5edde3950a0467d6b4e839f710d26",
+  "prompts": {},
+  "sessions": {
+    "s_3a63bebbb256f3": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a22247-324e-7521-90c3-575a8a8e3429",
+        "model": "gpt-6.2-sol"
+      },
+      "human_author": "Nicolas Rodriguez-Alvarez <me@nichokas.eu>"
+    }
+  }
+}
