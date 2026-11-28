@@ -67,6 +67,8 @@ thread_local! {
     static QUEUE_GENERATION: Cell<u64> = const { Cell::new(0) };
     /// Set while end-of-queue autoplay is fetching a radio mix.
     static AUTOPLAY_PENDING: Cell<bool> = const { Cell::new(false) };
+    /// Invalidates an autoplay fetch even after a queued start or Stop has been handled.
+    static PLAYBACK_REVISION: Cell<u64> = const { Cell::new(0) };
 }
 
 /// Drops pending "play next" requests (e.g. when leaving a Listen Together
@@ -230,6 +232,8 @@ fn fire(t: Trigger) {
 fn fire_uncounted(t: Trigger) {
     if matches!(t, Trigger::Stop | Trigger::PlayTrack(..) | Trigger::PlayTrackId(..)) {
         WAITING.with(|w| w.set(false));
+        AUTOPLAY_PENDING.with(|a| a.set(false));
+        PLAYBACK_REVISION.with(|r| r.set(r.get() + 1));
     }
     if with(|p| p.machine.fire(t)).is_none() {
         log::warn!("player not initialised, dropping trigger");
@@ -435,12 +439,7 @@ async fn on_eos_stopped() {
     // unless a Stop or another start is already queued.
     if peek_gapless().is_some() {
         // A pending start (maybe a new list behind its own Stop) runs as queued.
-        if with(|p| p.machine.start_pending()).unwrap_or(true) {
-            return;
-        }
-        if with(|p| p.machine.has_queued_stop()).unwrap_or(false) {
-            stop();
-        } else {
+        if !with(|p| p.machine.start_pending()).unwrap_or(true) {
             advance_queue(false);
         }
         return;
@@ -464,20 +463,18 @@ async fn on_eos_stopped() {
     // Fetch the whole mix before touching the queues; "play next" requests
     // that land meanwhile are queued but not started (see `complete_play_next`).
     let list_generation = LIST_GENERATION.with(Cell::get);
+    let playback_revision = PLAYBACK_REVISION.with(Cell::get);
     AUTOPLAY_PENDING.with(|a| a.set(true));
     let mix = fetch_radio(id).await;
+    if PLAYBACK_REVISION.with(Cell::get) != playback_revision {
+        return;
+    }
     AUTOPLAY_PENDING.with(|a| a.set(false));
     // The user acted while the mix was loading: a new list or a queued track
     // start wins over autoplay as is.
     if LIST_GENERATION.with(Cell::get) != list_generation
         || !with(|p| p.machine.stopped_without_pending_start()).unwrap_or(true)
     {
-        return;
-    }
-    // A Stop queued behind this handler is ignored once already stopped, so do
-    // the stopped-track cleanup here instead of starting the mix.
-    if with(|p| p.machine.has_queued_stop()).unwrap_or(false) {
-        stop();
         return;
     }
     // Tracks queued while the mix was loading win over autoplay.
