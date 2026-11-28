@@ -1,0 +1,33 @@
+sdat-android/app/src/test/kotlin/com/nichokas/sdat/core/SessionTrackTest.kt
+  s_b2248844e1612f::t_deb9d36f89d7c2 1-22,27-45,47-52
+  s_b2248844e1612f::t_99259e96bdb591 46
+  s_b2248844e1612f::t_61e046d2734a82 23-26
+sdat-android/app/src/main/kotlin/com/nichokas/sdat/PlaybackService.kt
+  s_b2248844e1612f::t_f0390e7352434d 105
+  s_b2248844e1612f::t_d62fb60d696aba 13,20,38-39,48-56,71,73-74,78,88-89,102-104,106-126,128-144
+  s_b2248844e1612f::t_8acfe003ea67ae 40,72,91
+sdat-android/app/src/test/kotlin/com/nichokas/sdat/NotificationFavouriteActionsTest.kt
+  s_b2248844e1612f::t_deb9d36f89d7c2 1-49
+sdat-android/app/src/main/kotlin/com/nichokas/sdat/core/Playback.kt
+  s_b2248844e1612f::t_530e541bcfcdfd 182-183
+  s_b2248844e1612f::t_ad6cdf31c2a18c 20,1084-1098
+  s_b2248844e1612f::t_5ee85dd8ba8e98 181,184-186,214-216,705,908-915,917
+  s_b2248844e1612f::t_4626df9964833e 1099
+  s_b2248844e1612f::t_e8e49a4fd4e51f 1083
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "287c4d4ded23b6679b967f4eeaf485ba669738bc",
+  "prompts": {},
+  "sessions": {
+    "s_b2248844e1612f": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a22248-058b-74e2-b6d9-ea1fa944ad18",
+        "model": "gpt-6.2-sol"
+      },
+      "human_author": null
+    }
+  }
+}
