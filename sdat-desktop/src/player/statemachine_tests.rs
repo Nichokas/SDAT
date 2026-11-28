@@ -264,6 +264,30 @@ fn queued_stop_does_not_clear_the_next_source() {
     .unwrap();
 }
 
+#[test]
+fn queued_stop_after_eos_clears_track_and_timing() {
+    let ctx = glib::MainContext::new();
+    ctx.with_thread_default(|| {
+        let m = Machine::new(Rc::new(Testbin::default()), Hooks::default());
+        m.state.set(State::Playing);
+        track_changed().set(Some(TrackChangedEvent { track: Track::default(), skip_history: false }));
+        playback_state_changed().notify(|mut state| {
+            state.duration = Duration::from_secs(180);
+            state.position = Duration::from_secs(179);
+            state
+        });
+        m.fire(Trigger::Eos);
+        m.fire(Trigger::Stop);
+        while ctx.iteration(false) {}
+
+        assert_eq!(m.state.get(), State::Stopped);
+        assert!(track_changed().get().is_none());
+        let state = playback_state_changed().get();
+        assert_eq!(state.duration, Duration::ZERO);
+        assert_eq!(state.position, Duration::ZERO);
+    }).unwrap();
+}
+
 thread_local! {
     static DEFERRED_RAN: Cell<usize> = const { Cell::new(0) };
 }
