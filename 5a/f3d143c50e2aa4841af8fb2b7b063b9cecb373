@@ -1,0 +1,28 @@
+sdat-desktop/src/player/statemachine.rs
+  s_7364197f62f5f7::t_d11b8814d5aa92 405,421,444,476,509-513,532,539-540,677-695
+sdat-desktop/src/player/next.rs
+  s_7364197f62f5f7::t_9c41f4e3527834 73-81,84,87-90,95,135,142-152,202-223
+  s_7364197f62f5f7::t_8c0fc09ca103a3 243,246-248,251-262,264-271,273-275,277,279,572,616,623,625-626
+  s_7364197f62f5f7::t_6d3b60bc8efc21 224
+sdat-desktop/src/player/mod.rs
+  s_7364197f62f5f7::t_d11b8814d5aa92 29,260,553-554
+sdat-desktop/src/player/statemachine_tests.rs
+  s_7364197f62f5f7::t_8909424736514b 727-773
+  s_7364197f62f5f7::t_2c59f056c34418 726
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "5af3d143c50e2aa4841af8fb2b7b063b9cecb373",
+  "prompts": {},
+  "sessions": {
+    "s_7364197f62f5f7": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a22248-3cda-7fc3-bf2e-b815bb021a12",
+        "model": "gpt-6.2-sol"
+      },
+      "human_author": "Nicolas Rodriguez-Alvarez <me@nichokas.eu>"
+    }
+  }
+}
