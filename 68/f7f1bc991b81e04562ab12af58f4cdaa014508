@@ -1,0 +1,23 @@
+sdat-desktop/src/player/statemachine.rs
+  s_7364197f62f5f7::t_949fd87007dd79 695-699
+sdat-desktop/src/player/mod.rs
+  s_7364197f62f5f7::t_b4540c4c22ea34 1529-1553
+  s_7364197f62f5f7::t_db44ea3863f96e 231-233,428-430,1297-1301
+  s_7364197f62f5f7::t_a5c9dd21820c55 1528
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "68f7f1bc991b81e04562ab12af58f4cdaa014508",
+  "prompts": {},
+  "sessions": {
+    "s_7364197f62f5f7": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a22248-3cda-7fc3-bf2e-b815bb021a12",
+        "model": "gpt-6.2-sol"
+      },
+      "human_author": "Nicolas Rodriguez-Alvarez <me@nichokas.eu>"
+    }
+  }
+}
