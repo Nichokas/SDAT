@@ -988,16 +988,13 @@ impl Worker {
         Ok(())
     }
 
-    fn undo_send(&mut self, claimed: bool, before: Option<String>, their_queue: Option<String>, playing: bool, e: CoreError) -> CoreError {
+    fn undo_send(&mut self, claimed: bool, before: Option<String>, queue: Option<QueueSwap>, playing: bool, e: CoreError) -> CoreError {
         if !claimed {
             if self.restore_playing(playing).is_err() {
                 self.pending.get_or_insert_with(|| Instant::now() + RETRY);
             }
             return e;
         }
-        let queue = their_queue.zip(self.mirror.queue_id()).and_then(|(original, replacement)| {
-            (original != replacement).then(|| QueueSwap { original, replacement: replacement.to_string() })
-        });
         self.undo_claim(before.map(|to| Rollback { to, queue, playing, pull_from: None }), e)
     }
 
@@ -1057,19 +1054,28 @@ impl Worker {
         if claimed && let Err(e) = self.claim() {
             return Err(self.undo_send(claimed, before, None, playing, e));
         }
-        if their_queue.is_some() {
-            match self.checked(wire::create_queue) {
-                Ok(q) => self.mirror.queue_created(q),
-                Err(e) => return Err(self.undo_send(claimed, before, their_queue, playing, e)),
+        let queue_swap = if let Some(original) = their_queue {
+            let replacement = match self.checked(wire::post_queue) {
+                Ok(q) => q,
+                Err(e) => return Err(self.undo_send(claimed, before, None, playing, e)),
+            };
+            let swap = QueueSwap { original, replacement };
+            // The server can select the new queue even if the reply is lost.
+            if let Err(e) = self.checked(|| wire::select_queue(&swap.replacement)) {
+                return Err(self.undo_send(claimed, before, Some(swap), playing, e));
             }
-        }
+            self.mirror.queue_created(swap.replacement.clone());
+            Some(swap)
+        } else {
+            None
+        };
         if !self.write_local(true) {
             let e = CoreError::Other("could not write the queue".into());
-            return Err(self.undo_send(claimed, before, their_queue, playing, e));
+            return Err(self.undo_send(claimed, before, queue_swap, playing, e));
         }
         // Paused before the target owns the state, so this write cannot land after its own.
         if let Err(e) = self.checked(|| wire::set_status(false)) {
-            return Err(self.undo_send(claimed, before, their_queue, playing, e));
+            return Err(self.undo_send(claimed, before, queue_swap, playing, e));
         }
         self.mirror.status_written(false);
         // A failed call leaves the outcome unknown: read who is active now.
@@ -1084,7 +1090,7 @@ impl Worker {
             // the device this send took it from, if any.
             Ok(a) if before.is_some() && (a.is_none() || a.as_deref() == Some(me.as_str())) => {
                 let e = CoreError::Other("the device is not available".into());
-                return Err(self.undo_send(claimed, before, their_queue, playing, e));
+                return Err(self.undo_send(claimed, before, queue_swap, playing, e));
             }
             // Otherwise take it back here and undo the pause.
             Ok(a) if a.is_none() || a.as_deref() == Some(me.as_str()) => {

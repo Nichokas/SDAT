@@ -330,10 +330,14 @@ pub(super) fn future_tracks(queue: &str, cap: usize) -> Result<(Vec<Entry>, Vec<
     future(queue, cap, true, |path| call(Method::GET, path, None))
 }
 
-pub(super) fn create_queue() -> Result<String> {
+pub(super) fn post_queue() -> Result<String> {
     let v = call(Method::POST, "/v2/playQueues", Some(&json!({"data": {"type": "playQueues"}})))?;
-    let id = str_at(&v, "/data/id").ok_or_else(|| CoreError::Decode("queue without id".into()))?;
-    call(Method::PATCH, "/v2/userPlaybackStates/me/relationships/playQueue", Some(&json!({"data": {"type": "playQueues", "id": id}})))?;
+    str_at(&v, "/data/id").ok_or_else(|| CoreError::Decode("queue without id".into()))
+}
+
+pub(super) fn create_queue() -> Result<String> {
+    let id = post_queue()?;
+    select_queue(&id)?;
     Ok(id)
 }
 

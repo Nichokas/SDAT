@@ -56,6 +56,7 @@ struct Account {
     fail_rollback_state: bool,
     seek_before_claim: bool,
     fail_send_with_queue: Option<&'static str>,
+    fail_send_selection: bool,
     fail_queue_restore: bool,
     unavailable: Option<&'static str>,
     rewrites: usize,
@@ -80,6 +81,7 @@ impl Account {
             fail_rollback_state: false,
             seek_before_claim: false,
             fail_send_with_queue: None,
+            fail_send_selection: false,
             fail_queue_restore: false,
             unavailable: None,
             rewrites: 0,
@@ -153,6 +155,10 @@ impl Account {
                     return (UNAVAILABLE, json!({}));
                 }
                 self.queue_id = id.into();
+                if id == "send-queue" && self.fail_send_selection {
+                    self.fail_send_selection = false;
+                    return (UNAVAILABLE, json!({}));
+                }
                 (OK, json!({}))
             }
             ("PATCH", "/v2/playQueues/send-queue") => {
@@ -328,6 +334,7 @@ fn handoff_against_mock_service() {
     missing_pushed_track_releases_local_writes();
     pulling_from_a_paused_device_cannot_restore_a_previous_sends_playing_status();
     failed_send_restores_only_its_own_replacement_queue();
+    failed_send_restores_the_queue_after_a_lost_selection_response();
     a_rollback_does_not_undo_a_new_push_on_the_same_queue_from_the_same_source();
     continue_here_delivers_a_discovered_push_only_in_its_reply();
     a_failed_pull_hands_back_when_the_same_queue_is_still_selected();
@@ -420,6 +427,20 @@ fn failed_send_restores_only_its_own_replacement_queue() {
         assert_eq!(account.queue_id, expected);
         assert_eq!(account.active, Some("source"));
     }
+}
+
+fn failed_send_restores_the_queue_after_a_lost_selection_response() {
+    let (account, mut worker, _events) = setup();
+    account.lock().expect("account").fail_send_selection = true;
+    worker.reported(
+        LocalPlayback { current: Some("2".into()), playing: true, ..LocalPlayback::default() },
+        Instant::now(),
+    );
+    assert!(worker.send_to("target", deadline()).is_err());
+    let account = account.lock().expect("account");
+    assert_eq!(account.queue_id, "queue");
+    assert_eq!(account.active, Some("source"));
+    assert_eq!(account.claims, ["receiver", "source"]);
 }
 
 fn a_rollback_does_not_undo_a_new_push_on_the_same_queue_from_the_same_source() {
