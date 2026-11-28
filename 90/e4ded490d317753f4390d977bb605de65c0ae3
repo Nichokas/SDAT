@@ -1,0 +1,23 @@
+sdat-core/tonearm-core/src/api/client.rs
+  s_3b477a0ef30bcc::t_8cab8dcc578dc3 623,632-633,660-661,663-664,667,670-671,674,678-688,696-699,705-742,764-796,800-816,827-829,839
+  s_3b477a0ef30bcc::t_38b30973a564e8 184-193,203-209,278-287,310,314-318,321-323,406-409,413
+  s_3b477a0ef30bcc::t_6fe8256e85f3ae 689-695,700-704,908-909
+sdat-core/tonearm-core/src/state.rs
+  s_3b477a0ef30bcc::t_8cab8dcc578dc3 107
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "90e4ded490d317753f4390d977bb605de65c0ae3",
+  "prompts": {},
+  "sessions": {
+    "s_3b477a0ef30bcc": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "5974fff8-0a9d-4f5b-9e06-ea0a5e0ee952",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Nicolas Rodriguez-Alvarez <me@nichokas.eu>"
+    }
+  }
+}
