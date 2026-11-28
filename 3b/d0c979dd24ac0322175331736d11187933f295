@@ -1,0 +1,24 @@
+sdat-core/tonearm-core/src/playqueue.rs
+  s_7364197f62f5f7::t_84d6e069907ae1 471-483,789-795,797-799
+  s_7364197f62f5f7::t_f02ff9458b1ce4 796
+  s_7364197f62f5f7::t_a836e9a191fe8c 800
+sdat-desktop/src/player/mod.rs
+  s_7364197f62f5f7::t_f02ff9458b1ce4 977,991
+  s_7364197f62f5f7::t_cb115db16b2016 711-716,721-724,727,1125,1141
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "3bd0c979dd24ac0322175331736d11187933f295",
+  "prompts": {},
+  "sessions": {
+    "s_7364197f62f5f7": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a22248-3cda-7fc3-bf2e-b815bb021a12",
+        "model": "gpt-6.2-sol"
+      },
+      "human_author": null
+    }
+  }
+}

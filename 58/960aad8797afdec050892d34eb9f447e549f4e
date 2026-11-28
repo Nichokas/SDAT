@@ -1,0 +1,26 @@
+sdat-core/tonearm-core/src/playqueue.rs
+  s_7364197f62f5f7::t_fbe603f6ddf166 471-479,482-486,488
+sdat-desktop/src/player/mod.rs
+  s_7364197f62f5f7::t_fbe603f6ddf166 274
+sdat-desktop/src/player/statemachine.rs
+  s_7364197f62f5f7::t_fbe603f6ddf166 412,429,800,803,952-963
+  s_7364197f62f5f7::t_b23887cfef4634 964-965
+sdat-desktop/src/player/statemachine_tests.rs
+  s_7364197f62f5f7::t_f84478cd60fecf 547,552-553,556-557,564
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "58960aad8797afdec050892d34eb9f447e549f4e",
+  "prompts": {},
+  "sessions": {
+    "s_7364197f62f5f7": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a22248-3cda-7fc3-bf2e-b815bb021a12",
+        "model": "gpt-6.2-sol"
+      },
+      "human_author": "Nicolas Rodriguez-Alvarez <me@nichokas.eu>"
+    }
+  }
+}
