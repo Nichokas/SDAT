@@ -171,7 +171,6 @@ pub(super) fn pop_next_streamable_from_queue() -> Option<Track> {
     commit_queue_entry(source, &track)
 }
 
-/// Takes the next streamable track and indicates whether it is a track repeat.
 pub(super) fn next_track(manual: bool) -> (Option<Track>, bool) {
     if crate::live::is_guest() {
         return (None, false);

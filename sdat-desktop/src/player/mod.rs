@@ -446,8 +446,6 @@ async fn on_eos_stopped() {
         return;
     }
     if list_pending() {
-        // The loaded part ran out before the next page arrived: wait for it
-        // instead of stopping, starting a radio or repeating the queue.
         log::info!("queue ran dry while the list is still loading; waiting for the next page");
         WAITING.with(|w| w.set(true));
         feed(true);

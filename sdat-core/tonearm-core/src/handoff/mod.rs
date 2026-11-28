@@ -431,7 +431,12 @@ struct QueueStamp {
 
 impl QueueStamp {
     fn new(queue: &str, head: &wire::Head) -> Self {
-        Self { queue: queue.into(), revision: head.revision.clone(), updated_by: head.updated_by.clone(), position_at_ms: head.position_at_ms }
+        Self {
+            queue: queue.into(),
+            revision: head.revision.clone(),
+            updated_by: head.updated_by.clone(),
+            position_at_ms: head.position_at_ms,
+        }
     }
 
     fn matches(&self, head: &wire::Head) -> bool {
@@ -657,8 +662,6 @@ impl Worker {
         Ok(())
     }
 
-    /// Updates the mirror and detects incoming playback. The caller decides
-    /// whether the resume is delivered as an event or as a command reply.
     fn refresh_state(&mut self) -> Result<(wire::State, Option<wire::Head>)> {
         if !self.same_account() {
             return Err(CoreError::NotSignedIn);
@@ -935,16 +938,17 @@ impl Worker {
         if !idle || (state.active.is_some() && state.active.as_deref() != Some(self.mirror.me())) {
             return Ok(false);
         }
-        // Another device can push to us while this rollback is waiting. That
-        // push writes a new position even when the source and queue are the same.
         if let Some(stamp) = &rollback.pull_from {
-            if state.queue_id.as_deref() != Some(&stamp.queue) || !stamp.matches(&wire::head(&stamp.queue)?) {
-                return Ok(false);
-            }
+            let unchanged = state.queue_id.as_deref() == Some(&stamp.queue) && stamp.matches(&wire::head(&stamp.queue)?);
             let current = wire::state()?;
             let same_owner = state.active == current.active && state.queue_id == current.queue_id;
             *state = current;
-            if !same_owner {
+            if !unchanged || !same_owner {
+                // A seek before our claim and a push during recovery can leave
+                // the same state. If playback is here, finish receiving it.
+                if state.active.as_deref() == Some(self.mirror.me()) {
+                    self.arrival.get_or_insert(Arrival(None));
+                }
                 return Ok(false);
             }
         }
@@ -983,25 +987,14 @@ impl Worker {
 
     fn undo_claim(&mut self, rollback: Option<Rollback>, e: CoreError) -> CoreError {
         let Some(mut rollback) = rollback else { return e };
-        let mut retry_stamp = rollback.pull_from.take();
-        let restored = self.checked(wire::state).and_then(|mut state| {
-            // A source seek before the claim can change the stamp. Use a fresh baseline
-            // for delayed retries, and still attempt the immediate hand-back.
-            if let Some(stamp) = &mut retry_stamp
-                && state.queue_id.as_deref() == Some(&stamp.queue)
-                && let Ok(head) = wire::head(&stamp.queue)
-            {
-                *stamp = QueueStamp::new(&stamp.queue, &head);
-            }
-            self.settle_rollback(&mut rollback, &mut state, true)
-        });
-        if restored.is_err() {
-            rollback.pull_from = retry_stamp;
+        if self.checked(wire::state).and_then(|mut state| self.settle_rollback(&mut rollback, &mut state, true)).is_err() {
             self.rollback = Some(rollback);
             // Playback from before the pull is not a reason to keep it; a report after this one is.
             self.last_local = None;
             self.pending = None;
             self.dirty.get_or_insert_with(|| Instant::now() + RETRY);
+        } else if self.arrival.is_some() {
+            self.dirty.get_or_insert_with(Instant::now);
         }
         e
     }

@@ -49,8 +49,10 @@ struct Account {
     status: &'static str,
     repeat: &'static str,
     revision: u32,
+    position_at_ms: i64,
     missing: bool,
     fail_after_claim: bool,
+    fail_rollback_state: bool,
     seek_before_claim: bool,
     unavailable: Option<&'static str>,
     rewrites: usize,
@@ -68,8 +70,10 @@ impl Account {
             status: "PAUSED",
             repeat: "ONE",
             revision: 1,
+            position_at_ms: now_ms() - 60_000,
             missing: false,
             fail_after_claim: false,
+            fail_rollback_state: false,
             seek_before_claim: false,
             unavailable: None,
             rewrites: 0,
@@ -82,12 +86,17 @@ impl Account {
         self.active = Some("receiver");
         self.writer = "source";
         self.revision += 1;
+        self.position_at_ms = now_ms();
     }
 
     fn answer(&mut self, method: &str, path: &str, body: &Value) -> Response {
         match (method, path) {
             ("POST", "/v1/oauth2/token") => (OK, json!({"access_token":"mock-token","expires_in":3600})),
             ("GET", "/v1/sessions") => (OK, json!({"countryCode":"ES"})),
+            ("GET", "/v2/userPlaybackStates/me") if self.active == Some("receiver") && self.fail_rollback_state => {
+                self.fail_rollback_state = false;
+                (UNAVAILABLE, json!({}))
+            }
             ("GET", "/v2/userPlaybackStates/me") => (
                 OK,
                 json!({"data":{
@@ -108,7 +117,12 @@ impl Account {
                 json!({"data":{
                 "id":"queue","type":"playQueues","attributes":{"repeat":self.repeat,"revision":self.revision.to_string()},
                 "relationships":{"current":{"data":{
-                    "id":self.current,"type":"tracks","meta":{"itemId":self.item,"position":"PT10S","positionUpdatedAt":"2020-01-01T00:00:00Z","updatedByInstallationId":self.writer}
+                    "id":self.current,"type":"tracks","meta":{
+                        "itemId":self.item,
+                        "position":"PT10S",
+                        "positionUpdatedAt":chrono::DateTime::from_timestamp_millis(self.position_at_ms).expect("position time").to_rfc3339(),
+                        "updatedByInstallationId":self.writer
+                    }
                 }}}
             }, "included":if self.missing { vec![] } else { vec![track(&self.current)] }}),
             ),
@@ -127,6 +141,7 @@ impl Account {
                 self.claims.push(to.into());
                 if to == "receiver" && self.seek_before_claim {
                     self.revision += 1;
+                    self.position_at_ms = now_ms();
                     self.seek_before_claim = false;
                 }
                 self.active = if Some(to) == self.unavailable {
@@ -291,7 +306,7 @@ fn handoff_against_mock_service() {
     a_rollback_does_not_undo_a_new_push_on_the_same_queue_from_the_same_source();
     continue_here_delivers_a_discovered_push_only_in_its_reply();
     a_failed_pull_hands_back_when_the_same_queue_is_still_selected();
-    a_failed_pull_can_hand_back_after_the_source_seeks_before_the_claim();
+    a_failed_pull_can_finish_on_the_receiver_after_a_concurrent_source_seek();
     repeat_one_does_not_append_the_current_occurrence();
 }
 
@@ -356,25 +371,32 @@ fn pulling_from_a_paused_device_cannot_restore_a_previous_sends_playing_status()
 }
 
 fn a_rollback_does_not_undo_a_new_push_on_the_same_queue_from_the_same_source() {
-    let (account, mut worker, events) = setup();
-    worker.refresh().expect("initial state");
-    {
-        let mut account = account.lock().expect("account");
-        account.fail_after_claim = true;
-        account.unavailable = Some("source");
+    for fail_rollback_state in [false, true] {
+        let (account, mut worker, events) = setup();
+        worker.refresh().expect("initial state");
+        {
+            let mut account = account.lock().expect("account");
+            account.fail_after_claim = true;
+            account.fail_rollback_state = fail_rollback_state;
+            account.unavailable = Some("source");
+        }
+        assert!(worker.continue_here(deadline()).is_err());
+        let expected_owner = fail_rollback_state.then_some("receiver");
+        assert_eq!(account.lock().expect("account").active, expected_owner);
+        {
+            let mut account = account.lock().expect("account");
+            account.unavailable = None;
+            let revision = account.revision;
+            account.push();
+            account.revision = revision;
+        }
+        worker.refresh().expect("new push");
+        assert!(events.try_iter().any(|event| matches!(event, HandoffEvent::Arrived(_))));
+        let account = account.lock().expect("account");
+        assert_eq!(account.active, Some("receiver"));
+        let expected_claims = if fail_rollback_state { vec!["receiver"] } else { vec!["receiver", "source"] };
+        assert_eq!(account.claims, expected_claims);
     }
-    assert!(worker.continue_here(deadline()).is_err());
-    assert_eq!(account.lock().expect("account").active, None);
-    {
-        let mut account = account.lock().expect("account");
-        account.unavailable = None;
-        account.push();
-    }
-    worker.refresh().expect("new push");
-    assert!(events.try_iter().any(|event| matches!(event, HandoffEvent::Arrived(_))));
-    let account = account.lock().expect("account");
-    assert_eq!(account.active, Some("receiver"));
-    assert_eq!(account.claims, ["receiver", "source"]);
 }
 
 fn continue_here_delivers_a_discovered_push_only_in_its_reply() {
@@ -405,21 +427,23 @@ fn a_failed_pull_hands_back_when_the_same_queue_is_still_selected() {
     assert_eq!(account.claims, ["receiver", "source", "source"]);
 }
 
-fn a_failed_pull_can_hand_back_after_the_source_seeks_before_the_claim() {
-    for unavailable in [None, Some("source")] {
-        let (account, mut worker, _events) = setup();
+fn a_failed_pull_can_finish_on_the_receiver_after_a_concurrent_source_seek() {
+    for fail_rollback_state in [false, true] {
+        let (account, mut worker, events) = setup();
         {
             let mut account = account.lock().expect("account");
             account.seek_before_claim = true;
             account.fail_after_claim = true;
-            account.unavailable = unavailable;
+            account.fail_rollback_state = fail_rollback_state;
         }
         assert!(worker.continue_here(deadline()).is_err());
-        if unavailable.is_some() {
-            account.lock().expect("account").unavailable = None;
-            worker.refresh().expect("retry hand back after the seek");
-        }
-        assert_eq!(account.lock().expect("account").active, Some("source"));
+        worker.refresh().expect("recover the changed queue");
+        worker.refresh().expect("refresh after recovering");
+        let arrivals = events.try_iter().filter(|event| matches!(event, HandoffEvent::Arrived(resume) if resume.current.id() == "1")).count();
+        assert_eq!(arrivals, 1);
+        let account = account.lock().expect("account");
+        assert_eq!(account.active, Some("receiver"));
+        assert_eq!(account.claims, ["receiver"]);
     }
 }
 
