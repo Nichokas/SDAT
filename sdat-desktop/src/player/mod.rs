@@ -264,6 +264,7 @@ pub fn init() -> Result<()> {
             },
             on_gapless_cancel: replaygain::clear_pending_gapless,
             on_eos_stopped: || Box::pin(on_eos_stopped()),
+            on_stopped_resume: next_now,
             clear_source: || source_changed().set(None),
             on_error: |track, e| {
                 if crate::live::playback_failed(track) {

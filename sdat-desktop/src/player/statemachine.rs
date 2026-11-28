@@ -406,6 +406,7 @@ pub struct Hooks {
     pub on_gapless_promote: fn(&GaplessEntry),
     pub on_gapless_cancel: fn(),
     pub on_eos_stopped: fn() -> std::pin::Pin<Box<dyn std::future::Future<Output = ()>>>,
+    pub on_stopped_resume: fn(),
     pub clear_source: fn(),
     /// Playback of the track (its id) stopped on an error.
     pub on_error: fn(Option<&str>, &str),
@@ -420,6 +421,7 @@ impl Default for Hooks {
             on_gapless_promote: |_| {},
             on_gapless_cancel: || {},
             on_eos_stopped: || Box::pin(async {}),
+            on_stopped_resume: || {},
             clear_source: || {},
             on_error: |_, _| {},
         }
@@ -622,6 +624,15 @@ impl Machine {
     }
 
     async fn handle(self: &Rc<Self>, t: Trigger) {
+        let t = match t {
+            Trigger::Resume if self.state.get() == State::Stopped => {
+                if self.has_queued_stop_or_start() {
+                    return;
+                }
+                Trigger::Deferred(Box::new(self.hooks.on_stopped_resume))
+            }
+            t => t,
+        };
         if let Trigger::AfterStop(action) = t {
             action();
             return;

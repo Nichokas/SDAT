@@ -335,6 +335,32 @@ fn after_stop_runs_despite_a_later_stop() {
     .unwrap();
 }
 
+#[test]
+fn play_after_a_start_error_resumes_the_queue() {
+    let ctx = glib::MainContext::new();
+    ctx.with_thread_default(|| {
+        ORDER.with(|o| o.borrow_mut().clear());
+        let m = Machine::new(
+            Rc::new(Testbin::default()),
+            Hooks {
+                on_stopped_resume: || ORDER.with(|o| o.borrow_mut().push("resume queue")),
+                ..Hooks::default()
+            },
+        );
+        m.state.set(State::Preparing);
+        m.fire(Trigger::Error("start failed".into()));
+        m.fire(Trigger::Resume);
+        while ctx.iteration(false) {}
+        assert_eq!(ORDER.with(|o| o.borrow().clone()), ["resume queue"]);
+
+        m.fire(Trigger::Resume);
+        m.fire(Trigger::Stop);
+        while ctx.iteration(false) {}
+        assert_eq!(ORDER.with(|o| o.borrow().clone()), ["resume queue"]);
+    })
+    .unwrap();
+}
+
 /// A pause while the track is still preparing (Listen Together guest
 /// loading a host track paused) holds the pipeline and makes the stream
 /// start paused instead of playing from 0:00.
