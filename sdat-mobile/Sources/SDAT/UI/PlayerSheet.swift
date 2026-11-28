@@ -244,6 +244,7 @@ private struct Scrubber: View {
         .onChange(of: advancing) { _, on in anchor = on ? (player.position, Date.now) : nil }
         .onChange(of: player.current?.id) {
             scrub = nil
+            editing = false
             anchor = advancing ? (player.position, Date.now) : nil
         }
     }
