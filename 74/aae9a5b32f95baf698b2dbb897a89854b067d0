@@ -1,0 +1,27 @@
+sdat-desktop/src/ui/routes/mod.rs
+  s_eb9b204921ca02::t_db9bc760c9bf52 610,617,621,693,697,1136-1137
+sdat-core/tonearm-core/src/playqueue.rs
+  s_eb9b204921ca02::t_0934f088b03281 602,604-618,620-622,624
+  s_eb9b204921ca02::t_2df900c66ae138 719
+  s_eb9b204921ca02::t_0554b85cd11569 178,245,266,268-274,282-284
+sdat-desktop/src/player/mod.rs
+  s_eb9b204921ca02::t_fb07d0dc93b6bb 490,834-835,840,847,852,873,883-884,899,1201,1206,1378-1388,1393-1403,1406-1410,1467
+  s_eb9b204921ca02::t_a15ffd973c0840 999,1001,1003,1202-1203
+  s_eb9b204921ca02::t_f49ece5411a33a 1033-1071
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "74aae9a5b32f95baf698b2dbb897a89854b067d0",
+  "prompts": {},
+  "sessions": {
+    "s_eb9b204921ca02": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a22248-585e-7023-8337-edd8c077cd77",
+        "model": "gpt-6.2-sol"
+      },
+      "human_author": null
+    }
+  }
+}
