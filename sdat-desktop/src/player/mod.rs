@@ -26,7 +26,7 @@ use playqueue::{DurableQueue, HistoryEntry, HistoryQueue, UserQueue};
 pub use audio_cache::{drop_plan as drop_audio_cache_plan, on_limit_changed as on_audio_cache_limit_changed};
 pub use quality::audio_stream_quality;
 use gapless_gate::GaplessGate;
-use next::{commit_gapless, next_track, peek_gapless, pop_next_streamable_from_queue};
+use next::{commit_gapless, gapless_is_current, next_track, peek_gapless, pop_next_streamable_from_queue};
 use statemachine::{GaplessEntry, GaplessSource, Hooks, Machine, Trigger};
 pub use statemachine::{
     playback_quality_changed, playback_state_changed, track_changed, track_repeated, PlaybackState, PlaybackStatus,
@@ -67,6 +67,8 @@ thread_local! {
     static QUEUE_GENERATION: Cell<u64> = const { Cell::new(0) };
     /// Set while end-of-queue autoplay is fetching a radio mix.
     static AUTOPLAY_PENDING: Cell<bool> = const { Cell::new(false) };
+    /// Invalidates an autoplay fetch even after a queued start or Stop has been handled.
+    static PLAYBACK_REVISION: Cell<u64> = const { Cell::new(0) };
 }
 
 /// Drops pending "play next" requests (e.g. when leaving a Listen Together
@@ -228,6 +230,11 @@ fn fire(t: Trigger) {
 /// For a restart nobody asked for, such as streaming a failed cached copy: what waits on the user's start (a
 /// handoff's seek) keeps waiting for it.
 fn fire_uncounted(t: Trigger) {
+    if matches!(t, Trigger::Stop | Trigger::PlayTrack(..) | Trigger::PlayTrackId(..)) {
+        WAITING.with(|w| w.set(false));
+        AUTOPLAY_PENDING.with(|a| a.set(false));
+        PLAYBACK_REVISION.with(|r| r.set(r.get() + 1));
+    }
     if with(|p| p.machine.fire(t)).is_none() {
         log::warn!("player not initialised, dropping trigger");
     }
@@ -254,6 +261,7 @@ pub fn init() -> Result<()> {
         Arc::clone(&gate),
         Hooks {
             peek_gapless,
+            gapless_is_current,
             on_gapless_arm: |manifest| replaygain::set_pending_gapless(Some(manifest)),
             on_gapless_promote: |entry| {
                 commit_gapless(entry);
@@ -261,7 +269,9 @@ pub fn init() -> Result<()> {
             },
             on_gapless_cancel: replaygain::clear_pending_gapless,
             on_eos_stopped: || Box::pin(on_eos_stopped()),
+            on_stopped_resume: next_now,
             clear_source: || source_changed().set(None),
+            forget_failed_start: |track| history().forget_failed_start(track),
             on_error: |track, e| {
                 if crate::live::playback_failed(track) {
                     toasts().notify(&crate::i18n::trf("Playback failed: %s", &[&e]));
@@ -422,27 +432,23 @@ async fn on_eos_stopped() {
         stop();
         return;
     }
-    if list_pending() {
-        // The loaded part ran out before the next page arrived: wait for it
-        // instead of stopping, starting a radio or repeating.
-        log::info!("queue ran dry while the list is still loading; waiting for the next page");
-        WAITING.with(|w| w.set(true));
-        feed(true);
+    if with(|p| p.machine.has_queued_stop_or_start()).unwrap_or(false) {
         return;
     }
     // A failed gapless prefetch ends the current track with tracks still
     // queued: carry on with them instead of stopping or starting a radio,
     // unless a Stop or another start is already queued.
-    if next_track(true).0.is_some() {
+    if peek_gapless().is_some() {
         // A pending start (maybe a new list behind its own Stop) runs as queued.
-        if with(|p| p.machine.start_pending()).unwrap_or(true) {
-            return;
+        if !with(|p| p.machine.start_pending()).unwrap_or(true) {
+            advance_queue(false);
         }
-        if with(|p| p.machine.has_queued_stop()).unwrap_or(false) {
-            stop();
-        } else {
-            next_now();
-        }
+        return;
+    }
+    if list_pending() {
+        log::info!("queue ran dry while the list is still loading; waiting for the next page");
+        WAITING.with(|w| w.set(true));
+        feed(true);
         return;
     }
     if !settings::allow_autoplay() {
@@ -456,20 +462,18 @@ async fn on_eos_stopped() {
     // Fetch the whole mix before touching the queues; "play next" requests
     // that land meanwhile are queued but not started (see `complete_play_next`).
     let list_generation = LIST_GENERATION.with(Cell::get);
+    let playback_revision = PLAYBACK_REVISION.with(Cell::get);
     AUTOPLAY_PENDING.with(|a| a.set(true));
     let mix = fetch_radio(id).await;
+    if PLAYBACK_REVISION.with(Cell::get) != playback_revision {
+        return;
+    }
     AUTOPLAY_PENDING.with(|a| a.set(false));
     // The user acted while the mix was loading: a new list or a queued track
     // start wins over autoplay as is.
     if LIST_GENERATION.with(Cell::get) != list_generation
         || !with(|p| p.machine.stopped_without_pending_start()).unwrap_or(true)
     {
-        return;
-    }
-    // A Stop queued behind this handler is ignored once already stopped, so do
-    // the stopped-track cleanup here instead of starting the mix.
-    if with(|p| p.machine.has_queued_stop()).unwrap_or(false) {
-        stop();
         return;
     }
     // Tracks queued while the mix was loading win over autoplay.
@@ -487,7 +491,7 @@ async fn on_eos_stopped() {
         let order = PLAY_NEXT_ORDER.with(|s| std::mem::take(&mut *s.borrow_mut()));
         clear_queues();
         stop();
-        let started = play_tracks(tracks, false, 1);
+        let started = play_tracks(tracks, ListStart::InOrder(1));
         PLAY_NEXT_GENERATION.with(|g| g.set(generation));
         PLAY_NEXT_ORDER.with(|s| *s.borrow_mut() = order);
         started?;
@@ -531,10 +535,6 @@ fn track_matches(a: &Track, b: &Track) -> bool {
     a.id() == b.id() && a.playlist_item_id == b.playlist_item_id
 }
 
-fn previous_track() -> Option<HistoryEntry> {
-    history().pop()
-}
-
 pub async fn add_track_to_user_queue(track_id: &str) -> Result<()> {
     let id = track_id.to_string();
     let track = api::run(move || service::get_track(&id)).await?;
@@ -546,7 +546,8 @@ pub async fn add_track_to_user_queue(track_id: &str) -> Result<()> {
 /// Queues `tracks`, in order, right after the current one (and after any
 /// earlier "play next" tracks). The caller starts playback if needed.
 fn insert_tracklist_next(tracks: Vec<Track>) {
-    if insert_tracklist_next_after(tracks, with(|p| p.machine.gapless_entry()).flatten()) {
+    let gapless = with(|p| p.machine.gapless_entry()).flatten().filter(gapless_is_current);
+    if insert_tracklist_next_after(tracks, gapless) {
         with(|p| p.machine.move_gapless_to_user_queue());
     }
 }
@@ -661,8 +662,13 @@ fn defer_while_starting(action: fn()) {
 }
 
 fn next_now() {
-    match next_track(false).0 {
-        Some(t) => fire(Trigger::PlayTrack(t, false)),
+    advance_queue(true);
+}
+
+fn advance_queue(manual: bool) {
+    let (track, did_repeat) = next_track(manual);
+    match track {
+        Some(t) => fire(Trigger::PlayTrack(t, did_repeat)),
         None => log::error!("failed to get next track: queue is empty"),
     }
 }
@@ -706,19 +712,23 @@ pub fn previous() {
 }
 
 fn previous_now() {
-    let pos = playbin().and_then(|p| statemachine::Playbin::query_position(&*p));
-    if repeat_mode_changed().get() == RepeatMode::Track
-        || pos.is_some_and(|p| p > Duration::from_secs(5))
-        || history().is_empty()
+    let current = (playback_state_changed().get().status != PlaybackStatus::Stopped)
+        .then(|| track_changed().with(|t| t.as_ref().map(|e| e.track.clone())))
+        .flatten();
+    if current.is_some()
+        && (repeat_mode_changed().get() == RepeatMode::Track
+            || playbin().and_then(|p| statemachine::Playbin::query_position(&*p)).is_some_and(|p| p > Duration::from_secs(5)))
     {
         seek_to_position(Duration::ZERO, false);
         return;
     }
-    let Some(prev) = previous_track() else {
-        log::error!("failed to get previous track");
+    let Some(prev) = history().pop_previous(current.as_ref()) else {
+        if current.is_some() {
+            seek_to_position(Duration::ZERO, false);
+        }
         return;
     };
-    if let Some(cur) = track_changed().with(|t| t.as_ref().map(|e| e.track.clone())) {
+    if let Some(cur) = current {
         let occurrence = base_queue().current_occurrence(&cur);
         user_queue().prepend(HistoryEntry { track: cur, occurrence });
         // The track we came back from plays next, ahead of "play next" tracks.
@@ -803,8 +813,6 @@ pub fn set_shuffle(shuffle: bool, current_track_id: &str) {
     if shuffle {
         base_queue().shuffle(current_track_id, &user_queue().source_occurrences());
     } else {
-        // Continues after the last list track that played, which may not be
-        // the current one (a "play next" track).
         base_queue().restore();
     }
     shuffle_state_changed().set(shuffle);
@@ -828,30 +836,33 @@ pub fn play_track(track: Track) {
     bump_list_generation();
     clear_queues();
     stop();
-    source_changed().set(Some(PlaybackSource::Track(Box::new(track.clone()))));
-    fire(Trigger::PlayTrack(track, false));
+    base_queue().set(vec![track]);
+    if let Some(track) = base_queue().pop() {
+        source_changed().set(Some(PlaybackSource::Track(Box::new(track.clone()))));
+        fire(Trigger::PlayTrack(track, false));
+    }
 }
 
 #[expect(clippy::unused_async, reason = "callers await it like the other playback entry points; mirrors Go's PlayTracklist")]
-pub async fn play_tracklist(source: PlaybackSource, tracks: Vec<Track>, shuffle: bool, position: usize) -> Result<()> {
-    play_tracks(tracks, shuffle, position)?;
+pub async fn play_tracklist(source: PlaybackSource, tracks: Vec<Track>, start: ListStart) -> Result<()> {
+    play_tracks(tracks, start)?;
     source_changed().set(Some(source));
     Ok(())
 }
 
-pub async fn play_album(album_id: &str, shuffle: bool, position: usize) -> Result<()> {
+pub async fn play_album(album_id: &str, start: ListStart) -> Result<()> {
     let id = album_id.to_string();
     let i = id.clone();
     let info = api::run(move || service::get_album_info(&i)).await?;
     let tracks = crate::cache::all_tracks(crate::cache::Job::Album(id)).await?;
     clear_queues();
     stop();
-    play_tracks(tracks, shuffle, position)?;
+    play_tracks(tracks, start)?;
     source_changed().set(Some(PlaybackSource::Album(info)));
     Ok(())
 }
 
-pub async fn play_artist_top_songs(artist_id: &str, shuffle: bool, position: usize) -> Result<()> {
+pub async fn play_artist_top_songs(artist_id: &str, start: ListStart) -> Result<()> {
     let id = artist_id.to_string();
     let (info, tracks) = api::run(move || {
         let info = service::get_artist_info(&id)?;
@@ -872,7 +883,7 @@ pub async fn play_artist_top_songs(artist_id: &str, shuffle: bool, position: usi
     .await?;
     clear_queues();
     stop();
-    play_tracks(tracks, shuffle, position)?;
+    play_tracks(tracks, start)?;
     source_changed().set(Some(PlaybackSource::Artist(info)));
     Ok(())
 }
@@ -882,7 +893,8 @@ pub async fn play_playlist(playlist_id: &str, shuffle: bool) -> Result<()> {
     let i = id.clone();
     let info = api::run(move || service::get_playlist_info(&i)).await?;
     let tracks = crate::cache::all_tracks(crate::cache::Job::Playlist(id)).await?;
-    play_tracklist(PlaybackSource::Playlist(info), tracks, shuffle, 0).await
+    let start = if shuffle { ListStart::Shuffle } else { ListStart::InOrder(0) };
+    play_tracklist(PlaybackSource::Playlist(info), tracks, start).await
 }
 
 pub async fn play_playlist_track(playlist_id: &str, clicked: &Track, position: usize) -> Result<bool> {
@@ -897,7 +909,7 @@ async fn play_playlist_selection(info: PlaylistInfo, tracks: Vec<Track>, clicked
     let Some(start) = playlist_start(&tracks, clicked, position) else {
         return Ok(false);
     };
-    play_tracklist(PlaybackSource::Playlist(info), tracks, false, start).await?;
+    play_tracklist(PlaybackSource::Playlist(info), tracks, ListStart::Selected(start)).await?;
     Ok(true)
 }
 
@@ -969,6 +981,7 @@ mod playlist_tests {
         let b = q.pop().unwrap();
         history().prepend(HistoryEntry { occurrence: q.current_occurrence(&b), track: b.clone() });
         track_changed().set(Some(statemachine::TrackChangedEvent { track: b, skip_history: false }));
+        playback_state_changed().set(PlaybackState { status: PlaybackStatus::Playing, ..Default::default() });
         user_queue().prepend(q.take_for_gapless().unwrap());
 
         previous_now();
@@ -982,6 +995,7 @@ mod playlist_tests {
             assert!(v.iter().any(|t| t.id() == "A"));
         });
         track_changed().set(None);
+        playback_state_changed().set(PlaybackState::default());
     }
 
     #[test]
@@ -995,11 +1009,26 @@ mod playlist_tests {
     }
 
     #[test]
+    fn repeat_queue_wraps_a_standalone_track() {
+        set_repeat_mode(RepeatMode::Queue);
+        play_track(track("A", None));
+        assert!(base_queue().is_empty());
+        let wrapped = peek_gapless().unwrap();
+        assert_eq!(wrapped.track.id(), "A");
+        assert_eq!(wrapped.source, GaplessSource::BaseQueue { rewound: true });
+        assert_eq!(next_track(false).0.as_ref().map(Track::id), Some("A"));
+        assert!(base_queue().is_empty());
+        set_repeat_mode(RepeatMode::None);
+    }
+
+    #[test]
     fn starting_a_list_under_repeat_one_plays_its_selected_track() -> Result<()> {
         set_repeat_mode(RepeatMode::Track);
+        set_shuffle(true, "");
         let tracks = vec![track("A", None), track("B", None)];
-        let started = play_tracks(tracks, false, 1)?;
+        let started = play_tracks(tracks, ListStart::Selected(1))?;
         assert_eq!(started.id(), "B");
+        assert!(shuffle_state_changed().get());
         assert_eq!(repeat_mode_changed().get(), RepeatMode::Track);
         set_repeat_mode(RepeatMode::None);
         Ok(())
@@ -1027,6 +1056,45 @@ mod playlist_tests {
             assert_eq!(items, [Some("c"), Some("later")]);
         });
         Ok(())
+    }
+
+    #[test]
+    fn clicking_playlist_row_keeps_shuffle_and_selects_the_exact_occurrence() -> Result<()> {
+        set_shuffle(true, "");
+        let first = track("A", Some("first"));
+        let clicked = track("A", Some("clicked"));
+        let tracks = vec![first, track("B", None), clicked.clone(), track("C", None)];
+
+        assert!(glib::MainContext::new().block_on(play_playlist_selection(PlaylistInfo::default(), tracks, &clicked, 0))?);
+        assert!(shuffle_state_changed().get());
+        assert!(base_queue().is_shuffled());
+        set_shuffle(false, clicked.id());
+        base_queue().entries().with(|tracks| {
+            assert_eq!(tracks.iter().map(Track::id).collect::<Vec<_>>(), ["A", "B", "C"]);
+            assert_eq!(tracks[0].playlist_item_id.as_deref(), Some("first"));
+        });
+        Ok(())
+    }
+
+    #[test]
+    fn clicking_a_paginated_row_keeps_shuffle_for_late_pages() {
+        set_shuffle(true, "");
+        let clicked = track("C", None);
+        let first_page = vec![track("A", None), track("B", None), clicked.clone()];
+        let generation = play_list_from(PlaybackSource::MyTracks, first_page, &clicked, 2).unwrap();
+        assert!(base_queue().is_shuffled());
+        assert!(base_queue().current_occurrence(&clicked).is_some());
+        let next_page = vec![track("D", None), track("E", None)];
+        assert!(extend_list(generation, next_page, false));
+
+        set_shuffle(false, clicked.id());
+        base_queue().entries().with(|tracks| {
+            assert_eq!(tracks.iter().map(Track::id).collect::<Vec<_>>(), ["A", "B", "D", "E"]);
+        });
+        base_queue().rewind();
+        base_queue().entries().with(|tracks| {
+            assert_eq!(tracks.iter().map(Track::id).collect::<Vec<_>>(), ["A", "B", "C", "D", "E"]);
+        });
     }
 
     #[test]
@@ -1074,6 +1142,7 @@ mod playlist_tests {
         history().prepend(HistoryEntry::from(a));
         history().prepend(HistoryEntry::from(b.clone()));
         track_changed().set(Some(statemachine::TrackChangedEvent { track: b, skip_history: false }));
+        playback_state_changed().set(PlaybackState { status: PlaybackStatus::Playing, ..Default::default() });
 
         set_repeat_mode(RepeatMode::Track);
         previous_now();
@@ -1089,6 +1158,7 @@ mod playlist_tests {
 
         set_repeat_mode(RepeatMode::None);
         track_changed().set(None);
+        playback_state_changed().set(PlaybackState::default());
     }
 
     #[test]
@@ -1158,12 +1228,12 @@ thread_local! {
     static PAUSES: std::cell::Cell<u64> = const { std::cell::Cell::new(0) };
 }
 
-/// Plays `tracks` as the queue starting at the clicked row; earlier rows go to
-/// the history so "previous" walks back through the list. Returns the queue
-/// generation for [`extend_list`], or `None` if nothing could be played.
+/// Plays `tracks` starting at the clicked row, honoring the shuffle setting.
+/// In order, earlier rows go to history. Returns the queue generation for
+/// [`extend_list`], or `None` if nothing could be played.
 pub fn play_list_from(source: PlaybackSource, tracks: Vec<Track>, clicked: &Track, pos: usize) -> Option<u64> {
     let start = crate::model::queue_start(&tracks, clicked.id(), pos);
-    match play_tracks(tracks, false, start) {
+    match play_tracks(tracks, ListStart::Selected(start)) {
         Ok(_) => {
             source_changed().set(Some(source));
             Some(LIST_GENERATION.with(std::cell::Cell::get))
@@ -1288,8 +1358,11 @@ pub fn feed(force: bool) {
             feed(true); // page was empty or all duplicates: keep going
         } else {
             // The list ended (or failed) while waiting: finish like a normal end.
-            WAITING.with(|w| w.set(false));
-            glib::spawn_future_local(on_eos_stopped());
+            glib::spawn_future_local(async move {
+                if list_generation() == generation && WAITING.with(|w| w.replace(false)) {
+                    on_eos_stopped().await;
+                }
+            });
         }
     }));
 }
@@ -1335,19 +1408,39 @@ fn bump_list_generation() {
     update_unloaded();
 }
 
-fn play_tracks(tracks: Vec<Track>, shuffle: bool, starting_position: usize) -> Result<Track> {
+/// The order and first track to use when starting a list.
+#[derive(Debug, Clone, Copy)]
+pub enum ListStart {
+    InOrder(usize),
+    Shuffle,
+    /// Play this row first and honor the current shuffle setting.
+    Selected(usize),
+}
+
+fn play_tracks(tracks: Vec<Track>, start: ListStart) -> Result<Track> {
+    let shuffle_after_start = matches!(start, ListStart::Selected(_)) && shuffle_state_changed().get();
     bump_list_generation();
     clear_queues();
     stop();
     base_queue().set(tracks);
-    set_shuffle(shuffle, "");
-    if starting_position > 0 {
-        match base_queue().skip(starting_position) {
-            Ok(skipped) => skipped.into_iter().for_each(|t| history().prepend(t)),
-            Err(e) => log::warn!("could not skip to position {starting_position}: {e:#}"),
+    match start {
+        ListStart::Shuffle => set_shuffle(true, ""),
+        ListStart::Selected(position) if shuffle_after_start => base_queue().move_entry(position, 0),
+        ListStart::InOrder(position) | ListStart::Selected(position) => {
+            set_shuffle(false, "");
+            if position > 0 {
+                match base_queue().skip(position) {
+                    Ok(skipped) => skipped.into_iter().for_each(|t| history().prepend(t)),
+                    Err(e) => log::warn!("could not skip to position {position}: {e:#}"),
+                }
+            }
         }
     }
-    let Some(t) = pop_next_streamable_from_queue() else {
+    let started = pop_next_streamable_from_queue();
+    if shuffle_after_start {
+        set_shuffle(true, started.as_ref().map_or("", Track::id));
+    }
+    let Some(t) = started else {
         anyhow::bail!("tracklist produced no valid tracks to be played");
     };
     fire(Trigger::PlayTrack(t.clone(), false));
@@ -1404,7 +1497,7 @@ pub fn play_at(source: Option<PlaybackSource>, tracks: Vec<Track>, position: Dur
             statemachine::drop_start_paused(t);
         }
     };
-    let started = play_tracks(tracks, false, 0).inspect_err(|_| drop_request())?;
+    let started = play_tracks(tracks, ListStart::InOrder(0)).inspect_err(|_| drop_request())?;
     source_changed().set(source);
     if position.is_zero() || first.as_deref() != Some(started.id()) {
         drop_request();
@@ -1516,6 +1609,32 @@ mod start_tests {
 
 #[cfg(test)]
 mod feed_tests {
+    #[test]
+    fn a_late_page_does_not_advance_after_a_start_or_stop() {
+        use super::*;
+
+        for trigger in [Trigger::PlayTrack(Track::default(), false), Trigger::Stop] {
+            bump_list_generation();
+            clear_queues();
+            set_repeat_mode(RepeatMode::None);
+            let generation = list_generation();
+            let done = Rc::new(std::cell::RefCell::new(None));
+            let callback = Rc::clone(&done);
+            FEEDER.with(|f| *f.borrow_mut() = Some((generation, Rc::new(move |cb| *callback.borrow_mut() = Some(cb)))));
+            WAITING.with(|w| w.set(true));
+            feed(true);
+
+            fire_uncounted(trigger);
+            let mut late = Track::default();
+            late.info.streamable = true;
+            assert!(extend_list(generation, vec![late], false));
+            done.borrow_mut().take().unwrap()(false);
+
+            assert!(!WAITING.with(Cell::get));
+            assert_eq!(base_queue().entries().with(Vec::len), 1);
+        }
+    }
+
     #[test]
     fn unloaded_rows_cover_the_rest_of_the_list() {
         assert_eq!(super::unloaded_count(Some(3000), 50, true), 2950);

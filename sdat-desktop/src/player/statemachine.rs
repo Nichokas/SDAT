@@ -402,11 +402,14 @@ impl std::fmt::Debug for Trigger {
 /// Hooks into the player module (queues, `ReplayGain`, autoplay) that the machine needs.
 pub struct Hooks {
     pub peek_gapless: fn() -> Option<GaplessEntry>,
+    pub gapless_is_current: fn(&GaplessEntry) -> bool,
     pub on_gapless_arm: fn(&TrackManifest),
     pub on_gapless_promote: fn(&GaplessEntry),
     pub on_gapless_cancel: fn(),
     pub on_eos_stopped: fn() -> std::pin::Pin<Box<dyn std::future::Future<Output = ()>>>,
+    pub on_stopped_resume: fn(),
     pub clear_source: fn(),
+    pub forget_failed_start: fn(&Track),
     /// Playback of the track (its id) stopped on an error.
     pub on_error: fn(Option<&str>, &str),
 }
@@ -416,11 +419,14 @@ impl Default for Hooks {
     fn default() -> Self {
         Self {
             peek_gapless: || None,
+            gapless_is_current: |_| true,
             on_gapless_arm: |_| {},
             on_gapless_promote: |_| {},
             on_gapless_cancel: || {},
             on_eos_stopped: || Box::pin(async {}),
+            on_stopped_resume: || {},
             clear_source: || {},
+            forget_failed_start: |_| {},
             on_error: |_, _| {},
         }
     }
@@ -437,6 +443,8 @@ pub struct Machine {
     playbin: Rc<dyn Playbin>,
     gate: Arc<GaplessGate>,
     gapless: RefCell<Option<GaplessSlot>>,
+    gapless_ended_while_paused: Cell<bool>,
+    stopped_after_failed_start: Cell<bool>,
     retry_position: Cell<Option<Duration>>,
     /// A pause arrived while the track was still preparing: the stream
     /// starts paused instead of playing (Listen Together aligned start).
@@ -468,6 +476,8 @@ impl Machine {
             playbin,
             gate,
             gapless: RefCell::new(None),
+            gapless_ended_while_paused: Cell::new(false),
+            stopped_after_failed_start: Cell::new(false),
             retry_position: Cell::new(None),
             pause_on_start: Cell::new(false),
             buffering: Cell::new(false),
@@ -500,7 +510,11 @@ impl Machine {
     }
 
     fn arm_gapless(&self, manifest: TrackManifest, volume: f64) -> Result<bool> {
-        if !matches!(&*self.gapless.borrow(), Some(GaplessSlot::Preparing(_))) {
+        let current = match &*self.gapless.borrow() {
+            Some(GaplessSlot::Preparing(entry)) => (self.hooks.gapless_is_current)(entry),
+            _ => false,
+        };
+        if !current {
             return Ok(false);
         }
         (self.hooks.on_gapless_arm)(&manifest);
@@ -519,13 +533,15 @@ impl Machine {
     }
 
     fn cancel_gapless(&self) {
+        self.gapless_ended_while_paused.set(false);
         if self.gapless.borrow_mut().take().is_some() {
             (self.hooks.on_gapless_cancel)();
         }
     }
 
     fn promote_gapless(&self) {
-        if let Some(GaplessSlot::Armed { entry, manifest }) = self.gapless.borrow_mut().take() {
+        let slot = self.gapless.borrow_mut().take();
+        if let Some(GaplessSlot::Armed { entry, manifest }) = slot {
             (self.hooks.on_gapless_promote)(&entry);
             on_playing_gapless_exit(entry.track, &manifest, entry.did_repeat);
         }
@@ -622,6 +638,18 @@ impl Machine {
     }
 
     async fn handle(self: &Rc<Self>, t: Trigger) {
+        let t = match t {
+            Trigger::Resume if self.state.get() == State::Stopped => {
+                if !self.stopped_after_failed_start.get() || self.has_queued_stop_or_start() {
+                    return;
+                }
+                Trigger::Deferred(Box::new(self.hooks.on_stopped_resume))
+            }
+            t => t,
+        };
+        if matches!(t, Trigger::Stop) {
+            self.stopped_after_failed_start.set(false);
+        }
         if let Trigger::AfterStop(action) = t {
             action();
             return;
@@ -653,7 +681,25 @@ impl Machine {
             }
             return;
         }
-        let Some(mut to) = self.target(&t) else {
+        let stale_gapless = matches!(t, Trigger::StreamStart)
+            && matches!(&*self.gapless.borrow(), Some(GaplessSlot::Armed { entry, .. }) if !(self.hooks.gapless_is_current)(entry));
+        if stale_gapless && from == State::Paused {
+            self.cancel_gapless();
+            if let Err(e) = self.playbin.set_state(gst::State::Null) {
+                log::error!("failed to discard a stale gapless stream: {e:#}");
+            }
+            self.drop_stream_messages();
+            self.gapless_ended_while_paused.set(true);
+            return;
+        }
+        // A URI already handed to playbin cannot be reliably withdrawn. At
+        // StreamStart, discard it and run normal end-of-track selection.
+        let (target, t) = if stale_gapless || (matches!(t, Trigger::Resume) && self.gapless_ended_while_paused.get()) {
+            (Some(State::Stopped), Trigger::Eos)
+        } else {
+            (self.target(&t), t)
+        };
+        let Some(mut to) = target else {
             match t {
                 Trigger::Pause if from == State::Preparing => {
                     self.pause_on_start.set(true);
@@ -692,7 +738,11 @@ impl Machine {
                 Trigger::StreamStart if from == State::Paused && self.has_armed_gapless() => {
                     self.promote_gapless();
                 }
-                Trigger::Stop if from == State::Stopped => log::debug!("already stopped"),
+                Trigger::Stop if from == State::Stopped => {
+                    if track_changed().with(Option::is_some) {
+                        on_stopped_stop();
+                    }
+                }
                 Trigger::Error(e) if from == State::Stopped => log::debug!("playback error while stopped: {e}"),
                 Trigger::StreamStart if from == State::Playing => {}
                 _ => log::error!("Failed Transition state={from:?} trigger={t:?}"),
@@ -708,6 +758,7 @@ impl Machine {
         // The deferred next / previous started a track: the failure it
         // waited on is superseded.
         if to == State::Preparing {
+            self.stopped_after_failed_start.set(false);
             self.queue.borrow_mut().retain(|t| !matches!(t, Trigger::ReportError(..)));
         }
         if matches!(to, State::Preparing | State::Stopped) {
@@ -752,17 +803,10 @@ impl Machine {
                         on_stopped_stop();
                     }
                     Trigger::TokenExpired => {
-                        log::error!(
-                            "track was enqueued successfully, but playback was rejected by remote server. this may be due to a network issue, account restrictions or a temporary outage."
-                        );
-                        (self.hooks.clear_source)();
-                        on_stopped_stop();
+                        self.stopped_on_stream_error(from, crate::i18n::tr("The streaming server refused playback"));
                     }
                     Trigger::Eos => (self.hooks.on_eos_stopped)().await,
-                    Trigger::Error(e) => {
-                        let track = track_changed().with(|t| t.as_ref().map(|e| e.track.id().to_string()));
-                        self.stopped_on_error(track, e);
-                    }
+                    Trigger::Error(e) => self.stopped_on_stream_error(from, e),
                     _ => {}
                 }
                 r
@@ -793,6 +837,7 @@ impl Machine {
                 if let Err(e) = &r {
                     // Deviation from Go: don't stay stuck in PREPARING with a spinner.
                     log::error!("failed to start playback: {e:#}");
+                    self.stopped_after_failed_start.set(true);
                     self.state.set(State::Stopped);
                     if let Err(e) = on_stopped(&*self.playbin) {
                         log::error!("failed to reset the pipeline after a playback error: {e:#}");
@@ -909,6 +954,21 @@ impl Machine {
             s.buffering = buffering;
             s
         });
+    }
+
+    fn stopped_on_stream_error(&self, from: State, e: String) {
+        self.stopped_after_failed_start.set(from == State::Preparing);
+        let track = track_changed().with(|t| {
+            t.as_ref().map(|event| {
+                // Metadata is published before the stream starts, so its
+                // provisional history entry must go if that start fails.
+                if from == State::Preparing && !event.skip_history {
+                    (self.hooks.forget_failed_start)(&event.track);
+                }
+                event.track.id().to_string()
+            })
+        });
+        self.stopped_on_error(track, e);
     }
 
     /// Clears a track that stopped on an error and reports it, unless a

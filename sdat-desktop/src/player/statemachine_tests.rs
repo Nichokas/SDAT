@@ -264,6 +264,30 @@ fn queued_stop_does_not_clear_the_next_source() {
     .unwrap();
 }
 
+#[test]
+fn queued_stop_after_eos_clears_track_and_timing() {
+    let ctx = glib::MainContext::new();
+    ctx.with_thread_default(|| {
+        let m = Machine::new(Rc::new(Testbin::default()), Hooks::default());
+        m.state.set(State::Playing);
+        track_changed().set(Some(TrackChangedEvent { track: Track::default(), skip_history: false }));
+        playback_state_changed().notify(|mut state| {
+            state.duration = Duration::from_secs(180);
+            state.position = Duration::from_secs(179);
+            state
+        });
+        m.fire(Trigger::Eos);
+        m.fire(Trigger::Stop);
+        while ctx.iteration(false) {}
+
+        assert_eq!(m.state.get(), State::Stopped);
+        assert!(track_changed().get().is_none());
+        let state = playback_state_changed().get();
+        assert_eq!(state.duration, Duration::ZERO);
+        assert_eq!(state.position, Duration::ZERO);
+    }).unwrap();
+}
+
 thread_local! {
     static DEFERRED_RAN: Cell<usize> = const { Cell::new(0) };
 }
@@ -331,6 +355,34 @@ fn after_stop_runs_despite_a_later_stop() {
         while ctx.iteration(false) {}
         assert!(ran.get());
         assert_eq!(m.state.get(), State::Stopped);
+    })
+    .unwrap();
+}
+
+#[test]
+fn play_after_a_start_error_resumes_the_queue() {
+    let ctx = glib::MainContext::new();
+    ctx.with_thread_default(|| {
+        ORDER.with(|o| o.borrow_mut().clear());
+        let m = Machine::new(
+            Rc::new(Testbin::default()),
+            Hooks {
+                on_stopped_resume: || ORDER.with(|o| o.borrow_mut().push("resume queue")),
+                ..Hooks::default()
+            },
+        );
+        m.state.set(State::Preparing);
+        m.fire(Trigger::Error("start failed".into()));
+        m.fire(Trigger::Resume);
+        while ctx.iteration(false) {}
+        assert_eq!(ORDER.with(|o| o.borrow().clone()), ["resume queue"]);
+
+        m.fire(Trigger::Resume);
+        m.fire(Trigger::Stop);
+        while ctx.iteration(false) {}
+        m.fire(Trigger::Resume);
+        while ctx.iteration(false) {}
+        assert_eq!(ORDER.with(|o| o.borrow().clone()), ["resume queue"]);
     })
     .unwrap();
 }
@@ -504,6 +556,43 @@ fn teardown_drops_the_old_streams_messages() {
     assert_eq!(left, ["TRIGGER_PAUSE", "TRIGGER_STOP"]);
 }
 
+#[test]
+fn expired_token_on_fresh_start_reports_the_refused_track() {
+    let ctx = glib::MainContext::new();
+    ctx.with_thread_default(|| {
+        ORDER.with(|o| o.borrow_mut().clear());
+        let m = Machine::new(
+            Rc::new(Testbin::default()),
+            Hooks {
+                on_error: |id, message| {
+                    assert_eq!(id, Some("refused"));
+                    assert!(message.contains("refused playback"));
+                    ORDER.with(|o| o.borrow_mut().push("error"));
+                },
+                clear_source: || ORDER.with(|o| o.borrow_mut().push("clear")),
+                forget_failed_start: |track| crate::player::history().forget_failed_start(track),
+                ..Hooks::default()
+            },
+        );
+        m.state.set(State::Preparing);
+        let mut previous = Track::default();
+        previous.info.id = "previous".into();
+        let mut track = Track::default();
+        track.info.id = "refused".into();
+        crate::player::history().prepend(previous.into());
+        crate::player::history().prepend(track.clone().into());
+        track_changed().set(Some(TrackChangedEvent { track, skip_history: false }));
+        m.fire(Trigger::TokenExpired);
+        m.fire(Trigger::Error("stream error".into()));
+        while ctx.iteration(false) {}
+        assert_eq!(m.state.get(), State::Stopped);
+        assert!(track_changed().get().is_none());
+        assert_eq!(crate::player::history().pop_previous(None).unwrap().track.id(), "previous");
+        assert_eq!(ORDER.with(|o| o.borrow().clone()), ["clear", "error"]);
+    })
+    .unwrap();
+}
+
 /// An expired token while paused tears the stream down at once, so its
 /// follow-up stream error does not stop playback, and reloads on resume.
 #[test]
@@ -664,6 +753,54 @@ fn queued_stop_cancels_a_wait_that_starts_before_it_is_handled() {
 
 thread_local! {
     static COMMITTED: RefCell<Vec<(String, bool, GaplessSource)>> = const { RefCell::new(Vec::new()) };
+}
+
+#[test]
+fn stale_gapless_stream_runs_end_of_track_selection_without_promoting() {
+    let ctx = glib::MainContext::new();
+    ctx.with_thread_default(|| {
+        for from in [State::PlayingGapless, State::Paused] {
+            ORDER.with(|o| o.borrow_mut().clear());
+            let pb = Rc::new(Testbin::default());
+            let m = Machine::new(
+                Rc::clone(&pb) as Rc<dyn Playbin>,
+                Hooks {
+                    gapless_is_current: |_| ORDER.with(|o| o.borrow().is_empty()),
+                    on_gapless_cancel: || ORDER.with(|o| o.borrow_mut().push("cancel")),
+                    on_gapless_promote: |_| panic!("stale gapless track promoted"),
+                    on_eos_stopped: || Box::pin(async { ORDER.with(|o| o.borrow_mut().push("eos")) }),
+                    ..Hooks::default()
+                },
+            );
+            let entry = GaplessEntry {
+                track: Track::default(),
+                did_repeat: false,
+                source: GaplessSource::UserQueue,
+            };
+            m.state.set(from);
+            m.begin_gapless(entry.clone());
+            ORDER.with(|o| o.borrow_mut().push("edit"));
+            assert!(!m.arm_gapless(TrackManifest::default(), 1.0).unwrap());
+
+            m.begin_gapless(entry);
+            ORDER.with(|o| o.borrow_mut().clear());
+            assert!(m.arm_gapless(TrackManifest::default(), 1.0).unwrap());
+            ORDER.with(|o| o.borrow_mut().push("edit"));
+            m.fire(Trigger::StreamStart);
+            while ctx.iteration(false) {}
+            assert_eq!(pb.state.get(), Some(gst::State::Null));
+            assert!(m.gapless_entry().is_none());
+            if from == State::Paused {
+                assert_eq!(m.state.get(), State::Paused);
+                assert_eq!(ORDER.with(|o| o.borrow().clone()), ["edit", "cancel"]);
+                m.fire(Trigger::Resume);
+                while ctx.iteration(false) {}
+            }
+            assert_eq!(m.state.get(), State::Stopped);
+            assert_eq!(ORDER.with(|o| o.borrow().clone()), ["edit", "cancel", "eos"]);
+        }
+    })
+    .unwrap();
 }
 
 #[test]

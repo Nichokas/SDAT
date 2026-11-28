@@ -17,6 +17,7 @@ import androidx.media3.common.MediaMetadata
 import androidx.media3.common.MimeTypes
 import androidx.media3.common.PlaybackException
 import androidx.media3.common.Player
+import androidx.media3.common.SimpleBasePlayer
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.exoplayer.DefaultLoadControl
 import androidx.media3.exoplayer.ExoPlayer
@@ -177,19 +178,12 @@ class Playback(context: Context, private val prefs: Preferences, secrets: Secret
             val t = track
             val commands = sessionCommands(state.availableCommands.toIntSet(), hasTrack = t != null, emptyTimeline = state.timeline.isEmpty)
                 .toPlayerCommands()
-            if (!state.timeline.isEmpty || t == null) return state.buildUpon().setAvailableCommands(commands).build()
-            // Never handed to ExoPlayer, which throws building a source for an item without a URI.
-            val item = MediaItemData.Builder(t.id)
-                .setMediaItem(MediaItem.Builder().setMediaId(t.id).setMediaMetadata(metadata(t)).build())
-                .setDurationUs(if (duration > 0) (duration * 1_000_000).toLong() else C.TIME_UNSET)
-                .setIsSeekable(true)
-                .build()
-            return state.buildUpon()
-                .setPlaylist(listOf(item))
-                .setCurrentMediaItemIndex(0)
-                .setContentPositionMs((position * 1000).toLong())
-                .setAvailableCommands(commands)
-                .build()
+            val builder = state.buildUpon().setAvailableCommands(commands)
+            val holdingOldStream = state.playbackState == Player.STATE_IDLE && player.currentMediaItem?.mediaId != t?.id
+            if (t != null && (state.timeline.isEmpty || fetching || holdingOldStream)) {
+                builder.showUnloadedTrack(t, position, this@Playback.duration)
+            }
+            return builder.build()
         }
 
         private fun Player.Commands.toIntSet(): Set<Int> = buildSet(size()) {
@@ -217,9 +211,10 @@ class Playback(context: Context, private val prefs: Preferences, secrets: Secret
             if (!Live.isGuest) {
                 // Notification and headset play/pause count as user commands too.
                 controls++
-                return super.handleSetPlayWhenReady(playWhenReady)
+                if (playWhenReady) resumeCurrent() else player.pause()
+            } else {
+                if (playWhenReady) Live.userPlay() else Live.userPause()
             }
-            if (playWhenReady) Live.userPlay() else Live.userPause()
             return Futures.immediateVoidFuture()
         }
 
@@ -693,7 +688,6 @@ class Playback(context: Context, private val prefs: Preferences, secrets: Secret
         // Stopped, not cleared: an empty player drops the media notification and with it the foreground service,
         // which can't be started again while the app is in the background.
         player.stop()
-        player.currentMediaItem?.let { player.replaceMediaItem(player.currentMediaItemIndex, it.buildUpon().setMediaMetadata(metadata(t)).build()) }
         error = null
         origin = Origin.NETWORK
         // Requested before the fetch so a pause tapped while the URL loads still holds after prepare().
@@ -708,6 +702,7 @@ class Playback(context: Context, private val prefs: Preferences, secrets: Secret
                 player.setMediaItem(mediaItem(t, src), (resumeAt * 1000).toLong())
                 player.prepare()
                 fetching = false
+                sessionPlayer.refresh()
                 started(t)
                 // Cleared by a pause tapped while the stream loaded.
                 liveEngine.startAlignment()
@@ -910,11 +905,16 @@ class Playback(context: Context, private val prefs: Preferences, secrets: Secret
                 syncPreload()
             }
             Tap.Pause -> player.pause()
-            Tap.Resume -> {
-                if (listen == null) listen = newListen(t)
-                player.play()
-            }
+            Tap.Resume -> resumeCurrent()
         }
+    }
+
+    private fun resumeCurrent() {
+        if (listen == null) track?.let {
+            listen = newListen(it)
+            if (!fetching) scrobbler.nowPlaying(it)
+        }
+        player.play()
     }
 
     /** Signing out: nothing is restored afterwards. */
@@ -1079,6 +1079,23 @@ internal fun postWaitAction(auto: Boolean, hasNext: Boolean, repeat: Repeat): Po
 // The core only hands out HLS manifests, and a download is indexed by a local one.
 private fun mediaItem(t: Track, src: Source) =
     MediaItem.Builder().setMediaId(t.id).setUri(src.uri).setMimeType(MimeTypes.APPLICATION_M3U8).setMediaMetadata(metadata(t)).build()
+
+@OptIn(UnstableApi::class)
+internal fun SimpleBasePlayer.State.Builder.showUnloadedTrack(t: Track, position: Double, duration: Double) {
+    // ExoPlayer keeps the old source to keep the foreground notification alive while the new URL loads.
+    val item = SimpleBasePlayer.MediaItemData.Builder(t.id)
+        .setMediaItem(MediaItem.Builder().setMediaId(t.id).setMediaMetadata(metadata(t)).build())
+        .setDurationUs(if (duration > 0) (duration * 1_000_000).toLong() else C.TIME_UNSET)
+        .setIsSeekable(true)
+        .build()
+    val positionMs = (position * 1000).toLong()
+    setPlaylist(listOf(item))
+        .setCurrentMediaItemIndex(0)
+        .setContentPositionMs(positionMs)
+        .setContentBufferedPositionMs(SimpleBasePlayer.PositionSupplier.getConstant(positionMs))
+        .setTotalBufferedDurationMs(SimpleBasePlayer.PositionSupplier.ZERO)
+        .clearPositionDiscontinuity()
+}
 
 private fun metadata(t: Track) = MediaMetadata.Builder()
     .setTitle(t.displayTitle)

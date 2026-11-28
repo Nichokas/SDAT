@@ -113,9 +113,6 @@ pub struct DurableQueue {
     queue: Queue,
     source: RefCell<Vec<Rc<Track>>>,
     shuffled: Cell<bool>,
-    /// Source index just past the last track taken from the queue, where
-    /// [`DurableQueue::restore`] continues.
-    played: Cell<usize>,
     upcoming: RefCell<Vec<usize>>,
     last_taken: Cell<Option<usize>>,
     /// The source entries that started playing or were skipped, each once, in the order they last did.
@@ -178,9 +175,7 @@ impl DurableQueue {
         if self.is_empty() {
             return None;
         }
-        let index = self.upcoming.borrow_mut().remove(0);
-        self.played.set(self.played.get().max(index + 1));
-        Some(index)
+        Some(self.upcoming.borrow_mut().remove(0))
     }
 
     pub fn pop(&self) -> Option<Track> {
@@ -245,9 +240,9 @@ impl DurableQueue {
             .unwrap_or_else(|| Rc::new(current));
         *self.upcoming.borrow_mut() = (1..=rest.len()).collect();
         *self.source.borrow_mut() = std::iter::once(selected).chain(rest.into_iter().map(Rc::new)).collect();
-        self.played.set(1);
         self.last_taken.set(Some(0));
         self.taken.borrow_mut().clear();
+        self.took(0);
         self.publish();
     }
 
@@ -263,33 +258,35 @@ impl DurableQueue {
             }
             self.last_taken.set(self.last_taken.get().filter(|&index| index != removed)
                 .map(|index| index - usize::from(index > removed)));
-            if removed < self.played.get() {
-                self.played.set(self.played.get() - 1);
-            }
         }
         self.publish();
         Ok(())
     }
 
-    /// Restores the original order, continuing after the furthest source entry taken.
+    /// Restores source order for upcoming entries that have yet to be taken.
     pub fn restore(&self) {
-        let len = self.source_len();
-        *self.upcoming.borrow_mut() = (self.played.get()..len).collect();
+        {
+            let source = self.source.borrow();
+            let taken: std::collections::HashSet<_> = self.taken.borrow().iter().map(Rc::as_ptr).collect();
+            let mut upcoming = self.upcoming.borrow_mut();
+            upcoming.retain(|&index| !taken.contains(&Rc::as_ptr(&source[index])));
+            upcoming.sort_unstable();
+        }
         self.shuffled.set(false);
         self.publish();
     }
 
     pub fn rewind(&self) {
-        self.played.set(0);
         self.last_taken.set(None);
         self.taken.borrow_mut().clear();
-        self.restore();
+        *self.upcoming.borrow_mut() = (0..self.source_len()).collect();
+        self.shuffled.set(false);
+        self.publish();
     }
 
     pub fn set(&self, tracks: Vec<Track>) {
         *self.upcoming.borrow_mut() = (0..tracks.len()).collect();
         *self.source.borrow_mut() = tracks.into_iter().map(Rc::new).collect();
-        self.played.set(0);
         self.last_taken.set(None);
         self.taken.borrow_mut().clear();
         self.publish();
@@ -331,7 +328,6 @@ impl DurableQueue {
         }
         let skipped = {
             self.upcoming.borrow_mut().drain(..n).map(|i| {
-                self.played.set(self.played.get().max(i + 1));
                 self.took(i);
                 self.history_entry(i)
             }).collect()
@@ -472,6 +468,26 @@ impl HistoryQueue {
         self.previous.borrow_mut().pop_front()
     }
 
+    fn pending_matches(entry: &HistoryEntry, track: &Track) -> bool {
+        entry.track.id() == track.id() && entry.track.playlist_item_id == track.playlist_item_id
+    }
+
+    /// Removes the pending entry for a track that failed to start.
+    pub fn forget_failed_start(&self, track: &Track) {
+        self.pending.borrow_mut().take_if(|entry| Self::pending_matches(entry, track));
+    }
+
+    /// Takes the latest history entry other than the active track.
+    pub fn pop_previous(&self, current: Option<&Track>) -> Option<HistoryEntry> {
+        let mut pending = self.pending.borrow_mut();
+        if matches!((&*pending, current), (Some(entry), Some(track)) if Self::pending_matches(entry, track)) {
+            let previous = self.previous.borrow_mut().pop_front()?;
+            pending.take();
+            return Some(previous);
+        }
+        pending.take().or_else(|| self.previous.borrow_mut().pop_front())
+    }
+
     pub fn is_empty(&self) -> bool {
         self.previous.borrow().is_empty()
     }
@@ -603,15 +619,29 @@ mod tests {
     }
 
     #[test]
-    fn restore_continues_after_the_last_played_list_track() {
+    fn restore_keeps_unplayed_tracks_before_the_furthest_shuffled_pick() {
         let q = DurableQueue::default();
-        q.set((0..10).map(|i| t(&i.to_string())).collect());
+        q.set(["a", "b", "c", "d", "e", "f", "g"].map(t).to_vec());
         q.shuffle("", &[]);
-        let played: Vec<Track> = (0..3).filter_map(|_| q.pop()).collect();
-        // a "play next" track from elsewhere is playing now
+        for picked in ["f", "b", "d"] {
+            let index = q.entries().with(|tracks| tracks.iter().position(|track| track.id() == picked)).unwrap();
+            q.move_entry(index, 0);
+            assert_eq!(q.pop().unwrap().id(), picked);
+        }
         q.restore();
-        let last = played.iter().map(|x| x.id().parse::<usize>().unwrap()).max().unwrap();
-        assert_eq!(ids(&q.queue), (last + 1..10).map(|i| i.to_string()).collect::<Vec<_>>());
+        assert_eq!(ids(&q.queue), ["a", "c", "e", "g"]);
+    }
+
+    #[test]
+    fn restore_keeps_the_gapless_reservation_out_of_the_base_queue() {
+        let q = DurableQueue::default();
+        q.set(["a", "b", "c"].map(t).to_vec());
+        q.shuffle("", &[]);
+        let index = q.entries().with(|tracks| tracks.iter().position(|track| track.id() == "c")).unwrap();
+        q.move_entry(index, 0);
+        assert_eq!(q.take_for_gapless().unwrap().track.id(), "c");
+        q.restore();
+        assert_eq!(ids(&q.queue), ["a", "b"]);
     }
 
     #[test]
@@ -706,7 +736,7 @@ mod tests {
         assert!(q.entries().with(|v| v.iter().all(|t| t.playlist_item_id.as_deref() != Some("second"))));
         q.remove_at(first)?;
         q.restore();
-        assert_eq!(ids(&q.queue), ["c"]);
+        assert_eq!(ids(&q.queue), ["b", "c"]);
         Ok(())
     }
 
@@ -761,6 +791,18 @@ mod tests {
         assert_eq!(h.pop().unwrap().track.id(), "a");
         h.prepend(entry("c"));
         assert!(h.is_empty(), "pop clears the pending entry");
+    }
+
+    #[test]
+    fn previous_returns_the_last_track_when_playback_stopped() {
+        let h = HistoryQueue::default();
+        let a = t("a");
+        let b = t("b");
+        h.prepend(a.clone().into());
+        assert!(h.pop_previous(Some(&a)).is_none());
+        h.prepend(b.into());
+        assert_eq!(h.pop_previous(None).unwrap().track.id(), "b");
+        assert_eq!(h.pop_previous(None).unwrap().track.id(), "a");
     }
 
     #[test]
