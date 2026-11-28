@@ -132,7 +132,8 @@ struct Paged<Pager, Item, Row: View>: View {
                     Button("Retry") { self.error = nil; Task { await more() } }.buttonStyle(.glass)
                 }
             } else if !done {
-                ProgressView().frame(maxWidth: .infinity).task { await more() }
+                // Keyed on the count: a page whose rows are all filtered out shows no row to ask for the next.
+                ProgressView().frame(maxWidth: .infinity).task(id: items.count) { await more() }
             } else if shown.isEmpty {
                 ContentUnavailableView("Nothing here yet", systemImage: "tray")
             }
