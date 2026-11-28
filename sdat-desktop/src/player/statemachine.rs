@@ -767,11 +767,8 @@ impl Machine {
                         on_stopped_stop();
                     }
                     Trigger::TokenExpired => {
-                        log::error!(
-                            "track was enqueued successfully, but playback was rejected by remote server. this may be due to a network issue, account restrictions or a temporary outage."
-                        );
-                        (self.hooks.clear_source)();
-                        on_stopped_stop();
+                        let track = track_changed().with(|t| t.as_ref().map(|e| e.track.id().to_string()));
+                        self.stopped_on_error(track, crate::i18n::tr("The streaming server refused playback"));
                     }
                     Trigger::Eos => (self.hooks.on_eos_stopped)().await,
                     Trigger::Error(e) => {

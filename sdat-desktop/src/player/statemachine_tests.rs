@@ -530,6 +530,37 @@ fn teardown_drops_the_old_streams_messages() {
     assert_eq!(left, ["TRIGGER_PAUSE", "TRIGGER_STOP"]);
 }
 
+#[test]
+fn expired_token_on_fresh_start_reports_the_refused_track() {
+    let ctx = glib::MainContext::new();
+    ctx.with_thread_default(|| {
+        ORDER.with(|o| o.borrow_mut().clear());
+        let m = Machine::new(
+            Rc::new(Testbin::default()),
+            Hooks {
+                on_error: |id, message| {
+                    assert_eq!(id, Some("refused"));
+                    assert!(message.contains("refused playback"));
+                    ORDER.with(|o| o.borrow_mut().push("error"));
+                },
+                clear_source: || ORDER.with(|o| o.borrow_mut().push("clear")),
+                ..Hooks::default()
+            },
+        );
+        m.state.set(State::Preparing);
+        let mut track = Track::default();
+        track.info.id = "refused".into();
+        track_changed().set(Some(TrackChangedEvent { track, skip_history: false }));
+        m.fire(Trigger::TokenExpired);
+        m.fire(Trigger::Error("stream error".into()));
+        while ctx.iteration(false) {}
+        assert_eq!(m.state.get(), State::Stopped);
+        assert!(track_changed().get().is_none());
+        assert_eq!(ORDER.with(|o| o.borrow().clone()), ["clear", "error"]);
+    })
+    .unwrap();
+}
+
 /// An expired token while paused tears the stream down at once, so its
 /// follow-up stream error does not stop playback, and reloads on resume.
 #[test]
