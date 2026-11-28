@@ -118,17 +118,23 @@ final class Favs {
     /// Lets the player keep the lock-screen like button in sync with any change.
     @ObservationIgnored var onChange: (() -> Void)?
     @ObservationIgnored private var generation = 0
+    /// Unfavourited here: TIDAL's collection list can still return them for a while.
+    @ObservationIgnored private var removed: Set<String> = []
     func known(_ id: String) -> Bool? { tracks[id] }
-    func mark(_ ids: [String], _ v: Bool) { for i in ids { tracks[i] = v } }
+    /// Ids from the user's favourite tracks list.
+    func listed(_ ids: [String]) { for i in ids where !removed.contains(i) { tracks[i] = true } }
     func check(_ id: String) async {
         guard tracks[id] == nil else { return }
         let gen = generation
-        if let v = try? await isFavourite(kind: .track, id: id), gen == generation { tracks[id] = v }
+        // Still unknown: a toggle or list load during the request is newer than its answer.
+        if let v = try? await isFavourite(kind: .track, id: id), gen == generation, tracks[id] == nil { tracks[id] = v }
     }
     func toggle(_ id: String) {
         let target = !(tracks[id] ?? false)
         let gen = generation
+        let wasRemoved = removed.contains(id)
         tracks[id] = target
+        if target { removed.remove(id) } else { removed.insert(id) }
         Task {
             do {
                 try await setFavourite(kind: .track, id: id, favourite: target)
@@ -137,11 +143,12 @@ final class Favs {
             } catch {
                 guard gen == generation else { return }
                 tracks[id] = !target
+                if wasRemoved { removed.insert(id) } else { removed.remove(id) }
                 Chrome.shared.flash(friendlyMessage(error))
             }
         }
     }
-    func reset() { generation &+= 1; tracks = [:] }
+    func reset() { generation &+= 1; tracks = [:]; removed = [] }
 }
 
 /// Memory-cached image loader with request coalescing (Discover canvas, covers, artwork).

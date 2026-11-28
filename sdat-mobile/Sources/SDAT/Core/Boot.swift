@@ -59,7 +59,7 @@ final class Boot {
             async let favs: Void = self.runStep("favs", timeout: 8) {
                 async let t = try? collectionTracks().nextPage()
                 async let a = try? collectionArtists().nextPage()
-                if let t = await t { Favs.shared.mark(t.map(\.id), true) }
+                if let t = await t { Favs.shared.listed(t.map(\.id)) }
                 if let a = await a { self.addCovers(a.prefix(24).map(\.pictureUrl)) }
             }
             await playlists
