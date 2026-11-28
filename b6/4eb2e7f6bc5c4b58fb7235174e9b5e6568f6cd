@@ -1,0 +1,23 @@
+sdat-core/tonearm-core/src/handoff/mock_tests.rs
+  s_3a63bebbb256f3::t_7172344c42bd91 144,309,430-432,440-446
+  s_3a63bebbb256f3::t_a9a9379528efa2 52,55,73,76,89,96-99,120-125,374-398,437
+sdat-core/tonearm-core/src/handoff/mod.rs
+  s_3a63bebbb256f3::t_3f56201a7aa196 434-439,990
+  s_3a63bebbb256f3::t_25e67109a7b569 942,946-951,996-997
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "b64eb2e7f6bc5c4b58fb7235174e9b5e6568f6cd",
+  "prompts": {},
+  "sessions": {
+    "s_3a63bebbb256f3": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a22247-324e-7521-90c3-575a8a8e3429",
+        "model": "gpt-6.2-sol"
+      },
+      "human_author": null
+    }
+  }
+}
