@@ -70,25 +70,29 @@ pub(super) fn drain_unstreamable_queues() {
 }
 
 pub(super) fn peek_rewound_base_queue() -> Option<Track> {
-    // Sentinel id never matches a real track, so all source tracks are visible
-    // without mutating `base_queue` during a peek.
-    let mut streamable = base_queue()
-        .played("\0", &user_queue().source_occurrences())
-        .into_iter()
-        .filter(|t| t.info.streamable);
-    if !shuffle_state_changed().get() {
-        return streamable.next();
-    }
-    let mut candidates: Vec<_> = streamable.collect();
+    let mut candidates = rewound_base_candidates();
     if candidates.is_empty() {
         return None;
     }
-    if let Some(current_id) = current_track_id()
+    let index = if shuffle_state_changed().get() { rand::random_range(..candidates.len()) } else { 0 };
+    Some(candidates.swap_remove(index))
+}
+
+fn rewound_base_candidates() -> Vec<Track> {
+    // Sentinel id never matches a real track, so all source tracks are visible
+    // without mutating `base_queue` during a peek.
+    let mut candidates: Vec<_> = base_queue()
+        .played("\0", &user_queue().source_occurrences())
+        .into_iter()
+        .filter(|t| t.info.streamable)
+        .collect();
+    if shuffle_state_changed().get()
+        && let Some(current_id) = current_track_id()
         && candidates.iter().any(|t| t.id() != current_id)
     {
         candidates.retain(|t| t.id() != current_id);
     }
-    Some(candidates.swap_remove(rand::random_range(..candidates.len())))
+    candidates
 }
 
 pub(super) fn consume_user_queue_entry(target: &Track) -> Option<Track> {
@@ -128,24 +132,30 @@ pub(super) fn consume_base_queue_entry(target: &Track, allow_rewind: bool) -> Op
     base_queue().pop()
 }
 
-pub(super) fn peek_next_queue_entry() -> Option<(Track, GaplessSource)> {
+fn peek_queued_entry() -> Option<(Track, GaplessSource)> {
     if let Some(t) = first_streamable(user_queue().entries()) {
         return Some((t, GaplessSource::UserQueue));
     }
     if let Some(t) = first_streamable(base_queue().entries()) {
         return Some((t, GaplessSource::BaseQueue { rewound: false }));
     }
-    if !can_repeat_base_queue() {
-        return None;
-    }
-    peek_rewound_base_queue().map(|next| (next, GaplessSource::BaseQueue { rewound: true }))
+    None
+}
+
+pub(super) fn peek_next_queue_entry() -> Option<(Track, GaplessSource)> {
+    peek_queued_entry().or_else(|| {
+        if can_repeat_base_queue() {
+            peek_rewound_base_queue().map(|track| (track, GaplessSource::BaseQueue { rewound: true }))
+        } else {
+            None
+        }
+    })
 }
 
 pub(super) fn commit_queue_entry(source: GaplessSource, track: &Track) -> Option<Track> {
     match source {
         GaplessSource::RepeatTrack => Some(track.clone()),
         GaplessSource::UserQueue => consume_user_queue_entry(track),
-        // The rewind was decided when the entry was armed; a later repeat change must not undo it.
         GaplessSource::BaseQueue { rewound } => {
             drain_unstreamable_user_prefix();
             consume_base_queue_entry(track, rewound)
@@ -189,6 +199,29 @@ fn peek_track_repeat() -> Option<Track> {
     track_changed().with(|t| t.as_ref().map(|e| e.track.clone()))
 }
 
+pub(super) fn gapless_is_current(entry: &GaplessEntry) -> bool {
+    if crate::live::is_guest() {
+        return false;
+    }
+    if let Some(track) = peek_track_repeat() {
+        return entry.source == GaplessSource::RepeatTrack && track_matches(&entry.track, &track);
+    }
+    if let Some((track, source)) = peek_queued_entry() {
+        return entry.source == source && track_matches(&entry.track, &track);
+    }
+    if entry.source != (GaplessSource::BaseQueue { rewound: true }) || !can_repeat_base_queue() {
+        return false;
+    }
+    // A shuffled wrap can pick any eligible track. Drawing again would reject
+    // a valid handoff despite no change to the queue.
+    let candidates = rewound_base_candidates();
+    if shuffle_state_changed().get() {
+        candidates.iter().any(|track| track_matches(&entry.track, track))
+    } else {
+        candidates.first().is_some_and(|track| track_matches(&entry.track, track))
+    }
+}
+
 pub(super) fn commit_gapless(entry: &GaplessEntry) {
     let _ = commit_queue_entry(entry.source, &entry.track);
 }
@@ -207,40 +240,43 @@ mod tests {
     }
 
     #[test]
-    fn gapless_commit_ignores_user_queue_addition_and_repeat_toggle() {
+    fn gapless_choice_is_revalidated_after_queue_edits_and_repeat_changes() {
         clear_queues();
         set_repeat_mode(RepeatMode::None);
-        base_queue().set(vec![track("A", None), track("B", None), track("C", None)]);
-        let a = base_queue().pop().unwrap();
-        track_changed().set(Some(statemachine::TrackChangedEvent { track: a, skip_history: false }));
+        base_queue().set(vec![track("A", None), track("B", Some("b1")), track("C", None), track("B", Some("b2"))]);
+        let current = base_queue().pop().unwrap();
+        track_changed().set(Some(statemachine::TrackChangedEvent { track: current, skip_history: false }));
 
-        // Arm Track B from the base queue.
         let armed = peek_gapless().unwrap();
-        assert_eq!(armed.track.id(), "B");
-        assert!(!armed.did_repeat);
-        assert_eq!(armed.source, GaplessSource::BaseQueue { rewound: false });
+        assert!(gapless_is_current(&armed));
+        base_queue().move_entry(0, 1);
+        assert!(!gapless_is_current(&armed));
+        base_queue().move_entry(1, 0);
+        assert!(gapless_is_current(&armed));
 
-        // User adds Track X to an empty user_queue and toggles RepeatMode::Track on during PlayingGapless.
+        base_queue().remove_at(0).unwrap();
+        base_queue().move_entry(1, 0);
+        assert_eq!(peek_gapless().unwrap().track.id(), "B");
+        assert!(!gapless_is_current(&armed), "a different playlist occurrence passed validation");
+
+        let base_head = peek_gapless().unwrap();
         user_queue().append(track("X", None));
+        user_queue().append(track("Y", None));
+        assert!(!gapless_is_current(&base_head));
+        let user_head = peek_gapless().unwrap();
+        user_queue_moved(0, 1);
+        assert!(!gapless_is_current(&user_head));
+        let user_head = peek_gapless().unwrap();
+        remove_from_user_queue(0).unwrap();
+        assert!(!gapless_is_current(&user_head));
+
+        let armed = peek_gapless().unwrap();
         set_repeat_mode(RepeatMode::Track);
-
-        // StreamStart commits the exact armed Track B from base_queue without popping X.
-        commit_gapless(&armed);
-        assert_eq!(user_queue().entries().with(|v| v.iter().map(|t| t.id().to_string()).collect::<Vec<_>>()), vec!["X"]);
-        assert_eq!(base_queue().entries().with(|v| v.iter().map(|t| t.id().to_string()).collect::<Vec<_>>()), vec!["C"]);
-
-        // Now arm a RepeatMode::Track repeat, then turn repeat off before commit.
+        assert!(!gapless_is_current(&armed));
         let repeated = peek_gapless().unwrap();
-        assert_eq!(repeated.track.id(), "A");
-        assert!(repeated.did_repeat);
-        assert_eq!(repeated.source, GaplessSource::RepeatTrack);
+        assert!(gapless_is_current(&repeated));
         set_repeat_mode(RepeatMode::None);
-        commit_gapless(&repeated);
-        assert_eq!(user_queue().entries().with(|v| v.iter().map(|t| t.id().to_string()).collect::<Vec<_>>()), vec!["X"]);
-        assert_eq!(base_queue().entries().with(|v| v.iter().map(|t| t.id().to_string()).collect::<Vec<_>>()), vec!["C"]);
-
-        clear_queues();
-        track_changed().set(None);
+        assert!(!gapless_is_current(&repeated));
     }
 
     #[test]
@@ -533,6 +569,7 @@ mod tests {
         assert_eq!(seen, expected, "wraparound peek should randomize across all eligible non-current candidates");
 
         let chosen = chosen_non_first.unwrap();
+        assert!(gapless_is_current(&chosen));
         let chosen_key = (chosen.track.id().to_string(), chosen.track.playlist_item_id.clone());
         commit_gapless(&chosen);
         assert!(base_queue().is_shuffled());
@@ -576,17 +613,17 @@ mod tests {
     }
 
     #[test]
-    fn armed_rewound_entry_commits_after_repeat_is_turned_off() {
+    fn armed_rewound_entry_is_invalidated_when_repeat_is_turned_off() {
         clear_queues();
         set_repeat_mode(RepeatMode::Queue);
         base_queue().set(vec![track("A", Some("a")), track("B", Some("b"))]);
         while base_queue().pop().is_some() {}
         let armed = peek_gapless().unwrap();
         assert_eq!(armed.source, GaplessSource::BaseQueue { rewound: true });
+        assert!(gapless_is_current(&armed));
         set_repeat_mode(RepeatMode::None);
-        commit_gapless(&armed);
-        assert!(base_queue().current_occurrence(&armed.track).is_some());
-        assert_eq!(base_queue().entries().with(Vec::len), 1);
+        assert!(!gapless_is_current(&armed));
+        assert!(base_queue().is_empty());
         clear_queues();
     }
 }

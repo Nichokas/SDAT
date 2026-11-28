@@ -402,6 +402,7 @@ impl std::fmt::Debug for Trigger {
 /// Hooks into the player module (queues, `ReplayGain`, autoplay) that the machine needs.
 pub struct Hooks {
     pub peek_gapless: fn() -> Option<GaplessEntry>,
+    pub gapless_is_current: fn(&GaplessEntry) -> bool,
     pub on_gapless_arm: fn(&TrackManifest),
     pub on_gapless_promote: fn(&GaplessEntry),
     pub on_gapless_cancel: fn(),
@@ -417,6 +418,7 @@ impl Default for Hooks {
     fn default() -> Self {
         Self {
             peek_gapless: || None,
+            gapless_is_current: |_| true,
             on_gapless_arm: |_| {},
             on_gapless_promote: |_| {},
             on_gapless_cancel: || {},
@@ -439,6 +441,7 @@ pub struct Machine {
     playbin: Rc<dyn Playbin>,
     gate: Arc<GaplessGate>,
     gapless: RefCell<Option<GaplessSlot>>,
+    gapless_ended_while_paused: Cell<bool>,
     retry_position: Cell<Option<Duration>>,
     /// A pause arrived while the track was still preparing: the stream
     /// starts paused instead of playing (Listen Together aligned start).
@@ -470,6 +473,7 @@ impl Machine {
             playbin,
             gate,
             gapless: RefCell::new(None),
+            gapless_ended_while_paused: Cell::new(false),
             retry_position: Cell::new(None),
             pause_on_start: Cell::new(false),
             buffering: Cell::new(false),
@@ -502,7 +506,11 @@ impl Machine {
     }
 
     fn arm_gapless(&self, manifest: TrackManifest, volume: f64) -> Result<bool> {
-        if !matches!(&*self.gapless.borrow(), Some(GaplessSlot::Preparing(_))) {
+        let current = match &*self.gapless.borrow() {
+            Some(GaplessSlot::Preparing(entry)) => (self.hooks.gapless_is_current)(entry),
+            _ => false,
+        };
+        if !current {
             return Ok(false);
         }
         (self.hooks.on_gapless_arm)(&manifest);
@@ -521,13 +529,15 @@ impl Machine {
     }
 
     fn cancel_gapless(&self) {
+        self.gapless_ended_while_paused.set(false);
         if self.gapless.borrow_mut().take().is_some() {
             (self.hooks.on_gapless_cancel)();
         }
     }
 
     fn promote_gapless(&self) {
-        if let Some(GaplessSlot::Armed { entry, manifest }) = self.gapless.borrow_mut().take() {
+        let slot = self.gapless.borrow_mut().take();
+        if let Some(GaplessSlot::Armed { entry, manifest }) = slot {
             (self.hooks.on_gapless_promote)(&entry);
             on_playing_gapless_exit(entry.track, &manifest, entry.did_repeat);
         }
@@ -664,7 +674,25 @@ impl Machine {
             }
             return;
         }
-        let Some(mut to) = self.target(&t) else {
+        let stale_gapless = matches!(t, Trigger::StreamStart)
+            && matches!(&*self.gapless.borrow(), Some(GaplessSlot::Armed { entry, .. }) if !(self.hooks.gapless_is_current)(entry));
+        if stale_gapless && from == State::Paused {
+            self.cancel_gapless();
+            if let Err(e) = self.playbin.set_state(gst::State::Null) {
+                log::error!("failed to discard a stale gapless stream: {e:#}");
+            }
+            self.drop_stream_messages();
+            self.gapless_ended_while_paused.set(true);
+            return;
+        }
+        // A URI already handed to playbin cannot be reliably withdrawn. At
+        // StreamStart, discard it and run normal end-of-track selection.
+        let (target, t) = if stale_gapless || (matches!(t, Trigger::Resume) && self.gapless_ended_while_paused.get()) {
+            (Some(State::Stopped), Trigger::Eos)
+        } else {
+            (self.target(&t), t)
+        };
+        let Some(mut to) = target else {
             match t {
                 Trigger::Pause if from == State::Preparing => {
                     self.pause_on_start.set(true);

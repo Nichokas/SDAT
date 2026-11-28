@@ -26,7 +26,7 @@ use playqueue::{DurableQueue, HistoryEntry, HistoryQueue, UserQueue};
 pub use audio_cache::{drop_plan as drop_audio_cache_plan, on_limit_changed as on_audio_cache_limit_changed};
 pub use quality::audio_stream_quality;
 use gapless_gate::GaplessGate;
-use next::{commit_gapless, next_track, peek_gapless, pop_next_streamable_from_queue};
+use next::{commit_gapless, gapless_is_current, next_track, peek_gapless, pop_next_streamable_from_queue};
 use statemachine::{GaplessEntry, GaplessSource, Hooks, Machine, Trigger};
 pub use statemachine::{
     playback_quality_changed, playback_state_changed, track_changed, track_repeated, PlaybackState, PlaybackStatus,
@@ -257,6 +257,7 @@ pub fn init() -> Result<()> {
         Arc::clone(&gate),
         Hooks {
             peek_gapless,
+            gapless_is_current,
             on_gapless_arm: |manifest| replaygain::set_pending_gapless(Some(manifest)),
             on_gapless_promote: |entry| {
                 commit_gapless(entry);
@@ -549,7 +550,8 @@ pub async fn add_track_to_user_queue(track_id: &str) -> Result<()> {
 /// Queues `tracks`, in order, right after the current one (and after any
 /// earlier "play next" tracks). The caller starts playback if needed.
 fn insert_tracklist_next(tracks: Vec<Track>) {
-    if insert_tracklist_next_after(tracks, with(|p| p.machine.gapless_entry()).flatten()) {
+    let gapless = with(|p| p.machine.gapless_entry()).flatten().filter(gapless_is_current);
+    if insert_tracklist_next_after(tracks, gapless) {
         with(|p| p.machine.move_gapless_to_user_queue());
     }
 }

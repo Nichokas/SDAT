@@ -724,6 +724,54 @@ thread_local! {
 }
 
 #[test]
+fn stale_gapless_stream_runs_end_of_track_selection_without_promoting() {
+    let ctx = glib::MainContext::new();
+    ctx.with_thread_default(|| {
+        for from in [State::PlayingGapless, State::Paused] {
+            ORDER.with(|o| o.borrow_mut().clear());
+            let pb = Rc::new(Testbin::default());
+            let m = Machine::new(
+                Rc::clone(&pb) as Rc<dyn Playbin>,
+                Hooks {
+                    gapless_is_current: |_| ORDER.with(|o| o.borrow().is_empty()),
+                    on_gapless_cancel: || ORDER.with(|o| o.borrow_mut().push("cancel")),
+                    on_gapless_promote: |_| panic!("stale gapless track promoted"),
+                    on_eos_stopped: || Box::pin(async { ORDER.with(|o| o.borrow_mut().push("eos")) }),
+                    ..Hooks::default()
+                },
+            );
+            let entry = GaplessEntry {
+                track: Track::default(),
+                did_repeat: false,
+                source: GaplessSource::UserQueue,
+            };
+            m.state.set(from);
+            m.begin_gapless(entry.clone());
+            ORDER.with(|o| o.borrow_mut().push("edit"));
+            assert!(!m.arm_gapless(TrackManifest::default(), 1.0).unwrap());
+
+            m.begin_gapless(entry);
+            ORDER.with(|o| o.borrow_mut().clear());
+            assert!(m.arm_gapless(TrackManifest::default(), 1.0).unwrap());
+            ORDER.with(|o| o.borrow_mut().push("edit"));
+            m.fire(Trigger::StreamStart);
+            while ctx.iteration(false) {}
+            assert_eq!(pb.state.get(), Some(gst::State::Null));
+            assert!(m.gapless_entry().is_none());
+            if from == State::Paused {
+                assert_eq!(m.state.get(), State::Paused);
+                assert_eq!(ORDER.with(|o| o.borrow().clone()), ["edit", "cancel"]);
+                m.fire(Trigger::Resume);
+                while ctx.iteration(false) {}
+            }
+            assert_eq!(m.state.get(), State::Stopped);
+            assert_eq!(ORDER.with(|o| o.borrow().clone()), ["edit", "cancel", "eos"]);
+        }
+    })
+    .unwrap();
+}
+
+#[test]
 fn playing_gapless_pause_resume_preserves_and_commits_armed_entry() {
     let ctx = glib::MainContext::new();
     ctx.with_thread_default(|| {
