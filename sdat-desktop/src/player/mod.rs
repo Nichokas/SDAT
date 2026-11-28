@@ -428,18 +428,10 @@ async fn on_eos_stopped() {
     if with(|p| p.machine.has_queued_stop_or_start()).unwrap_or(false) {
         return;
     }
-    if list_pending() {
-        // The loaded part ran out before the next page arrived: wait for it
-        // instead of stopping, starting a radio or repeating.
-        log::info!("queue ran dry while the list is still loading; waiting for the next page");
-        WAITING.with(|w| w.set(true));
-        feed(true);
-        return;
-    }
     // A failed gapless prefetch ends the current track with tracks still
     // queued: carry on with them instead of stopping or starting a radio,
     // unless a Stop or another start is already queued.
-    if next_track(true).0.is_some() {
+    if peek_gapless().is_some() {
         // A pending start (maybe a new list behind its own Stop) runs as queued.
         if with(|p| p.machine.start_pending()).unwrap_or(true) {
             return;
@@ -447,8 +439,16 @@ async fn on_eos_stopped() {
         if with(|p| p.machine.has_queued_stop()).unwrap_or(false) {
             stop();
         } else {
-            next_now();
+            advance_queue(false);
         }
+        return;
+    }
+    if list_pending() {
+        // The loaded part ran out before the next page arrived: wait for it
+        // instead of stopping, starting a radio or repeating the queue.
+        log::info!("queue ran dry while the list is still loading; waiting for the next page");
+        WAITING.with(|w| w.set(true));
+        feed(true);
         return;
     }
     if !settings::allow_autoplay() {
@@ -663,8 +663,13 @@ fn defer_while_starting(action: fn()) {
 }
 
 fn next_now() {
-    match next_track(false).0 {
-        Some(t) => fire(Trigger::PlayTrack(t, false)),
+    advance_queue(true);
+}
+
+fn advance_queue(manual: bool) {
+    let (track, did_repeat) = next_track(manual);
+    match track {
+        Some(t) => fire(Trigger::PlayTrack(t, did_repeat)),
         None => log::error!("failed to get next track: queue is empty"),
     }
 }

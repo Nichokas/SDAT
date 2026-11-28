@@ -161,34 +161,32 @@ pub(super) fn pop_next_streamable_from_queue() -> Option<Track> {
     commit_queue_entry(source, &track)
 }
 
-/// Returns the next streamable track and whether it is a track repeat.
-pub(super) fn next_track(peek: bool) -> (Option<Track>, bool) {
-    let Some(entry) = peek_gapless() else {
-        if !peek && !crate::live::is_guest() && repeat_mode_changed().get() != RepeatMode::Track {
-            drain_unstreamable_queues();
-        }
+/// Takes the next streamable track and indicates whether it is a track repeat.
+pub(super) fn next_track(manual: bool) -> (Option<Track>, bool) {
+    if crate::live::is_guest() {
         return (None, false);
-    };
-    if !peek {
-        commit_gapless(&entry);
     }
-    (Some(entry.track), entry.did_repeat)
+    if !manual && let Some(current) = peek_track_repeat() {
+        return (Some(current), true);
+    }
+    (pop_next_streamable_from_queue(), false)
 }
 
 pub(super) fn peek_gapless() -> Option<GaplessEntry> {
     if crate::live::is_guest() {
         return None;
     }
-    if repeat_mode_changed().get() == RepeatMode::Track {
-        return track_changed().with(|t| {
-            t.as_ref().map(|e| GaplessEntry {
-                track: e.track.clone(),
-                did_repeat: true,
-                source: GaplessSource::RepeatTrack,
-            })
-        });
+    if let Some(track) = peek_track_repeat() {
+        return Some(GaplessEntry { track, did_repeat: true, source: GaplessSource::RepeatTrack });
     }
     peek_next_queue_entry().map(|(track, source)| GaplessEntry { track, did_repeat: false, source })
+}
+
+fn peek_track_repeat() -> Option<Track> {
+    if repeat_mode_changed().get() != RepeatMode::Track {
+        return None;
+    }
+    track_changed().with(|t| t.as_ref().map(|e| e.track.clone()))
 }
 
 pub(super) fn commit_gapless(entry: &GaplessEntry) {
@@ -406,6 +404,25 @@ mod tests {
     }
 
     #[test]
+    fn repeat_one_only_repeats_at_the_natural_end() {
+        clear_queues();
+        set_repeat_mode(RepeatMode::Track);
+        let current = track("A", None);
+        base_queue().set(vec![track("B", None)]);
+        track_changed().set(Some(statemachine::TrackChangedEvent { track: current, skip_history: false }));
+
+        let (automatic, skip_history) = next_track(false);
+        assert_eq!(automatic.as_ref().map(Track::id), Some("A"));
+        assert!(skip_history);
+        let (manual, skip_history) = next_track(true);
+        assert_eq!(manual.as_ref().map(Track::id), Some("B"));
+        assert!(!skip_history);
+
+        set_repeat_mode(RepeatMode::None);
+        track_changed().set(None);
+    }
+
+    #[test]
     fn peek_next_track_does_not_mutate_base_queue_on_repeat_or_shuffle() {
         clear_queues();
         set_repeat_mode(RepeatMode::Queue);
@@ -416,15 +433,14 @@ mod tests {
         assert!(base_queue().is_empty());
 
         // Peeking under RepeatMode::Queue must inspect without rewinding.
-        let (peeked, did_repeat) = next_track(true);
-        assert!(!did_repeat);
-        assert_eq!(peeked.as_ref().map(Track::id), Some("A"));
+        let peeked = peek_gapless().unwrap();
+        assert!(!peeked.did_repeat);
+        assert_eq!(peeked.track.id(), "A");
         assert!(base_queue().is_empty(), "peek mutated base_queue by rewinding");
 
         // Same when shuffle is enabled: peeking must neither rewind nor reshuffle.
         shuffle_state_changed().set(true);
-        let (peeked_shuf, _) = next_track(true);
-        assert!(peeked_shuf.is_some());
+        assert!(peek_gapless().is_some());
         assert!(base_queue().is_empty(), "peek mutated base_queue while shuffled");
 
         // Popping actually rewinds, shuffles, and pops one entry (leaving the other).
