@@ -1,0 +1,23 @@
+sdat-core/tonearm-core/src/handoff/mirror.rs
+  s_3a63bebbb256f3::t_5067e295841edf 415-416
+sdat-core/tonearm-core/src/handoff/mock_tests.rs
+  s_3a63bebbb256f3::t_a9a9379528efa2 52,55,73,76,89,96-99,120-125,144,374-398,431,437,441
+sdat-core/tonearm-core/src/handoff/mod.rs
+  s_3a63bebbb256f3::t_3f56201a7aa196 430,435-441,444-453,849,953-958,967,1004
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "dfbf8cda26b2db75a125009b4f7f54aa0fe9bb0f",
+  "prompts": {},
+  "sessions": {
+    "s_3a63bebbb256f3": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a22247-324e-7521-90c3-575a8a8e3429",
+        "model": "gpt-6.2-sol"
+      },
+      "human_author": "Nicolas Rodriguez-Alvarez <me@nichokas.eu>"
+    }
+  }
+}
