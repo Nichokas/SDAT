@@ -1,0 +1,21 @@
+sdat-desktop/src/player/mod.rs
+  s_7364197f62f5f7::t_36ee5c0319248e 842-846,1013-1022,1024
+  s_7364197f62f5f7::t_d58b17051af0f5 1023
+  s_7364197f62f5f7::t_b295775d38f931 1025
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "255c5ba974037f7b589b5f9dbc6bf98b8442c016",
+  "prompts": {},
+  "sessions": {
+    "s_7364197f62f5f7": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a22248-3cda-7fc3-bf2e-b815bb021a12",
+        "model": "gpt-6.2-sol"
+      },
+      "human_author": "Nicolas Rodriguez-Alvarez <me@nichokas.eu>"
+    }
+  }
+}
