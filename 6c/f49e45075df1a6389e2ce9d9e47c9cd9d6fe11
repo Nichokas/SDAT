@@ -1,0 +1,31 @@
+sdat-android/app/src/test/kotlin/com/nichokas/sdat/NotificationFavouriteActionsTest.kt
+  s_3a63bebbb256f3::t_e15541f20fa51f 27,38-40,43
+sdat-desktop/src/player/statemachine.rs
+  s_3a63bebbb256f3::t_1c473f3c3adf18 447,480,643,650-652,761,840,960
+sdat-desktop/src/player/statemachine_tests.rs
+  s_3a63bebbb256f3::t_3544af9f9c7c91 383-384
+sdat-android/app/src/main/kotlin/com/nichokas/sdat/PlaybackService.kt
+  s_3a63bebbb256f3::t_af77bf192173c7 6,104,106,111,115-116,126,130,139-146,153-156
+sdat-core/tonearm-core/src/handoff/mod.rs
+  s_3a63bebbb256f3::t_5c978c4eca4997 675,677,938,1005-1006
+  s_3a63bebbb256f3::t_d92c98bdfedc3c 420,425-429,775-778,939-940,943,957-971,998-1001
+sdat-core/tonearm-core/src/handoff/mock_tests.rs
+  s_3a63bebbb256f3::t_527711c09d2354 47,58-59,71,82-83,113,145-162,330,398-422
+  s_3a63bebbb256f3::t_f24febdbc2f182 423-424
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "6cf49e45075df1a6389e2ce9d9e47c9cd9d6fe11",
+  "prompts": {},
+  "sessions": {
+    "s_3a63bebbb256f3": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a22247-324e-7521-90c3-575a8a8e3429",
+        "model": "gpt-6.2-sol"
+      },
+      "human_author": "Nicolas Rodriguez-Alvarez <me@nichokas.eu>"
+    }
+  }
+}
