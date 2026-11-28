@@ -537,10 +537,6 @@ fn track_matches(a: &Track, b: &Track) -> bool {
     a.id() == b.id() && a.playlist_item_id == b.playlist_item_id
 }
 
-fn previous_track() -> Option<HistoryEntry> {
-    history().pop()
-}
-
 pub async fn add_track_to_user_queue(track_id: &str) -> Result<()> {
     let id = track_id.to_string();
     let track = api::run(move || service::get_track(&id)).await?;
@@ -712,19 +708,23 @@ pub fn previous() {
 }
 
 fn previous_now() {
-    let pos = playbin().and_then(|p| statemachine::Playbin::query_position(&*p));
-    if repeat_mode_changed().get() == RepeatMode::Track
-        || pos.is_some_and(|p| p > Duration::from_secs(5))
-        || history().is_empty()
+    let current = (playback_state_changed().get().status != PlaybackStatus::Stopped)
+        .then(|| track_changed().with(|t| t.as_ref().map(|e| e.track.clone())))
+        .flatten();
+    if current.is_some()
+        && (repeat_mode_changed().get() == RepeatMode::Track
+            || playbin().and_then(|p| statemachine::Playbin::query_position(&*p)).is_some_and(|p| p > Duration::from_secs(5)))
     {
         seek_to_position(Duration::ZERO, false);
         return;
     }
-    let Some(prev) = previous_track() else {
-        log::error!("failed to get previous track");
+    let Some(prev) = history().pop_previous(current.as_ref()) else {
+        if current.is_some() {
+            seek_to_position(Duration::ZERO, false);
+        }
         return;
     };
-    if let Some(cur) = track_changed().with(|t| t.as_ref().map(|e| e.track.clone())) {
+    if let Some(cur) = current {
         let occurrence = base_queue().current_occurrence(&cur);
         user_queue().prepend(HistoryEntry { track: cur, occurrence });
         // The track we came back from plays next, ahead of "play next" tracks.
@@ -974,6 +974,7 @@ mod playlist_tests {
         let b = q.pop().unwrap();
         history().prepend(HistoryEntry { occurrence: q.current_occurrence(&b), track: b.clone() });
         track_changed().set(Some(statemachine::TrackChangedEvent { track: b, skip_history: false }));
+        playback_state_changed().set(PlaybackState { status: PlaybackStatus::Playing, ..Default::default() });
         user_queue().prepend(q.take_for_gapless().unwrap());
 
         previous_now();
@@ -987,6 +988,7 @@ mod playlist_tests {
             assert!(v.iter().any(|t| t.id() == "A"));
         });
         track_changed().set(None);
+        playback_state_changed().set(PlaybackState::default());
     }
 
     #[test]
@@ -1120,6 +1122,7 @@ mod playlist_tests {
         history().prepend(HistoryEntry::from(a));
         history().prepend(HistoryEntry::from(b.clone()));
         track_changed().set(Some(statemachine::TrackChangedEvent { track: b, skip_history: false }));
+        playback_state_changed().set(PlaybackState { status: PlaybackStatus::Playing, ..Default::default() });
 
         set_repeat_mode(RepeatMode::Track);
         previous_now();
@@ -1135,6 +1138,7 @@ mod playlist_tests {
 
         set_repeat_mode(RepeatMode::None);
         track_changed().set(None);
+        playback_state_changed().set(PlaybackState::default());
     }
 
     #[test]

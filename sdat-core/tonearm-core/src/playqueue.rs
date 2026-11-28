@@ -468,6 +468,19 @@ impl HistoryQueue {
         self.previous.borrow_mut().pop_front()
     }
 
+    /// Takes the latest history entry other than the active track.
+    pub fn pop_previous(&self, current: Option<&Track>) -> Option<HistoryEntry> {
+        let is_current = self.pending.borrow().as_ref().is_some_and(|entry| {
+            current.is_some_and(|track| {
+                entry.track.id() == track.id() && entry.track.playlist_item_id == track.playlist_item_id
+            })
+        });
+        if is_current {
+            return if self.is_empty() { None } else { self.pop() };
+        }
+        self.pending.borrow_mut().take().or_else(|| self.previous.borrow_mut().pop_front())
+    }
+
     pub fn is_empty(&self) -> bool {
         self.previous.borrow().is_empty()
     }
@@ -771,6 +784,18 @@ mod tests {
         assert_eq!(h.pop().unwrap().track.id(), "a");
         h.prepend(entry("c"));
         assert!(h.is_empty(), "pop clears the pending entry");
+    }
+
+    #[test]
+    fn previous_returns_the_last_track_when_playback_stopped() {
+        let h = HistoryQueue::default();
+        let a = t("a");
+        let b = t("b");
+        h.prepend(a.clone().into());
+        assert!(h.pop_previous(Some(&a)).is_none());
+        h.prepend(b.into());
+        assert_eq!(h.pop_previous(None).unwrap().track.id(), "b");
+        assert_eq!(h.pop_previous(None).unwrap().track.id(), "a");
     }
 
     #[test]
