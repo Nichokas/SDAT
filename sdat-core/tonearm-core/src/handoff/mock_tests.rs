@@ -51,6 +51,7 @@ struct Account {
     revision: u32,
     missing: bool,
     fail_after_claim: bool,
+    seek_before_claim: bool,
     unavailable: Option<&'static str>,
     rewrites: usize,
     claims: Vec<String>,
@@ -69,6 +70,7 @@ impl Account {
             revision: 1,
             missing: false,
             fail_after_claim: false,
+            seek_before_claim: false,
             unavailable: None,
             rewrites: 0,
             claims: Vec::new(),
@@ -123,6 +125,10 @@ impl Account {
             ("PATCH", "/v2/userPlaybackStates/me/relationships/activePlayer") => {
                 let to = body["data"]["id"].as_str().expect("target");
                 self.claims.push(to.into());
+                if to == "receiver" && self.seek_before_claim {
+                    self.revision += 1;
+                    self.seek_before_claim = false;
+                }
                 self.active = if Some(to) == self.unavailable {
                     None
                 } else if to == "receiver" {
@@ -285,6 +291,8 @@ fn handoff_against_mock_service() {
     a_rollback_does_not_undo_a_new_push_on_the_same_queue_from_the_same_source();
     continue_here_delivers_a_discovered_push_only_in_its_reply();
     a_failed_pull_hands_back_when_the_same_queue_is_still_selected();
+    a_failed_pull_can_hand_back_after_the_source_seeks_before_the_claim();
+    repeat_one_does_not_append_the_current_occurrence();
 }
 
 fn missing_pushed_track_releases_local_writes() {
@@ -395,4 +403,32 @@ fn a_failed_pull_hands_back_when_the_same_queue_is_still_selected() {
     let account = account.lock().expect("account");
     assert_eq!(account.active, Some("source"));
     assert_eq!(account.claims, ["receiver", "source", "source"]);
+}
+
+fn a_failed_pull_can_hand_back_after_the_source_seeks_before_the_claim() {
+    for unavailable in [None, Some("source")] {
+        let (account, mut worker, _events) = setup();
+        {
+            let mut account = account.lock().expect("account");
+            account.seek_before_claim = true;
+            account.fail_after_claim = true;
+            account.unavailable = unavailable;
+        }
+        assert!(worker.continue_here(deadline()).is_err());
+        if unavailable.is_some() {
+            account.lock().expect("account").unavailable = None;
+            worker.refresh().expect("retry hand back after the seek");
+        }
+        assert_eq!(account.lock().expect("account").active, Some("source"));
+    }
+}
+
+fn repeat_one_does_not_append_the_current_occurrence() {
+    let (account, mut worker, events) = setup();
+    let resume = worker.continue_here(deadline()).expect("pull resume");
+    assert_eq!(resume.repeat, Repeat::One);
+    let future = worker.future_due.take().expect("scheduled tail");
+    worker.read_future(future);
+    assert!(events.try_iter().any(|event| matches!(event, HandoffEvent::Upcoming(upcoming) if upcoming.tracks.is_empty())));
+    assert_eq!(account.lock().expect("account").repeat, "ONE");
 }

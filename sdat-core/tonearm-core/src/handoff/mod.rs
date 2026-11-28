@@ -912,12 +912,16 @@ impl Worker {
 
     /// What follows the current entry of `queue`, from reads that agree on its revision.
     fn read_tail(queue: &str) -> Result<Tail> {
-        let revision = wire::head(queue)?.revision;
+        let head = wire::head(queue)?;
         let (entries, tracks) = wire::future_tracks(queue, MAX_HANDOFF_FUTURE)?;
-        if wire::head(queue)?.revision != revision {
+        if wire::head(queue)?.revision != head.revision {
             return Err(CoreError::Network("the queue changed while what follows was read".into()));
         }
-        Ok((entries, tracks, revision))
+        // Under repeat-one, TIDAL exposes the current occurrence instead of the tail.
+        if head.repeat == Repeat::One && let [entry] = entries.as_slice() && head.current.as_ref() == Some(entry) {
+            return Ok((Vec::new(), Vec::new(), head.revision));
+        }
+        Ok((entries, tracks, head.revision))
     }
 
     /// Restores the queue and active player displaced by a failed transfer.
@@ -978,9 +982,21 @@ impl Worker {
     }
 
     fn undo_claim(&mut self, rollback: Option<Rollback>, e: CoreError) -> CoreError {
-        if let Some(mut rollback) = rollback
-            && self.checked(wire::state).and_then(|mut state| self.settle_rollback(&mut rollback, &mut state, true)).is_err()
-        {
+        let Some(mut rollback) = rollback else { return e };
+        let mut retry_stamp = rollback.pull_from.take();
+        let restored = self.checked(wire::state).and_then(|mut state| {
+            // A source seek before the claim can change the stamp. Use a fresh baseline
+            // for delayed retries, and still attempt the immediate hand-back.
+            if let Some(stamp) = &mut retry_stamp
+                && state.queue_id.as_deref() == Some(&stamp.queue)
+                && let Ok(head) = wire::head(&stamp.queue)
+            {
+                *stamp = QueueStamp::new(&stamp.queue, &head);
+            }
+            self.settle_rollback(&mut rollback, &mut state, true)
+        });
+        if restored.is_err() {
+            rollback.pull_from = retry_stamp;
             self.rollback = Some(rollback);
             // Playback from before the pull is not a reason to keep it; a report after this one is.
             self.last_local = None;
